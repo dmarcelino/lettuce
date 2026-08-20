@@ -278,8 +278,109 @@ check("runtime emits device status", statusFrames.length > 0, statusFrames.lengt
 
 d.close();
 
-// ── 7. Unauthenticated access is refused ─────────────────────────────────────
-section("7. Authentication");
+// ── 7. Files, Memory, Tasks ──────────────────────────────────────────────────
+section("7. Files, Memory, Tasks");
+const e = await openSession(cookie);
+await e.waitFor((f) => f.type === "__bff_hello");
+
+e.send({ type: "agent_list", request_id: "ag2", query: { limit: 5 } });
+const ag2 = await e.waitFor((f) => f.request_id === "ag2");
+const agent2: string | undefined = ag2.agents?.[0]?.id;
+
+if (agent2) {
+  e.send({ type: "conversation_list", request_id: "cl2", query: { agent_id: agent2, limit: 5 } });
+  const cl2 = await e.waitFor((f) => f.request_id === "cl2");
+  const conv2: string | undefined = cl2.conversations?.[0]?.id;
+
+  if (conv2) {
+    e.send({
+      type: "runtime_start",
+      request_id: "rt2",
+      agent_id: agent2,
+      conversation_id: conv2,
+      wait_for_replay: true,
+    });
+    await e.waitFor((f) => f.request_id === "rt2");
+  }
+
+  const deviceStatus = await e.waitFor((f) => f.type === "update_device_status");
+  const cwd: string = deviceStatus.device_status?.current_working_directory ?? "/workspace";
+  check("device status carries a working directory", typeof cwd === "string" && cwd.length > 0, cwd);
+
+  // Files: write, list, read, search. get_tree returns paths RELATIVE to its
+  // root, and the search parameter is `query` — both were wrong on first pass.
+  const probeFile = `${cwd}/smoke-probe.md`;
+  e.send({
+    type: "write_file",
+    request_id: "wf",
+    path: probeFile,
+    content: "# smoke\n\nfindable-token here\n",
+  });
+  const wf = await e.waitFor((f) => f.request_id === "wf");
+  check("write_file succeeds", wf.success === true, wf.error);
+
+  e.send({ type: "get_tree", request_id: "gt", path: cwd, depth: 1 });
+  const gt = await e.waitFor((f) => f.request_id === "gt");
+  const treePaths: string[] = (gt.entries ?? []).map((entry: any) => entry.path);
+  check("get_tree lists the new file", treePaths.includes("smoke-probe.md"), treePaths);
+  check(
+    "get_tree paths are relative to the root",
+    treePaths.every((p) => !p.startsWith("/")),
+    treePaths,
+  );
+
+  e.send({ type: "read_file", request_id: "rf", path: probeFile, encoding: "utf8" });
+  const rf = await e.waitFor((f) => f.request_id === "rf");
+  check("read_file returns content", typeof rf.content === "string" && rf.content.includes("findable-token"), rf.error);
+
+  e.send({ type: "grep_in_files", request_id: "gf", query: "findable-token", cwd, max_results: 20 });
+  const gf = await e.waitFor((f) => f.request_id === "gf");
+  check("grep_in_files finds the token", (gf.matches?.length ?? 0) > 0, gf.error ?? gf);
+
+  // Memory
+  e.send({ type: "list_memory", request_id: "lm2", agent_id: agent2 });
+  const lm2 = await e.waitFor((f) => f.request_id === "lm2");
+  check("list_memory returns blocks", (lm2.entries?.length ?? 0) > 0, lm2.error ?? lm2.entries?.length);
+
+  // Tasks: full CRUD round trip
+  e.send({
+    type: "cron_add",
+    request_id: "ca",
+    agent_id: agent2,
+    name: "smoke task",
+    description: "created by the smoke test",
+    cron: "0 9 * * *",
+    recurring: true,
+    prompt: "say hello",
+    timezone: "UTC",
+  });
+  const ca = await e.waitFor((f) => f.request_id === "ca");
+  check("cron_add creates a task", ca.success === true && Boolean(ca.task?.id), ca.error);
+
+  const taskId: string | undefined = ca.task?.id;
+  if (taskId) {
+    e.send({ type: "cron_list", request_id: "cls", agent_id: agent2 });
+    const cls = await e.waitFor((f) => f.request_id === "cls");
+    check(
+      "cron_list includes it",
+      (cls.tasks ?? []).some((t: any) => t.id === taskId),
+      cls.tasks?.length,
+    );
+
+    e.send({ type: "cron_update", request_id: "cu2", task_id: taskId, name: "smoke task renamed" });
+    const cu2 = await e.waitFor((f) => f.request_id === "cu2");
+    check("cron_update applies", cu2.success === true, cu2.error);
+
+    e.send({ type: "cron_delete", request_id: "cd", task_id: taskId });
+    const cd = await e.waitFor((f) => f.request_id === "cd");
+    check("cron_delete removes it", cd.success === true, cd.error);
+  }
+}
+
+e.close();
+
+// ── 8. Unauthenticated access is refused ─────────────────────────────────────
+section("8. Authentication");
 const anon = await fetch(`${ORIGIN}/ws`, {
   headers: { connection: "Upgrade", upgrade: "websocket" },
 });

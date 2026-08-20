@@ -29,6 +29,8 @@ export interface QueuedItem {
 export interface ConversationApi {
   entries: TranscriptEntry[];
   processing: boolean;
+  /** Working directory of this runtime, from device status. */
+  cwd: string | null;
   queue: QueuedItem[];
   approvals: PendingApproval[];
   loadingHistory: boolean;
@@ -106,6 +108,7 @@ export function useConversation(
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cwd, setCwd] = useState<string | null>(null);
 
   const transcriptRef = useRef<Transcript>(new Map());
   const seqRef = useRef(0);
@@ -200,8 +203,13 @@ export function useConversation(
           break;
         }
         case "update_device_status": {
-          const status = (frame as { device_status?: { is_processing?: unknown } }).device_status;
+          const status = (frame as {
+            device_status?: { is_processing?: unknown; current_working_directory?: unknown };
+          }).device_status;
           setProcessing(status?.is_processing === true);
+          if (typeof status?.current_working_directory === "string") {
+            setCwd(status.current_working_directory);
+          }
           break;
         }
         case "update_loop_status": {
@@ -311,6 +319,7 @@ export function useConversation(
   return {
     entries,
     processing,
+    cwd,
     queue,
     approvals,
     loadingHistory,

@@ -74,6 +74,12 @@ crons never fire.
   `execute_command {command_id:"reload"}`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.
+- **File protocol gotchas** (all verified against a running app-server):
+  - `get_tree` returns paths **relative** to the root it was given; every other file command
+    wants an absolute path, so the client must join them.
+  - `grep_in_files` takes `query`, not `pattern`. Sending the wrong key produces **no response
+    at all** rather than an error — a silent hang.
+  - `grep_in_files` follows ripgrep defaults, so hidden and ignored files are skipped.
 - **Conversations DO have a native `archived` field** (plus `archived_at`), settable via
   `conversation_update {body:{archived}}` — verified against the local backend. But
   `conversation_list` ignores an `archived` query filter, so the *list* is filtered

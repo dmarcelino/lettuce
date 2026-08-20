@@ -4,6 +4,9 @@ import { Composer } from "./components/Composer.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
+import { FilesTab } from "./tabs/FilesTab.tsx";
+import { MemoryTab } from "./tabs/MemoryTab.tsx";
+import { TasksTab } from "./tabs/TasksTab.tsx";
 import { FILTER_LABELS, filterEntries, type FilterGroup } from "./lib/messages.ts";
 import type { ConnectionState, RuntimeScope } from "./lib/protocol.ts";
 import { useAgents } from "./state/use-agents.ts";
@@ -193,10 +196,16 @@ function Workspace({ status }: { status: Status }) {
               onAbort={conversation.abort}
             />
           </>
+        ) : tab === "Files" ? (
+          <FilesTab session={session} cwd={conversation.cwd} />
+        ) : tab === "Tasks" ? (
+          <TasksTab
+            session={session}
+            agentId={agents.agentId}
+            conversationId={agents.conversationId}
+          />
         ) : (
-          <div className="placeholder">
-            <p className="muted">{tab} arrives in the next phase.</p>
-          </div>
+          <MemoryTab session={session} agentId={agents.agentId} />
         )}
       </div>
 
