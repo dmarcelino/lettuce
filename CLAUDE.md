@@ -69,9 +69,12 @@ crons never fire.
 - **No per-user isolation.** One process-wide runtime; every socket sees every event. v1 is
   single-user by decision. Keep agent-id filtering in the BFF frame router so multi-user stays
   a small change.
-- **MCP is not in the protocol.** Servers live in `~/.letta/settings.json` as a per-agent
-  `mcpServers[]`. We edit that file over `read_file`/`write_file` and then
-  `execute_command {command_id:"reload"}`.
+- **MCP is not in the protocol.** Servers live in `/root/.letta/settings.json` under
+  `agents[<n>].mcpServers[]` (keyed by `agentId`). We read the file, merge into that one
+  agent entry, write it back, and then `execute_command {command_id:"reload"}` — which
+  replies "Reloaded settings, local mods, and agent secrets". Merge rather than replace:
+  the file holds ~18 unrelated top-level settings including `deviceId`.
+- **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.
 - **File protocol gotchas** (all verified against a running app-server):

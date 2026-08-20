@@ -379,8 +379,89 @@ if (agent2) {
 
 e.close();
 
-// ── 8. Unauthenticated access is refused ─────────────────────────────────────
-section("8. Authentication");
+// ── 8. Settings: providers and MCP ───────────────────────────────────────────
+section("8. Settings");
+const g = await openSession(cookie);
+await g.waitFor((f) => f.type === "__bff_hello");
+
+g.send({ type: "list_connect_providers", request_id: "prov", target: "local" });
+const prov = await g.waitFor((f) => f.request_id === "prov");
+const llama = (prov.providers ?? []).find((p: any) => p.id === "llama-cpp");
+check("provider catalog loads", (prov.providers?.length ?? 0) > 0, prov.error);
+check("llama.cpp is offered as a local provider", Boolean(llama), prov.providers?.length);
+check(
+  "connection state uses is_connected",
+  llama ? typeof llama.connected?.is_connected === "boolean" : false,
+  llama?.connected,
+);
+
+// MCP lives in settings.json, not the protocol. Verify the read/merge/write
+// round trip preserves every unrelated setting.
+const SETTINGS = "/root/.letta/settings.json";
+g.send({ type: "read_file", request_id: "rs1", path: SETTINGS, encoding: "utf8" });
+const rs1 = await g.waitFor((f) => f.request_id === "rs1");
+check("settings.json is readable", typeof rs1.content === "string", rs1.error);
+
+if (typeof rs1.content === "string") {
+  const original: string = rs1.content;
+  const parsed = JSON.parse(original);
+  const agentEntry = parsed.agents?.[0];
+  check("settings.json carries an agent entry", Boolean(agentEntry?.agentId), parsed.agents?.length);
+
+  if (agentEntry) {
+    const agentsNext = [...parsed.agents];
+    agentsNext[0] = {
+      ...agentEntry,
+      mcpServers: [{ name: "smoke-mcp", transport: "stdio", command: "true", args: [] }],
+    };
+    g.send({
+      type: "write_file",
+      request_id: "ws1",
+      path: SETTINGS,
+      content: `${JSON.stringify({ ...parsed, agents: agentsNext }, null, 2)}\n`,
+    });
+    const ws1 = await g.waitFor((f) => f.request_id === "ws1");
+    check("settings.json is writable", ws1.success === true, ws1.error);
+
+    g.send({ type: "read_file", request_id: "rs2", path: SETTINGS, encoding: "utf8" });
+    const rs2 = await g.waitFor((f) => f.request_id === "rs2");
+    const back = JSON.parse(rs2.content);
+    check(
+      "MCP server persisted",
+      back.agents?.[0]?.mcpServers?.[0]?.name === "smoke-mcp",
+      back.agents?.[0]?.mcpServers,
+    );
+    check(
+      "unrelated settings survived the merge",
+      Object.keys(back).length === Object.keys(parsed).length &&
+        back.deviceId === parsed.deviceId,
+      { before: Object.keys(parsed).length, after: Object.keys(back).length },
+    );
+
+    // `reload` is what makes an MCP edit take effect.
+    g.send({
+      type: "execute_command",
+      request_id: "rel",
+      command_id: "reload",
+      runtime: { agent_id: agentEntry.agentId, conversation_id: "default" },
+    });
+    const rel = await g.waitFor(
+      (f) => f.request_id === "rel" && f.type === "execute_command_response",
+      25000,
+    );
+    check("reload applies the change", rel.success === true, rel.output);
+
+    // Put it back exactly as found.
+    g.send({ type: "write_file", request_id: "ws2", path: SETTINGS, content: original });
+    const ws2 = await g.waitFor((f) => f.request_id === "ws2");
+    check("settings.json restored", ws2.success === true, ws2.error);
+  }
+}
+
+g.close();
+
+// ── 9. Unauthenticated access is refused ─────────────────────────────────────
+section("9. Authentication");
 const anon = await fetch(`${ORIGIN}/ws`, {
   headers: { connection: "Upgrade", upgrade: "websocket" },
 });

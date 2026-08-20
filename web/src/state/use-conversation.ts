@@ -20,6 +20,14 @@ export interface PendingApproval {
   diffs: unknown[];
 }
 
+export interface SkillSummary {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  source: string;
+}
+
 export interface QueuedItem {
   id: string;
   source: string;
@@ -31,6 +39,8 @@ export interface ConversationApi {
   processing: boolean;
   /** Working directory of this runtime, from device status. */
   cwd: string | null;
+  /** Skills the runtime currently has loaded, from device status. */
+  skills: SkillSummary[];
   queue: QueuedItem[];
   approvals: PendingApproval[];
   loadingHistory: boolean;
@@ -109,6 +119,7 @@ export function useConversation(
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
 
   const transcriptRef = useRef<Transcript>(new Map());
   const seqRef = useRef(0);
@@ -204,11 +215,18 @@ export function useConversation(
         }
         case "update_device_status": {
           const status = (frame as {
-            device_status?: { is_processing?: unknown; current_working_directory?: unknown };
+            device_status?: {
+              is_processing?: unknown;
+              current_working_directory?: unknown;
+              current_available_skills?: unknown;
+            };
           }).device_status;
           setProcessing(status?.is_processing === true);
           if (typeof status?.current_working_directory === "string") {
             setCwd(status.current_working_directory);
+          }
+          if (Array.isArray(status?.current_available_skills)) {
+            setSkills(status.current_available_skills as SkillSummary[]);
           }
           break;
         }
@@ -320,6 +338,7 @@ export function useConversation(
     entries,
     processing,
     cwd,
+    skills,
     queue,
     approvals,
     loadingHistory,

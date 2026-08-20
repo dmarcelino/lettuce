@@ -6,6 +6,7 @@ import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { MemoryTab } from "./tabs/MemoryTab.tsx";
+import { SettingsTab } from "./tabs/SettingsTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 import { FILTER_LABELS, filterEntries, type FilterGroup } from "./lib/messages.ts";
 import type { ConnectionState, RuntimeScope } from "./lib/protocol.ts";
@@ -21,7 +22,7 @@ interface Status {
   upstream: { state: ConnectionState; info: unknown };
 }
 
-const TABS = ["Chat", "Files", "Tasks", "Memory"] as const;
+const TABS = ["Chat", "Files", "Tasks", "Memory", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 const FILTER_ORDER: FilterGroup[] = ["user", "agent", "tools", "system"];
@@ -204,8 +205,14 @@ function Workspace({ status }: { status: Status }) {
             agentId={agents.agentId}
             conversationId={agents.conversationId}
           />
-        ) : (
+        ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />
+        ) : (
+          <SettingsTab
+            session={session}
+            agentId={agents.agentId}
+            skills={conversation.skills}
+          />
         )}
       </div>
 
