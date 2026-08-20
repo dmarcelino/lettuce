@@ -37,11 +37,22 @@ Then put the client id and secret in `docker/.env`. Only addresses listed in
 `config/users.json` can sign in; everyone else gets a 403 after Google
 authenticates them.
 
-`DEV_BYPASS_EMAIL` skips sign-in entirely for local development. It
-authenticates **nobody** — any request becomes the configured user — so the BFF
-refuses to start when `PUBLIC_ORIGIN` is not loopback, and binds to `127.0.0.1`
-whenever it is set. That makes it unusable through a published container port
-by construction; it is for `bun run dev` only.
+`DEV_BYPASS_EMAIL` skips sign-in entirely. It authenticates **nobody** — any
+request that reaches the port becomes the configured user.
+
+Because that is easy to leave switched on by accident, exposing it beyond the
+local machine takes a second, deliberate flag:
+
+| Configuration | Result |
+|---|---|
+| `DEV_BYPASS_EMAIL` unset | Real Google sign-in (required for the compose stack by default) |
+| Set, loopback `PUBLIC_ORIGIN` | Bypass active, bound to `127.0.0.1` |
+| Set, non-loopback `PUBLIC_ORIGIN` | **Refuses to start** |
+| Set, plus `DEV_BYPASS_ALLOW_REMOTE=true` | Bypass active and reachable on the network, with a startup banner |
+
+The last row means anyone who can reach the port controls the agent — and the
+agent has your Gmail, Calendar and shell. Use it only on a network you trust,
+and only until OAuth is configured.
 
 ## Run
 

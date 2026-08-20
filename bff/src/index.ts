@@ -193,12 +193,11 @@ interface SocketData {
   sessionId: string;
 }
 
-// PUBLIC_ORIGIN is only a declaration of intent; this is the enforcement. With
-// the bypass active the server refuses to accept connections from anywhere but
-// the local machine, so an exposed port cannot hand out unauthenticated
-// sessions. In a container this makes a published port unreachable — which is
-// the point: the bypass is for `bun run dev`, never for the compose stack.
-const bindHostname = config.devBypassEmail ? "127.0.0.1" : "0.0.0.0";
+// PUBLIC_ORIGIN is only a declaration of intent; the bind address is the
+// enforcement. The bypass stays on loopback unless DEV_BYPASS_ALLOW_REMOTE
+// explicitly says otherwise, so it cannot reach the network by accident.
+const bindHostname =
+  config.devBypassEmail && !config.devBypassAllowRemote ? "127.0.0.1" : "0.0.0.0";
 
 const server = Bun.serve<SocketData>({
   port: config.port,
@@ -259,7 +258,12 @@ log(`Allowlisted users: ${config.allowedUsers.map((u) => u.email).join(", ")}`);
 if (config.devBypassEmail) {
   log("!".repeat(72));
   log(`DEV BYPASS ACTIVE — no authentication. Any request gets a session as`);
-  log(`${config.devBypassEmail}. Bound to 127.0.0.1 only; not reachable off this machine.`);
+  log(`${config.devBypassEmail}.`);
+  log(
+    config.devBypassAllowRemote
+      ? `EXPOSED ON THE NETWORK at ${config.publicOrigin} by DEV_BYPASS_ALLOW_REMOTE=true.`
+      : "Bound to 127.0.0.1 only; not reachable off this machine.",
+  );
   log("!".repeat(72));
 }
 

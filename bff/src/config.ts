@@ -23,6 +23,8 @@ export interface BffConfig {
   frameBufferSize: number;
   /** Set for local development: skips OAuth and signs in as this email. */
   devBypassEmail: string | null;
+  /** Explicit opt-in to serving the bypass beyond the local machine. */
+  devBypassAllowRemote: boolean;
 }
 
 function required(name: string): string {
@@ -84,38 +86,45 @@ function readAllowedUsers(): AllowedUser[] {
   });
 }
 
-/**
- * The dev bypass issues a session to anyone who requests one. That is only ever
- * acceptable when the server cannot be reached from another machine, so it is
- * refused outright on a non-loopback origin rather than merely warned about.
- */
-function assertBypassIsSafe(devBypassEmail: string, publicOrigin: string): void {
+export function isLoopbackOrigin(publicOrigin: string): boolean {
   let host: string;
   try {
     host = new URL(publicOrigin).hostname;
   } catch {
     throw new Error(`PUBLIC_ORIGIN is not a valid URL: ${publicOrigin}`);
   }
+  return host === "localhost" || host === "::1" || host === "[::1]" || host.startsWith("127.");
+}
 
-  const isLoopback =
-    host === "localhost" || host === "::1" || host === "[::1]" || host.startsWith("127.");
+/**
+ * The dev bypass issues a session to anyone who asks. Exposing it beyond the
+ * local machine means anyone who can reach the port is the configured user, so
+ * that requires a second, explicit opt-in: a stale DEV_BYPASS_EMAIL alone can
+ * never open the server to the network.
+ */
+function assertBypassIsSafe(
+  devBypassEmail: string,
+  publicOrigin: string,
+  allowRemote: boolean,
+): void {
+  if (isLoopbackOrigin(publicOrigin) || allowRemote) return;
 
-  if (!isLoopback) {
-    throw new Error(
-      `Refusing to start: DEV_BYPASS_EMAIL is set (${devBypassEmail}) but PUBLIC_ORIGIN ` +
-        `(${publicOrigin}) is reachable from other machines. The bypass authenticates ` +
-        `nobody — anyone who can reach this port would get a session as ${devBypassEmail}. ` +
-        `Either set PUBLIC_ORIGIN to a loopback address for local development, or unset ` +
-        `DEV_BYPASS_EMAIL and configure GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.`,
-    );
-  }
+  throw new Error(
+    `Refusing to start: DEV_BYPASS_EMAIL is set (${devBypassEmail}) but PUBLIC_ORIGIN ` +
+      `(${publicOrigin}) is reachable from other machines. The bypass authenticates ` +
+      `nobody — anyone who can reach this port would get a session as ${devBypassEmail}. ` +
+      `Set PUBLIC_ORIGIN to a loopback address, or unset DEV_BYPASS_EMAIL and configure ` +
+      `GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET. To knowingly expose unauthenticated ` +
+      `access on this network anyway, set DEV_BYPASS_ALLOW_REMOTE=true.`,
+  );
 }
 
 export function loadConfig(): BffConfig {
   const devBypassEmail = process.env.DEV_BYPASS_EMAIL?.trim() || null;
+  const devBypassAllowRemote = process.env.DEV_BYPASS_ALLOW_REMOTE?.trim() === "true";
   const publicOrigin = required("PUBLIC_ORIGIN").replace(/\/$/, "");
   if (devBypassEmail) {
-    assertBypassIsSafe(devBypassEmail, publicOrigin);
+    assertBypassIsSafe(devBypassEmail, publicOrigin, devBypassAllowRemote);
   }
   return {
     port: optionalNumber("PORT", 8080),
@@ -132,6 +141,7 @@ export function loadConfig(): BffConfig {
     allowedUsers: readAllowedUsers(),
     frameBufferSize: optionalNumber("FRAME_BUFFER_SIZE", 5000),
     devBypassEmail,
+    devBypassAllowRemote,
   };
 }
 

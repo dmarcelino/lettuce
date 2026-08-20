@@ -64,6 +64,7 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       USERS_FILE: /app/config/users.json
       DEV_BYPASS_EMAIL: ${DEV_BYPASS_EMAIL:-}
+      DEV_BYPASS_ALLOW_REMOTE: ${DEV_BYPASS_ALLOW_REMOTE:-}
     volumes:
       - ./secrets/ws-token:/run/secrets/ws-token:ro
       - ../config/users.json:/app/config/users.json:ro
