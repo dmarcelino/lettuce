@@ -4,5 +4,6 @@ dist/
 .env.local
 config/users.json
 config/secrets/
+docker/secrets/
 *.log
 .DS_Store

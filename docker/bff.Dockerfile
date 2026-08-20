@@ -13,9 +13,16 @@ COPY letta-code-ui/bff/package.json letta-code-ui/bff/package.json
 COPY letta-code-ui/web/package.json letta-code-ui/web/package.json
 
 WORKDIR /app/letta-code-ui
-RUN bun install --frozen-lockfile
+# --ignore-scripts: letta-code is consumed for its protocol types and the
+# app-server client only. Its native dependencies (node-pty, sharp) are never
+# loaded here and their postinstall builds would need a toolchain this image
+# does not carry.
+RUN bun install --frozen-lockfile --ignore-scripts
 
-COPY letta-code-ui/bff ./bff
+# Copy sources only. Copying the whole bff/ would drag in the host's
+# node_modules, whose workspace symlinks collide with what bun just installed.
+COPY letta-code-ui/bff/src ./bff/src
+COPY letta-code-ui/bff/tsconfig.json ./bff/tsconfig.json
 COPY letta-code-ui/tsconfig.base.json ./tsconfig.base.json
 
 ENV NODE_ENV=production

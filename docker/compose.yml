@@ -7,6 +7,12 @@ services:
     build:
       context: ../../letta-code
       dockerfile: docker/Dockerfile
+      args:
+        # Pinned to the fork's own version, never `latest`. The UI is compiled
+        # against this exact release's protocol types (see CLAUDE.md), so the
+        # running app-server must match. The fork carries zero delta, so the
+        # published package at this version is equivalent to our source.
+        LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.30.27}"
     command:
       - letta
       - server
@@ -62,7 +68,7 @@ services:
       - ./secrets/ws-token:/run/secrets/ws-token:ro
       - ../config/users.json:/app/config/users.json:ro
     ports:
-      - "8080:8080"
+      - "${BFF_PORT:-8090}:8080"
     restart: unless-stopped
 
 volumes:
