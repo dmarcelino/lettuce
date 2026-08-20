@@ -1,0 +1,20 @@
+{
+  "name": "@letta-ui/bff",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@letta-ai/letta-code": "file:../../letta-code",
+    "hono": "^4.6.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.7",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.6.0"
+  }
+}

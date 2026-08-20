@@ -1,0 +1,70 @@
+# Build context is the parent directory holding both repos:
+#   docker compose -f letta-code-ui/docker/compose.yml up
+name: letta
+
+services:
+  app-server:
+    build:
+      context: ../../letta-code
+      dockerfile: docker/Dockerfile
+    command:
+      - letta
+      - server
+      - --listen
+      - ws://0.0.0.0:4500
+      - --ws-auth
+      - capability-token
+      - --ws-token-file
+      - /run/secrets/ws-token
+    environment:
+      # No Letta Cloud: agents, conversations and transcripts stay on disk here.
+      LETTA_LOCAL_BACKEND_EXPERIMENTAL: "true"
+      LETTA_LOCAL_BACKEND_DIR: /data/local-backend
+      # llama.cpp is reached over the host network; configure it once with
+      # `letta connect` (see CLAUDE.md).
+      LETTA_DISABLE_CRON_SCHEDULER: "0"
+    volumes:
+      - letta-home:/root/.letta
+      - letta-data:/data
+      - ../../workspaces:/work
+      - ./secrets/ws-token:/run/secrets/ws-token:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Loopback-only on the host: the BFF is the sole route in.
+    ports:
+      - "127.0.0.1:4500:4500"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4500/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  bff:
+    build:
+      context: ../..
+      dockerfile: letta-code-ui/docker/bff.Dockerfile
+    depends_on:
+      app-server:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      LETTA_APP_SERVER_URL: ws://app-server:4500
+      LETTA_APP_SERVER_TOKEN_FILE: /run/secrets/ws-token
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      USERS_FILE: /app/config/users.json
+      DEV_BYPASS_EMAIL: ${DEV_BYPASS_EMAIL:-}
+    volumes:
+      - ./secrets/ws-token:/run/secrets/ws-token:ro
+      - ../config/users.json:/app/config/users.json:ro
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  letta-home:
+  letta-data:
