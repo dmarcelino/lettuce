@@ -23,8 +23,25 @@ ENV
 cd ../letta-code && bun install && bun run build
 ```
 
-The Google OAuth client needs `${PUBLIC_ORIGIN}/auth/google/callback` as an
-authorized redirect URI.
+## Authentication
+
+The compose stack always uses real Google sign-in. Create an OAuth client at
+<https://console.cloud.google.com/apis/credentials> → **Create credentials** →
+**OAuth client ID** → **Web application**, and register exactly:
+
+```
+${PUBLIC_ORIGIN}/auth/google/callback
+```
+
+Then put the client id and secret in `docker/.env`. Only addresses listed in
+`config/users.json` can sign in; everyone else gets a 403 after Google
+authenticates them.
+
+`DEV_BYPASS_EMAIL` skips sign-in entirely for local development. It
+authenticates **nobody** — any request becomes the configured user — so the BFF
+refuses to start when `PUBLIC_ORIGIN` is not loopback, and binds to `127.0.0.1`
+whenever it is set. That makes it unusable through a published container port
+by construction; it is for `bun run dev` only.
 
 ## Run
 

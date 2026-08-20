@@ -83,3 +83,19 @@ dd { margin: 0; overflow-wrap: anywhere; }
   font-weight: 600;
   width: fit-content;
 }
+
+.warning {
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.warning code {
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 1px 5px;
+  border-radius: 4px;
+}

@@ -4,6 +4,7 @@ import type { BffHello, ConnectionState, SequencedFrame } from "./lib/protocol.t
 
 interface Status {
   authenticated: boolean;
+  auth_mode: "google" | "dev-bypass";
   user: { email: string; name: string } | null;
   upstream: { state: ConnectionState; info: unknown };
 }
@@ -68,11 +69,25 @@ export function App() {
   }
 
   if (!status.authenticated) {
+    const bypass = status.auth_mode === "dev-bypass";
     return (
       <Shell>
         <h1>Letta</h1>
-        <p className="muted">Sign in to continue.</p>
-        <a className="button" href="/auth/login">Sign in with Google</a>
+        {bypass ? (
+          <>
+            <p className="warning">
+              Developer sign-in is enabled. This does <strong>not</strong> authenticate
+              anyone — any visitor becomes the configured user. Unset
+              <code> DEV_BYPASS_EMAIL</code> to require Google sign-in.
+            </p>
+            <a className="button" href="/auth/login">Continue without signing in</a>
+          </>
+        ) : (
+          <>
+            <p className="muted">Sign in to continue.</p>
+            <a className="button" href="/auth/login">Sign in with Google</a>
+          </>
+        )}
       </Shell>
     );
   }
@@ -88,7 +103,10 @@ export function App() {
         <h2>Connection</h2>
         <dl>
           <dt>User</dt>
-          <dd>{status.user?.email ?? "—"}</dd>
+          <dd>
+            {status.user?.email ?? "—"}
+            {status.auth_mode === "dev-bypass" ? " (dev bypass — not authenticated)" : ""}
+          </dd>
           <dt>Session</dt>
           <dd>{hello?.session_id?.slice(0, 8) ?? "—"}</dd>
           <dt>App-server</dt>

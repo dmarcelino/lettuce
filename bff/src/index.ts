@@ -65,6 +65,7 @@ app.get("/api/status", (c) => {
   const session = currentSession(c.req.raw);
   return c.json({
     authenticated: session !== null,
+    auth_mode: config.devBypassEmail ? "dev-bypass" : "google",
     user: session ? { email: session.email, name: session.name } : null,
     upstream: {
       state: upstream.getState(),
@@ -102,8 +103,8 @@ app.get("/auth/dev-login", (c) => {
   const allowed = isAllowedUser(config, email);
   if (!allowed) return c.text(`DEV_BYPASS_EMAIL ${email} is not in the allowlist`, 403);
 
-  log(`Dev login as ${email}`);
-  return issueSession(c.res, allowed.name ?? email, email);
+  log(`Dev login as ${email} (NO AUTHENTICATION — loopback only)`);
+  return issueSession(allowed.name ?? email, email);
 });
 
 app.get("/auth/google/callback", async (c) => {
@@ -137,7 +138,10 @@ app.get("/auth/google/callback", async (c) => {
     }
 
     log(`Signed in ${profile.email}`);
-    return issueSession(c.res, allowed.name ?? profile.name, profile.email);
+    return issueSession(allowed.name ?? profile.name, profile.email, [
+      // The state cookie is single-use; drop it now that it has been consumed.
+      `${OAUTH_STATE_COOKIE}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0${secureCookies ? "; Secure" : ""}`,
+    ]);
   } catch (error) {
     log(`OAuth callback failed: ${error instanceof Error ? error.message : String(error)}`);
     return c.text("Sign-in failed", 500);
@@ -161,20 +165,20 @@ app.use("/assets/*", serveStatic({ root: webDist }));
 // routes survive a reload or a deep link.
 app.get("*", serveStatic({ path: `${webDist}/index.html` }));
 
-function issueSession(_res: Response, name: string, email: string): Response {
+function issueSession(name: string, email: string, extraCookies: string[] = []): Response {
   const payload: SessionPayload = {
     email,
     name,
     exp: Math.floor(Date.now() / 1000) + config.sessionTtlSeconds,
   };
   const token = encodeSession(payload, config.sessionSecret);
-  return new Response(null, {
-    status: 302,
-    headers: {
-      location: "/",
-      "set-cookie": buildSessionCookie(token, config.sessionTtlSeconds, secureCookies),
-    },
-  });
+  const headers = new Headers({ location: "/" });
+  headers.append(
+    "set-cookie",
+    buildSessionCookie(token, config.sessionTtlSeconds, secureCookies),
+  );
+  for (const cookie of extraCookies) headers.append("set-cookie", cookie);
+  return new Response(null, { status: 302, headers });
 }
 
 function currentSession(request: Request): SessionPayload | null {
@@ -189,8 +193,16 @@ interface SocketData {
   sessionId: string;
 }
 
+// PUBLIC_ORIGIN is only a declaration of intent; this is the enforcement. With
+// the bypass active the server refuses to accept connections from anywhere but
+// the local machine, so an exposed port cannot hand out unauthenticated
+// sessions. In a container this makes a published port unreachable — which is
+// the point: the bypass is for `bun run dev`, never for the compose stack.
+const bindHostname = config.devBypassEmail ? "127.0.0.1" : "0.0.0.0";
+
 const server = Bun.serve<SocketData>({
   port: config.port,
+  hostname: bindHostname,
 
   fetch(request, bunServer) {
     const url = new URL(request.url);
@@ -241,10 +253,15 @@ const server = Bun.serve<SocketData>({
   },
 });
 
-log(`Listening on http://localhost:${server.port} (public origin ${config.publicOrigin})`);
+log(`Listening on ${bindHostname}:${server.port} (public origin ${config.publicOrigin})`);
 log(`App-server: ${config.appServerUrl}`);
 log(`Allowlisted users: ${config.allowedUsers.map((u) => u.email).join(", ")}`);
-if (config.devBypassEmail) log(`DEV BYPASS ACTIVE as ${config.devBypassEmail}`);
+if (config.devBypassEmail) {
+  log("!".repeat(72));
+  log(`DEV BYPASS ACTIVE — no authentication. Any request gets a session as`);
+  log(`${config.devBypassEmail}. Bound to 127.0.0.1 only; not reachable off this machine.`);
+  log("!".repeat(72));
+}
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
