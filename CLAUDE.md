@@ -74,9 +74,15 @@ crons never fire.
   `execute_command {command_id:"reload"}`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.
-- **Conversations have no `archived` field.** Archive = add an `archived` tag via
-  `conversation_update`, filter client-side.
-- **Rename** = `conversation_update {body:{summary}}`.
+- **Conversations DO have a native `archived` field** (plus `archived_at`), settable via
+  `conversation_update {body:{archived}}` — verified against the local backend. But
+  `conversation_list` ignores an `archived` query filter, so the *list* is filtered
+  client-side. (An earlier note here claimed the field did not exist and prescribed a tag
+  workaround; that was wrong.)
+- **Rename** = `conversation_update {body:{summary}}`. A fresh conversation has
+  `summary: null`, so the UI supplies its own placeholder.
+- **`create_agent` presets** are exactly `memo | tutorial | blank | linus | kawaii`. There is
+  no `default`.
 
 ## Upstream sync
 

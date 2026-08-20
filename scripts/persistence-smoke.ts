@@ -93,6 +93,11 @@ function openSession(cookie: string): Promise<Session> {
 const cookie = await login();
 console.log(`Authenticated: ${cookie.split("=")[0]}`);
 
+// Other clients may be connected (a phone with the UI open). Compare against
+// this baseline rather than assuming the server is idle.
+const baseline = (await status()).sessions;
+if (baseline > 0) console.log(`Note: ${baseline} session(s) already connected`);
+
 // ── 1. A session can drive the app-server ────────────────────────────────────
 section("1. Session routing");
 const a = await openSession(cookie);
@@ -128,7 +133,11 @@ check(
 );
 
 const before = await status();
-check("two sessions registered", before.sessions === 2, before.sessions);
+check(
+  "both sessions registered",
+  before.sessions >= 2,
+  { sessions: before.sessions, baseline },
+);
 
 // ── 3. The command allowlist holds ───────────────────────────────────────────
 section("3. Command allowlist");
@@ -144,7 +153,11 @@ b.close();
 await new Promise((r) => setTimeout(r, 600));
 
 const after = await status();
-check("all sessions were unregistered", after.sessions === 0, after.sessions);
+check(
+  "this test's sessions were unregistered",
+  after.sessions === baseline,
+  { after: after.sessions, baseline },
+);
 check("upstream is still connected", after.upstream.state === "connected", after.upstream.state);
 check(
   "upstream socket was never re-established",
@@ -189,8 +202,84 @@ check(
 
 c.close();
 
-// ── 6. Unauthenticated access is refused ─────────────────────────────────────
-section("6. Authentication");
+// ── 6. Chat plumbing ─────────────────────────────────────────────────────────
+section("6. Chat plumbing");
+const d = await openSession(cookie);
+await d.waitFor((f) => f.type === "__bff_hello");
+
+d.send({ type: "agent_list", request_id: "agents", query: { limit: 5 } });
+const agents = await d.waitFor((f) => f.request_id === "agents");
+const agentId: string | undefined = agents.agents?.[0]?.id;
+check("at least one agent exists", typeof agentId === "string", agents.agents?.length);
+
+if (agentId) {
+  d.send({ type: "conversation_create", request_id: "conv", body: { agent_id: agentId } });
+  const created = await d.waitFor((f) => f.request_id === "conv");
+  const conversationId: string | undefined = created.conversation?.id;
+  check("conversation_create succeeds", created.success === true && Boolean(conversationId), created.error);
+
+  if (conversationId) {
+    d.send({
+      type: "runtime_start",
+      request_id: "rt",
+      agent_id: agentId,
+      conversation_id: conversationId,
+      wait_for_replay: true,
+    });
+    const started = await d.waitFor((f) => f.request_id === "rt");
+    check("runtime_start succeeds", started.success === true, started.error);
+
+    d.send({
+      type: "conversation_messages_list",
+      request_id: "hist",
+      conversation_id: conversationId,
+      query: { limit: 50 },
+    });
+    const history = await d.waitFor((f) => f.request_id === "hist");
+    check("history loads", history.success === true && Array.isArray(history.messages), history.error);
+
+    // Rename and archive both go through conversation_update; `archived` is a
+    // real field on the conversation record, not a tag.
+    d.send({
+      type: "conversation_update",
+      request_id: "ren",
+      conversation_id: conversationId,
+      body: { summary: "Smoke test" },
+    });
+    const renamed = await d.waitFor((f) => f.request_id === "ren");
+    check("rename applies", renamed.conversation?.summary === "Smoke test", renamed.conversation?.summary);
+
+    d.send({
+      type: "conversation_update",
+      request_id: "arc",
+      conversation_id: conversationId,
+      body: { archived: true },
+    });
+    const archived = await d.waitFor((f) => f.request_id === "arc");
+    check("archive applies natively", archived.conversation?.archived === true, archived.conversation);
+
+    d.send({
+      type: "conversation_update",
+      request_id: "unarc",
+      conversation_id: conversationId,
+      body: { archived: false },
+    });
+    await d.waitFor((f) => f.request_id === "unarc");
+  }
+}
+
+d.send({ type: "list_models", request_id: "models" });
+const models = await d.waitFor((f) => f.request_id === "models");
+check("model catalog is available", (models.entries?.length ?? 0) > 0, models.entries?.length);
+
+// A runtime scope subscribes the connection, so status frames should arrive.
+const statusFrames = d.frames.filter((f) => f.type === "update_device_status");
+check("runtime emits device status", statusFrames.length > 0, statusFrames.length);
+
+d.close();
+
+// ── 7. Unauthenticated access is refused ─────────────────────────────────────
+section("7. Authentication");
 const anon = await fetch(`${ORIGIN}/ws`, {
   headers: { connection: "Upgrade", upgrade: "websocket" },
 });
