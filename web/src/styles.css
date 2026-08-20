@@ -479,6 +479,12 @@ button { cursor: pointer; font-family: inherit; }
 }
 .warning code { background: rgba(0, 0, 0, 0.28); padding: 1px 5px; border-radius: 4px; }
 
+.has-banner .composer,
+.has-banner .pane {
+  /* Keep the fixed banner from covering the input and list tails. */
+  padding-bottom: calc(22px + env(safe-area-inset-bottom));
+}
+
 .bypass-banner {
   position: fixed;
   bottom: 0;

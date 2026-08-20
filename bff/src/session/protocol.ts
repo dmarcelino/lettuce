@@ -133,27 +133,13 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   // working directory
   "get_cwd_map",
   "set_boot_working_directory",
-  // channels (Telegram)
-  "channels_list",
-  "channel_accounts_list",
-  "channel_account_create",
-  "channel_account_update",
-  "channel_account_bind",
-  "channel_account_unbind",
-  "channel_account_delete",
-  "channel_account_start",
-  "channel_account_stop",
-  "channel_get_config",
-  "channel_set_config",
-  "channel_start",
-  "channel_stop",
-  "channel_pairings_list",
-  "channel_pairing_bind",
-  "channel_routes_list",
-  "channel_route_remove",
-  "channel_route_update",
-  "channel_targets_list",
-  "channel_target_bind",
+  // NOTE: channel_* commands are deliberately absent. The app-server only
+  // dispatches them when a gateway registered `serviceCommandHandler`, which
+  // happens over the CLI's stdio pipe to a child gateway process — never over
+  // the app-server WebSocket. Sent from here they would hang with no response
+  // rather than fail. Telegram is configured with `letta channels` inside the
+  // gateway container; see CLAUDE.md.
+
   // slash commands (the app-server enforces its own SUPPORTED_REMOTE_COMMANDS)
   "execute_command",
 ]);

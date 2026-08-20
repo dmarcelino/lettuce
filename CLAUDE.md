@@ -61,6 +61,34 @@ app-server process services start on *first client attach*
 (`listener/lifecycle.ts` → `startConnectedListenerRuntime`), so with no client ever connected,
 crons never fire.
 
+### Channels (Telegram) — why the topology looks like this
+
+Two facts in letta-code combine into one hard constraint:
+
+1. The app-server **refuses to listen on a non-loopback address without `--ws-auth`**
+   (`app-server.ts` → `isUnauthenticatedNonLoopbackListener`).
+2. `letta channel-gateway` **sends no bearer token** (`gateway-local.ts` calls
+   `createAppServerClient` with no `authToken`), so it cannot attach to an authenticated
+   app-server.
+
+Together: channels only work when the app-server listens on loopback with auth off. So the
+app-server, the BFF, and the gateway all share one network namespace
+(`network_mode: "service:app-server"`) and talk over `127.0.0.1:4500`. Nothing outside that
+namespace can reach the app-server at all — stronger isolation than a shared token on a
+bridge network, and it removes the capability token entirely.
+
+**Channel configuration is not reachable from the web UI, by design of letta-code.** The
+app-server only dispatches `channel_*` commands when `runtime.serviceCommandHandler` is set
+(`message-router.ts`), and that is installed by `startChannelGatewaySupervisor` — which has
+no production caller and communicates with its child gateway over **stdio**, not the
+WebSocket. A `channel_*` command sent over the app-server socket is parsed, matched by
+nothing, and silently dropped. They are therefore excluded from the BFF's browser allowlist:
+a hang is worse than a refusal.
+
+Telegram is set up once with the CLI inside the gateway container (see `docker/README.md`),
+the same way llama.cpp is set up with `letta connect`. The gateway then runs it, and the
+agent reaches it through the `MessageChannel` tool the gateway registers as an external tool.
+
 ### Other load-bearing facts about the app-server
 
 - **Browsers cannot reach it directly.** Auth is `Authorization: Bearer` only, which browsers
@@ -103,9 +131,8 @@ Protocol drift shows up two ways:
    dependency), so `bun run typecheck` fails on any breaking protocol change.
 2. **Behavioral** — types will NOT catch these; the sync script flags changes to:
    - `src/websocket/listener/connection-lifecycle.ts` — the turn-cancellation semantics above.
-   - `src/channels/gateway-supervisor.ts` — `letta channel-gateway` has no `--ws-auth` support.
-     Channels run in-process today, but if upstream moves them to the spawned gateway, our
-     `--ws-auth capability-token` will break Telegram.
+   - `src/channels/gateway-supervisor.ts` and `src/channels/gateway-local.ts` — if the gateway
+     ever gains `--ws-auth`, the shared-network-namespace workaround below can be dropped.
 
 ## Git workflow
 

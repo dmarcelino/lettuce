@@ -7,6 +7,7 @@ export type UpstreamState = "connecting" | "connected" | "disconnected";
 
 export interface UpstreamOptions {
   url: string;
+  /** Empty when the app-server runs without `--ws-auth`. */
   authToken: string;
   onFrame: (frame: WsProtocolMessage) => void;
   onStateChange: (state: UpstreamState, info: AppServerInfoResponseMessage | null) => void;
@@ -144,7 +145,9 @@ export class UpstreamConnection {
     try {
       client = new AppServerClient({
         url: this.options.url,
-        authToken: this.options.authToken,
+        // An empty token must be omitted entirely: the client rejects a blank
+        // string, and an unauthenticated app-server wants no header at all.
+        ...(this.options.authToken ? { authToken: this.options.authToken } : {}),
         // `ws` supports the Authorization header a browser cannot set. This is
         // the reason the BFF exists at all (see CLAUDE.md).
         WebSocket: WebSocket as never,

@@ -112,6 +112,10 @@ export function useConversation(
   agentId: string | null,
   conversationId: string | null,
 ): ConversationApi {
+  // Individually stable; depending on the whole session object would re-fire
+  // these effects on every link-state change.
+  const { request, send, setScopes, onFrame, onResync, ready } = session;
+
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [processing, setProcessing] = useState(false);
   const [queue, setQueue] = useState<QueuedItem[]>([]);
@@ -137,7 +141,7 @@ export function useConversation(
     setLoadingHistory(true);
     setError(null);
     try {
-      const response = await session.request<{ messages?: unknown[] }>(
+      const response = await request<{ messages?: unknown[] }>(
         "conversation_messages_list",
         { conversation_id: conversationId, query: { limit: 200 } },
       );
@@ -150,11 +154,11 @@ export function useConversation(
     } finally {
       setLoadingHistory(false);
     }
-  }, [conversationId, session, flush]);
+  }, [conversationId, request, flush]);
 
   // Start (or resume) the runtime for this conversation, then load its history.
   useEffect(() => {
-    if (!session.ready || !scope) return;
+    if (!ready || !scope) return;
     const key = `${scope.agent_id}::${scope.conversation_id}`;
     if (startedRef.current === key) return;
     startedRef.current = key;
@@ -165,10 +169,10 @@ export function useConversation(
     setQueue([]);
     setApprovals([]);
 
-    session.setScopes([scope]);
+    setScopes([scope]);
     void (async () => {
       try {
-        await session.request("runtime_start", {
+        await request("runtime_start", {
           agent_id: scope.agent_id,
           conversation_id: scope.conversation_id,
           wait_for_replay: true,
@@ -178,13 +182,13 @@ export function useConversation(
       }
       await loadHistory();
     })();
-  }, [session, scope?.agent_id, scope?.conversation_id, session.ready, loadHistory]);
+  }, [ready, scope?.agent_id, scope?.conversation_id, request, setScopes, loadHistory]);
 
   // A resync means the BFF buffer could not cover the gap while we were away.
-  useEffect(() => session.onResync(() => void loadHistory()), [session, loadHistory]);
+  useEffect(() => onResync(() => void loadHistory()), [onResync, loadHistory]);
 
   useEffect(() => {
-    return session.onFrame((frame: SequencedFrame) => {
+    return onFrame((frame: SequencedFrame) => {
       const type = (frame as { type?: unknown }).type;
       const runtime = (frame as { runtime?: RuntimeScope }).runtime;
 
@@ -231,8 +235,14 @@ export function useConversation(
           break;
         }
         case "update_loop_status": {
-          const loop = (frame as { loop_status?: unknown }).loop_status;
-          setProcessing(loop !== "idle" && loop !== null && loop !== undefined);
+          // LoopState is an object and has no "idle" member; the terminal state
+          // is WAITING_ON_INPUT. Comparing the object to a string left the
+          // composer permanently stuck showing "stop".
+          const loop = (frame as { loop_status?: { status?: unknown } }).loop_status;
+          const loopStatus = loop?.status;
+          setProcessing(
+            typeof loopStatus === "string" && loopStatus !== "WAITING_ON_INPUT",
+          );
           break;
         }
         case "update_queue": {
@@ -254,14 +264,14 @@ export function useConversation(
           break;
       }
     });
-  }, [session, scope?.conversation_id, flush]);
+  }, [onFrame, scope?.conversation_id, flush]);
 
   const sendMessage = useCallback(
     async (text: string) => {
       if (!scope || !text.trim()) return;
       setProcessing(true);
       try {
-        session.send({
+        send({
           type: "input",
           runtime: scope,
           payload: {
@@ -280,18 +290,18 @@ export function useConversation(
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     },
-    [scope, session],
+    [scope, send],
   );
 
   const abort = useCallback(() => {
     if (!scope) return;
-    session.send({ type: "abort_message", runtime: scope, request_id: `abort-${Date.now()}` });
-  }, [scope, session]);
+    send({ type: "abort_message", runtime: scope, request_id: `abort-${Date.now()}` });
+  }, [scope, send]);
 
   const respondToApproval = useCallback(
     (requestId: string, approve: boolean, reason?: string) => {
       if (!scope) return;
-      session.send({
+      send({
         type: "input",
         runtime: scope,
         payload: {
@@ -304,26 +314,26 @@ export function useConversation(
       });
       setApprovals((current) => current.filter((a) => a.requestId !== requestId));
     },
-    [scope, session],
+    [scope, send],
   );
 
   const removeQueued = useCallback(
     (itemId: string) => {
       if (!scope) return;
-      session.send({
+      send({
         type: "remove_queue_item",
         runtime: scope,
         request_id: `dequeue-${Date.now()}`,
         item_id: itemId,
       });
     },
-    [scope, session],
+    [scope, send],
   );
 
   const runCommand = useCallback(
     (commandId: string, args?: string) => {
       if (!scope) return;
-      session.send({
+      send({
         type: "execute_command",
         runtime: scope,
         request_id: `cmd-${Date.now()}`,
@@ -331,7 +341,7 @@ export function useConversation(
         ...(args ? { args } : {}),
       });
     },
-    [scope, session],
+    [scope, send],
   );
 
   return {

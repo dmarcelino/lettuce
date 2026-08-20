@@ -38,7 +38,7 @@ interface Props {
   skills: SkillSummary[];
 }
 
-type Section = "connection" | "mcp" | "skills";
+type Section = "connection" | "mcp" | "skills" | "channels";
 
 function isConnected(provider: ProviderEntry): boolean {
   if (typeof provider.connected === "boolean") return provider.connected;
@@ -54,14 +54,20 @@ export function SettingsTab({ session, agentId, skills }: Props) {
   return (
     <div className="pane">
       <div className="pane-bar">
-        {(["connection", "mcp", "skills"] as const).map((name) => (
+        {(["connection", "mcp", "skills", "channels"] as const).map((name) => (
           <button
             key={name}
             type="button"
             className={`chip${section === name ? " on" : ""}`}
             onClick={() => setSection(name)}
           >
-            {name === "mcp" ? "MCP" : name === "connection" ? "Connection" : "Skills"}
+            {name === "mcp"
+              ? "MCP"
+              : name === "connection"
+                ? "Connection"
+                : name === "skills"
+                  ? "Skills"
+                  : "Channels"}
           </button>
         ))}
       </div>
@@ -69,6 +75,7 @@ export function SettingsTab({ session, agentId, skills }: Props) {
       {section === "connection" ? <ConnectionSection session={session} /> : null}
       {section === "mcp" ? <McpEditor session={session} agentId={agentId} /> : null}
       {section === "skills" ? <SkillsSection session={session} skills={skills} /> : null}
+      {section === "channels" ? <ChannelsSection /> : null}
     </div>
   );
 }
@@ -96,7 +103,7 @@ function ConnectionSection({ session }: { session: SessionApi }) {
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [session]);
+  }, [session.request]);
 
   useEffect(() => {
     if (session.ready) void load();
@@ -323,6 +330,39 @@ function SkillsSection({
       <pre className="tool-args pad-x">
         Install the skill from https://github.com/me/my-private-skills and enable it.
       </pre>
+    </>
+  );
+}
+
+/**
+ * Channels cannot be configured from here. The app-server only dispatches
+ * channel_* commands when a gateway registered itself over the CLI's stdio
+ * pipe, which never happens for a WebSocket client — the commands would hang
+ * rather than fail. Show the real path instead of a form that cannot work.
+ */
+function ChannelsSection() {
+  return (
+    <>
+      <p className="section-note">Telegram</p>
+      <p className="muted small pad">
+        Channel setup runs on the gateway container, not through this UI: letta-code routes
+        channel configuration over the CLI&rsquo;s own pipe to the gateway process, with no
+        path from the app-server socket. Once configured, the agent reaches Telegram normally
+        and messages arrive in the conversation you pair.
+      </p>
+      <pre className="tool-args pad-x">{`C="docker compose -f docker/compose.yml exec channel-gateway"
+
+$C letta channels install telegram
+docker compose -f docker/compose.yml exec -it channel-gateway \\
+  letta channels configure telegram
+docker compose -f docker/compose.yml restart channel-gateway
+
+# message the bot, then pair the chat:
+$C letta channels pair --channel telegram --code <code> \\
+  --agent <agent-id> --conversation <conversation-id>`}</pre>
+      <p className="muted small pad">
+        Check state any time with <code>letta channels status</code>.
+      </p>
     </>
   );
 }

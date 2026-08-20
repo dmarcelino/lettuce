@@ -79,6 +79,32 @@ docker compose -f docker/compose.yml exec app-server letta connect
 # choose "llama.cpp (local)", base URL http://host.docker.internal:8080/v1
 ```
 
+## Telegram
+
+Channel configuration is not available in the web UI — the app-server has no path
+for it (see CLAUDE.md). Set it up once in the gateway container:
+
+```bash
+C="docker compose -f docker/compose.yml exec channel-gateway"
+
+$C letta channels install telegram        # installs the runtime dependency
+$C letta channels status                  # should show telegram configured:false
+
+# Interactive; needs a bot token from @BotFather. -it, not exec -T.
+docker compose -f docker/compose.yml exec -it channel-gateway \
+  letta channels configure telegram
+
+docker compose -f docker/compose.yml restart channel-gateway
+```
+
+Then message the bot, and pair the chat to an agent:
+
+```bash
+$C letta channels pair --channel telegram --code <code-from-bot> \
+  --agent <agent-id> --conversation <conversation-id>
+$C letta channels status
+```
+
 ## Local development without Docker
 
 ```bash

@@ -10,7 +10,12 @@ export interface BffConfig {
   port: number;
   /** App-server WebSocket base URL, e.g. ws://letta:4500 */
   appServerUrl: string;
-  /** Capability token presented as `Authorization: Bearer` upstream. */
+  /**
+   * Capability token presented as `Authorization: Bearer` upstream. Empty when
+   * the app-server listens on loopback without `--ws-auth`, which is the only
+   * configuration in which the channel gateway can also attach (it sends no
+   * token of its own).
+   */
   appServerToken: string;
   /** Absolute public origin of this BFF, used to build the OAuth redirect URI. */
   publicOrigin: string;
@@ -45,10 +50,13 @@ function optionalNumber(name: string, fallback: number): number {
   return parsed;
 }
 
-function readTokenFile(): string {
+function readAppServerToken(): string {
   const inline = process.env.LETTA_APP_SERVER_TOKEN?.trim();
   if (inline) return inline;
-  const path = required("LETTA_APP_SERVER_TOKEN_FILE");
+
+  const path = process.env.LETTA_APP_SERVER_TOKEN_FILE?.trim();
+  if (!path) return "";
+
   const token = readFileSync(path, "utf8").trim();
   if (!token) throw new Error(`App-server token file ${path} is empty`);
   return token;
@@ -129,7 +137,7 @@ export function loadConfig(): BffConfig {
   return {
     port: optionalNumber("PORT", 8080),
     appServerUrl: required("LETTA_APP_SERVER_URL"),
-    appServerToken: readTokenFile(),
+    appServerToken: readAppServerToken(),
     publicOrigin,
     // OAuth credentials are not needed when the dev bypass is active.
     googleClientId: devBypassEmail ? (process.env.GOOGLE_CLIENT_ID ?? "") : required("GOOGLE_CLIENT_ID"),

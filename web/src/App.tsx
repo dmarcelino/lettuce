@@ -109,8 +109,10 @@ function Workspace({ status }: { status: Status }) {
     });
   };
 
+  const bypass = status.auth_mode === "dev-bypass";
+
   return (
-    <div className="app">
+    <div className={`app${bypass ? " has-banner" : ""}`}>
       <Sidebar agents={agents} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="main">
@@ -227,7 +229,7 @@ function Workspace({ status }: { status: Status }) {
         <ModelPicker session={session} scope={scope} onClose={() => setShowModels(false)} />
       ) : null}
 
-      {status.auth_mode === "dev-bypass" ? (
+      {bypass ? (
         <div className="bypass-banner">
           Unauthenticated (dev bypass) — {status.user?.email}
         </div>

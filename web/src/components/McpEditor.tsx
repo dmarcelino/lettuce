@@ -70,7 +70,7 @@ export function McpEditor({
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [agentId, session]);
+  }, [agentId, session.request]);
 
   useEffect(() => {
     if (session.ready && agentId) void load();

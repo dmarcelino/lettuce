@@ -1,5 +1,15 @@
 # Build context is the parent directory holding both repos:
 #   docker compose -f letta-code-ui/docker/compose.yml up
+#
+# ── Why every service shares one network namespace ───────────────────────────
+# The app-server refuses to listen on a non-loopback address without
+# `--ws-auth` (app-server.ts: isUnauthenticatedNonLoopbackListener), but
+# `letta channel-gateway` sends no bearer token at all (gateway-local.ts calls
+# createAppServerClient with no authToken). Those two facts together mean
+# Telegram is only reachable when the app-server listens on loopback with auth
+# off — so the BFF and the gateway join the app-server's network namespace and
+# reach it at 127.0.0.1:4500. Nothing outside that namespace can, which is
+# stronger isolation than a shared token on a bridge network.
 name: letta
 
 services:
@@ -17,28 +27,20 @@ services:
       - letta
       - server
       - --listen
-      - ws://0.0.0.0:4500
-      - --ws-auth
-      - capability-token
-      - --ws-token-file
-      - /run/secrets/ws-token
+      - ws://127.0.0.1:4500
     environment:
       # No Letta Cloud: agents, conversations and transcripts stay on disk here.
       LETTA_LOCAL_BACKEND_EXPERIMENTAL: "true"
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
-      # llama.cpp is reached over the host network; configure it once with
-      # `letta connect` (see CLAUDE.md).
-      LETTA_DISABLE_CRON_SCHEDULER: "0"
     volumes:
       - letta-home:/root/.letta
       - letta-data:/data
       - ../../workspaces:/work
-      - ./secrets/ws-token:/run/secrets/ws-token:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Loopback-only on the host: the BFF is the sole route in.
+    # The UI port is published here because the BFF shares this namespace.
     ports:
-      - "127.0.0.1:4500:4500"
+      - "${BFF_BIND:-0.0.0.0}:${BFF_PORT:-8090}:8080"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4500/healthz"]
@@ -54,11 +56,12 @@ services:
     depends_on:
       app-server:
         condition: service_healthy
+    # Share the app-server's loopback; see the note at the top of this file.
+    network_mode: "service:app-server"
     environment:
       PORT: "8080"
-      LETTA_APP_SERVER_URL: ws://app-server:4500
-      LETTA_APP_SERVER_TOKEN_FILE: /run/secrets/ws-token
-      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      LETTA_APP_SERVER_URL: ws://127.0.0.1:4500
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8090}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
@@ -66,10 +69,39 @@ services:
       DEV_BYPASS_EMAIL: ${DEV_BYPASS_EMAIL:-}
       DEV_BYPASS_ALLOW_REMOTE: ${DEV_BYPASS_ALLOW_REMOTE:-}
     volumes:
-      - ./secrets/ws-token:/run/secrets/ws-token:ro
       - ../config/users.json:/app/config/users.json:ro
-    ports:
-      - "${BFF_PORT:-8090}:8080"
+    restart: unless-stopped
+
+  # Telegram and the other messaging channels. A separate process by design:
+  # the app-server only dispatches channel_* commands when a gateway is
+  # attached (message-router.ts: runtime.serviceCommandTypes), so without this
+  # service every channel command returns silence.
+  channel-gateway:
+    build:
+      context: ../../letta-code
+      dockerfile: docker/Dockerfile
+      args:
+        LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.30.27}"
+    depends_on:
+      app-server:
+        condition: service_healthy
+    network_mode: "service:app-server"
+    command:
+      - letta
+      - channel-gateway
+      - --app-server-url
+      - ws://127.0.0.1:4500
+      - --restore-enabled-channels
+      - --allow-startup-errors
+    environment:
+      LETTA_LOCAL_BACKEND_EXPERIMENTAL: "true"
+      LETTA_LOCAL_BACKEND_DIR: /data/local-backend
+      # The app-server owns scheduling; a second scheduler would fight for the lease.
+      LETTA_DISABLE_CRON_SCHEDULER: "1"
+    volumes:
+      - letta-home:/root/.letta
+      - letta-data:/data
+      - ../../workspaces:/work
     restart: unless-stopped
 
 volumes:

@@ -56,7 +56,7 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [agentId, session]);
+  }, [agentId, session.request]);
 
   useEffect(() => {
     if (session.ready && agentId) void load();
@@ -68,7 +68,7 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
       session.onFrame((frame) => {
         if ((frame as { type?: unknown }).type === "crons_updated") void load();
       }),
-    [session, load],
+    [session.onFrame, load],
   );
 
   const act = async (type: string, body: Record<string, unknown>, label: string) => {

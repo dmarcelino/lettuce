@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConnectionState, RuntimeScope, SequencedFrame } from "../lib/protocol.ts";
 import { SessionClient, type LinkState } from "../lib/session-client.ts";
 
@@ -81,16 +81,23 @@ export function useSession(enabled: boolean): SessionApi {
     return () => resyncHandlers.current.delete(handler);
   }, []);
 
-  return {
-    link,
-    upstream,
-    ready: link === "live",
-    request,
-    send,
-    setScopes,
-    markResynced,
-    onFrame,
-    onResync,
-    lastError,
-  };
+  // Must be memoized. Every consumer derives useCallback/useEffect deps from
+  // this object, so returning a fresh literal each render makes those effects
+  // re-run on every render — which previously produced an unbounded request
+  // loop against the app-server.
+  return useMemo(
+    () => ({
+      link,
+      upstream,
+      ready: link === "live",
+      request,
+      send,
+      setScopes,
+      markResynced,
+      onFrame,
+      onResync,
+      lastError,
+    }),
+    [link, upstream, request, send, setScopes, markResynced, onFrame, onResync, lastError],
+  );
 }

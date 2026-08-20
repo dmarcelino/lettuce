@@ -49,7 +49,7 @@ export function MemoryTab({ session, agentId }: Props) {
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [agentId, session]);
+  }, [agentId, session.request]);
 
   useEffect(() => {
     if (session.ready && agentId) void load();
@@ -61,7 +61,7 @@ export function MemoryTab({ session, agentId }: Props) {
       session.onFrame((frame) => {
         if ((frame as { type?: unknown }).type === "memory_updated") void load();
       }),
-    [session, load],
+    [session.onFrame, load],
   );
 
   const save = async () => {

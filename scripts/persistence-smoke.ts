@@ -458,10 +458,46 @@ if (typeof rs1.content === "string") {
   }
 }
 
+// channel_* is off the allowlist on purpose: the app-server never dispatches
+// those commands to a WebSocket client, so allowing them would hang.
+g.send({ type: "channels_list", request_id: "chan" });
+const chanRefusal = await g.waitFor((f) => f.type === "__bff_error" && f.request_id === "chan");
+check(
+  "channel commands are refused rather than left hanging",
+  chanRefusal.message.includes("not permitted"),
+  chanRefusal,
+);
+
 g.close();
 
-// ── 9. Unauthenticated access is refused ─────────────────────────────────────
-section("9. Authentication");
+// ── 9. Backpressure ──────────────────────────────────────────────────────────
+section("9. Rate limiting");
+const h = await openSession(cookie);
+await h.waitFor((f) => f.type === "__bff_hello");
+
+// The app-server applies no backpressure and a client render loop once OOM'd
+// it. A flood must be stopped here, at the session boundary.
+for (let i = 0; i < 200; i += 1) {
+  h.send({ type: "agent_list", request_id: `flood-${i}`, query: { limit: 1 } });
+}
+const throttled = await h.waitFor(
+  (f) => f.type === "__bff_error" && String(f.message).includes("Rate limit"),
+);
+check("a command flood is throttled at the BFF", Boolean(throttled), throttled?.message);
+
+// The upstream connection must be unharmed by the flood.
+const afterFlood = await status();
+check("upstream survived the flood", afterFlood.upstream.state === "connected", afterFlood.upstream);
+check(
+  "upstream socket was not recycled by the flood",
+  afterFlood.upstream.generation === 1,
+  afterFlood.upstream.generation,
+);
+
+h.close();
+
+// ── 10. Unauthenticated access is refused ────────────────────────────────────
+section("10. Authentication");
 const anon = await fetch(`${ORIGIN}/ws`, {
   headers: { connection: "Upgrade", upgrade: "websocket" },
 });

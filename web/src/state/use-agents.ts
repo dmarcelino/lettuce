@@ -69,6 +69,7 @@ export interface AgentsApi {
 }
 
 export function useAgents(session: SessionApi): AgentsApi {
+  const { request, ready } = session;
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [agentId, setAgentId] = useState<string | null>(null);
@@ -80,7 +81,7 @@ export function useAgents(session: SessionApi): AgentsApi {
     setLoading(true);
     setError(null);
     try {
-      const response = await session.request("agent_list", { query: { limit: 100 } });
+      const response = await request("agent_list", { query: { limit: 100 } });
       const list = readAgents(response);
       setAgents(list);
       setAgentId((current) => current ?? list[0]?.id ?? null);
@@ -89,13 +90,13 @@ export function useAgents(session: SessionApi): AgentsApi {
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [request]);
 
   const refreshConversations = useCallback(
     async (targetAgentId: string) => {
       setError(null);
       try {
-        const response = await session.request("conversation_list", {
+        const response = await request("conversation_list", {
           query: { agent_id: targetAgentId, limit: 100 },
         });
         const list = readConversations(response);
@@ -109,16 +110,16 @@ export function useAgents(session: SessionApi): AgentsApi {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     },
-    [session],
+    [request],
   );
 
   useEffect(() => {
-    if (session.ready) void refreshAgents();
-  }, [session.ready, refreshAgents]);
+    if (ready) void refreshAgents();
+  }, [ready, refreshAgents]);
 
   useEffect(() => {
-    if (session.ready && agentId) void refreshConversations(agentId);
-  }, [session.ready, agentId, refreshConversations]);
+    if (ready && agentId) void refreshConversations(agentId);
+  }, [ready, agentId, refreshConversations]);
 
   const selectAgent = useCallback((next: string) => {
     setAgentId(next);
@@ -128,37 +129,37 @@ export function useAgents(session: SessionApi): AgentsApi {
 
   const createConversation = useCallback(async () => {
     if (!agentId) return;
-    const response = await session.request<{ conversation?: { id?: string } }>(
+    const response = await request<{ conversation?: { id?: string } }>(
       "conversation_create",
       { body: { agent_id: agentId } },
     );
     await refreshConversations(agentId);
     const id = response?.conversation?.id;
     if (typeof id === "string") setConversationId(id);
-  }, [agentId, session, refreshConversations]);
+  }, [agentId, request, refreshConversations]);
 
   const renameConversation = useCallback(
     async (target: string, summary: string) => {
-      await session.request("conversation_update", {
+      await request("conversation_update", {
         conversation_id: target,
         body: { summary },
       });
       if (agentId) await refreshConversations(agentId);
     },
-    [agentId, session, refreshConversations],
+    [agentId, request, refreshConversations],
   );
 
   // `conversation_list` ignores an `archived` query filter, so the archived
   // set is filtered client-side; only the write side is native.
   const setArchived = useCallback(
     async (target: string, archived: boolean) => {
-      await session.request("conversation_update", {
+      await request("conversation_update", {
         conversation_id: target,
         body: { archived },
       });
       if (agentId) await refreshConversations(agentId);
     },
-    [agentId, session, refreshConversations],
+    [agentId, request, refreshConversations],
   );
 
   return {

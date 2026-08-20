@@ -27,7 +27,20 @@ interface Session {
   scopes: Set<string>;
   /** BFF request ids this session is awaiting, mapped to its own original id. */
   pendingRequests: Map<string, string>;
+  /** Sliding-window timestamps for rate limiting. */
+  recentCommands: number[];
+  /** Set once the session is throttled, so we complain only once. */
+  throttled: boolean;
 }
+
+/**
+ * A client-side render loop once sent ~88,000 commands and drove the
+ * app-server to a 2GB heap and a fatal OOM, twice. The app-server applies no
+ * backpressure of its own, so the BFF enforces it: a misbehaving browser
+ * should degrade itself, never the agent runtime.
+ */
+const RATE_LIMIT_WINDOW_MS = 10_000;
+const RATE_LIMIT_MAX_COMMANDS = 120;
 
 /**
  * Routes frames between many short-lived browser sessions and the one permanent
@@ -66,6 +79,8 @@ export class SessionRegistry {
       socket,
       scopes: new Set(),
       pendingRequests: new Map(),
+      recentCommands: [],
+      throttled: false,
     });
     this.log(`Session ${id} opened for ${user.email} (${this.sessions.size} active)`);
 
@@ -116,6 +131,17 @@ export class SessionRegistry {
     }
 
     const command = parsed as Record<string, unknown> & { type: string; request_id?: unknown };
+
+    if (this.isRateLimited(session)) {
+      this.sendTo(session.socket, {
+        type: "__bff_error",
+        message: `Rate limit exceeded: more than ${RATE_LIMIT_MAX_COMMANDS} commands in ${
+          RATE_LIMIT_WINDOW_MS / 1000
+        }s. Slow down and retry.`,
+        ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
+      });
+      return;
+    }
 
     if (!ALLOWED_SESSION_COMMANDS.has(command.type)) {
       this.sendTo(session.socket, {
@@ -235,6 +261,30 @@ export class SessionRegistry {
           (result.resyncRequired ? ", resync required" : ""),
       );
     }
+  }
+
+  /** Sliding window over one session's recent commands. */
+  private isRateLimited(session: Session): boolean {
+    const now = Date.now();
+    const cutoff = now - RATE_LIMIT_WINDOW_MS;
+    while (session.recentCommands.length > 0 && session.recentCommands[0]! < cutoff) {
+      session.recentCommands.shift();
+    }
+
+    if (session.recentCommands.length >= RATE_LIMIT_MAX_COMMANDS) {
+      if (!session.throttled) {
+        session.throttled = true;
+        this.log(
+          `Session ${session.id} throttled: ${session.recentCommands.length} commands in ` +
+            `${RATE_LIMIT_WINDOW_MS / 1000}s (likely a client render loop)`,
+        );
+      }
+      return true;
+    }
+
+    session.recentCommands.push(now);
+    session.throttled = false;
+    return false;
   }
 
   private sendTo(socket: SessionSocket, message: BffServerMessage | Record<string, unknown>): void {
