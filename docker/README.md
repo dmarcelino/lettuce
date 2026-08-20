@@ -32,6 +32,16 @@ authorized redirect URI.
 docker compose -f docker/compose.yml up --build
 ```
 
+The BFF serves the built SPA at `PUBLIC_ORIGIN` (default
+`http://localhost:8090`) and the app-server stays on loopback only. The image
+builds `web/` in its own stage and the BFF serves it from `WEB_DIST`
+(`web/dist`); API, auth and health routes are registered first, so the SPA
+fallback cannot shadow them.
+
+Accessing it from another device on the LAN? Set `PUBLIC_ORIGIN` to that
+address (e.g. `http://192.168.1.4:8090`) — it is what the Google OAuth
+redirect URI is built from.
+
 ## Connect the model
 
 llama.cpp runs on the host. Point the app-server at it once:

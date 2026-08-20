@@ -1,5 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
+import { serveStatic } from "hono/bun";
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import { isAllowedUser, loadConfig, type BffConfig } from "./config.ts";
 import {
@@ -147,6 +148,18 @@ app.post("/auth/logout", (c) => {
   c.header("set-cookie", clearSessionCookie(secureCookies));
   return c.json({ ok: true });
 });
+
+// ── Static SPA ───────────────────────────────────────────────────────────────
+// Registered last: Hono matches in order, so /api, /auth and the health probes
+// above always win. In local development Vite serves the app instead and
+// proxies those paths here, so a missing build is not an error.
+const webDist = process.env.WEB_DIST ?? "web/dist";
+
+app.use("/assets/*", serveStatic({ root: webDist }));
+
+// SPA fallback — every unmatched GET renders the app shell so client-side
+// routes survive a reload or a deep link.
+app.get("*", serveStatic({ path: `${webDist}/index.html` }));
 
 function issueSession(_res: Response, name: string, email: string): Response {
   const payload: SessionPayload = {
