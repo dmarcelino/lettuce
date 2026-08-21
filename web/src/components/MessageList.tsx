@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { TranscriptEntry } from "../lib/messages.ts";
+import { Markdown } from "./Markdown.tsx";
 
 interface Props {
   entries: TranscriptEntry[];
@@ -137,7 +138,11 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
           <span className="tag">{label}</span>
           <span className="chevron">{open ? "▾" : "▸"}</span>
         </button>
-        {open ? <div className="bubble thinking">{entry.text}</div> : null}
+        {open ? (
+          <div className="bubble thinking">
+            <Markdown text={entry.text} />
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -146,7 +151,7 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
     <div className={`entry ${entry.kind}`}>
       {entry.kind !== "user" ? <span className="tag">{label}</span> : null}
       <div className={`bubble ${entry.kind}`}>
-        {entry.text}
+        <Markdown text={entry.text} />
         {entry.streaming ? <span className="caret" /> : null}
       </div>
     </div>

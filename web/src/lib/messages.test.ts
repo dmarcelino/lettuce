@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyStreamDelta,
+  createStreamIndex,
   type FilterGroup,
   filterEntries,
   settleStreaming,
@@ -11,18 +12,42 @@ import {
 
 function streamed(deltas: unknown[]): Transcript {
   const transcript: Transcript = new Map();
-  deltas.forEach((delta, index) => {
-    applyStreamDelta(transcript, delta, index);
+  const index = createStreamIndex();
+  deltas.forEach((delta, seq) => {
+    applyStreamDelta(transcript, index, delta, seq);
   });
   return transcript;
 }
 
+/**
+ * One assistant text delta exactly as the local backend puts it on the wire.
+ *
+ * `id` is minted fresh per chunk by `createStoredChunk`, which also strips the
+ * provider's own id; `otid` is memoized per contiguous content segment and is
+ * the only field stable across a message. A real capture showed 98 deltas with
+ * 98 distinct ids and 1 otid.
+ */
+let wireSeq = 400;
+function textDelta(otid: string, text: string, messageType = "assistant_message") {
+  wireSeq += 1;
+  const key = messageType === "reasoning_message" ? "reasoning" : "content";
+  return {
+    type: "message",
+    id: `letta-msg-${wireSeq}`,
+    date: new Date(wireSeq).toISOString(),
+    message_type: messageType,
+    otid,
+    [key]: messageType === "reasoning_message" ? text : [{ type: "text", text }],
+  };
+}
+
 describe("streaming accumulation", () => {
   test("assistant text fragments concatenate into one entry", () => {
+    // Every delta carries a DIFFERENT id and the SAME otid — the real wire.
     const transcript = streamed([
-      { type: "message", id: "m1", date: "d", message_type: "assistant_message", content: "Hel" },
-      { type: "message", id: "m1", date: "d", message_type: "assistant_message", content: "lo " },
-      { type: "message", id: "m1", date: "d", message_type: "assistant_message", content: "there" },
+      textDelta("provider-assistant-1-aaa", "Hel"),
+      textDelta("provider-assistant-1-aaa", "lo "),
+      textDelta("provider-assistant-1-aaa", "there"),
     ]);
     const entries = sortedEntries(transcript);
     expect(entries).toHaveLength(1);
@@ -30,20 +55,74 @@ describe("streaming accumulation", () => {
     expect(entries[0]!.kind).toBe("assistant");
   });
 
+  test("a new otid starts a new entry", () => {
+    const transcript = streamed([
+      textDelta("provider-assistant-1-aaa", "first"),
+      textDelta("provider-assistant-3-bbb", "second"),
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.text)).toEqual(["first", "second"]);
+  });
+
+  test("reasoning deltas group by otid too", () => {
+    const transcript = streamed([
+      textDelta("provider-reasoning-0-ccc", "think", "reasoning_message"),
+      textDelta("provider-reasoning-0-ccc", "ing", "reasoning_message"),
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.text).toBe("thinking");
+    expect(entries[0]!.kind).toBe("reasoning");
+  });
+
+  test("a delta with an otid but no id is kept, not dropped", () => {
+    const transcript = streamed([
+      { type: "message", message_type: "assistant_message", otid: "o1", content: "raw " },
+      { type: "message", message_type: "assistant_message", otid: "o1", content: "chunk" },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.text).toBe("raw chunk");
+  });
+
+  test("a stream mixing id-only and otid-only chunks stays one entry", () => {
+    const transcript = streamed([
+      { type: "message", id: "m1", message_type: "assistant_message", otid: "o9", content: "a" },
+      { type: "message", id: "m1", message_type: "assistant_message", content: "b" },
+      { type: "message", message_type: "assistant_message", otid: "o9", content: "c" },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.text).toBe("abc");
+  });
+
+  test("assistant and reasoning sharing one otid do not merge", () => {
+    const transcript = streamed([
+      textDelta("shared-otid", "spoken"),
+      textDelta("shared-otid", "thought", "reasoning_message"),
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.kind).sort()).toEqual(["assistant", "reasoning"]);
+  });
+
   test("tool call arguments accumulate across deltas", () => {
     const transcript = streamed([
       {
         type: "message",
-        id: "t1",
+        id: "letta-msg-500",
         date: "d",
         message_type: "tool_call_message",
+        otid: "provider-tool-0-ddd",
         tool_call: { name: "Read", tool_call_id: "c1", arguments: '{"path":' },
       },
       {
         type: "message",
-        id: "t1",
+        id: "letta-msg-501",
         date: "d",
         message_type: "tool_call_message",
+        otid: "provider-tool-0-ddd",
         tool_call: { arguments: '"/tmp/x"}' },
       },
     ]);

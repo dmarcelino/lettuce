@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   applyStreamDelta,
+  createStreamIndex,
+  type StreamIndex,
   settleStreaming,
   sortedEntries,
   type Transcript,
@@ -126,6 +128,9 @@ export function useConversation(
   const [skills, setSkills] = useState<SkillSummary[]>([]);
 
   const transcriptRef = useRef<Transcript>(new Map());
+  // Alias maps that hold a streamed message together; reset wherever the
+  // transcript is, so a stale otid can never bind to a rebuilt transcript.
+  const streamIndexRef = useRef<StreamIndex>(createStreamIndex());
   const seqRef = useRef(0);
   const startedRef = useRef<string | null>(null);
 
@@ -147,6 +152,7 @@ export function useConversation(
       });
       const messages = Array.isArray(response?.messages) ? response.messages : [];
       transcriptRef.current = transcriptFromHistory(messages);
+      streamIndexRef.current = createStreamIndex();
       seqRef.current = messages.length;
       flush();
     } catch (cause) {
@@ -164,6 +170,7 @@ export function useConversation(
     startedRef.current = key;
 
     transcriptRef.current = new Map();
+    streamIndexRef.current = createStreamIndex();
     seqRef.current = 0;
     setEntries([]);
     setQueue([]);
@@ -204,6 +211,7 @@ export function useConversation(
           const subagentId = (frame as { subagent_id?: unknown }).subagent_id;
           applyStreamDelta(
             transcriptRef.current,
+            streamIndexRef.current,
             delta,
             seqRef.current,
             typeof subagentId === "string" ? subagentId : undefined,

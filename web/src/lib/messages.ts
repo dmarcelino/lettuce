@@ -2,10 +2,11 @@
  * Normalizes Letta messages — whether streamed as deltas or loaded as history —
  * into a flat transcript the UI can render.
  *
- * Streaming sends many partial frames sharing one message id: assistant text,
- * reasoning, and tool-call arguments all arrive in fragments. Entries are keyed
- * by id and string fields are appended, so a delta and a full history record
- * converge on the same shape.
+ * Streaming sends many partial frames per message: assistant text, reasoning,
+ * and tool-call arguments all arrive in fragments. Those fragments are grouped
+ * by a canonical key resolved from `otid` and `id` (see StreamIndex — `id`
+ * alone is per-frame, not per-message) and string fields are appended, so a
+ * delta and a full history record converge on the same shape.
  */
 
 export type EntryKind =
@@ -69,6 +70,56 @@ export const FILTER_LABELS: Record<FilterGroup, string> = {
 };
 
 export type Transcript = Map<string, TranscriptEntry>;
+
+/**
+ * Alias maps that hold one streamed message together.
+ *
+ * `delta.id` is NOT stable: the local backend's `createStoredChunk` mints a
+ * fresh `letta-msg-N` for every chunk and strips the provider's own id. `otid`
+ * is memoized per contiguous content segment and is the only field constant
+ * across a message — a real capture showed 98 deltas, 98 ids, 1 otid. Keying on
+ * `id` therefore produces one entry per word.
+ *
+ * Both directions are needed because streams mix the two: some chunks carry
+ * only `id`, some only `otid`, some both. This mirrors `resolveAssistantLineId`
+ * in letta-code's own TUI accumulator, which is the reference implementation.
+ */
+export interface StreamIndex {
+  byMessageId: Map<string, string>;
+  byOtid: Map<string, string>;
+}
+
+export function createStreamIndex(): StreamIndex {
+  return { byMessageId: new Map(), byOtid: new Map() };
+}
+
+/**
+ * The key this message accumulates under, remembering the aliases so later
+ * chunks of the same message resolve to it whichever field they carry.
+ */
+function resolveCanonicalKey(
+  index: StreamIndex,
+  transcript: Transcript,
+  id: string,
+  otid: string,
+  kind: EntryKind,
+): string {
+  // `||` not `??`: the absent fields are empty strings, not undefined.
+  let canonical =
+    (id ? index.byMessageId.get(id) : undefined) ??
+    (otid ? index.byOtid.get(otid) : undefined) ??
+    (id || otid);
+  if (!canonical) return "";
+
+  // Providers can reuse one id/otid across an assistant and a reasoning block.
+  // Namespacing on collision keeps a thought out of the spoken message.
+  const existing = transcript.get(canonical);
+  if (existing && existing.kind !== kind) canonical = `${kind}:${canonical}`;
+
+  if (id) index.byMessageId.set(id, canonical);
+  if (otid) index.byOtid.set(otid, canonical);
+  return canonical;
+}
 
 export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
   return [...transcript.values()].sort((a, b) => {
@@ -148,7 +199,7 @@ function kindForMessageType(messageType: string): EntryKind | null {
 export function applyMessage(
   transcript: Transcript,
   raw: unknown,
-  options: { streaming: boolean; seq: number; subagentId?: string },
+  options: { streaming: boolean; seq: number; subagentId?: string; index?: StreamIndex },
 ): void {
   if (!raw || typeof raw !== "object") return;
   const message = raw as Record<string, unknown>;
@@ -158,11 +209,21 @@ export function applyMessage(
   if (!kind) return;
 
   const id = typeof message.id === "string" ? message.id : "";
-  if (!id) return;
+  const otid = typeof message.otid === "string" ? message.otid : "";
+  // A chunk with an otid but no id is a real shape (a raw pre-store provider
+  // chunk); only a chunk with neither is unaddressable.
+  if (!id && !otid) return;
 
-  const existing = transcript.get(id);
+  // History carries a stable id and no otid, so it still keys by id and the
+  // replay path is unchanged.
+  const key = options.index
+    ? resolveCanonicalKey(options.index, transcript, id, otid, kind)
+    : id || otid;
+  if (!key) return;
+
+  const existing = transcript.get(key);
   const entry: TranscriptEntry = existing ?? {
-    id,
+    id: key,
     kind,
     date: typeof message.date === "string" ? message.date : new Date().toISOString(),
     seenAt: options.seq,
@@ -237,7 +298,7 @@ export function applyMessage(
       break;
   }
 
-  transcript.set(id, entry);
+  transcript.set(key, entry);
 }
 
 /** Non-message lifecycle deltas: status lines, retries, errors, command output. */
@@ -300,6 +361,7 @@ export function applyNotice(
 /** Route one `stream_delta.delta` into the transcript. */
 export function applyStreamDelta(
   transcript: Transcript,
+  index: StreamIndex,
   delta: unknown,
   seq: number,
   subagentId?: string,
@@ -311,6 +373,7 @@ export function applyStreamDelta(
     applyMessage(transcript, record, {
       streaming: true,
       seq,
+      index,
       ...(subagentId ? { subagentId } : {}),
     });
     return;

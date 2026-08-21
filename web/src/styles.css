@@ -296,8 +296,129 @@ pre {
   padding: 9px 13px;
   border-radius: var(--radius);
   background: var(--surface);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+  /* Markdown supplies its own block spacing; pre-wrap here would double it.
+     `.md p` keeps pre-wrap so hard line breaks inside a paragraph survive. */
+  min-width: 0;
+}
+
+/* ── Markdown ────────────────────────────────────────────────────────────── */
+
+.md > *:first-child {
+  margin-top: 0;
+}
+.md > *:last-child {
+  margin-bottom: 0;
+}
+
+.md p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  /* A chat bubble is not a document: keep headings close to body size. */
+  margin: 14px 0 6px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+.md h1 {
+  font-size: 1.25em;
+}
+.md h2 {
+  font-size: 1.15em;
+}
+.md h3 {
+  font-size: 1.05em;
+}
+.md h4,
+.md h5,
+.md h6 {
+  font-size: 1em;
+  color: var(--muted);
+}
+
+.md ul,
+.md ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.md li {
+  margin: 2px 0;
+}
+.md li > p {
+  margin: 0;
+}
+.md li::marker {
+  color: var(--muted);
+}
+
+.md a {
+  color: var(--accent);
+}
+.md strong {
+  font-weight: 650;
+}
+.md hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+
+.md blockquote {
+  margin: 8px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+}
+
+.md code {
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+}
+.md-pre {
+  margin: 8px 0;
+  padding: 10px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  font-size: 12px;
+  /* Scroll the block, never the page. */
+  overflow-x: auto;
+  white-space: pre;
+}
+.md-pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 5px 9px;
+  text-align: left;
+}
+.md th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.md input[type="checkbox"] {
+  margin-right: 6px;
 }
 .bubble.user {
   background: var(--accent);
