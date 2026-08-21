@@ -1,9 +1,27 @@
 import { useCallback, useEffect, useState } from "react";
+import { readAgentModelHandle } from "./use-models.ts";
 import type { SessionApi } from "./use-session.ts";
 
 export interface AgentSummary {
   id: string;
   name: string;
+}
+
+/** The only personalities `create_agent` accepts. There is no "default". */
+export const AGENT_PRESETS = ["memo", "tutorial", "blank", "linus", "kawaii"] as const;
+export type AgentPreset = (typeof AGENT_PRESETS)[number];
+
+export interface AgentDetail {
+  id: string;
+  name: string;
+  system: string;
+  modelHandle: string | null;
+}
+
+export interface AgentDraft {
+  name: string;
+  system: string;
+  modelHandle: string | null;
 }
 
 export interface ConversationSummary {
@@ -52,6 +70,27 @@ function readConversations(response: unknown): ConversationSummary[] {
   });
 }
 
+/**
+ * The app-server answers a rejected command with `success: false` rather than
+ * closing the request, so a failure is only visible if we look for it.
+ */
+function assertOk(response: unknown, fallback: string): void {
+  const result = response as { success?: unknown; error?: unknown } | null;
+  if (result?.success === false) {
+    throw new Error(typeof result.error === "string" ? result.error : fallback);
+  }
+}
+
+function readAgentDetail(id: string, raw: unknown): AgentDetail {
+  const agent = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    id: typeof agent.id === "string" ? agent.id : id,
+    name: typeof agent.name === "string" ? agent.name : id,
+    system: typeof agent.system === "string" ? agent.system : "",
+    modelHandle: readAgentModelHandle(agent),
+  };
+}
+
 export interface AgentsApi {
   agents: AgentSummary[];
   conversations: ConversationSummary[];
@@ -63,6 +102,10 @@ export interface AgentsApi {
   selectConversation: (conversationId: string) => void;
   refreshAgents: () => Promise<void>;
   refreshConversations: (agentId: string) => Promise<void>;
+  retrieveAgent: (agentId: string) => Promise<AgentDetail>;
+  createAgent: (preset: AgentPreset, draft: AgentDraft) => Promise<void>;
+  updateAgent: (agentId: string, draft: AgentDraft) => Promise<void>;
+  deleteAgent: (agentId: string) => Promise<void>;
   createConversation: () => Promise<void>;
   renameConversation: (conversationId: string, summary: string) => Promise<void>;
   setArchived: (conversationId: string, archived: boolean) => Promise<void>;
@@ -127,12 +170,102 @@ export function useAgents(session: SessionApi): AgentsApi {
     setConversations([]);
   }, []);
 
+  const retrieveAgent = useCallback(
+    async (target: string) => {
+      const response = await request<{ agent?: unknown }>("agent_retrieve", {
+        agent_id: target,
+      });
+      assertOk(response, "Failed to load agent");
+      return readAgentDetail(target, response?.agent);
+    },
+    [request],
+  );
+
+  /**
+   * Model changes go through `update_model` scoped to the sentinel conversation
+   * `"default"`, which the app-server treats as "the agent itself" and answers
+   * with `applied_to: "agent"`. That path preserves the context window and
+   * infers `provider_type` for OpenAI-compatible proxies; writing
+   * `agent_update {model}` directly would skip all of it.
+   */
+  const applyAgentModel = useCallback(
+    async (target: string, modelHandle: string) => {
+      const response = await request("update_model", {
+        runtime: { agent_id: target, conversation_id: "default" },
+        payload: { model_id: modelHandle, model_handle: modelHandle },
+      });
+      assertOk(response, "Failed to set the model");
+    },
+    [request],
+  );
+
+  const createAgent = useCallback(
+    async (preset: AgentPreset, draft: AgentDraft) => {
+      const response = await request<{ agent_id?: string; name?: string }>("create_agent", {
+        personality: preset,
+        ...(draft.modelHandle ? { model: draft.modelHandle } : {}),
+      });
+      assertOk(response, "Failed to create the agent");
+
+      const created = response?.agent_id;
+      if (typeof created !== "string") throw new Error("Agent was created without an id");
+
+      // The preset names the agent; apply the user's own name and prompt after.
+      const body: Record<string, unknown> = {};
+      if (draft.name.trim() && draft.name.trim() !== response?.name) body.name = draft.name.trim();
+      if (draft.system.trim()) body.system = draft.system;
+      if (Object.keys(body).length > 0) {
+        assertOk(
+          await request("agent_update", { agent_id: created, body }),
+          "Agent created, but its name could not be applied",
+        );
+      }
+
+      await refreshAgents();
+      setAgentId(created);
+      setConversationId(null);
+      setConversations([]);
+    },
+    [request, refreshAgents],
+  );
+
+  const updateAgent = useCallback(
+    async (target: string, draft: AgentDraft) => {
+      const response = await request("agent_update", {
+        agent_id: target,
+        body: { name: draft.name.trim(), system: draft.system },
+      });
+      assertOk(response, "Failed to update the agent");
+      if (draft.modelHandle) await applyAgentModel(target, draft.modelHandle);
+      await refreshAgents();
+    },
+    [request, refreshAgents, applyAgentModel],
+  );
+
+  const deleteAgent = useCallback(
+    async (target: string) => {
+      const response = await request("agent_delete", { agent_id: target });
+      assertOk(response, "Failed to delete the agent");
+
+      // `refreshAgents` only fills an empty selection, so a deleted *current*
+      // agent has to be cleared first or the UI keeps pointing at a dead id.
+      setAgents((current) => {
+        const remaining = current.filter((agent) => agent.id !== target);
+        setAgentId((selected) => (selected === target ? (remaining[0]?.id ?? null) : selected));
+        return remaining;
+      });
+      setConversationId(null);
+      setConversations([]);
+      await refreshAgents();
+    },
+    [request, refreshAgents],
+  );
+
   const createConversation = useCallback(async () => {
     if (!agentId) return;
-    const response = await request<{ conversation?: { id?: string } }>(
-      "conversation_create",
-      { body: { agent_id: agentId } },
-    );
+    const response = await request<{ conversation?: { id?: string } }>("conversation_create", {
+      body: { agent_id: agentId },
+    });
     await refreshConversations(agentId);
     const id = response?.conversation?.id;
     if (typeof id === "string") setConversationId(id);
@@ -173,6 +306,10 @@ export function useAgents(session: SessionApi): AgentsApi {
     selectConversation: setConversationId,
     refreshAgents,
     refreshConversations,
+    retrieveAgent,
+    createAgent,
+    updateAgent,
+    deleteAgent,
     createConversation,
     renameConversation,
     setArchived,

@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
+import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
+import { AuthPill } from "./components/AuthPill.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
+import { FILTER_LABELS, type FilterGroup, filterEntries } from "./lib/messages.ts";
+import type { ConnectionState, RuntimeScope } from "./lib/protocol.ts";
+import type { LinkState } from "./lib/session-client.ts";
+import { useAgents } from "./state/use-agents.ts";
+import { useConversation } from "./state/use-conversation.ts";
+import { useSession } from "./state/use-session.ts";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { MemoryTab } from "./tabs/MemoryTab.tsx";
 import { SettingsTab } from "./tabs/SettingsTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
-import { FILTER_LABELS, filterEntries, type FilterGroup } from "./lib/messages.ts";
-import type { ConnectionState, RuntimeScope } from "./lib/protocol.ts";
-import { useAgents } from "./state/use-agents.ts";
-import { useConversation } from "./state/use-conversation.ts";
-import { useSession } from "./state/use-session.ts";
-import type { LinkState } from "./lib/session-client.ts";
 
 interface Status {
   authenticated: boolean;
@@ -57,9 +59,9 @@ function SignIn({ status }: { status: Status }) {
       {bypass ? (
         <>
           <p className="warning">
-            Developer sign-in is enabled. This does <strong>not</strong> authenticate anyone —
-            any visitor becomes the configured user. Unset <code>DEV_BYPASS_EMAIL</code> to
-            require Google sign-in.
+            Developer sign-in is enabled. This does <strong>not</strong> authenticate anyone — any
+            visitor becomes the configured user. Unset <code>DEV_BYPASS_EMAIL</code> to require
+            Google sign-in.
           </p>
           <a className="button" href="/auth/login">
             Continue without signing in
@@ -85,6 +87,8 @@ function Workspace({ status }: { status: Status }) {
   const [tab, setTab] = useState<Tab>("Chat");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showModels, setShowModels] = useState(false);
+  /** `null` = closed; `{ id: null }` = create; `{ id }` = edit that agent. */
+  const [agentEditor, setAgentEditor] = useState<{ id: string | null } | null>(null);
   const [filters, setFilters] = useState<Set<FilterGroup>>(new Set());
 
   const scope: RuntimeScope | null =
@@ -112,8 +116,14 @@ function Workspace({ status }: { status: Status }) {
   const bypass = status.auth_mode === "dev-bypass";
 
   return (
-    <div className={`app${bypass ? " has-banner" : ""}`}>
-      <Sidebar agents={agents} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className="app">
+      <Sidebar
+        agents={agents}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        onNewAgent={() => setAgentEditor({ id: null })}
+        onEditAgent={(id) => setAgentEditor({ id })}
+      />
 
       <div className="main">
         <header className="topbar">
@@ -126,6 +136,7 @@ function Workspace({ status }: { status: Status }) {
             ☰
           </button>
           <h1 className="title">{title}</h1>
+          {bypass ? <AuthPill email={status.user?.email} /> : null}
           <LinkPill link={session.link} />
         </header>
 
@@ -210,11 +221,7 @@ function Workspace({ status }: { status: Status }) {
         ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />
         ) : (
-          <SettingsTab
-            session={session}
-            agentId={agents.agentId}
-            skills={conversation.skills}
-          />
+          <SettingsTab session={session} agentId={agents.agentId} skills={conversation.skills} />
         )}
       </div>
 
@@ -229,10 +236,13 @@ function Workspace({ status }: { status: Status }) {
         <ModelPicker session={session} scope={scope} onClose={() => setShowModels(false)} />
       ) : null}
 
-      {bypass ? (
-        <div className="bypass-banner">
-          Unauthenticated (dev bypass) — {status.user?.email}
-        </div>
+      {agentEditor ? (
+        <AgentEditor
+          session={session}
+          agents={agents}
+          agentId={agentEditor.id}
+          onClose={() => setAgentEditor(null)}
+        />
       ) : null}
     </div>
   );

@@ -52,65 +52,69 @@ export function ApprovalSheet({ approval, onRespond }: Props) {
 
   return (
     <div className="sheet">
-      <div className="sheet-body">
-        <h2>Approve {approval.toolName}?</h2>
+      <div className="sheet-panel" role="dialog" aria-modal="true">
+        <div className="sheet-body">
+          <h2>Approve {approval.toolName}?</h2>
 
-        {approval.blockedPath ? (
-          <p className="warning">Blocked path: <code>{approval.blockedPath}</code></p>
-        ) : null}
+          {approval.blockedPath ? (
+            <p className="warning">
+              Blocked path: <code>{approval.blockedPath}</code>
+            </p>
+          ) : null}
 
-        {approval.diffs.length > 0 ? (
-          <DiffView diffs={approval.diffs} />
-        ) : (
-          <pre className="tool-args">{JSON.stringify(approval.input, null, 2)}</pre>
-        )}
+          {approval.diffs.length > 0 ? (
+            <DiffView diffs={approval.diffs} />
+          ) : (
+            <pre className="tool-args">{JSON.stringify(approval.input, null, 2)}</pre>
+          )}
 
-        {approval.suggestions.length > 0 ? (
-          <ul className="suggestions">
-            {approval.suggestions.map((suggestion) => (
-              <li key={suggestion.id}>{suggestion.text}</li>
-            ))}
-          </ul>
-        ) : null}
+          {approval.suggestions.length > 0 ? (
+            <ul className="suggestions">
+              {approval.suggestions.map((suggestion) => (
+                <li key={suggestion.id}>{suggestion.text}</li>
+              ))}
+            </ul>
+          ) : null}
 
-        {denying ? (
-          <textarea
-            className="deny-reason"
-            placeholder="Why? (optional — the agent sees this)"
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-          />
-        ) : null}
-      </div>
+          {denying ? (
+            <textarea
+              className="deny-reason"
+              placeholder="Why? (optional — the agent sees this)"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          ) : null}
+        </div>
 
-      <div className="sheet-actions">
-        {denying ? (
-          <>
-            <button type="button" className="button ghost" onClick={() => setDenying(false)}>
-              Back
-            </button>
-            <button
-              type="button"
-              className="button danger"
-              onClick={() => onRespond(approval.requestId, false, reason.trim() || undefined)}
-            >
-              Deny
-            </button>
-          </>
-        ) : (
-          <>
-            <button type="button" className="button ghost" onClick={() => setDenying(true)}>
-              Deny
-            </button>
-            <button
-              type="button"
-              className="button"
-              onClick={() => onRespond(approval.requestId, true)}
-            >
-              Approve
-            </button>
-          </>
-        )}
+        <div className="sheet-actions">
+          {denying ? (
+            <>
+              <button type="button" className="button ghost" onClick={() => setDenying(false)}>
+                Back
+              </button>
+              <button
+                type="button"
+                className="button danger"
+                onClick={() => onRespond(approval.requestId, false, reason.trim() || undefined)}
+              >
+                Deny
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="button ghost" onClick={() => setDenying(true)}>
+                Deny
+              </button>
+              <button
+                type="button"
+                className="button"
+                onClick={() => onRespond(approval.requestId, true)}
+              >
+                Approve
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

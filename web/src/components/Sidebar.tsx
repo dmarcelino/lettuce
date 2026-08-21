@@ -5,9 +5,11 @@ interface Props {
   agents: AgentsApi;
   open: boolean;
   onClose: () => void;
+  onNewAgent: () => void;
+  onEditAgent: (agentId: string) => void;
 }
 
-export function Sidebar({ agents, open, onClose }: Props) {
+export function Sidebar({ agents, open, onClose, onNewAgent, onEditAgent }: Props) {
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -26,11 +28,29 @@ export function Sidebar({ agents, open, onClose }: Props) {
 
   return (
     <>
-      {open ? <button type="button" className="scrim" onClick={onClose} aria-label="Close" /> : null}
+      {open ? (
+        <button type="button" className="scrim" onClick={onClose} aria-label="Close" />
+      ) : null}
 
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-section">
-          <label htmlFor="agent-select">Agent</label>
+          <div className="row-between">
+            <label htmlFor="agent-select">Agent</label>
+            <span className="row-actions">
+              <button
+                type="button"
+                className="link"
+                title="Edit agent"
+                disabled={busy || !agents.agentId}
+                onClick={() => agents.agentId && onEditAgent(agents.agentId)}
+              >
+                ✎
+              </button>
+              <button type="button" className="link" disabled={busy} onClick={onNewAgent}>
+                + New
+              </button>
+            </span>
+          </div>
           <select
             id="agent-select"
             value={agents.agentId ?? ""}
@@ -47,7 +67,7 @@ export function Sidebar({ agents, open, onClose }: Props) {
 
         <div className="sidebar-section grow">
           <div className="row-between">
-            <label>Conversations</label>
+            <span className="section-label">Conversations</span>
             <button
               type="button"
               className="link"

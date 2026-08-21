@@ -33,13 +33,7 @@ interface Settings {
 
 const BLANK: McpServer = { name: "", transport: "stdio", command: "", args: [] };
 
-export function McpEditor({
-  session,
-  agentId,
-}: {
-  session: SessionApi;
-  agentId: string | null;
-}) {
+export function McpEditor({ session, agentId }: { session: SessionApi; agentId: string | null }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [servers, setServers] = useState<McpServer[]>([]);
   const [status, setStatus] = useState("");
@@ -83,8 +77,7 @@ export function McpEditor({
     // Merge into the agent's entry, leaving every other setting untouched.
     const agents = [...(settings.agents ?? [])];
     const index = agents.findIndex((entry) => entry.agentId === agentId);
-    const entry: AgentSettings =
-      index >= 0 ? { ...agents[index] } : { agentId, mcpServers: [] };
+    const entry: AgentSettings = index >= 0 ? { ...agents[index] } : { agentId, mcpServers: [] };
 
     if (next.length > 0) entry.mcpServers = next;
     else delete entry.mcpServers;
@@ -95,10 +88,10 @@ export function McpEditor({
     const updated: Settings = { ...settings, agents };
 
     try {
-      const response = await session.request<{ success?: boolean; error?: string }>(
-        "write_file",
-        { path: SETTINGS_PATH, content: `${JSON.stringify(updated, null, 2)}\n` },
-      );
+      const response = await session.request<{ success?: boolean; error?: string }>("write_file", {
+        path: SETTINGS_PATH,
+        content: `${JSON.stringify(updated, null, 2)}\n`,
+      });
       if (response?.success === false) {
         setStatus(response.error ?? "Save failed");
         return;
@@ -211,76 +204,78 @@ env: SEARXNG_URL=http://host.docker.internal:8080`}</pre>
 
       {draft ? (
         <div className="sheet">
-          <div className="sheet-body">
-            <h2>{draftIndex === null ? "Add MCP server" : `Edit ${draft.name}`}</h2>
+          <div className="sheet-panel" role="dialog" aria-modal="true">
+            <div className="sheet-body">
+              <h2>{draftIndex === null ? "Add MCP server" : `Edit ${draft.name}`}</h2>
 
-            <label className="field">
-              Name
-              <input
-                value={draft.name}
-                placeholder="searxng"
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-              />
-            </label>
-
-            <label className="field">
-              Transport
-              <select
-                value={draft.transport ?? "stdio"}
-                onChange={(event) =>
-                  setDraft({ ...draft, transport: event.target.value as Transport })
-                }
-              >
-                <option value="stdio">stdio (local process)</option>
-                <option value="http">http</option>
-                <option value="sse">sse</option>
-              </select>
-            </label>
-
-            {(draft.transport ?? "stdio") === "stdio" ? (
-              <>
-                <label className="field">
-                  Command
-                  <input
-                    value={draft.command ?? ""}
-                    placeholder="uvx"
-                    onChange={(event) => setDraft({ ...draft, command: event.target.value })}
-                  />
-                </label>
-                <label className="field">
-                  Arguments
-                  <input
-                    value={argsText}
-                    placeholder="mcp-searxng"
-                    onChange={(event) => setArgsText(event.target.value)}
-                  />
-                  <span className="muted small">Space separated</span>
-                </label>
-              </>
-            ) : (
               <label className="field">
-                URL
+                Name
                 <input
-                  value={draft.url ?? ""}
-                  placeholder="https://example.com/mcp"
-                  onChange={(event) => setDraft({ ...draft, url: event.target.value })}
+                  value={draft.name}
+                  placeholder="searxng"
+                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
                 />
               </label>
-            )}
-          </div>
 
-          <div className="sheet-actions">
-            <button type="button" className="button ghost" onClick={() => setDraft(null)}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="button"
-              disabled={!draft.name.trim()}
-              onClick={() => void commit()}
-            >
-              Save
-            </button>
+              <label className="field">
+                Transport
+                <select
+                  value={draft.transport ?? "stdio"}
+                  onChange={(event) =>
+                    setDraft({ ...draft, transport: event.target.value as Transport })
+                  }
+                >
+                  <option value="stdio">stdio (local process)</option>
+                  <option value="http">http</option>
+                  <option value="sse">sse</option>
+                </select>
+              </label>
+
+              {(draft.transport ?? "stdio") === "stdio" ? (
+                <>
+                  <label className="field">
+                    Command
+                    <input
+                      value={draft.command ?? ""}
+                      placeholder="uvx"
+                      onChange={(event) => setDraft({ ...draft, command: event.target.value })}
+                    />
+                  </label>
+                  <label className="field">
+                    Arguments
+                    <input
+                      value={argsText}
+                      placeholder="mcp-searxng"
+                      onChange={(event) => setArgsText(event.target.value)}
+                    />
+                    <span className="muted small">Space separated</span>
+                  </label>
+                </>
+              ) : (
+                <label className="field">
+                  URL
+                  <input
+                    value={draft.url ?? ""}
+                    placeholder="https://example.com/mcp"
+                    onChange={(event) => setDraft({ ...draft, url: event.target.value })}
+                  />
+                </label>
+              )}
+            </div>
+
+            <div className="sheet-actions">
+              <button type="button" className="button ghost" onClick={() => setDraft(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={!draft.name.trim()}
+                onClick={() => void commit()}
+              >
+                Save
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Sheet } from "../components/Sheet.tsx";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface TreeEntry {
@@ -112,7 +113,11 @@ export function FilesTab({ session, cwd }: Props) {
   const parent = root && root !== "/" ? root.replace(/\/[^/]+\/?$/, "") || "/" : null;
 
   if (!root) {
-    return <div className="pane"><p className="muted">Start a conversation to browse its working directory.</p></div>;
+    return (
+      <div className="pane">
+        <p className="muted">Start a conversation to browse its working directory.</p>
+      </div>
+    );
   }
 
   return (
@@ -193,17 +198,17 @@ export function FilesTab({ session, cwd }: Props) {
       )}
 
       {selected && content !== null ? (
-        <div className="sheet" onClick={() => setSelected(null)}>
-          <div className="sheet-body" onClick={(event) => event.stopPropagation()}>
-            <h2>{selected.split("/").pop()}</h2>
-            <pre className="tool-args">{content}</pre>
-          </div>
-          <div className="sheet-actions">
+        <Sheet
+          title={selected.split("/").pop() ?? selected}
+          onClose={() => setSelected(null)}
+          actions={
             <button type="button" className="button ghost" onClick={() => setSelected(null)}>
               Close
             </button>
-          </div>
-        </div>
+          }
+        >
+          <pre className="tool-args">{content}</pre>
+        </Sheet>
       ) : null}
     </div>
   );
