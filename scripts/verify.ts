@@ -1,0 +1,56 @@
+/**
+ * The offline half of the definition of done (see CLAUDE.md).
+ *
+ * Runs every gate that needs no running stack, cheapest first, and stops at the
+ * first failure. On success it prints the steps that are NOT automated, because
+ * the failure this script exists to prevent was reporting work "done" when it
+ * had been typechecked and built but never committed or deployed.
+ *
+ * Usage: bun run verify
+ */
+
+const ROOT = new URL("..", import.meta.url).pathname;
+
+interface Stage {
+  name: string;
+  cmd: string[];
+  why: string;
+}
+
+const STAGES: Stage[] = [
+  { name: "lint", cmd: ["bun", "run", "lint"], why: "biome check" },
+  { name: "typecheck", cmd: ["bun", "run", "typecheck"], why: "also the protocol-drift detector" },
+  { name: "test", cmd: ["bun", "test"], why: "bun:test" },
+  { name: "build", cmd: ["bun", "run", "build"], why: "writes web/dist" },
+];
+
+let failed: string | null = null;
+
+for (const stage of STAGES) {
+  console.log(`\n── ${stage.name} (${stage.why})`);
+  const result = Bun.spawnSync(stage.cmd, {
+    cwd: ROOT,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if (result.exitCode !== 0) {
+    failed = stage.name;
+    break;
+  }
+}
+
+if (failed) {
+  console.log(`\n✗ verify FAILED at: ${failed}`);
+  console.log("  Later stages were not run.");
+  process.exit(1);
+}
+
+console.log(`\n✓ verify passed — ${STAGES.map((s) => s.name).join(", ")}`);
+console.log(`
+  This is NOT done yet. Still required (see CLAUDE.md → Definition of done):
+
+    2. commit on a feature branch, merge to main
+    3. git worktree remove <path> && git branch -d <branch>
+    4. docker compose -f docker/compose.yml build bff && ... up -d bff
+    5. bun run deploy-check
+`);

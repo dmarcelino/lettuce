@@ -138,11 +138,57 @@ Protocol drift shows up two ways:
 
 Worktrees per feature, feature branches, direct merge to `main`, no PRs.
 
+## Definition of done
+
+Work is **not done**, and must not be reported as done, until every line below passes.
+This list exists because a change was once reported as complete when it had been
+typechecked and built but never committed, never merged, and never deployed — the
+container was still serving the previous bundle, and only the user noticed.
+
+Passing typecheck is not done. Passing tests is not done. **Running in the container is done.**
+
+1. **`bun run verify` green** — lint, typecheck, tests, build. Fails fast; later stages
+   do not run once one fails.
+2. **Committed** on a feature branch and merged to `main`.
+3. **Worktree cleaned up** — `git worktree remove <path>`, feature branch deleted.
+4. **Docker rebuilt from `main`** —
+   `docker compose -f docker/compose.yml build bff && docker compose -f docker/compose.yml up -d bff`.
+   The `build` is not optional; see the note below.
+5. **`bun run deploy-check` green** — asserts the tree is clean and on `main`, that the
+   bundle the container serves is byte-identical to the one in `web/dist`, and that
+   `/readyz` and the upstream app-server connection are healthy.
+6. **`bun run smoke` green** when the change touches BFF session, protocol or settings
+   paths. Not part of `verify`: it needs a live stack, it needs at least one agent to
+   exist, and it mutates real state (writes `smoke-probe.md` into the agent cwd, edits
+   and restores `/root/.letta/settings.json`, creates and deletes a cron task).
+
+Only `bff` is rebuilt in step 4 — it is the only service carrying our code. Rebuild
+`app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or the fork changes.
+
+**`web/dist` is baked into the bff image, never mounted.** `bff.Dockerfile` builds the SPA
+in its `web-build` stage and copies the result into the runtime image; the only bind mount
+is `config/users.json`. So `docker compose up -d` on its own will happily serve a months-old
+UI, and a local `bun run build` changes nothing the container sees. That is the trap step 5
+catches: it compares the served `assets/index-*.js` name against the local one.
+
+Lint policy: `bun run lint` fails on Biome **errors** only. Warnings are visible but do not
+block — a handful are load-bearing (see the comments in `biome.jsonc` for why
+`useExhaustiveDependencies` is a warning here: satisfying it would reintroduce the unbounded
+app-server request loop that `use-session.ts` documents).
+
 ## Commands
 
 | Command | What it does |
 |---|---|
+| `bun run verify` | **The gate.** lint → typecheck → test → build, fail-fast |
+| `bun run deploy-check` | Asserts the running container serves the merged code, and is healthy |
+| `bun run lint` | Biome check (errors fail, warnings do not) |
+| `bun run format` | Biome check with safe fixes applied |
 | `bun run typecheck` | Typecheck both packages — the protocol-drift detector |
+| `bun run test` | `bun:test` unit tests |
+| `bun run build` | Builds the SPA into `web/dist` (runs `tsc --noEmit` first) |
 | `bun run dev` | BFF + Vite dev server |
+| `bun run smoke` | Live acceptance suite against a running stack — mutates state |
 | `bun run sync-upstream` | Sync fork from upstream and report drift |
-| `docker compose -f docker/compose.yml up` | App-server + BFF |
+| `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
+| `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway |

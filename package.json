@@ -8,15 +8,21 @@
     "web"
   ],
   "scripts": {
+    "verify": "bun scripts/verify.ts",
+    "lint": "biome check .",
+    "format": "biome check --write .",
     "typecheck": "bun run --filter '*' typecheck",
-    "dev": "bun run --filter '*' dev",
+    "test": "bun test",
     "build": "bun run --filter '*' build",
-    "sync-upstream": "bash scripts/sync-upstream.sh",
-    "smoke": "bun scripts/persistence-smoke.ts"
+    "dev": "bun run --filter '*' dev",
+    "smoke": "bun scripts/persistence-smoke.ts",
+    "deploy-check": "bun scripts/deploy-check.ts",
+    "sync-upstream": "bash scripts/sync-upstream.sh"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@letta-ai/letta-code": "file:../letta-code"
+    "@biomejs/biome": "^2.5.9",
+    "@letta-ai/letta-code": "file:../letta-code",
+    "typescript": "^5.6.0"
   },
   "trustedDependencies": []
 }
