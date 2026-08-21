@@ -53,4 +53,6 @@ console.log(`
     3. git worktree remove <path> && git branch -d <branch>
     4. docker compose -f docker/compose.yml build bff && ... up -d bff
     5. bun run deploy-check
+    6. bun run smoke        (only if BFF session/protocol/settings changed)
+    7. git push             <- STOP. Ask for confirmation first, every time.
 `);

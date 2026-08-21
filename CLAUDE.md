@@ -161,6 +161,24 @@ Passing typecheck is not done. Passing tests is not done. **Running in the conta
    paths. Not part of `verify`: it needs a live stack, it needs at least one agent to
    exist, and it mutates real state (writes `smoke-probe.md` into the agent cwd, edits
    and restores `/root/.letta/settings.json`, creates and deletes a cron task).
+7. **Pushed to `origin` — but stop and ask first.**
+
+### Stop before pushing
+
+**Never `git push` without asking, every time.** After merging to `main`, halt and ask for
+explicit confirmation. Standing approval does not carry over: a yes on one change is not a
+yes on the next one.
+
+Pushing is the one step that leaves this machine, and `origin` is the only copy of this
+project that is not on one laptop — so it matters, and so it is worth a human deciding.
+It comes last, after `deploy-check`, so nothing reaches `origin` that has not been proven
+to run in the container first.
+
+`origin` is `dmarchevsky/letta-code-ui`, private, and was empty until the first push. There
+is no `main` upstream to track on a fresh clone — the first push of a branch needs
+`git push -u origin main`. `.gitignore` covers `docker/.env`, `config/users.json` and
+`docker/secrets/`; none are tracked, and no secret values are in history. Re-check that
+before pushing anything new that touches configuration.
 
 Only `bff` is rebuilt in step 4 — it is the only service carrying our code. Rebuild
 `app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or the fork changes.
@@ -192,3 +210,4 @@ app-server request loop that `use-session.ts` documents).
 | `bun run sync-upstream` | Sync fork from upstream and report drift |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
 | `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway |
+| `git push origin main` | Last step — **ask for confirmation first, every time** |
