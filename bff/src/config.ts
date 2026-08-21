@@ -140,7 +140,9 @@ export function loadConfig(): BffConfig {
     appServerToken: readAppServerToken(),
     publicOrigin,
     // OAuth credentials are not needed when the dev bypass is active.
-    googleClientId: devBypassEmail ? (process.env.GOOGLE_CLIENT_ID ?? "") : required("GOOGLE_CLIENT_ID"),
+    googleClientId: devBypassEmail
+      ? (process.env.GOOGLE_CLIENT_ID ?? "")
+      : required("GOOGLE_CLIENT_ID"),
     googleClientSecret: devBypassEmail
       ? (process.env.GOOGLE_CLIENT_SECRET ?? "")
       : required("GOOGLE_CLIENT_SECRET"),

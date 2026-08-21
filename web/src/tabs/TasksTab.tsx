@@ -74,10 +74,11 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
   const act = async (type: string, body: Record<string, unknown>, label: string) => {
     setStatus(`${label}…`);
     try {
-      const response = await session.request<{ success?: boolean; error?: string; warning?: string }>(
-        type,
-        body,
-      );
+      const response = await session.request<{
+        success?: boolean;
+        error?: string;
+        warning?: string;
+      }>(type, body);
       if (response?.success === false) {
         setStatus(response.error ?? `${label} failed`);
         return false;
@@ -128,7 +129,11 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
   };
 
   if (!agentId) {
-    return <div className="pane"><p className="muted pad">Select an agent.</p></div>;
+    return (
+      <div className="pane">
+        <p className="muted pad">Select an agent.</p>
+      </div>
+    );
   }
 
   return (
@@ -159,10 +164,13 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
           <li key={task.id} className="task">
             <div className="task-head">
               <strong>{task.name}</strong>
-              <span className={`tag ${task.status === "active" ? "" : "muted"}`}>{task.status}</span>
+              <span className={`tag ${task.status === "active" ? "" : "muted"}`}>
+                {task.status}
+              </span>
             </div>
             <div className="muted small">
-              <code>{task.cron}</code> · {task.timezone} · {task.recurring ? "repeating" : "one-shot"}
+              <code>{task.cron}</code> · {task.timezone} ·{" "}
+              {task.recurring ? "repeating" : "one-shot"}
             </div>
             {task.description ? <div className="small">{task.description}</div> : null}
             <div className="muted small">

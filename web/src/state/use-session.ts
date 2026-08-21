@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConnectionState, RuntimeScope, SequencedFrame } from "../lib/protocol.ts";
-import { SessionClient, type LinkState } from "../lib/session-client.ts";
+import { type LinkState, SessionClient } from "../lib/session-client.ts";
 
 export interface SessionApi {
   link: LinkState;
@@ -53,7 +53,7 @@ export function useSession(enabled: boolean): SessionApi {
     };
   }, [enabled]);
 
-  const request = useCallback(<T,>(type: string, body: Record<string, unknown> = {}) => {
+  const request = useCallback(<T>(type: string, body: Record<string, unknown> = {}) => {
     const client = clientRef.current;
     if (!client) return Promise.reject(new Error("Not connected"));
     return client.request(type, body) as Promise<T>;

@@ -1,8 +1,7 @@
+import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
-import { isAllowedUser, loadConfig, type BffConfig } from "./config.ts";
 import {
   buildAuthorizationUrl,
   createOAuthState,
@@ -20,6 +19,7 @@ import {
   SESSION_COOKIE,
   type SessionPayload,
 } from "./auth/session-cookie.ts";
+import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 
@@ -56,9 +56,7 @@ const app = new Hono();
 app.get("/healthz", (c) => c.text("ok\n"));
 
 app.get("/readyz", (c) =>
-  upstream.isReady()
-    ? c.text("ok\n")
-    : c.text(`app-server ${upstream.getState()}\n`, 503),
+  upstream.isReady() ? c.text("ok\n") : c.text(`app-server ${upstream.getState()}\n`, 503),
 );
 
 app.get("/api/status", (c) => {
@@ -173,10 +171,7 @@ function issueSession(name: string, email: string, extraCookies: string[] = []):
   };
   const token = encodeSession(payload, config.sessionSecret);
   const headers = new Headers({ location: "/" });
-  headers.append(
-    "set-cookie",
-    buildSessionCookie(token, config.sessionTtlSeconds, secureCookies),
-  );
+  headers.append("set-cookie", buildSessionCookie(token, config.sessionTtlSeconds, secureCookies));
   for (const cookie of extraCookies) headers.append("set-cookie", cookie);
   return new Response(null, { status: 302, headers });
 }

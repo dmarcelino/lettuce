@@ -99,7 +99,11 @@ export function MemoryTab({ session, agentId }: Props) {
   };
 
   if (!agentId) {
-    return <div className="pane"><p className="muted pad">Select an agent.</p></div>;
+    return (
+      <div className="pane">
+        <p className="muted pad">Select an agent.</p>
+      </div>
+    );
   }
 
   return (
@@ -143,9 +147,7 @@ export function MemoryTab({ session, agentId }: Props) {
         <div className="sheet">
           <div className="sheet-body">
             <h2>{open.relative_path}</h2>
-            {open.is_system ? (
-              <p className="muted small">System block — edit with care.</p>
-            ) : null}
+            {open.is_system ? <p className="muted small">System block — edit with care.</p> : null}
 
             <textarea
               className="memory-editor"

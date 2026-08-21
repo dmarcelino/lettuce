@@ -123,9 +123,17 @@ await b.waitFor((f) => f.type === "__bff_hello");
 a.send({ type: "agent_list", request_id: "dup", query: { limit: 1 } });
 b.send({ type: "conversation_list", request_id: "dup", query: { limit: 1 } });
 const aResp = await a.waitFor((f) => f.request_id === "dup" && f.type === "agent_list_response");
-const bResp = await b.waitFor((f) => f.request_id === "dup" && f.type === "conversation_list_response");
-check("session A got its own response despite a colliding id", aResp.type === "agent_list_response");
-check("session B got its own response despite a colliding id", bResp.type === "conversation_list_response");
+const bResp = await b.waitFor(
+  (f) => f.request_id === "dup" && f.type === "conversation_list_response",
+);
+check(
+  "session A got its own response despite a colliding id",
+  aResp.type === "agent_list_response",
+);
+check(
+  "session B got its own response despite a colliding id",
+  bResp.type === "conversation_list_response",
+);
 check(
   "responses did not leak across sessions",
   !a.frames.some((f) => f.type === "conversation_list_response") &&
@@ -133,17 +141,17 @@ check(
 );
 
 const before = await status();
-check(
-  "both sessions registered",
-  before.sessions >= 2,
-  { sessions: before.sessions, baseline },
-);
+check("both sessions registered", before.sessions >= 2, { sessions: before.sessions, baseline });
 
 // ── 3. The command allowlist holds ───────────────────────────────────────────
 section("3. Command allowlist");
 a.send({ type: "terminal_spawn", request_id: "web-term", terminal_id: "t1", cols: 80, rows: 24 });
 const denied = await a.waitFor((f) => f.type === "__bff_error" && f.request_id === "web-term");
-check("terminal_spawn is refused from a browser session", denied.message.includes("not permitted"), denied);
+check(
+  "terminal_spawn is refused from a browser session",
+  denied.message.includes("not permitted"),
+  denied,
+);
 
 // ── 4. THE INVARIANT: dropping browser sockets must not touch upstream ───────
 section("4. Browser disconnect does not reach the app-server");
@@ -153,11 +161,10 @@ b.close();
 await new Promise((r) => setTimeout(r, 600));
 
 const after = await status();
-check(
-  "this test's sessions were unregistered",
-  after.sessions === baseline,
-  { after: after.sessions, baseline },
-);
+check("this test's sessions were unregistered", after.sessions === baseline, {
+  after: after.sessions,
+  baseline,
+});
 check("upstream is still connected", after.upstream.state === "connected", after.upstream.state);
 check(
   "upstream socket was never re-established",
@@ -179,21 +186,20 @@ check("resume from the live head replays nothing", resumed.replayed === 0, resum
 // The buffer has not wrapped in this short run, so a cursor at the very
 // beginning must be served by replay rather than forcing a resync.
 c.send({ type: "__bff_resume", from_seq: 0, scopes: [] });
-const stale = await c.waitFor(
-  (f) => f.type === "__bff_resume_result" && f.from_seq === 0,
-);
-check("an unwrapped buffer serves an old cursor without a resync", stale.resync_required === false, stale);
+const stale = await c.waitFor((f) => f.type === "__bff_resume_result" && f.from_seq === 0);
 check(
-  "replay covers every buffered frame",
-  stale.replayed === stale.latest_seq,
-  { replayed: stale.replayed, latest_seq: stale.latest_seq },
+  "an unwrapped buffer serves an old cursor without a resync",
+  stale.resync_required === false,
+  stale,
 );
+check("replay covers every buffered frame", stale.replayed === stale.latest_seq, {
+  replayed: stale.replayed,
+  latest_seq: stale.latest_seq,
+});
 
 const ahead = 999_999;
 c.send({ type: "__bff_resume", from_seq: ahead, scopes: [] });
-const impossible = await c.waitFor(
-  (f) => f.type === "__bff_resume_result" && f.from_seq === ahead,
-);
+const impossible = await c.waitFor((f) => f.type === "__bff_resume_result" && f.from_seq === ahead);
 check(
   "a cursor ahead of the buffer forces a resync",
   impossible.resync_required === true,
@@ -216,7 +222,11 @@ if (agentId) {
   d.send({ type: "conversation_create", request_id: "conv", body: { agent_id: agentId } });
   const created = await d.waitFor((f) => f.request_id === "conv");
   const conversationId: string | undefined = created.conversation?.id;
-  check("conversation_create succeeds", created.success === true && Boolean(conversationId), created.error);
+  check(
+    "conversation_create succeeds",
+    created.success === true && Boolean(conversationId),
+    created.error,
+  );
 
   if (conversationId) {
     d.send({
@@ -236,7 +246,11 @@ if (agentId) {
       query: { limit: 50 },
     });
     const history = await d.waitFor((f) => f.request_id === "hist");
-    check("history loads", history.success === true && Array.isArray(history.messages), history.error);
+    check(
+      "history loads",
+      history.success === true && Array.isArray(history.messages),
+      history.error,
+    );
 
     // Rename and archive both go through conversation_update; `archived` is a
     // real field on the conversation record, not a tag.
@@ -247,7 +261,11 @@ if (agentId) {
       body: { summary: "Smoke test" },
     });
     const renamed = await d.waitFor((f) => f.request_id === "ren");
-    check("rename applies", renamed.conversation?.summary === "Smoke test", renamed.conversation?.summary);
+    check(
+      "rename applies",
+      renamed.conversation?.summary === "Smoke test",
+      renamed.conversation?.summary,
+    );
 
     d.send({
       type: "conversation_update",
@@ -256,7 +274,11 @@ if (agentId) {
       body: { archived: true },
     });
     const archived = await d.waitFor((f) => f.request_id === "arc");
-    check("archive applies natively", archived.conversation?.archived === true, archived.conversation);
+    check(
+      "archive applies natively",
+      archived.conversation?.archived === true,
+      archived.conversation,
+    );
 
     d.send({
       type: "conversation_update",
@@ -305,7 +327,11 @@ if (agent2) {
 
   const deviceStatus = await e.waitFor((f) => f.type === "update_device_status");
   const cwd: string = deviceStatus.device_status?.current_working_directory ?? "/workspace";
-  check("device status carries a working directory", typeof cwd === "string" && cwd.length > 0, cwd);
+  check(
+    "device status carries a working directory",
+    typeof cwd === "string" && cwd.length > 0,
+    cwd,
+  );
 
   // Files: write, list, read, search. get_tree returns paths RELATIVE to its
   // root, and the search parameter is `query` — both were wrong on first pass.
@@ -331,16 +357,30 @@ if (agent2) {
 
   e.send({ type: "read_file", request_id: "rf", path: probeFile, encoding: "utf8" });
   const rf = await e.waitFor((f) => f.request_id === "rf");
-  check("read_file returns content", typeof rf.content === "string" && rf.content.includes("findable-token"), rf.error);
+  check(
+    "read_file returns content",
+    typeof rf.content === "string" && rf.content.includes("findable-token"),
+    rf.error,
+  );
 
-  e.send({ type: "grep_in_files", request_id: "gf", query: "findable-token", cwd, max_results: 20 });
+  e.send({
+    type: "grep_in_files",
+    request_id: "gf",
+    query: "findable-token",
+    cwd,
+    max_results: 20,
+  });
   const gf = await e.waitFor((f) => f.request_id === "gf");
   check("grep_in_files finds the token", (gf.matches?.length ?? 0) > 0, gf.error ?? gf);
 
   // Memory
   e.send({ type: "list_memory", request_id: "lm2", agent_id: agent2 });
   const lm2 = await e.waitFor((f) => f.request_id === "lm2");
-  check("list_memory returns blocks", (lm2.entries?.length ?? 0) > 0, lm2.error ?? lm2.entries?.length);
+  check(
+    "list_memory returns blocks",
+    (lm2.entries?.length ?? 0) > 0,
+    lm2.error ?? lm2.entries?.length,
+  );
 
   // Tasks: full CRUD round trip
   e.send({
@@ -406,7 +446,11 @@ if (typeof rs1.content === "string") {
   const original: string = rs1.content;
   const parsed = JSON.parse(original);
   const agentEntry = parsed.agents?.[0];
-  check("settings.json carries an agent entry", Boolean(agentEntry?.agentId), parsed.agents?.length);
+  check(
+    "settings.json carries an agent entry",
+    Boolean(agentEntry?.agentId),
+    parsed.agents?.length,
+  );
 
   if (agentEntry) {
     const agentsNext = [...parsed.agents];
@@ -433,8 +477,7 @@ if (typeof rs1.content === "string") {
     );
     check(
       "unrelated settings survived the merge",
-      Object.keys(back).length === Object.keys(parsed).length &&
-        back.deviceId === parsed.deviceId,
+      Object.keys(back).length === Object.keys(parsed).length && back.deviceId === parsed.deviceId,
       { before: Object.keys(parsed).length, after: Object.keys(back).length },
     );
 
@@ -487,7 +530,11 @@ check("a command flood is throttled at the BFF", Boolean(throttled), throttled?.
 
 // The upstream connection must be unharmed by the flood.
 const afterFlood = await status();
-check("upstream survived the flood", afterFlood.upstream.state === "connected", afterFlood.upstream);
+check(
+  "upstream survived the flood",
+  afterFlood.upstream.state === "connected",
+  afterFlood.upstream,
+);
 check(
   "upstream socket was not recycled by the flood",
   afterFlood.upstream.generation === 1,

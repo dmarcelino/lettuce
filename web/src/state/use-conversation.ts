@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { frameSeq, type RuntimeScope, type SequencedFrame } from "../lib/protocol.ts";
 import {
   applyStreamDelta,
   settleStreaming,
   sortedEntries,
-  transcriptFromHistory,
   type Transcript,
   type TranscriptEntry,
+  transcriptFromHistory,
 } from "../lib/messages.ts";
+import { frameSeq, type RuntimeScope, type SequencedFrame } from "../lib/protocol.ts";
 import type { SessionApi } from "./use-session.ts";
 
 export interface PendingApproval {
@@ -141,10 +141,10 @@ export function useConversation(
     setLoadingHistory(true);
     setError(null);
     try {
-      const response = await request<{ messages?: unknown[] }>(
-        "conversation_messages_list",
-        { conversation_id: conversationId, query: { limit: 200 } },
-      );
+      const response = await request<{ messages?: unknown[] }>("conversation_messages_list", {
+        conversation_id: conversationId,
+        query: { limit: 200 },
+      });
       const messages = Array.isArray(response?.messages) ? response.messages : [];
       transcriptRef.current = transcriptFromHistory(messages);
       seqRef.current = messages.length;
@@ -218,13 +218,15 @@ export function useConversation(
           break;
         }
         case "update_device_status": {
-          const status = (frame as {
-            device_status?: {
-              is_processing?: unknown;
-              current_working_directory?: unknown;
-              current_available_skills?: unknown;
-            };
-          }).device_status;
+          const status = (
+            frame as {
+              device_status?: {
+                is_processing?: unknown;
+                current_working_directory?: unknown;
+                current_available_skills?: unknown;
+              };
+            }
+          ).device_status;
           setProcessing(status?.is_processing === true);
           if (typeof status?.current_working_directory === "string") {
             setCwd(status.current_working_directory);
@@ -240,9 +242,7 @@ export function useConversation(
           // composer permanently stuck showing "stop".
           const loop = (frame as { loop_status?: { status?: unknown } }).loop_status;
           const loopStatus = loop?.status;
-          setProcessing(
-            typeof loopStatus === "string" && loopStatus !== "WAITING_ON_INPUT",
-          );
+          setProcessing(typeof loopStatus === "string" && loopStatus !== "WAITING_ON_INPUT");
           break;
         }
         case "update_queue": {

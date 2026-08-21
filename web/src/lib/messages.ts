@@ -308,7 +308,11 @@ export function applyStreamDelta(
   const record = delta as Record<string, unknown>;
 
   if (record.type === "message") {
-    applyMessage(transcript, record, { streaming: true, seq, ...(subagentId ? { subagentId } : {}) });
+    applyMessage(transcript, record, {
+      streaming: true,
+      seq,
+      ...(subagentId ? { subagentId } : {}),
+    });
     return;
   }
   applyNotice(transcript, record, seq);

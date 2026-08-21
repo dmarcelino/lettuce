@@ -1,20 +1,15 @@
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import {
-  frameSeq,
-  isBffControlFrame,
   type BffError,
   type BffHello,
   type ConnectionState,
+  frameSeq,
+  isBffControlFrame,
   type RuntimeScope,
   type SequencedFrame,
 } from "./protocol.ts";
 
-export type LinkState =
-  | "connecting"
-  | "live"
-  | "reconnecting"
-  | "resyncing"
-  | "offline";
+export type LinkState = "connecting" | "live" | "reconnecting" | "resyncing" | "offline";
 
 export interface SessionClientEvents {
   /** An app-server frame, already de-duplicated and in sequence order. */

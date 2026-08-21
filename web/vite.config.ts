@@ -1,5 +1,5 @@
-import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
 const BFF = process.env.BFF_ORIGIN ?? "http://localhost:8080";
 

@@ -4,9 +4,9 @@ import type { UpstreamConnection, UpstreamState } from "../upstream/connection.t
 import { FrameBuffer, frameScopeKey } from "./buffer.ts";
 import {
   ALLOWED_SESSION_COMMANDS,
+  type BffServerMessage,
   isBffResumeCommand,
   SEQ_FIELD,
-  type BffServerMessage,
 } from "./protocol.ts";
 
 export interface SessionSocket {
@@ -125,7 +125,11 @@ export class SessionRegistry {
       return;
     }
 
-    if (!parsed || typeof parsed !== "object" || typeof (parsed as { type?: unknown }).type !== "string") {
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof (parsed as { type?: unknown }).type !== "string"
+    ) {
       this.sendTo(session.socket, { type: "__bff_error", message: "Missing command type" });
       return;
     }
@@ -196,7 +200,10 @@ export class SessionRegistry {
         const originalId = session.pendingRequests.get(requestId);
         if (originalId === undefined) continue;
         session.pendingRequests.delete(requestId);
-        this.sendTo(session.socket, { ...frame, request_id: originalId } as unknown as BffServerMessage);
+        this.sendTo(session.socket, {
+          ...frame,
+          request_id: originalId,
+        } as unknown as BffServerMessage);
         return;
       }
       // Not a session's response (a BFF-internal request, or the session went

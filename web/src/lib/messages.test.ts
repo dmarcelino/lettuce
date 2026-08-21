@@ -1,17 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyStreamDelta,
+  type FilterGroup,
   filterEntries,
   settleStreaming,
   sortedEntries,
-  transcriptFromHistory,
-  type FilterGroup,
   type Transcript,
+  transcriptFromHistory,
 } from "./messages.ts";
 
 function streamed(deltas: unknown[]): Transcript {
   const transcript: Transcript = new Map();
-  deltas.forEach((delta, index) => applyStreamDelta(transcript, delta, index));
+  deltas.forEach((delta, index) => {
+    applyStreamDelta(transcript, delta, index);
+  });
   return transcript;
 }
 
@@ -58,7 +60,10 @@ describe("streaming accumulation", () => {
         id: "u1",
         date: "d",
         message_type: "user_message",
-        content: [{ type: "text", text: "part one " }, { type: "text", text: "part two" }],
+        content: [
+          { type: "text", text: "part one " },
+          { type: "text", text: "part two" },
+        ],
       },
     ]);
     expect(sortedEntries(transcript)[0]!.text).toBe("part one part two");
@@ -91,7 +96,13 @@ describe("streaming accumulation", () => {
 
   test("hidden reasoning is marked redacted", () => {
     const transcript = streamed([
-      { type: "message", id: "h1", date: "d", message_type: "hidden_reasoning_message", state: "redacted" },
+      {
+        type: "message",
+        id: "h1",
+        date: "d",
+        message_type: "hidden_reasoning_message",
+        state: "redacted",
+      },
     ]);
     expect(sortedEntries(transcript)[0]!.redacted).toBe(true);
   });
@@ -99,7 +110,13 @@ describe("streaming accumulation", () => {
   test("ordering follows first appearance, not id", () => {
     const transcript = streamed([
       { type: "message", id: "zzz", date: "d", message_type: "user_message", content: "first" },
-      { type: "message", id: "aaa", date: "d", message_type: "assistant_message", content: "second" },
+      {
+        type: "message",
+        id: "aaa",
+        date: "d",
+        message_type: "assistant_message",
+        content: "second",
+      },
     ]);
     expect(sortedEntries(transcript).map((e) => e.text)).toEqual(["first", "second"]);
   });
@@ -152,7 +169,13 @@ describe("filtering", () => {
     { type: "message", id: "u", date: "d", message_type: "user_message", content: "u" },
     { type: "message", id: "a", date: "d", message_type: "assistant_message", content: "a" },
     { type: "message", id: "rs", date: "d", message_type: "reasoning_message", reasoning: "r" },
-    { type: "message", id: "t", date: "d", message_type: "tool_call_message", tool_call: { name: "Bash" } },
+    {
+      type: "message",
+      id: "t",
+      date: "d",
+      message_type: "tool_call_message",
+      tool_call: { name: "Bash" },
+    },
     { type: "message", id: "s", date: "d", message_type: "system_message", content: "s" },
   ]);
   const entries = sortedEntries(transcript);
@@ -168,6 +191,8 @@ describe("filtering", () => {
 
   test("tools and system are separable", () => {
     expect(filterEntries(entries, new Set<FilterGroup>(["tools"])).map((e) => e.id)).toEqual(["t"]);
-    expect(filterEntries(entries, new Set<FilterGroup>(["system"])).map((e) => e.id)).toEqual(["s"]);
+    expect(filterEntries(entries, new Set<FilterGroup>(["system"])).map((e) => e.id)).toEqual([
+      "s",
+    ]);
   });
 });

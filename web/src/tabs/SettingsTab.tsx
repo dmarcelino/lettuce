@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { SessionApi } from "../state/use-session.ts";
 import { McpEditor } from "../components/McpEditor.tsx";
+import type { SessionApi } from "../state/use-session.ts";
 
 interface ProviderField {
   key: string;
@@ -202,17 +202,15 @@ function ConnectionSection({ session }: { session: SessionApi }) {
                   type={field.secret ? "password" : "text"}
                   placeholder={field.placeholder ?? ""}
                   value={values[field.key] ?? ""}
-                  onChange={(event) =>
-                    setValues({ ...values, [field.key]: event.target.value })
-                  }
+                  onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}
                 />
               </label>
             ))}
 
             {editing.is_oauth ? (
               <p className="warning small">
-                This provider uses OAuth, which needs an interactive browser flow on the
-                app-server host. Connect it with <code>letta connect</code> there instead.
+                This provider uses OAuth, which needs an interactive browser flow on the app-server
+                host. Connect it with <code>letta connect</code> there instead.
               </p>
             ) : null}
           </div>
@@ -270,13 +268,7 @@ function ProviderRow({
   );
 }
 
-function SkillsSection({
-  session,
-  skills,
-}: {
-  session: SessionApi;
-  skills: SkillSummary[];
-}) {
+function SkillsSection({ session, skills }: { session: SessionApi; skills: SkillSummary[] }) {
   const [status, setStatus] = useState("");
 
   const disable = async (skill: SkillSummary) => {
@@ -324,8 +316,8 @@ function SkillsSection({
 
       <p className="section-note">Installing from git</p>
       <p className="muted small pad">
-        Skill installation runs on the app-server host, which the browser has no shell access
-        to by design. Ask the agent in Chat — it has git and can install into its own memory:
+        Skill installation runs on the app-server host, which the browser has no shell access to by
+        design. Ask the agent in Chat — it has git and can install into its own memory:
       </p>
       <pre className="tool-args pad-x">
         Install the skill from https://github.com/me/my-private-skills and enable it.
@@ -345,10 +337,10 @@ function ChannelsSection() {
     <>
       <p className="section-note">Telegram</p>
       <p className="muted small pad">
-        Channel setup runs on the gateway container, not through this UI: letta-code routes
-        channel configuration over the CLI&rsquo;s own pipe to the gateway process, with no
-        path from the app-server socket. Once configured, the agent reaches Telegram normally
-        and messages arrive in the conversation you pair.
+        Channel setup runs on the gateway container, not through this UI: letta-code routes channel
+        configuration over the CLI&rsquo;s own pipe to the gateway process, with no path from the
+        app-server socket. Once configured, the agent reaches Telegram normally and messages arrive
+        in the conversation you pair.
       </p>
       <pre className="tool-args pad-x">{`C="docker compose -f docker/compose.yml exec channel-gateway"
 

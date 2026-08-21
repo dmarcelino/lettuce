@@ -1,7 +1,7 @@
-import WebSocket from "ws";
-import { AppServerClient } from "@letta-ai/letta-code/app-server-client";
 import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-server-client";
+import { AppServerClient } from "@letta-ai/letta-code/app-server-client";
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
+import WebSocket from "ws";
 
 export type UpstreamState = "connecting" | "connected" | "disconnected";
 
