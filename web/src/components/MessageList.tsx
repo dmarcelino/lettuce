@@ -147,6 +147,20 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
     );
   }
 
+  if (entry.reminder) {
+    // Machine payload, not prose: shown verbatim rather than through Markdown,
+    // which would swallow the tags and the paragraph after them.
+    return (
+      <div className="entry system reminder">
+        <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
+          <span className="tag">System reminder</span>
+          <span className="chevron">{open ? "▾" : "▸"}</span>
+        </button>
+        {open ? <pre className="tool-args">{entry.text}</pre> : null}
+      </div>
+    );
+  }
+
   return (
     <div className={`entry ${entry.kind}`}>
       {entry.kind !== "user" ? <span className="tag">{label}</span> : null}

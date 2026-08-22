@@ -6,7 +6,7 @@ import { Composer } from "./components/Composer.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
-import { FILTER_LABELS, type FilterGroup, filterEntries } from "./lib/messages.ts";
+import { type FilterGroup, filterEntries } from "./lib/messages.ts";
 import type { ConnectionState, RuntimeScope } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { useAgents } from "./state/use-agents.ts";
@@ -26,8 +26,6 @@ interface Status {
 
 const TABS = ["Chat", "Files", "Tasks", "Memory", "Settings"] as const;
 type Tab = (typeof TABS)[number];
-
-const FILTER_ORDER: FilterGroup[] = ["user", "agent", "tools", "system"];
 
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -155,34 +153,15 @@ function Workspace({ status }: { status: Status }) {
 
         {tab === "Chat" ? (
           <>
-            <div className="filters">
-              {FILTER_ORDER.map((group) => (
-                <button
-                  key={group}
-                  type="button"
-                  className={`chip${filters.has(group) ? " on" : ""}`}
-                  onClick={() => toggleFilter(group)}
-                >
-                  {FILTER_LABELS[group]}
-                </button>
-              ))}
-              {filters.size > 0 ? (
-                <button type="button" className="chip clear" onClick={() => setFilters(new Set())}>
-                  Clear
-                </button>
-              ) : null}
-              <span className="spacer" />
-              <button
-                type="button"
-                className="chip"
-                disabled={!scope}
-                onClick={() => setShowModels(true)}
-              >
-                Model
-              </button>
-            </div>
-
             {conversation.error ? <p className="warning small">{conversation.error}</p> : null}
+
+            {conversation.sandboxed === false ? (
+              <p className="warning small">
+                Running without the workspace sandbox — <code>bwrap</code> is not installed on the
+                app-server host. The agent&rsquo;s own tools can reach the whole container
+                filesystem; the file browser is still restricted.
+              </p>
+            ) : null}
 
             <MessageList entries={visibleEntries} processing={conversation.processing} />
 
@@ -208,6 +187,15 @@ function Workspace({ status }: { status: Status }) {
               processing={conversation.processing}
               onSend={(text) => void conversation.sendMessage(text)}
               onAbort={conversation.abort}
+              filters={filters}
+              onToggleFilter={toggleFilter}
+              onClearFilters={() => setFilters(new Set())}
+              permissionMode={conversation.permissionMode}
+              onPermissionMode={conversation.setPermissionMode}
+              commands={conversation.commands}
+              onRunCommand={(id) => conversation.runCommand(id)}
+              onOpenModels={() => setShowModels(true)}
+              modelsDisabled={!scope}
             />
           </>
         ) : tab === "Files" ? (

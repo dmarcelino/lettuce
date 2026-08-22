@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { McpEditor } from "../components/McpEditor.tsx";
+import { Sheet } from "../components/Sheet.tsx";
+import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface ProviderField {
@@ -19,8 +21,10 @@ interface ProviderEntry {
   is_oauth?: boolean;
   fields?: ProviderField[];
   /** The nested flag is `is_connected`, not `connected`. */
-  connected?: { is_connected?: boolean } | boolean;
+  connected?: { is_connected?: boolean; base_url?: string } | boolean;
   connected_providers?: unknown[];
+  /** Handle prefixes this provider serves, used to group its models. */
+  provider_names?: string[];
 }
 
 interface SkillSummary {
@@ -38,7 +42,7 @@ interface Props {
   skills: SkillSummary[];
 }
 
-type Section = "connection" | "mcp" | "skills" | "channels";
+type Section = "connection" | "mcp" | "skills";
 
 function isConnected(provider: ProviderEntry): boolean {
   if (typeof provider.connected === "boolean") return provider.connected;
@@ -48,26 +52,34 @@ function isConnected(provider: ProviderEntry): boolean {
   return (provider.connected_providers?.length ?? 0) > 0;
 }
 
+/**
+ * Values to seed an edit form with.
+ *
+ * Only `base_url` comes back from the server — the API key is never echoed, by
+ * design. That matters because blank is treated as *absent*, not *unchanged*
+ * (`resolveProviderConnectionFields`), so submitting an untouched empty key
+ * field would clear a stored key. `connect` below only sends fields the user
+ * actually typed, which is what makes an edit non-destructive.
+ */
+function currentValues(provider: ProviderEntry): Record<string, string> {
+  const state = typeof provider.connected === "object" ? provider.connected : null;
+  return state?.base_url ? { baseUrl: state.base_url } : {};
+}
+
 export function SettingsTab({ session, agentId, skills }: Props) {
   const [section, setSection] = useState<Section>("connection");
 
   return (
     <div className="pane">
       <div className="pane-bar">
-        {(["connection", "mcp", "skills", "channels"] as const).map((name) => (
+        {(["connection", "mcp", "skills"] as const).map((name) => (
           <button
             key={name}
             type="button"
             className={`chip${section === name ? " on" : ""}`}
             onClick={() => setSection(name)}
           >
-            {name === "mcp"
-              ? "MCP"
-              : name === "connection"
-                ? "Connection"
-                : name === "skills"
-                  ? "Skills"
-                  : "Channels"}
+            {name === "mcp" ? "MCP" : name === "connection" ? "Connection" : "Skills"}
           </button>
         ))}
       </div>
@@ -75,7 +87,6 @@ export function SettingsTab({ session, agentId, skills }: Props) {
       {section === "connection" ? <ConnectionSection session={session} /> : null}
       {section === "mcp" ? <McpEditor session={session} agentId={agentId} /> : null}
       {section === "skills" ? <SkillsSection session={session} skills={skills} /> : null}
-      {section === "channels" ? <ChannelsSection /> : null}
     </div>
   );
 }
@@ -85,6 +96,10 @@ function ConnectionSection({ session }: { session: SessionApi }) {
   const [status, setStatus] = useState("");
   const [editing, setEditing] = useState<ProviderEntry | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [showCloud, setShowCloud] = useState(false);
+  // Same hook the chat model picker uses, so the two can never disagree about
+  // what is being served.
+  const models = useModels(session);
 
   const load = useCallback(async () => {
     setStatus("Loading providers…");
@@ -109,18 +124,29 @@ function ConnectionSection({ session }: { session: SessionApi }) {
     if (session.ready) void load();
   }, [session.ready, load]);
 
+  // `connect_provider` routes to createOrUpdateProvider, keyed on provider
+  // name, so re-issuing it with new fields IS the edit path — there is no
+  // separate update command and no disconnect/reconnect needed.
   const connect = async () => {
     if (!editing) return;
-    setStatus(`Connecting ${editing.display_name}…`);
+    const wasConnected = isConnected(editing);
+    setStatus(`${wasConnected ? "Updating" : "Connecting"} ${editing.display_name}…`);
     try {
+      // Only send what the user actually typed. A blank field is read as
+      // *absent* rather than unchanged, so passing an untouched empty API key
+      // would clear the stored one on every save.
+      const fields = Object.fromEntries(
+        Object.entries(values).filter(([, value]) => value.trim() !== ""),
+      );
       const response = await session.request<{
         success?: boolean;
         error?: string;
         providers?: ProviderEntry[];
+        models_may_have_changed?: boolean;
       }>("connect_provider", {
         target: "local",
         provider_id: editing.id,
-        fields: values,
+        fields,
       });
       if (response?.success === false) {
         setStatus(response.error ?? "Connection failed");
@@ -129,7 +155,8 @@ function ConnectionSection({ session }: { session: SessionApi }) {
       setProviders(response?.providers ?? providers);
       setEditing(null);
       setValues({});
-      setStatus("Connected. Pick a model from the Chat tab.");
+      setStatus(wasConnected ? "Updated." : "Connected.");
+      if (response?.models_may_have_changed !== false) void models.refresh();
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
     }
@@ -153,6 +180,24 @@ function ConnectionSection({ session }: { session: SessionApi }) {
   const local = providers.filter((p) => !p.requires_api_key && !p.is_oauth);
   const rest = providers.filter((p) => p.requires_api_key || p.is_oauth);
 
+  // A handle prefix alone is not enough to tell local from cloud: BYOK aliases
+  // ("lc-llama-cpp/…") do not match the built-in local prefixes, and
+  // "ollama-cloud/" is hosted despite looking local. Joining the handle's
+  // provider segment against the connected local providers' own names is what
+  // the browser can actually rely on.
+  const localPrefixes = new Set(
+    local.flatMap((p) => [p.provider_name, ...(p.provider_names ?? [])]).filter(Boolean),
+  );
+  const isLocalHandle = (handle: string) => localPrefixes.has(handle.split("/")[0] ?? "");
+  const localModels = models.models.filter((m) => isLocalHandle(m.handle));
+  const cloudModels = models.models.filter((m) => !isLocalHandle(m.handle));
+
+  const open = (provider: ProviderEntry) => {
+    setEditing(provider);
+    // Prefill, so an edit amends rather than starts from blank.
+    setValues(currentValues(provider));
+  };
+
   return (
     <>
       {status ? <p className="muted small pad">{status}</p> : null}
@@ -165,14 +210,55 @@ function ConnectionSection({ session }: { session: SessionApi }) {
           <ProviderRow
             key={provider.id}
             provider={provider}
-            onConnect={() => {
-              setEditing(provider);
-              setValues({});
-            }}
+            onConnect={() => open(provider)}
             onDisconnect={() => void disconnect(provider)}
           />
         ))}
       </ul>
+
+      <p className="section-note">Models served{models.loading ? " — loading…" : ""}</p>
+      {localModels.length === 0 && !models.loading ? (
+        <p className="muted small pad">
+          Nothing served yet. Connect an endpoint above, then Refresh.
+        </p>
+      ) : null}
+      <ul className="list">
+        {localModels.map((model) => (
+          <li key={model.id} className="row-between pad">
+            <span>{model.label}</span>
+            <code className="muted small">{model.handle}</code>
+          </li>
+        ))}
+      </ul>
+      <p className="pad">
+        <button
+          type="button"
+          className="link"
+          disabled={models.loading}
+          onClick={() => void models.refresh()}
+        >
+          Refresh models
+        </button>
+      </p>
+
+      {cloudModels.length > 0 ? (
+        <>
+          <button type="button" className="tool-head" onClick={() => setShowCloud((v) => !v)}>
+            <span className="tag">Cloud models ({cloudModels.length})</span>
+            <span className="chevron">{showCloud ? "▾" : "▸"}</span>
+          </button>
+          {showCloud ? (
+            <ul className="list">
+              {cloudModels.map((model) => (
+                <li key={model.id} className="row-between pad">
+                  <span className="muted">{model.label}</span>
+                  <code className="muted small">{model.handle}</code>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
 
       <p className="section-note">Cloud providers</p>
       <ul className="list">
@@ -180,55 +266,57 @@ function ConnectionSection({ session }: { session: SessionApi }) {
           <ProviderRow
             key={provider.id}
             provider={provider}
-            onConnect={() => {
-              setEditing(provider);
-              setValues({});
-            }}
+            onConnect={() => open(provider)}
             onDisconnect={() => void disconnect(provider)}
           />
         ))}
       </ul>
 
       {editing ? (
-        <div className="sheet">
-          <div className="sheet-body">
-            <h2>{editing.display_name}</h2>
-            <p className="muted small">{editing.description}</p>
+        <Sheet
+          title={editing.display_name}
+          onClose={() => setEditing(null)}
+          actions={
+            <>
+              <button type="button" className="button ghost" onClick={() => setEditing(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={editing.is_oauth}
+                onClick={() => void connect()}
+              >
+                {isConnected(editing) ? "Save" : "Connect"}
+              </button>
+            </>
+          }
+        >
+          <p className="muted small">{editing.description}</p>
 
-            {(editing.fields ?? []).map((field) => (
-              <label className="field" key={field.key}>
-                {field.label}
-                <input
-                  type={field.secret ? "password" : "text"}
-                  placeholder={field.placeholder ?? ""}
-                  value={values[field.key] ?? ""}
-                  onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}
-                />
-              </label>
-            ))}
+          {(editing.fields ?? []).map((field) => (
+            <label className="field" key={field.key}>
+              {field.label}
+              <input
+                type={field.secret ? "password" : "text"}
+                placeholder={
+                  field.secret && isConnected(editing)
+                    ? "Leave blank to keep the stored value"
+                    : (field.placeholder ?? "")
+                }
+                value={values[field.key] ?? ""}
+                onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}
+              />
+            </label>
+          ))}
 
-            {editing.is_oauth ? (
-              <p className="warning small">
-                This provider uses OAuth, which needs an interactive browser flow on the app-server
-                host. Connect it with <code>letta connect</code> there instead.
-              </p>
-            ) : null}
-          </div>
-
-          <div className="sheet-actions">
-            <button type="button" className="button ghost" onClick={() => setEditing(null)}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="button"
-              disabled={editing.is_oauth}
-              onClick={() => void connect()}
-            >
-              Connect
-            </button>
-          </div>
-        </div>
+          {editing.is_oauth ? (
+            <p className="warning small">
+              This provider uses OAuth, which needs an interactive browser flow on the app-server
+              host. Connect it with <code>letta connect</code> there instead.
+            </p>
+          ) : null}
+        </Sheet>
       ) : null}
     </>
   );
@@ -254,6 +342,11 @@ function ProviderRow({
         {connected ? (
           <>
             <span className="tag ok-tag">connected</span>
+            {/* Without this the field sheet is unreachable once connected, so a
+                base URL could only be changed by disconnecting first. */}
+            <button type="button" className="link" onClick={onConnect}>
+              Edit
+            </button>
             <button type="button" className="link danger" onClick={onDisconnect}>
               Disconnect
             </button>
@@ -322,39 +415,6 @@ function SkillsSection({ session, skills }: { session: SessionApi; skills: Skill
       <pre className="tool-args pad-x">
         Install the skill from https://github.com/me/my-private-skills and enable it.
       </pre>
-    </>
-  );
-}
-
-/**
- * Channels cannot be configured from here. The app-server only dispatches
- * channel_* commands when a gateway registered itself over the CLI's stdio
- * pipe, which never happens for a WebSocket client — the commands would hang
- * rather than fail. Show the real path instead of a form that cannot work.
- */
-function ChannelsSection() {
-  return (
-    <>
-      <p className="section-note">Telegram</p>
-      <p className="muted small pad">
-        Channel setup runs on the gateway container, not through this UI: letta-code routes channel
-        configuration over the CLI&rsquo;s own pipe to the gateway process, with no path from the
-        app-server socket. Once configured, the agent reaches Telegram normally and messages arrive
-        in the conversation you pair.
-      </p>
-      <pre className="tool-args pad-x">{`C="docker compose -f docker/compose.yml exec channel-gateway"
-
-$C letta channels install telegram
-docker compose -f docker/compose.yml exec -it channel-gateway \\
-  letta channels configure telegram
-docker compose -f docker/compose.yml restart channel-gateway
-
-# message the bot, then pair the chat:
-$C letta channels pair --channel telegram --code <code> \\
-  --agent <agent-id> --conversation <conversation-id>`}</pre>
-      <p className="muted small pad">
-        Check state any time with <code>letta channels status</code>.
-      </p>
     </>
   );
 }

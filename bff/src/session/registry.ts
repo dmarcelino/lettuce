@@ -7,6 +7,7 @@ import {
   type BffServerMessage,
   isBffResumeCommand,
   SEQ_FIELD,
+  workspaceViolation,
 } from "./protocol.ts";
 
 export interface SessionSocket {
@@ -151,6 +152,18 @@ export class SessionRegistry {
       this.sendTo(session.socket, {
         type: "__bff_error",
         message: `Command "${command.type}" is not permitted from a browser session`,
+        ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
+      });
+      return;
+    }
+
+    // The app-server imposes no root on file operations, so the workspace
+    // boundary is enforced here or nowhere.
+    const violation = workspaceViolation(command);
+    if (violation) {
+      this.sendTo(session.socket, {
+        type: "__bff_error",
+        message: violation,
         ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
       });
       return;

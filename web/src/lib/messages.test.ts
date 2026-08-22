@@ -275,3 +275,98 @@ describe("filtering", () => {
     ]);
   });
 });
+
+describe("system-reminder extraction", () => {
+  // The opening line is what react-markdown swallows when the tag reaches it,
+  // so every assertion below checks it explicitly.
+  const REMINDER =
+    "<system-reminder>\nThis is an automated message providing context about the user's environment.\n\nMore detail here.\n</system-reminder>";
+
+  test("a reminder is split out of the user message as a System entry", () => {
+    const transcript = transcriptFromHistory([
+      {
+        id: "u1",
+        message_type: "user_message",
+        content: [{ type: "text", text: `${REMINDER}\n\nWhat is the weather?` }],
+      },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.kind)).toEqual(["system", "user"]);
+    expect(entries[0]!.text).toContain("This is an automated message");
+    expect(entries[0]!.text).not.toContain("<system-reminder>");
+    expect(entries[1]!.text).toBe("What is the weather?");
+  });
+
+  test("a reminder-only message produces no empty user entry", () => {
+    const transcript = transcriptFromHistory([
+      { id: "u2", message_type: "user_message", content: REMINDER },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.kind).toBe("system");
+  });
+
+  test("letta-guide blocks are extracted the same way", () => {
+    const transcript = transcriptFromHistory([
+      {
+        id: "u3",
+        message_type: "user_message",
+        content: "<letta-guide>\n# Skill Directory\nstuff\n</letta-guide>\nhello",
+      },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.kind).toBe("system");
+    expect(entries[0]!.text).toContain("Skill Directory");
+    expect(entries[1]!.text).toBe("hello");
+  });
+
+  test("extraction survives a reminder arriving across streaming deltas", () => {
+    const transcript = streamed([
+      { type: "message", id: "a", otid: "o1", message_type: "user_message", content: "<system-" },
+      {
+        type: "message",
+        id: "b",
+        otid: "o1",
+        message_type: "user_message",
+        content: "reminder>\nbody text\n</system-",
+      },
+      {
+        type: "message",
+        id: "c",
+        otid: "o1",
+        message_type: "user_message",
+        content: "reminder>\nreal question",
+      },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.kind).toBe("system");
+    expect(entries[0]!.text).toBe("body text");
+    expect(entries[1]!.text).toBe("real question");
+  });
+
+  test("reminders join the System filter group, not You", () => {
+    const transcript = transcriptFromHistory([
+      { id: "u4", message_type: "user_message", content: `${REMINDER}\n\nhi` },
+    ]);
+    const entries = sortedEntries(transcript);
+    const system = filterEntries(entries, new Set<FilterGroup>(["system"]));
+    expect(system).toHaveLength(1);
+    expect(system[0]!.text).toContain("This is an automated message");
+    const you = filterEntries(entries, new Set<FilterGroup>(["user"]));
+    expect(you).toHaveLength(1);
+    expect(you[0]!.text).toBe("hi");
+  });
+
+  test("a plain user message is untouched", () => {
+    const transcript = transcriptFromHistory([
+      { id: "u5", message_type: "user_message", content: "just a question" },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.kind).toBe("user");
+    expect(entries[0]!.text).toBe("just a question");
+  });
+});

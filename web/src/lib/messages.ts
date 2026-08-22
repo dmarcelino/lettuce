@@ -43,6 +43,8 @@ export interface TranscriptEntry {
   redacted?: boolean;
   /** Set while the entry is still being streamed. */
   streaming?: boolean;
+  /** A machine-injected block lifted out of a user message; rendered collapsed. */
+  reminder?: boolean;
   /** Rendered dimmed (command output that is informational only). */
   dim?: boolean;
   /** Subagent that produced this entry, when not the main agent. */
@@ -121,11 +123,63 @@ function resolveCanonicalKey(
   return canonical;
 }
 
+/**
+ * Machine-injected blocks that ride along inside a user message.
+ *
+ * They are not something the person typed, so rendering them in the user
+ * bubble is wrong twice over: it attributes them to the human, and — because
+ * an opening tag on its own line is a CommonMark HTML block that react-markdown
+ * drops along with the paragraph after it — the body silently disappears.
+ * Splitting them out before rendering fixes both.
+ */
+const INJECTED_BLOCK_TAGS = ["system-reminder", "letta-guide"] as const;
+
+const INJECTED_BLOCK_RE = new RegExp(
+  // The closing tag is optional so a block still mid-stream is recognised
+  // rather than swallowing the rest of the transcript when it completes.
+  `<(${INJECTED_BLOCK_TAGS.join("|")})>([\\s\\S]*?)(?:</\\1>|$)`,
+  "g",
+);
+
+/**
+ * Expand one user entry into its injected blocks plus whatever the person
+ * actually wrote. Any other entry passes through untouched.
+ */
+function splitInjectedBlocks(entry: TranscriptEntry): TranscriptEntry[] {
+  if (entry.kind !== "user" || !entry.text.includes("<")) return [entry];
+
+  const blocks: string[] = [];
+  const prose = entry.text
+    .replace(INJECTED_BLOCK_RE, (_match, _tag, body: string) => {
+      blocks.push(body.trim());
+      return "";
+    })
+    .trim();
+
+  if (blocks.length === 0) return [entry];
+
+  const out: TranscriptEntry[] = blocks.map((text, index) => ({
+    ...entry,
+    id: `${entry.id}:reminder:${index}`,
+    kind: "system" as const,
+    reminder: true,
+    text,
+  }));
+  // A message that was nothing but reminders leaves no user bubble behind.
+  if (prose) out.push({ ...entry, text: prose });
+  return out;
+}
+
 export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
-  return [...transcript.values()].sort((a, b) => {
-    if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
+  return (
+    [...transcript.values()]
+      .sort((a, b) => {
+        if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      })
+      // After sorting, so an extracted block keeps its parent's position.
+      .flatMap(splitInjectedBlocks)
+  );
 }
 
 export function filterEntries(

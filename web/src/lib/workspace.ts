@@ -1,0 +1,116 @@
+/**
+ * Where agents keep their files.
+ *
+ * `/work` is the bind mount from the host (docker/compose.yml maps
+ * `../../workspaces:/work`), and compose anchors the app-server's working
+ * directory there so agent output persists and is visible on the host — the
+ * image's own `WORKDIR /workspace` is container-layer storage that vanishes on
+ * recreate.
+ *
+ * Each agent gets `/work/<agent-id>` and stays inside it; `/work` itself is the
+ * shared level above, reachable by every agent.
+ *
+ * Keep in sync with `WORKSPACE_ROOT` in bff/src/session/protocol.ts, which
+ * enforces this boundary. The two packages cannot import from each other, and
+ * the BFF copy is the one that actually refuses traffic — this one only decides
+ * where to point the runtime.
+ */
+export const WORKSPACE_ROOT = "/work";
+
+/** The directory an agent works in. Ids are opaque, so no escaping is needed. */
+export function agentWorkspace(agentId: string): string {
+  return `${WORKSPACE_ROOT}/${agentId}`;
+}
+
+/**
+ * Permission modes the app-server understands (`DevicePermissionMode`).
+ *
+ * Note the default is `unrestricted`, and the app-server does not persist a
+ * mode equal to the default — so an explicit `unrestricted` is indistinguishable
+ * from "never set" after a restart.
+ */
+export const PERMISSION_MODES = [
+  {
+    id: "unrestricted",
+    label: "Unrestricted",
+    description: "Run everything without asking. The default.",
+  },
+  {
+    id: "standard",
+    label: "Standard",
+    description: "Ask before anything that writes or runs.",
+  },
+  {
+    id: "acceptEdits",
+    label: "Accept edits",
+    description: "Apply file edits automatically, still ask for commands.",
+  },
+  {
+    id: "strict",
+    label: "Strict",
+    description: "Ask for everything, including reads.",
+  },
+] as const;
+
+export type PermissionMode = (typeof PERMISSION_MODES)[number]["id"];
+
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return PERMISSION_MODES.some((mode) => mode.id === value);
+}
+
+export interface SlashCommand {
+  id: string;
+  description: string;
+  args?: string;
+}
+
+/**
+ * Ids the app-server advertises but cannot actually run.
+ *
+ * `supported_commands` is advertisement only — the inbound path never checks it,
+ * and it disagrees with the handler's own switch in both directions. These four
+ * would return "Unknown command" or do nothing, so they are not worth offering.
+ */
+const UNDISPATCHABLE = new Set([
+  // Documented in listener-constants.ts: routed through secret_list/secret_apply,
+  // so it has no execute_command case.
+  "secret",
+  // Advertised but has no case either; falls through to the mod lookup.
+  "toolset",
+  // Needs a gateway attached over stdio; see CLAUDE.md.
+  "channels",
+  // Meaningless against a pinned image.
+  "upgrade-letta-code",
+]);
+
+const COMMAND_DESCRIPTIONS: Record<string, string> = {
+  clear: "Clear the conversation history",
+  compact: "Summarise the conversation to free context",
+  "context-limit": "Show the current context window usage",
+  doctor: "Run environment diagnostics",
+  init: "Explore the working directory and write a project guide",
+  reload: "Reload settings, local mods and agent secrets",
+  remember: "Save something to long-term memory",
+};
+
+/** Build the palette from what device status advertises, built-ins then mods. */
+export function readCommands(supported: unknown, mods: unknown): SlashCommand[] {
+  const builtins = (Array.isArray(supported) ? supported : [])
+    .filter((id): id is string => typeof id === "string" && !UNDISPATCHABLE.has(id))
+    .map((id) => ({ id, description: COMMAND_DESCRIPTIONS[id] ?? "" }));
+
+  const modCommands = (Array.isArray(mods) ? mods : []).flatMap((raw) => {
+    if (!raw || typeof raw !== "object") return [];
+    const mod = raw as { id?: unknown; description?: unknown; args?: unknown };
+    if (typeof mod.id !== "string") return [];
+    return [
+      {
+        id: mod.id,
+        description: typeof mod.description === "string" ? mod.description : "",
+        ...(typeof mod.args === "string" ? { args: mod.args } : {}),
+      },
+    ];
+  });
+
+  return [...builtins, ...modCommands];
+}

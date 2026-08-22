@@ -140,6 +140,90 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   // rather than fail. Telegram is configured with `letta channels` inside the
   // gateway container; see CLAUDE.md.
 
-  // slash commands (the app-server enforces its own SUPPORTED_REMOTE_COMMANDS)
+  // slash commands. NOTE: the app-server does NOT enforce its own
+  // SUPPORTED_REMOTE_COMMANDS on the inbound path — `isExecuteCommandCommand`
+  // only checks that `command_id` is a string, and the constant is used purely
+  // to advertise the list in DeviceStatus. An unknown id is answered with
+  // `success: false` ("Unknown command"), not refused at the boundary.
   "execute_command",
 ]);
+
+/**
+ * Root every file operation is confined to.
+ *
+ * The app-server applies NO root of its own: `read_file` with
+ * `/root/.letta/settings.json` or `write_file` into a cron directory both
+ * succeed, and no `../` is needed to get there. The only guards upstream
+ * (PROTECTED_HOME_NAMES, the $HOME grep short-circuit) are browsing
+ * conveniences, explicitly documented as not being security boundaries. So the
+ * confinement has to live here, next to the command allowlist and for the same
+ * reason: the browser may only reach surfaces we actually built for it.
+ *
+ * `/work` is the bind mount from the host (see docker/compose.yml). Agents get
+ * `/work/<agent-id>`; `/work` itself is the shared level above.
+ */
+export const WORKSPACE_ROOT = "/work";
+
+/**
+ * Path-bearing file commands, and which field carries the path.
+ *
+ * The field name is not uniform: search_files and grep_in_files take `cwd`
+ * (falling back to the server's process cwd when absent), everything else takes
+ * `path`. A clamp keyed only on `path` would leave those two unguarded.
+ */
+export const FILE_PATH_FIELDS: ReadonlyMap<string, "path" | "cwd"> = new Map([
+  ["get_tree", "path"],
+  ["list_in_directory", "path"],
+  ["read_file", "path"],
+  ["write_file", "path"],
+  ["edit_file", "path"],
+  ["watch_file", "path"],
+  ["unwatch_file", "path"],
+  ["search_files", "cwd"],
+  ["grep_in_files", "cwd"],
+]);
+
+/** Normalise a POSIX path, resolving `.` and `..` without touching the disk. */
+function normalizePosixPath(input: string): string {
+  const segments: string[] = [];
+  for (const segment of input.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return `/${segments.join("/")}`;
+}
+
+/**
+ * The reason this command must be refused, or null when it is allowed.
+ *
+ * A relative path is refused outright rather than resolved: the app-server
+ * would interpret it against its own cwd, which is not something the browser
+ * can see or reason about.
+ */
+export function workspaceViolation(
+  command: Record<string, unknown> & { type: string },
+): string | null {
+  const field = FILE_PATH_FIELDS.get(command.type);
+  if (!field) return null;
+
+  const raw = command[field];
+  // An absent cwd means "the server's own cwd", which is inside the workspace
+  // once compose anchors it there, so there is nothing to check.
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "string" || raw === "") {
+    return `${command.type}.${field} must be a non-empty string`;
+  }
+  if (!raw.startsWith("/")) {
+    return `${command.type}.${field} must be an absolute path inside ${WORKSPACE_ROOT}`;
+  }
+
+  const resolved = normalizePosixPath(raw);
+  if (resolved !== WORKSPACE_ROOT && !resolved.startsWith(`${WORKSPACE_ROOT}/`)) {
+    return `Path is outside the workspace: ${resolved} is not under ${WORKSPACE_ROOT}`;
+  }
+  return null;
+}

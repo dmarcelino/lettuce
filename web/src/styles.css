@@ -439,6 +439,20 @@ pre {
   font-size: 14px;
 }
 
+/* Machine-injected blocks lifted out of a user message. Muted like every other
+   System entry — they used to wear the accent-blue "you" bubble, which credited
+   them to the person. */
+.entry.system.reminder {
+  align-items: flex-start;
+  width: 100%;
+}
+.entry.system.reminder .tag {
+  color: var(--muted);
+}
+.entry.system.reminder pre {
+  opacity: 0.85;
+}
+
 .tag {
   font-size: 11px;
   color: var(--muted);
@@ -589,17 +603,19 @@ pre {
   white-space: nowrap;
 }
 
+/* Textarea and controls share one rounded container, so the whole thing reads
+   as a single input rather than a field with a toolbar bolted beside it. */
 .composer {
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: flex-end;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
   background: var(--bg);
   flex-shrink: 0;
 }
 .composer textarea {
-  flex: 1;
+  width: 100%;
   resize: none;
   background: var(--surface);
   color: var(--text);
@@ -609,6 +625,27 @@ pre {
   /* 16px keeps iOS Safari from zooming when the field is focused. */
   font: 16px / 1.4 inherit;
   max-height: 160px;
+}
+
+.composer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* The chips scroll rather than wrap: a second row would push the textarea
+     around as the mode label changes length. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.composer-row::-webkit-scrollbar {
+  display: none;
+}
+/* The send button must stay reachable however far the chips scroll. */
+.composer-row .icon-button {
+  width: 34px;
+  height: 34px;
+  font-size: 15px;
+  position: sticky;
+  right: 0;
 }
 .composer textarea:disabled {
   opacity: 0.5;

@@ -10,6 +10,14 @@ import {
   transcriptFromHistory,
 } from "../lib/messages.ts";
 import { frameSeq, type RuntimeScope, type SequencedFrame } from "../lib/protocol.ts";
+import {
+  agentWorkspace,
+  isPermissionMode,
+  type PermissionMode,
+  readCommands,
+  type SlashCommand,
+  WORKSPACE_ROOT,
+} from "../lib/workspace.ts";
 import type { SessionApi } from "./use-session.ts";
 
 export interface PendingApproval {
@@ -53,6 +61,13 @@ export interface ConversationApi {
   removeQueued: (itemId: string) => void;
   runCommand: (commandId: string, args?: string) => void;
   reload: () => Promise<void>;
+  /** Live permission mode, from device status. Null until the first status frame. */
+  permissionMode: PermissionMode | null;
+  setPermissionMode: (mode: PermissionMode) => void;
+  /** Slash commands this server advertises, built-ins plus mod-contributed. */
+  commands: SlashCommand[];
+  /** Null until a runtime starts; false when the kernel sandbox was unavailable. */
+  sandboxed: boolean | null;
 }
 
 function readQueue(raw: unknown): QueuedItem[] {
@@ -126,6 +141,15 @@ export function useConversation(
   const [error, setError] = useState<string | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [permissionMode, setPermissionModeFromStatus] = useState<PermissionMode | null>(null);
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  /**
+   * Whether the agent's own tools are confined to its workspace directory.
+   * False means bubblewrap is missing on the app-server host: the browser is
+   * still clamped by the BFF, but the agent itself can reach the whole
+   * container filesystem through its tools.
+   */
+  const [sandboxed, setSandboxed] = useState<boolean | null>(null);
 
   const transcriptRef = useRef<Transcript>(new Map());
   // Alias maps that hold a streamed message together; reset wherever the
@@ -178,12 +202,45 @@ export function useConversation(
 
     setScopes([scope]);
     void (async () => {
+      const home = agentWorkspace(scope.agent_id);
       try {
-        await request("runtime_start", {
+        // resolveWorkspaceSandbox refuses a root that does not exist, and no
+        // mkdir command exists — but write_file does `mkdir -p` on the parent
+        // before writing, so seeding a marker file is how the directory gets
+        // created. Best effort: a failure here should not block the turn, it
+        // just means the sandbox is declined below.
+        await request("write_file", {
+          path: `${home}/.keep`,
+          content: "",
+        }).catch(() => undefined);
+
+        const base = {
           agent_id: scope.agent_id,
           conversation_id: scope.conversation_id,
           wait_for_replay: true,
+          cwd: home,
+        };
+
+        // Ask for the kernel sandbox: root inside isolation_root means the
+        // agent works in its own directory but can still reach the shared level
+        // above it. It needs bubblewrap, and runtime_start REJECTS the whole
+        // command when bwrap is missing rather than degrading — so an
+        // unsandboxed retry is what keeps the conversation usable on a host
+        // without it. `success: false` does not throw, so it is checked here.
+        const sandboxed = await request<{ success?: boolean; error?: string }>("runtime_start", {
+          ...base,
+          workspace_sandbox: { root: home, isolation_root: WORKSPACE_ROOT },
         });
+
+        if (sandboxed?.success === false) {
+          setSandboxed(false);
+          const retry = await request<{ success?: boolean; error?: string }>("runtime_start", base);
+          if (retry?.success === false) {
+            setError(retry.error ?? "Failed to start the runtime");
+          }
+        } else {
+          setSandboxed(true);
+        }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
@@ -232,6 +289,9 @@ export function useConversation(
                 is_processing?: unknown;
                 current_working_directory?: unknown;
                 current_available_skills?: unknown;
+                current_permission_mode?: unknown;
+                supported_commands?: unknown;
+                mod_commands?: unknown;
               };
             }
           ).device_status;
@@ -241,6 +301,16 @@ export function useConversation(
           }
           if (Array.isArray(status?.current_available_skills)) {
             setSkills(status.current_available_skills as SkillSummary[]);
+          }
+          // `change_device_state` has no response frame; this is the only
+          // acknowledgement a mode change ever gets, so the status frame is the
+          // source of truth rather than optimistic local state.
+          if (isPermissionMode(status?.current_permission_mode)) {
+            setPermissionModeFromStatus(status.current_permission_mode);
+          }
+          // The command palette is advertised here, not enumerable on demand.
+          if (Array.isArray(status?.supported_commands)) {
+            setCommands(readCommands(status.supported_commands, status.mod_commands));
           }
           break;
         }
@@ -338,6 +408,22 @@ export function useConversation(
     [scope, send],
   );
 
+  const setPermissionMode = useCallback(
+    (mode: PermissionMode) => {
+      if (!scope) return;
+      // Fire-and-forget: there is no change_device_state_response. The mode we
+      // display comes back on the next update_device_status frame, so nothing
+      // is set optimistically here — a rejected change would otherwise leave
+      // the button showing a mode the server never adopted.
+      send({
+        type: "change_device_state",
+        runtime: scope,
+        payload: { mode },
+      });
+    },
+    [scope, send],
+  );
+
   const runCommand = useCallback(
     (commandId: string, args?: string) => {
       if (!scope) return;
@@ -367,5 +453,9 @@ export function useConversation(
     removeQueued,
     runCommand,
     reload: loadHistory,
+    permissionMode,
+    setPermissionMode,
+    commands,
+    sandboxed,
   };
 }

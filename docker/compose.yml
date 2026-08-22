@@ -28,10 +28,17 @@ services:
       - server
       - --listen
       - ws://127.0.0.1:4500
+    # The image sets WORKDIR /workspace, which is container-layer storage: agent
+    # files written there vanish on recreate. /work is the bind mount below, so
+    # anchoring the boot CWD here is what makes agent work persist and be
+    # visible on the host. Agents get /work/<agent-id>; /work is the shared level.
+    working_dir: /work
     environment:
       # No Letta Cloud: agents, conversations and transcripts stay on disk here.
       LETTA_LOCAL_BACKEND_EXPERIMENTAL: "true"
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
+      # getFallbackWorkingDirectory() prefers this over process.cwd().
+      USER_CWD: /work
     volumes:
       - letta-home:/root/.letta
       - letta-data:/data
@@ -93,9 +100,13 @@ services:
       - ws://127.0.0.1:4500
       - --restore-enabled-channels
       - --allow-startup-errors
+    # Same anchor as the app-server: a gateway-initiated turn must not land in a
+    # different directory from a browser-initiated one.
+    working_dir: /work
     environment:
       LETTA_LOCAL_BACKEND_EXPERIMENTAL: "true"
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
+      USER_CWD: /work
       # The app-server owns scheduling; a second scheduler would fight for the lease.
       LETTA_DISABLE_CRON_SCHEDULER: "1"
     volumes:
