@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "../components/Icon.tsx";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface MemoryEntry {
@@ -110,7 +111,7 @@ export function MemoryTab({ session, agentId }: Props) {
     <div className="pane">
       <div className="pane-bar">
         <button type="button" className="link" onClick={() => void load()}>
-          ↻ Refresh
+          <Icon name="refresh" /> Refresh
         </button>
         {memfs === false ? <span className="tag">MemFS off</span> : null}
         <span className="spacer" />
@@ -131,7 +132,7 @@ export function MemoryTab({ session, agentId }: Props) {
                 setHistory(null);
               }}
             >
-              <span className="icon">{entry.is_system ? "⚙" : "🧠"}</span>
+              <Icon name={entry.is_system ? "settings" : "memory"} />
               <span className="grow-text">
                 <strong>{entry.relative_path}</strong>
                 {entry.description ? <em className="muted"> — {entry.description}</em> : null}

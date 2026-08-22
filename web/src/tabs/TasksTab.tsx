@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "../components/Icon.tsx";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface CronTask {
@@ -148,10 +149,16 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
             setCreating(true);
           }}
         >
-          + New task
+          <Icon name="plus" /> New task
         </button>
-        <button type="button" className="link" onClick={() => void load()}>
-          ↻
+        <button
+          type="button"
+          className="link"
+          onClick={() => void load()}
+          title="Reload tasks"
+          aria-label="Reload tasks"
+        >
+          <Icon name="refresh" />
         </button>
         <span className="spacer" />
         <span className="muted small">{tasks.length} scheduled</span>

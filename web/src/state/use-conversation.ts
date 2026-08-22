@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  addLocalUserMessage,
   applyStreamDelta,
   createStreamIndex,
   type StreamIndex,
@@ -348,6 +349,23 @@ export function useConversation(
     async (text: string) => {
       if (!scope || !text.trim()) return;
       setProcessing(true);
+      const clientMessageId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      // Render it ourselves: the app-server echoes a user message back only
+      // when it was queued behind a busy agent, so on the ordinary path no
+      // frame ever arrives and the transcript would show the reply without the
+      // question. The id doubles as the otid, so a queued echo merges into this
+      // entry rather than duplicating it.
+      seqRef.current += 1;
+      addLocalUserMessage(
+        transcriptRef.current,
+        streamIndexRef.current,
+        clientMessageId,
+        text,
+        seqRef.current,
+      );
+      flush();
+
       try {
         send({
           type: "input",
@@ -358,7 +376,7 @@ export function useConversation(
               {
                 role: "user",
                 content: text,
-                client_message_id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                client_message_id: clientMessageId,
               },
             ],
           },
@@ -368,7 +386,7 @@ export function useConversation(
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     },
-    [scope, send],
+    [scope, send, flush],
   );
 
   const abort = useCallback(() => {

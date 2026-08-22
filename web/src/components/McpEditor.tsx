@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SessionApi } from "../state/use-session.ts";
+import { Icon } from "./Icon.tsx";
 
 /**
  * MCP servers are absent from the app-server protocol. They live in
@@ -157,10 +158,16 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
     <>
       <div className="pane-bar">
         <button type="button" className="link" onClick={() => openEditor(null, null)}>
-          + Add server
+          <Icon name="plus" /> Add server
         </button>
-        <button type="button" className="link" onClick={() => void load()}>
-          ↻
+        <button
+          type="button"
+          className="link"
+          onClick={() => void load()}
+          title="Reload MCP servers"
+          aria-label="Reload MCP servers"
+        >
+          <Icon name="refresh" />
         </button>
         <span className="spacer" />
         <span className="muted small">{servers.length} configured</span>

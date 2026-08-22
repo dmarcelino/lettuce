@@ -142,16 +142,56 @@ try {
       }),
     );
 
-    // The composer is the single control surface; each control must exist.
-    for (const label of ["Filters", "/", "Model"]) {
-      check(
-        `composer has "${label}"`,
-        (await page.locator(`.composer-row button:text-is("${label}")`).count()) > 0,
-      );
+    // The composer is the single control surface; each control must exist and
+    // be an icon button with an accessible name.
+    for (const label of ["Filter the transcript", "Run a command", "Model for this conversation"]) {
+      const button = page.locator(`.composer-row button[aria-label="${label}"]`);
+      check(`composer has "${label}"`, (await button.count()) === 1);
+      check(`"${label}" is an icon button`, (await button.locator("svg.icon").count()) === 1);
     }
     check(
+      "composer has a permission-mode button",
+      (await page.locator('.composer-row button[aria-label^="Permission mode"]').count()) === 1,
+    );
+    check(
       "composer has a send button",
-      (await page.locator(".composer-row .icon-button").count()) > 0,
+      (await page.locator('.composer-row button[aria-label="Send message"]').count()) === 1,
+    );
+
+    // Every icon-only control must be nameable; today's regression was that
+    // most glyph buttons had no accessible name at all.
+    const unnamed = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("button"))
+        .filter((b) => {
+          const hasIcon = b.querySelector("svg.icon") !== null;
+          const text = (b.textContent ?? "").trim();
+          const named = b.getAttribute("aria-label") || b.getAttribute("title");
+          return hasIcon && text.length === 0 && !named;
+        })
+        .map((b) => b.className || "(button)"),
+    );
+    check("no unnamed icon-only buttons", unnamed.length === 0, unnamed);
+
+    // The glyph census this replaced: emoji and dingbats rendered per-platform.
+    const glyphs = await page.evaluate(() => {
+      const found = new Set<string>();
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      // Emoji, dingbats, arrows and geometric shapes.
+      const re =
+        /[\u2190-\u21FF\u2300-\u23FF\u25A0-\u25FF\u2600-\u27BF\uFE0F\u{1F300}-\u{1FAFF}]/gu;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        for (const m of (node.textContent ?? "").matchAll(re)) found.add(m[0]);
+      }
+      return [...found];
+    });
+    check("no emoji or dingbat glyphs left in the UI", glyphs.length === 0, glyphs);
+
+    check(
+      "favicon link is present",
+      await page.evaluate(() => {
+        const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+        return Boolean(link?.href?.startsWith("data:image/svg+xml"));
+      }),
     );
     check(
       "the filter row above the transcript is gone",
@@ -159,7 +199,7 @@ try {
     );
 
     // Sheets open, and Escape closes them.
-    await page.locator('.composer-row button:text-is("Filters")').click();
+    await page.locator('.composer-row button[aria-label^="Filter"]').click();
     check("filters sheet opens", await page.locator(".sheet-panel").isVisible());
     await shot(page, "phone-filters");
     check(
@@ -174,12 +214,12 @@ try {
     await page.keyboard.press("Escape");
     check("escape closes the sheet", (await page.locator(".sheet-panel").count()) === 0);
 
-    await page.locator(".composer-row button").nth(1).click();
+    await page.locator('.composer-row button[aria-label^="Permission mode"]').click();
     check("permission sheet opens", await page.locator(".sheet-panel").isVisible());
     await shot(page, "phone-permissions");
     await page.keyboard.press("Escape");
 
-    await page.locator('.composer-row button:text-is("/")').click();
+    await page.locator('.composer-row button[aria-label="Run a command"]').click();
     check("commands sheet opens", await page.locator(".sheet-panel").isVisible());
     const commandCount = await page.locator(".sheet-panel .picker li").count();
     check("commands sheet lists commands", commandCount > 0, { commandCount });
@@ -212,7 +252,7 @@ try {
       }),
     );
 
-    await page.locator('.composer-row button:text-is("Filters")').click();
+    await page.locator('.composer-row button[aria-label^="Filter"]').click();
     check("filters sheet opens", await page.locator(".sheet-panel").isVisible());
     check(
       "sheet is a centred modal on desktop",

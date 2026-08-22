@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { TranscriptEntry } from "../lib/messages.ts";
+import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
 
 interface Props {
@@ -83,7 +84,7 @@ export function MessageList({ entries, processing }: Props) {
             if (container) container.scrollTop = container.scrollHeight;
           }}
         >
-          ↓ Latest
+          <Icon name="arrow-down" /> Latest
         </button>
       ) : null}
     </div>
@@ -109,7 +110,9 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
         <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
           <span className="tag">{label}</span>
           <code>{entry.toolName ?? "…"}</code>
-          {args ? <span className="chevron">{open ? "▾" : "▸"}</span> : null}
+          {args ? (
+            <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
+          ) : null}
         </button>
         {open && args ? <pre className="tool-args">{args}</pre> : null}
       </div>
@@ -124,7 +127,9 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
         <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
           <span className="tag">{label}</span>
           {entry.status === "error" ? <span className="tag bad">error</span> : null}
-          {long ? <span className="chevron">{open ? "▾" : "▸"}</span> : null}
+          {long ? (
+            <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
+          ) : null}
         </button>
         <pre className="tool-args">{shown}</pre>
       </div>
@@ -136,7 +141,7 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
       <div className="entry reasoning">
         <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
           <span className="tag">{label}</span>
-          <span className="chevron">{open ? "▾" : "▸"}</span>
+          <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
         </button>
         {open ? (
           <div className="bubble thinking">
@@ -154,7 +159,7 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
       <div className="entry system reminder">
         <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
           <span className="tag">System reminder</span>
-          <span className="chevron">{open ? "▾" : "▸"}</span>
+          <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
         </button>
         {open ? <pre className="tool-args">{entry.text}</pre> : null}
       </div>

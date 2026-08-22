@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "./Icon.tsx";
 import { Sheet } from "./Sheet.tsx";
 
 interface Props {
@@ -23,7 +24,7 @@ export function AuthPill({ email }: Props) {
         onClick={() => setOpen(true)}
         title="Authentication is disabled"
       >
-        ⚠ Unauth
+        <Icon name="warning" /> Unauth
       </button>
 
       {open ? (

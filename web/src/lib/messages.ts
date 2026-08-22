@@ -45,6 +45,12 @@ export interface TranscriptEntry {
   streaming?: boolean;
   /** A machine-injected block lifted out of a user message; rendered collapsed. */
   reminder?: boolean;
+  /**
+   * Rendered by us on send, before any server frame. The app-server only echoes
+   * a user message when it was queued, so without this your own message never
+   * appears until a reload.
+   */
+  local?: boolean;
   /** Rendered dimmed (command output that is informational only). */
   dim?: boolean;
   /** Subagent that produced this entry, when not the main agent. */
@@ -168,6 +174,38 @@ function splitInjectedBlocks(entry: TranscriptEntry): TranscriptEntry[] {
   // A message that was nothing but reminders leaves no user bubble behind.
   if (prose) out.push({ ...entry, text: prose });
   return out;
+}
+
+/**
+ * Show the user's own message immediately.
+ *
+ * `emitDequeuedUserMessage` is the only thing that puts a user message on the
+ * wire, and both call sites are guarded by `consumeQueuedTurn` — so the echo
+ * arrives ONLY for a message that was queued behind a busy agent. On the
+ * ordinary path nothing comes back, and the transcript would show the reply
+ * without the question.
+ *
+ * The client message id becomes the server's `otid`, so registering it in the
+ * stream index means a later echo resolves onto this same entry instead of
+ * creating a second one.
+ */
+export function addLocalUserMessage(
+  transcript: Transcript,
+  index: StreamIndex,
+  clientMessageId: string,
+  text: string,
+  seq: number,
+): void {
+  index.byOtid.set(clientMessageId, clientMessageId);
+  transcript.set(clientMessageId, {
+    id: clientMessageId,
+    kind: "user",
+    date: new Date().toISOString(),
+    seenAt: seq,
+    text,
+    local: true,
+    streaming: false,
+  });
 }
 
 export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
@@ -295,7 +333,17 @@ export function applyMessage(
       const chunk = contentToText(message.content);
       // History replaces; streaming appends. A replayed history record for a
       // message we streamed must not double the text.
-      entry.text = options.streaming ? entry.text + chunk : chunk;
+      //
+      // The exception is an entry we rendered ourselves on send: the server's
+      // echo carries the whole message, so appending it to our copy would show
+      // the text twice. Replace once, then let normal append semantics resume
+      // in case the echo is itself chunked.
+      if (options.streaming && entry.local) {
+        entry.text = chunk;
+        entry.local = false;
+      } else {
+        entry.text = options.streaming ? entry.text + chunk : chunk;
+      }
       break;
     }
     case "reasoning": {
@@ -435,10 +483,18 @@ export function applyStreamDelta(
   applyNotice(transcript, record, seq);
 }
 
-/** Rebuild a transcript from `conversation_messages_list`. */
+/**
+ * Rebuild a transcript from `conversation_messages_list`.
+ *
+ * That endpoint returns messages NEWEST FIRST (verified against the backend:
+ * the array runs descending by `date`). `seenAt` drives the render order, so
+ * using the raw array index put the newest message at the top and rendered the
+ * whole conversation backwards — the reply above the question that prompted it.
+ */
 export function transcriptFromHistory(messages: readonly unknown[]): Transcript {
   const transcript: Transcript = new Map();
-  messages.forEach((message, index) => {
+  const oldestFirst = [...messages].reverse();
+  oldestFirst.forEach((message, index) => {
     applyMessage(transcript, message, { streaming: false, seq: index });
   });
   for (const entry of transcript.values()) entry.streaming = false;

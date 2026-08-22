@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { FilterGroup } from "../lib/messages.ts";
 import { PERMISSION_MODES, type PermissionMode, type SlashCommand } from "../lib/workspace.ts";
 import { CommandSheet, FilterSheet, PermissionSheet } from "./ComposerSheets.tsx";
+import { Icon } from "./Icon.tsx";
 
 interface Props {
   disabled: boolean;
@@ -92,48 +93,64 @@ export function Composer({
         <div className="composer-row">
           <button
             type="button"
-            className={`chip${filters.size > 0 ? " on" : ""}`}
+            className={`icon-button flat${filters.size > 0 ? " on" : ""}`}
             onClick={() => setSheet("filters")}
-            title="Filter the transcript"
+            title={filters.size > 0 ? `Filters (${filters.size} active)` : "Filter the transcript"}
+            aria-label={
+              filters.size > 0 ? `Filters, ${filters.size} active` : "Filter the transcript"
+            }
           >
-            Filters{filters.size > 0 ? ` ${filters.size}` : ""}
+            <Icon name="filter" />
+            {filters.size > 0 ? <span className="badge">{filters.size}</span> : null}
           </button>
 
+          {/* An icon alone cannot distinguish Unrestricted from Strict, so the
+              mode name rides along and the icon carries the severity colour. */}
           <button
             type="button"
-            className="chip"
+            className={`icon-button flat mode-${permissionMode ?? "unknown"}`}
             disabled={disabled}
             onClick={() => setSheet("permissions")}
-            title="Permission mode"
+            title={`Permission mode: ${modeLabel}`}
+            aria-label={`Permission mode: ${modeLabel}`}
           >
-            {modeLabel}
+            <Icon name="shield" />
+            <span className="button-label">{modeLabel}</span>
           </button>
 
           <button
             type="button"
-            className="chip"
+            className="icon-button flat"
             disabled={disabled}
             onClick={() => setSheet("commands")}
             title="Run a command"
+            aria-label="Run a command"
           >
-            /
+            <Icon name="slash" />
           </button>
 
           <button
             type="button"
-            className="chip"
+            className="icon-button flat"
             disabled={modelsDisabled}
             onClick={onOpenModels}
             title="Model for this conversation"
+            aria-label="Model for this conversation"
           >
-            Model
+            <Icon name="model" />
           </button>
 
           <span className="spacer" />
 
           {processing ? (
-            <button type="button" className="icon-button stop" onClick={onAbort} title="Stop">
-              ■
+            <button
+              type="button"
+              className="icon-button stop"
+              onClick={onAbort}
+              title="Stop"
+              aria-label="Stop generating"
+            >
+              <Icon name="stop" />
             </button>
           ) : (
             <button
@@ -141,8 +158,9 @@ export function Composer({
               className="icon-button send"
               disabled={disabled || !value.trim()}
               title="Send"
+              aria-label="Send message"
             >
-              ↑
+              <Icon name="send" />
             </button>
           )}
         </div>

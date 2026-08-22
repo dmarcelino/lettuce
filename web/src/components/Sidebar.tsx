@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AgentsApi } from "../state/use-agents.ts";
+import { Icon } from "./Icon.tsx";
 
 interface Props {
   agents: AgentsApi;
@@ -43,11 +44,18 @@ export function Sidebar({ agents, open, onClose, onNewAgent, onEditAgent }: Prop
                 title="Edit agent"
                 disabled={busy || !agents.agentId}
                 onClick={() => agents.agentId && onEditAgent(agents.agentId)}
+                aria-label="Edit agent"
               >
-                ✎
+                <Icon name="edit" />
               </button>
-              <button type="button" className="link" disabled={busy} onClick={onNewAgent}>
-                + New
+              <button
+                type="button"
+                className="link"
+                disabled={busy}
+                onClick={onNewAgent}
+                aria-label="New agent"
+              >
+                <Icon name="plus" /> New
               </button>
             </span>
           </div>
@@ -73,8 +81,9 @@ export function Sidebar({ agents, open, onClose, onNewAgent, onEditAgent }: Prop
               className="link"
               disabled={busy || !agents.agentId}
               onClick={() => void guard(agents.createConversation)}
+              aria-label="New conversation"
             >
-              + New
+              <Icon name="plus" /> New
             </button>
           </div>
 
@@ -110,8 +119,9 @@ export function Sidebar({ agents, open, onClose, onNewAgent, onEditAgent }: Prop
                           void guard(() => agents.renameConversation(conversation.id, next));
                         }
                       }}
+                      aria-label={`Rename ${conversation.summary}`}
                     >
-                      ✎
+                      <Icon name="edit" />
                     </button>
                     <button
                       type="button"
@@ -121,8 +131,9 @@ export function Sidebar({ agents, open, onClose, onNewAgent, onEditAgent }: Prop
                       onClick={() =>
                         void guard(() => agents.setArchived(conversation.id, !archived))
                       }
+                      aria-label={`${archived ? "Unarchive" : "Archive"} ${conversation.summary}`}
                     >
-                      {archived ? "↩" : "🗄"}
+                      <Icon name={archived ? "unarchive" : "archive"} />
                     </button>
                   </div>
                 </li>

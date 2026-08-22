@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "../components/Icon.tsx";
 import { McpEditor } from "../components/McpEditor.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { isLocalHandle, localProviderKeys } from "../lib/providers.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -97,6 +99,7 @@ function ConnectionSection({ session }: { session: SessionApi }) {
   const [editing, setEditing] = useState<ProviderEntry | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [showCloud, setShowCloud] = useState(false);
+  const [showCloudProviders, setShowCloudProviders] = useState(false);
   // Same hook the chat model picker uses, so the two can never disagree about
   // what is being served.
   const models = useModels(session);
@@ -180,17 +183,12 @@ function ConnectionSection({ session }: { session: SessionApi }) {
   const local = providers.filter((p) => !p.requires_api_key && !p.is_oauth);
   const rest = providers.filter((p) => p.requires_api_key || p.is_oauth);
 
-  // A handle prefix alone is not enough to tell local from cloud: BYOK aliases
-  // ("lc-llama-cpp/…") do not match the built-in local prefixes, and
-  // "ollama-cloud/" is hosted despite looking local. Joining the handle's
-  // provider segment against the connected local providers' own names is what
-  // the browser can actually rely on.
-  const localPrefixes = new Set(
-    local.flatMap((p) => [p.provider_name, ...(p.provider_names ?? [])]).filter(Boolean),
-  );
-  const isLocalHandle = (handle: string) => localPrefixes.has(handle.split("/")[0] ?? "");
-  const localModels = models.models.filter((m) => isLocalHandle(m.handle));
-  const cloudModels = models.models.filter((m) => !isLocalHandle(m.handle));
+  // Comparing the handle's provider segment literally against provider_name
+  // fails for llama.cpp and only llama.cpp: it reports "llama-cpp" but stamps
+  // "llama.cpp/" onto every handle. See lib/providers.ts.
+  const localKeys = localProviderKeys(local);
+  const localModels = models.models.filter((m) => isLocalHandle(m.handle, localKeys));
+  const cloudModels = models.models.filter((m) => !isLocalHandle(m.handle, localKeys));
 
   const open = (provider: ProviderEntry) => {
     setEditing(provider);
@@ -245,7 +243,7 @@ function ConnectionSection({ session }: { session: SessionApi }) {
         <>
           <button type="button" className="tool-head" onClick={() => setShowCloud((v) => !v)}>
             <span className="tag">Cloud models ({cloudModels.length})</span>
-            <span className="chevron">{showCloud ? "▾" : "▸"}</span>
+            <Icon name={showCloud ? "chevron-down" : "chevron-right"} />
           </button>
           {showCloud ? (
             <ul className="list">
@@ -260,17 +258,30 @@ function ConnectionSection({ session }: { session: SessionApi }) {
         </>
       ) : null}
 
-      <p className="section-note">Cloud providers</p>
-      <ul className="list">
-        {rest.map((provider) => (
-          <ProviderRow
-            key={provider.id}
-            provider={provider}
-            onConnect={() => open(provider)}
-            onDisconnect={() => void disconnect(provider)}
-          />
-        ))}
-      </ul>
+      {rest.length > 0 ? (
+        <>
+          <button
+            type="button"
+            className="tool-head"
+            onClick={() => setShowCloudProviders((v) => !v)}
+          >
+            <span className="tag">Cloud providers ({rest.length})</span>
+            <Icon name={showCloudProviders ? "chevron-down" : "chevron-right"} />
+          </button>
+          {showCloudProviders ? (
+            <ul className="list">
+              {rest.map((provider) => (
+                <ProviderRow
+                  key={provider.id}
+                  provider={provider}
+                  onConnect={() => open(provider)}
+                  onDisconnect={() => void disconnect(provider)}
+                />
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
 
       {editing ? (
         <Sheet

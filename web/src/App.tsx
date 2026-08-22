@@ -3,9 +3,11 @@ import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
 import { AuthPill } from "./components/AuthPill.tsx";
 import { Composer } from "./components/Composer.tsx";
+import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
+import { applyFavicon } from "./lib/favicon.ts";
 import { type FilterGroup, filterEntries } from "./lib/messages.ts";
 import type { ConnectionState, RuntimeScope } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
@@ -113,6 +115,12 @@ function Workspace({ status }: { status: Status }) {
 
   const bypass = status.auth_mode === "dev-bypass";
 
+  // The tab icon reports the link state, which matters most when this tab is
+  // backgrounded on a phone — precisely when the socket tends to drop.
+  useEffect(() => {
+    applyFavicon(session.link);
+  }, [session.link]);
+
   return (
     <div className="app">
       <Sidebar
@@ -131,7 +139,7 @@ function Workspace({ status }: { status: Status }) {
             onClick={() => setSidebarOpen((v) => !v)}
             aria-label="Conversations"
           >
-            ☰
+            <Icon name="menu" />
           </button>
           <h1 className="title">{title}</h1>
           {bypass ? <AuthPill email={status.user?.email} /> : null}
@@ -176,8 +184,10 @@ function Workspace({ status }: { status: Status }) {
                     className="queued"
                     title="Remove from queue"
                     onClick={() => conversation.removeQueued(item.id)}
+                    aria-label={`Remove queued message: ${item.content.slice(0, 40)}`}
                   >
-                    {item.content.slice(0, 40)} ✕
+                    {item.content.slice(0, 40)}
+                    <Icon name="close" />
                   </button>
                 ))}
               </div>
@@ -200,7 +210,7 @@ function Workspace({ status }: { status: Status }) {
             />
           </>
         ) : tab === "Files" ? (
-          <FilesTab session={session} cwd={conversation.cwd} />
+          <FilesTab session={session} cwd={conversation.cwd} agentId={agents.agentId} />
         ) : tab === "Tasks" ? (
           <TasksTab
             session={session}

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { agentWorkspace, WORKSPACE_ROOT } from "../lib/workspace.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface TreeEntry {
@@ -14,18 +16,39 @@ interface GrepMatch {
   text: string;
 }
 
-/** get_tree returns paths relative to its root; every other command wants absolute. */
-function resolve(root: string, relative: string): string {
-  return `${root.replace(/\/$/, "")}/${relative}`;
+/**
+ * get_tree returns paths relative to its root; every other command wants
+ * absolute. Normalising here matters: the previous version stripped a trailing
+ * slash, which turned a root of "/" into "" and produced root-relative paths
+ * like "/agent-local-…" that the workspace clamp then (correctly) refused.
+ */
+export function resolve(root: string, relative: string): string {
+  if (relative.startsWith("/")) return relative;
+  const base = root === "/" ? "" : root.replace(/\/+$/, "");
+  return `${base}/${relative}`.replace(/\/{2,}/g, "/");
+}
+
+/**
+ * The directory above `path`, or null at the workspace root.
+ *
+ * Clamped deliberately: without a floor this walked to "/", which the BFF
+ * refuses — leaving the previous listing on screen with no way back down.
+ */
+export function parentDirectory(path: string): string | null {
+  if (path === WORKSPACE_ROOT || !path.startsWith(`${WORKSPACE_ROOT}/`)) return null;
+  const parent = path.replace(/\/+$/, "").replace(/\/[^/]+$/, "");
+  return parent.length >= WORKSPACE_ROOT.length ? parent : WORKSPACE_ROOT;
 }
 
 interface Props {
   session: SessionApi;
   /** Working directory of the active runtime; the tree is rooted here. */
   cwd: string | null;
+  /** Fallback root before the first device status arrives. */
+  agentId: string | null;
 }
 
-export function FilesTab({ session, cwd }: Props) {
+export function FilesTab({ session, cwd, agentId }: Props) {
   const [root, setRoot] = useState<string | null>(null);
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -35,8 +58,25 @@ export function FilesTab({ session, cwd }: Props) {
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    if (cwd && !root) setRoot(cwd);
-  }, [cwd, root]);
+    if (root) return;
+    // Prefer the runtime's reported cwd, but fall back to the agent's own
+    // directory so the tab is usable before the first device status frame.
+    const initial = cwd ?? (agentId ? agentWorkspace(agentId) : null);
+    if (initial) setRoot(initial);
+  }, [cwd, agentId, root]);
+
+  /**
+   * Drop everything tied to the directory we failed to open. Entries are
+   * RELATIVE names; leaving them on screen after a failure meant the next click
+   * joined them onto a root they never belonged to.
+   */
+  const failed = useCallback((message: string) => {
+    setStatus(message);
+    setEntries([]);
+    setMatches(null);
+    setSelected(null);
+    setContent(null);
+  }, []);
 
   const load = useCallback(
     async (path: string) => {
@@ -48,16 +88,16 @@ export function FilesTab({ session, cwd }: Props) {
           error?: string;
         }>("get_tree", { path, depth: 1 });
         if (response?.success === false) {
-          setStatus(response.error ?? "Failed to list directory");
+          failed(response.error ?? "Failed to list directory");
           return;
         }
         setEntries(response?.entries ?? []);
         setStatus("");
       } catch (cause) {
-        setStatus(cause instanceof Error ? cause.message : String(cause));
+        failed(cause instanceof Error ? cause.message : String(cause));
       }
     },
-    [session],
+    [session, failed],
   );
 
   useEffect(() => {
@@ -110,7 +150,7 @@ export function FilesTab({ session, cwd }: Props) {
     }
   };
 
-  const parent = root && root !== "/" ? root.replace(/\/[^/]+\/?$/, "") || "/" : null;
+  const parent = root ? parentDirectory(root) : null;
 
   if (!root) {
     return (
@@ -129,7 +169,7 @@ export function FilesTab({ session, cwd }: Props) {
           disabled={!parent}
           onClick={() => parent && setRoot(parent)}
         >
-          ↑ Up
+          <Icon name="up" /> Up
         </button>
         <code className="path">{root}</code>
       </div>
@@ -188,7 +228,7 @@ export function FilesTab({ session, cwd }: Props) {
                   else void openFile(absolute);
                 }}
               >
-                <span className="icon">{entry.type === "dir" ? "📁" : "📄"}</span>
+                <Icon name={entry.type === "dir" ? "folder" : "file"} />
                 {entry.path}
               </button>
             </li>

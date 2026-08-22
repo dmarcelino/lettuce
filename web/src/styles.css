@@ -639,8 +639,57 @@ pre {
 .composer-row::-webkit-scrollbar {
   display: none;
 }
+/* Composer controls are icon buttons, but must not all look like the send
+   action — flat means transparent until active or hovered. */
+.icon-button.flat {
+  width: auto;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.icon-button.flat.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1020;
+}
+.icon-button.flat .button-label {
+  white-space: nowrap;
+}
+/* The permission mode carries severity in colour as well as in its label. */
+.icon-button.flat.mode-unrestricted {
+  color: var(--warn);
+}
+.icon-button.flat.mode-strict {
+  color: var(--ok);
+}
+
+.badge {
+  background: var(--accent);
+  color: #0b1020;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 15px;
+  padding: 0 4px;
+  line-height: 15px;
+  text-align: center;
+}
+.icon-button.flat.on .badge {
+  background: #0b1020;
+  color: var(--accent);
+}
+
 /* The send button must stay reachable however far the chips scroll. */
-.composer-row .icon-button {
+.composer-row .icon-button.send,
+.composer-row .icon-button.stop {
   width: 34px;
   height: 34px;
   font-size: 15px;
@@ -1045,8 +1094,24 @@ button {
   padding: 12px;
   font-size: 14px;
 }
-.row .icon {
+/* ── Icons ───────────────────────────────────────────────────────────────── */
+
+/* Every icon is an inline SVG sized in `em`, so it tracks the text or button
+   colour and size around it instead of depending on a platform emoji font. */
+.icon {
+  width: 1.15em;
+  height: 1.15em;
   flex-shrink: 0;
+  display: inline-block;
+  vertical-align: -0.18em;
+}
+.icon.chevron {
+  width: 1em;
+  height: 1em;
+  color: var(--muted);
+}
+.link .icon {
+  vertical-align: -0.2em;
 }
 .grow-text {
   flex: 1;

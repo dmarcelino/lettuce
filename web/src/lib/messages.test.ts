@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  addLocalUserMessage,
   applyStreamDelta,
   createStreamIndex,
   type FilterGroup,
@@ -368,5 +369,101 @@ describe("system-reminder extraction", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]!.kind).toBe("user");
     expect(entries[0]!.text).toBe("just a question");
+  });
+});
+
+describe("local user echo", () => {
+  test("the user's own message shows immediately", () => {
+    const transcript: Transcript = new Map();
+    const index = createStreamIndex();
+    addLocalUserMessage(transcript, index, "web-123", "tell me about your capabilities", 0);
+
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.kind).toBe("user");
+    expect(entries[0]!.text).toBe("tell me about your capabilities");
+    expect(entries[0]!.streaming).toBe(false);
+  });
+
+  test("a later server echo lands on the same entry, not a second one", () => {
+    // The queued path DOES echo, carrying otid === client_message_id.
+    const transcript: Transcript = new Map();
+    const index = createStreamIndex();
+    addLocalUserMessage(transcript, index, "web-123", "hello", 0);
+
+    applyStreamDelta(
+      transcript,
+      index,
+      {
+        type: "message",
+        id: "user-msg-abc",
+        otid: "web-123",
+        message_type: "user_message",
+        content: "hello",
+      },
+      1,
+    );
+
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.text).toBe("hello");
+  });
+
+  test("a chunked echo replaces once, then accumulates", () => {
+    const transcript: Transcript = new Map();
+    const index = createStreamIndex();
+    addLocalUserMessage(transcript, index, "web-9", "placeholder", 0);
+
+    const echo = (content: string, seq: number) =>
+      applyStreamDelta(
+        transcript,
+        index,
+        {
+          type: "message",
+          id: `user-msg-${seq}`,
+          otid: "web-9",
+          message_type: "user_message",
+          content,
+        },
+        seq,
+      );
+    echo("real ", 1);
+    echo("text", 2);
+
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    // First chunk replaced the local placeholder; the second appended.
+    expect(entries[0]!.text).toBe("real text");
+  });
+
+  test("history reload replaces the local entry with the server record", () => {
+    const transcript = transcriptFromHistory([
+      { id: "ui-msg-16", message_type: "user_message", content: "hello" },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.local).toBeUndefined();
+  });
+});
+
+describe("history ordering", () => {
+  test("newest-first history renders oldest-first", () => {
+    // conversation_messages_list returns descending by date.
+    const transcript = transcriptFromHistory([
+      { id: "m3", message_type: "assistant_message", content: "third" },
+      { id: "m2", message_type: "user_message", content: "second" },
+      { id: "m1", message_type: "assistant_message", content: "first" },
+    ]);
+    expect(sortedEntries(transcript).map((e) => e.text)).toEqual(["first", "second", "third"]);
+  });
+
+  test("a question sorts above the answer it prompted", () => {
+    const transcript = transcriptFromHistory([
+      { id: "a1", message_type: "assistant_message", content: "Here is the answer" },
+      { id: "u1", message_type: "user_message", content: "What is it?" },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries[0]!.kind).toBe("user");
+    expect(entries[1]!.kind).toBe("assistant");
   });
 });
