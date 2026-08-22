@@ -183,6 +183,20 @@ export const FILE_PATH_FIELDS: ReadonlyMap<string, "path" | "cwd"> = new Map([
   ["grep_in_files", "cwd"],
 ]);
 
+/**
+ * Paths outside the workspace that a screen we built genuinely needs.
+ *
+ * MCP servers are not in the protocol — they live in settings.json under the
+ * agent's own entry, so the MCP editor reads and merges that exact file (see
+ * CLAUDE.md). Allowing the one file keeps that screen working without opening
+ * the directory it sits in: `/root/.letta/` also holds transcripts and agent
+ * secrets, and none of those have a screen.
+ *
+ * Exact paths only, never prefixes — a prefix here would re-open the traversal
+ * this clamp exists to close.
+ */
+export const PATH_EXCEPTIONS: ReadonlySet<string> = new Set(["/root/.letta/settings.json"]);
+
 /** Normalise a POSIX path, resolving `.` and `..` without touching the disk. */
 function normalizePosixPath(input: string): string {
   const segments: string[] = [];
@@ -222,6 +236,7 @@ export function workspaceViolation(
   }
 
   const resolved = normalizePosixPath(raw);
+  if (PATH_EXCEPTIONS.has(resolved)) return null;
   if (resolved !== WORKSPACE_ROOT && !resolved.startsWith(`${WORKSPACE_ROOT}/`)) {
     return `Path is outside the workspace: ${resolved} is not under ${WORKSPACE_ROOT}`;
   }

@@ -20,14 +20,25 @@ describe("workspace clamp", () => {
   });
 
   test("the paths that are reachable today are refused", () => {
-    refuse({ type: "read_file", path: "/root/.letta/settings.json" });
     refuse({ type: "list_in_directory", path: "/etc" });
-    refuse({ type: "write_file", path: "/root/.letta/settings.json", content: "x" });
     refuse({ type: "get_tree", path: "/" });
+    refuse({ type: "read_file", path: "/root/.letta/transcripts" });
+  });
+
+  test("settings.json is allowed, but only that exact file", () => {
+    // MCP config has no protocol command; the MCP editor edits this file.
+    allow({ type: "read_file", path: "/root/.letta/settings.json" });
+    allow({ type: "write_file", path: "/root/.letta/settings.json", content: "{}" });
+    // The exception must not extend to the directory around it.
+    refuse({ type: "list_in_directory", path: "/root/.letta" });
+    refuse({ type: "read_file", path: "/root/.letta/settings.json.bak-before-prune" });
+    refuse({ type: "get_tree", path: "/root/.letta/projects" });
   });
 
   test("traversal out of the workspace is refused after normalisation", () => {
-    refuse({ type: "read_file", path: `${WORKSPACE_ROOT}/../root/.letta/settings.json` });
+    // Note: traversal that resolves ONTO an allowed exact path is fine — the
+    // exception is checked after normalisation, which is the point.
+    refuse({ type: "read_file", path: `${WORKSPACE_ROOT}/../etc/passwd` });
     refuse({ type: "read_file", path: `${WORKSPACE_ROOT}/agent-1/../../etc/passwd` });
     // Normalising back inside is fine.
     allow({ type: "read_file", path: `${WORKSPACE_ROOT}/agent-1/../agent-2/notes.md` });
