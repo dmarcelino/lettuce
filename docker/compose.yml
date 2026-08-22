@@ -15,14 +15,41 @@ name: letta
 services:
   app-server:
     build:
-      context: ../../letta-code
-      dockerfile: docker/Dockerfile
+      # Our thin layer over the fork's own image, adding bubblewrap. The base
+      # tag it needs is built by `bun run build-images` — Compose alone cannot
+      # build A then FROM A.
+      context: .
+      dockerfile: app-server.Dockerfile
       args:
         # Pinned to the fork's own version, never `latest`. The UI is compiled
         # against this exact release's protocol types (see CLAUDE.md), so the
         # running app-server must match. The fork carries zero delta, so the
         # published package at this version is equivalent to our source.
         LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.30.27}"
+    # Deliberate trade, not an oversight. letta-code's sandbox probe runs a real
+    # `bwrap --ro-bind / / --unshare-user` mount, and BOTH default profiles
+    # block a different half of it — measured, not assumed:
+    #
+    #   (none)                          unshare blocked
+    #   apparmor=unconfined only        unshare blocked      (seccomp stops it)
+    #   seccomp=unconfined only         mount blocked        ("make / slave")
+    #   seccomp + apparmor unconfined   works
+    #   + cap_add SYS_ADMIN             works, and is NOT needed
+    #
+    # So this is the minimum that works: no added capabilities, not privileged.
+    # Without it bubblewrap is installed but unusable and every agent runs
+    # unconfined.
+    #
+    # What is given up: the default syscall filter and MAC profile that harden
+    # container -> host. What is gained: the agent's shell commands are confined
+    # to its own workspace directory, so one agent cannot write over another's
+    # files. For a single-user, self-hosted assistant the realistic threat is an
+    # agent or a prompt injection clobbering files, not kernel exploitation from
+    # a semi-trusted local process — so this is the better side of the trade.
+    # Revert it (and accept unconfined agents) if that ever stops being true.
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
     command:
       - letta
       - server

@@ -102,6 +102,21 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   agent entry, write it back, and then `execute_command {command_id:"reload"}` — which
   replies "Reloaded settings, local mods, and agent secrets". Merge rather than replace:
   the file holds ~18 unrelated top-level settings including `deviceId`.
+- **The agent sandbox needs bubblewrap AND two relaxed container profiles.**
+  `runtime_start.workspace_sandbox {root, isolation_root}` is what confines an agent to its
+  own directory, and letta-code's only Linux backend is `bwrap`
+  (`src/sandbox/availability.ts`). Its probe runs a real
+  `bwrap --ro-bind / / --unshare-user` mount, and the two Docker defaults block a different
+  half each — measured: seccomp stops the `unshare`, AppArmor stops the "make / slave".
+  Both `seccomp:unconfined` and `apparmor:unconfined` are required; `SYS_ADMIN` and
+  `privileged` are not. The package is added by `docker/app-server.Dockerfile`, a thin layer
+  over the fork's own image (built via `bun run build-images`).
+
+  Scope, so it is not oversold: it confines **writes by spawned shell commands**, plus
+  in-process file tools via a TypeScript guard. It does **not** restrict reads — 
+  `policy.ts` says so outright — and does not touch the network. `runtime_start` **rejects
+  the whole command** when no backend is available rather than degrading, which is why
+  `use-conversation.ts` retries once without the sandbox and surfaces a banner.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.
@@ -157,6 +172,11 @@ Passing typecheck is not done. Passing tests is not done. **Running in the conta
 5. **`bun run deploy-check` green** — asserts the tree is clean and on `main`, that the
    bundle the container serves is byte-identical to the one in `web/dist`, and that
    `/readyz` and the upstream app-server connection are healthy.
+5b. **`bun run ui-check` green** for any change touching `web/` — drives headless
+   Chromium at phone and desktop widths and asserts what unit tests cannot see:
+   nothing clipped off-screen, the composer controls present, sheets opening and
+   closing, breakpoint behaviour. Screenshots land in `.ui-check/`. It needs the
+   stack running, which is why it sits here and not inside `verify`.
 6. **`bun run smoke` green** when the change touches BFF session, protocol or settings
    paths. Not part of `verify`: it needs a live stack, it needs at least one agent to
    exist, and it mutates real state (writes `smoke-probe.md` into the agent cwd, edits
@@ -200,6 +220,7 @@ app-server request loop that `use-session.ts` documents).
 |---|---|
 | `bun run verify` | **The gate.** lint → typecheck → test → build, fail-fast |
 | `bun run deploy-check` | Asserts the running container serves the merged code, and is healthy |
+| `bun run ui-check` | Layout/interaction assertions in a real browser; screenshots to `.ui-check/` |
 | `bun run lint` | Biome check (errors fail, warnings do not) |
 | `bun run format` | Biome check with safe fixes applied |
 | `bun run typecheck` | Typecheck both packages — the protocol-drift detector |
@@ -208,6 +229,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run dev` | BFF + Vite dev server |
 | `bun run smoke` | Live acceptance suite against a running stack — mutates state |
 | `bun run sync-upstream` | Sync fork from upstream and report drift |
+| `bun run build-images` | Build the app-server base tag, then all compose images — **required** after changing `docker/app-server.Dockerfile` or the fork version |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
 | `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway |
 | `git push origin main` | Last step — **ask for confirmation first, every time** |

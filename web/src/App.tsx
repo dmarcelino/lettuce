@@ -157,9 +157,10 @@ function Workspace({ status }: { status: Status }) {
 
             {conversation.sandboxed === false ? (
               <p className="warning small">
-                Running without the workspace sandbox — <code>bwrap</code> is not installed on the
-                app-server host. The agent&rsquo;s own tools can reach the whole container
-                filesystem; the file browser is still restricted.
+                Running without the workspace sandbox, so the agent can <strong>write</strong>
+                anywhere in the container rather than only its own directory. The file browser is
+                still restricted. Needs <code>bwrap</code> plus <code>seccomp:unconfined</code> and{" "}
+                <code>apparmor:unconfined</code> on the app-server — see docker/compose.yml.
               </p>
             ) : null}
 
