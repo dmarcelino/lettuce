@@ -176,9 +176,11 @@ try {
     const glyphs = await page.evaluate(() => {
       const found = new Set<string>();
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      // Emoji, dingbats, arrows and geometric shapes.
+      // Emoji, dingbats, arrows and geometric shapes. The variation selector is
+      // an alternation branch, not a class member: it combines with the glyph
+      // before it, so a class cannot express it.
       const re =
-        /[\u2190-\u21FF\u2300-\u23FF\u25A0-\u25FF\u2600-\u27BF\uFE0F\u{1F300}-\u{1FAFF}]/gu;
+        /[\u2190-\u21FF\u2300-\u23FF\u25A0-\u25FF\u2600-\u27BF]|[\u{1F300}-\u{1FAFF}]|\uFE0F/gu;
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         for (const m of (node.textContent ?? "").matchAll(re)) found.add(m[0]);
       }

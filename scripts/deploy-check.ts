@@ -69,8 +69,10 @@ if (localBundle && servedBundle) {
   check(
     "served bundle matches web/dist",
     servedBundle === localBundle,
-    `serving ${servedBundle}, built ${localBundle} — the bff image predates web/dist. ` +
-      "Run: docker compose -f docker/compose.yml build bff && ... up -d bff",
+    `serving ${servedBundle}, local web/dist is ${localBundle} — these must match. ` +
+      "Either side can be the stale one: run `bun run build` if web/dist predates " +
+      "your last source change, or `docker compose -f docker/compose.yml build bff " +
+      "&& ... up -d bff` if the image does.",
   );
 }
 
