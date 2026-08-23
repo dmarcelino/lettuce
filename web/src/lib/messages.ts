@@ -147,6 +147,12 @@ const INJECTED_BLOCK_RE = new RegExp(
   "g",
 );
 
+/** Whatever the person actually wrote, with machine-injected blocks removed. */
+export function stripInjectedBlocks(text: string): string {
+  if (!text.includes("<")) return text.trim();
+  return text.replace(INJECTED_BLOCK_RE, "").trim();
+}
+
 /**
  * Expand one user entry into its injected blocks plus whatever the person
  * actually wrote. Any other entry passes through untouched.

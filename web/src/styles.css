@@ -660,12 +660,18 @@ pre {
   border-color: var(--accent);
   color: #0b1020;
 }
-.icon-button.flat .button-label {
-  white-space: nowrap;
-}
-/* The permission mode carries severity in colour as well as in its label. */
+/* The permission shield is icon-only, so all four modes need to be told apart
+   by colour. Ordered by how much the agent may do without asking — unrestricted
+   is red rather than amber because it gates nothing at all, and it is the
+   default you get without choosing. */
 .icon-button.flat.mode-unrestricted {
+  color: var(--bad);
+}
+.icon-button.flat.mode-acceptEdits {
   color: var(--warn);
+}
+.icon-button.flat.mode-standard {
+  color: var(--accent);
 }
 .icon-button.flat.mode-strict {
   color: var(--ok);

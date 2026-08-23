@@ -104,8 +104,10 @@ export function Composer({
             {filters.size > 0 ? <span className="badge">{filters.size}</span> : null}
           </button>
 
-          {/* An icon alone cannot distinguish Unrestricted from Strict, so the
-              mode name rides along and the icon carries the severity colour. */}
+          {/* Icon only: the shield's colour carries the mode, ordered by how
+              much the agent may do without asking. Colour is never the sole
+              channel — the accessible name spells the mode out, and the sheet
+              marks the current one. */}
           <button
             type="button"
             className={`icon-button flat mode-${permissionMode ?? "unknown"}`}
@@ -115,7 +117,6 @@ export function Composer({
             aria-label={`Permission mode: ${modeLabel}`}
           >
             <Icon name="shield" />
-            <span className="button-label">{modeLabel}</span>
           </button>
 
           <button

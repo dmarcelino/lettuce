@@ -149,9 +149,19 @@ try {
       check(`composer has "${label}"`, (await button.count()) === 1);
       check(`"${label}" is an icon button`, (await button.locator("svg.icon").count()) === 1);
     }
+    const permission = page.locator('.composer-row button[aria-label^="Permission mode"]');
+    check("composer has a permission-mode button", (await permission.count()) === 1);
     check(
-      "composer has a permission-mode button",
-      (await page.locator('.composer-row button[aria-label^="Permission mode"]').count()) === 1,
+      "permission button is icon-only",
+      (await permission.innerText()).trim().length === 0,
+      await permission.innerText(),
+    );
+    check(
+      "permission button colours the mode",
+      /\bmode-(unrestricted|acceptEdits|standard|strict)\b/.test(
+        (await permission.getAttribute("class")) ?? "",
+      ),
+      await permission.getAttribute("class"),
     );
     check(
       "composer has a send button",

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { conversationTitle } from "../lib/title.ts";
 import { readAgentModelHandle } from "./use-models.ts";
 import type { SessionApi } from "./use-session.ts";
 
@@ -29,6 +30,13 @@ export interface ConversationSummary {
   summary: string;
   archived: boolean;
   updatedAt?: string;
+  /**
+   * Whether the conversation has a real name. `summary` carries an "Untitled"
+   * placeholder when the server returned null, so without this a genuinely
+   * untitled conversation is indistinguishable from one named "Untitled" —
+   * and auto-titling could overwrite a name the user chose.
+   */
+  titled: boolean;
 }
 
 function readAgents(response: unknown): AgentSummary[] {
@@ -42,7 +50,7 @@ function readAgents(response: unknown): AgentSummary[] {
   });
 }
 
-function readConversations(response: unknown): ConversationSummary[] {
+export function readConversations(response: unknown): ConversationSummary[] {
   const conversations = (response as { conversations?: unknown })?.conversations;
   if (!Array.isArray(conversations)) return [];
   return conversations.flatMap((raw) => {
@@ -54,13 +62,13 @@ function readConversations(response: unknown): ConversationSummary[] {
       updated_at?: unknown;
     };
     if (typeof conversation.id !== "string") return [];
+    const titled =
+      typeof conversation.summary === "string" && conversation.summary.trim().length > 0;
     return [
       {
         id: conversation.id,
-        summary:
-          typeof conversation.summary === "string" && conversation.summary.trim()
-            ? conversation.summary
-            : "Untitled",
+        summary: titled ? (conversation.summary as string) : "Untitled",
+        titled,
         archived: conversation.archived === true,
         ...(typeof conversation.updated_at === "string"
           ? { updatedAt: conversation.updated_at }
@@ -108,6 +116,8 @@ export interface AgentsApi {
   deleteAgent: (agentId: string) => Promise<void>;
   createConversation: () => Promise<void>;
   renameConversation: (conversationId: string, summary: string) => Promise<void>;
+  /** Name an untitled conversation after the first thing the user said. */
+  autoTitleConversation: (conversationId: string, firstMessage: string) => void;
   setArchived: (conversationId: string, archived: boolean) => Promise<void>;
 }
 
@@ -282,6 +292,24 @@ export function useAgents(session: SessionApi): AgentsApi {
     [agentId, request, refreshConversations],
   );
 
+  /**
+   * The app-server never titles a conversation — there is no protocol command
+   * for it, and the `autoConversationTitles` setting is only read by the TUI.
+   * So the client does it, once, and only while the conversation is untitled:
+   * a name the user chose must never be overwritten.
+   */
+  const autoTitleConversation = useCallback(
+    (target: string, firstMessage: string) => {
+      const conversation = conversations.find((c) => c.id === target);
+      if (!conversation || conversation.titled) return;
+      const title = conversationTitle(firstMessage);
+      if (!title) return;
+      // Deliberately not awaited: a failed rename must not hold up a message.
+      void renameConversation(target, title).catch(() => undefined);
+    },
+    [conversations, renameConversation],
+  );
+
   // `conversation_list` ignores an `archived` query filter, so the archived
   // set is filtered client-side; only the write side is native.
   const setArchived = useCallback(
@@ -312,6 +340,7 @@ export function useAgents(session: SessionApi): AgentsApi {
     deleteAgent,
     createConversation,
     renameConversation,
+    autoTitleConversation,
     setArchived,
   };
 }

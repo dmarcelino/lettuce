@@ -196,7 +196,14 @@ function Workspace({ status }: { status: Status }) {
             <Composer
               disabled={!scope || !session.ready}
               processing={conversation.processing}
-              onSend={(text) => void conversation.sendMessage(text)}
+              onSend={(text) => {
+                void conversation.sendMessage(text);
+                // Name the conversation after the first thing said in it. No-op
+                // once it has a title, so a manual rename always wins.
+                if (agents.conversationId) {
+                  agents.autoTitleConversation(agents.conversationId, text);
+                }
+              }}
               onAbort={conversation.abort}
               filters={filters}
               onToggleFilter={toggleFilter}
