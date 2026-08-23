@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { McpEditor } from "../components/McpEditor.tsx";
 import { Sheet } from "../components/Sheet.tsx";
-import { isLocalHandle, localProviderKeys } from "../lib/providers.ts";
+import { handleProvider, isLocalHandle, localProviderKeys } from "../lib/providers.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -214,7 +214,24 @@ function ConnectionSection({ session }: { session: SessionApi }) {
         ))}
       </ul>
 
-      <p className="section-note">Models served{models.loading ? " — loading…" : ""}</p>
+      <p className="section-note">
+        Models served{localModels.length > 0 ? ` (${localModels.length})` : ""}
+        {models.loading ? " — loading…" : ""}
+      </p>
+
+      {/* A model list that changes between refreshes means the endpoint is
+          answering each /models call from a different backend — the symptom is
+          otherwise invisible, because any single call looks plausible. */}
+      {models.changed ? (
+        <p className="warning small">
+          This endpoint returned a different set of models on the last refresh —{" "}
+          {models.changed.currentCount} now versus {models.changed.previousCount} before. That
+          usually means it load-balances <code>/models</code> across several backends, so each call
+          is answered by a different one. Point the connection at an aggregating endpoint, or at a
+          single backend.
+        </p>
+      ) : null}
+
       {localModels.length === 0 && !models.loading ? (
         <p className="muted small pad">
           Nothing served yet. Connect an endpoint above, then Refresh.
@@ -224,7 +241,7 @@ function ConnectionSection({ session }: { session: SessionApi }) {
         {localModels.map((model) => (
           <li key={model.id} className="row-between pad">
             <span>{model.label}</span>
-            <code className="muted small">{model.handle}</code>
+            <code className="muted small">{handleProvider(model.handle)}</code>
           </li>
         ))}
       </ul>

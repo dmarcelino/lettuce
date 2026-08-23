@@ -292,6 +292,25 @@ try {
     );
     const settingsBox = await overflow(page);
     check("settings has nothing clipped", settingsBox.clipped.length === 0, settingsBox);
+
+    // Models served: count in the heading, provider per row.
+    const servedHeading = await page.locator('.section-note:has-text("Models served")').innerText();
+    check("models-served heading carries a count", /\(\d+\)/.test(servedHeading), servedHeading);
+
+    // Refreshing against a stable endpoint must NOT raise the change warning —
+    // a detector that cries wolf on every refresh is worse than none.
+    const warningSelector = '.warning:has-text("different set of models")';
+    check(
+      "no spurious model-change warning on load",
+      (await page.locator(warningSelector).count()) === 0,
+    );
+    await page.locator('button:has-text("Refresh models")').click();
+    await page.waitForTimeout(2500);
+    check(
+      "no spurious model-change warning after a refresh",
+      (await page.locator(warningSelector).count()) === 0,
+    );
+
     await shot(page, "desktop-settings");
 
     await page.close();

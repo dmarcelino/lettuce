@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { handleProvider } from "../lib/providers.ts";
 import type { SessionApi } from "./use-session.ts";
 
 export interface ModelEntry {
@@ -25,13 +26,37 @@ export type Availability =
   /** absent — server too old to report availability. Showing the built-in list. */
   | "not-reported";
 
+/**
+ * Two consecutive refreshes disagreed about what is served.
+ *
+ * The signal that matters when an endpoint load-balances its `/models` route:
+ * each call is answered by a different backend, so the list silently changes
+ * under you. Counts alone are not enough — two different backends can serve the
+ * same number of models — so the comparison is on the handle set.
+ */
+export interface ModelSetChange {
+  previousCount: number;
+  currentCount: number;
+}
+
 export interface ModelsApi {
   models: ModelEntry[];
   availability: Availability;
   loading: boolean;
   error: string | null;
+  /** Distinct provider segments across the served handles, e.g. ["llama.cpp"]. */
+  providers: string[];
+  /** Set when the last refresh returned a different set than the one before it. */
+  changed: ModelSetChange | null;
   /** User-initiated refetch; bypasses the listener's availability cache. */
   refresh: () => Promise<void>;
+}
+
+/** Order-insensitive comparison: a reordered list is not a changed list. */
+export function sameHandleSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const seen = new Set(a);
+  return b.every((handle) => seen.has(handle));
 }
 
 interface ListModelsResponse {
@@ -80,6 +105,9 @@ export function useModels(session: SessionApi): ModelsApi {
   const [availability, setAvailability] = useState<Availability>("filtered");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [changed, setChanged] = useState<ModelSetChange | null>(null);
+  /** The handle set from the previous successful load, for comparison. */
+  const previousHandles = useRef<string[] | null>(null);
 
   const load = useCallback(
     async (force: boolean) => {
@@ -98,6 +126,21 @@ export function useModels(session: SessionApi): ModelsApi {
           : [];
 
         const handles = response?.available_handles;
+
+        // Compare against the previous load before anything else consumes it:
+        // a set that changes between refreshes means the endpoint is answering
+        // from a different backend each time.
+        if (Array.isArray(handles)) {
+          const current = handles.filter((h): h is string => typeof h === "string");
+          const previous = previousHandles.current;
+          setChanged(
+            previous && !sameHandleSet(previous, current)
+              ? { previousCount: previous.length, currentCount: current.length }
+              : null,
+          );
+          previousHandles.current = current;
+        }
+
         if (Array.isArray(handles)) {
           setModels(
             filterToAvailable(
@@ -126,7 +169,9 @@ export function useModels(session: SessionApi): ModelsApi {
 
   const refresh = useCallback(() => load(true), [load]);
 
-  return { models, availability, loading, error, refresh };
+  const providers = [...new Set(models.map((m) => handleProvider(m.handle)).filter(Boolean))];
+
+  return { models, availability, loading, error, providers, changed, refresh };
 }
 
 /**
