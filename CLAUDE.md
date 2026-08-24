@@ -149,6 +149,41 @@ Protocol drift shows up two ways:
    - `src/channels/gateway-supervisor.ts` and `src/channels/gateway-local.ts` — if the gateway
      ever gains `--ws-auth`, the shared-network-namespace workaround below can be dropped.
 
+### Version pinning
+
+**Sync to a published release tag, never `upstream/main`:** `bun run sync-upstream v<version>`.
+The script defaults to `upstream/main`, which is the wrong target here. `app-server.Dockerfile`
+builds `FROM letta-app-server-base:$LETTA_CODE_VERSION`, and that base installs
+`@letta-ai/letta-code@$LETTA_CODE_VERSION` **from npm** — so the container can only ever run a
+released version. A fork sitting one commit past a tag has nothing to pin to, and quietly stops
+being the code the app-server runs. Check the tag is published first: `npm view
+@letta-ai/letta-code@<version> version`.
+
+**The version literal lives in four places and they must move together:**
+
+| File | Form |
+|---|---|
+| `docker/compose.yml` | `LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-<v>}"` — **twice**, `app-server` and `channel-gateway` |
+| `scripts/build-images.sh` | the `${LETTA_CODE_VERSION:-<v>}` default |
+| `docker/app-server.Dockerfile` | `ARG LETTA_CODE_VERSION=<v>` |
+| `docker/.env` | `LETTA_CODE_VERSION=<v>` — gitignored, so it drifts unseen |
+
+Nothing asserts they agree. After bumping, confirm with a single
+`grep -rn LETTA_CODE_VERSION docker/ scripts/`.
+
+**The trap that hides a stale pin:** a shell `LETTA_CODE_VERSION` outranks `docker/.env` in
+Compose's precedence order, and `build-images.sh` exports one. So `bun run build-images` builds
+the *right* version while `docker compose build app-server` on its own silently builds the
+`.env` version. That is exactly how `.env` sat at `0.30.27` through the whole `0.30.29` cycle
+without anyone noticing — every build had gone through `build-images.sh`.
+
+**A version bump is a full rebuild.** `bun run build-images` then
+`docker compose -f docker/compose.yml up -d` — base, app-server, channel-gateway and bff. This
+is the documented exception to "Only `bff` is rebuilt in step 4" under Definition of done; that
+note governs ordinary UI and BFF changes, this one governs version bumps. Recreating
+`app-server` drops the BFF's permanent upstream connection, so any in-flight turn is lost and
+the cron scheduler and Telegram gateway restart on the BFF's reconnect.
+
 ## Git workflow
 
 Worktrees per feature, feature branches, direct merge to `main`, no PRs.
