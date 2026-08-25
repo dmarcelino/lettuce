@@ -2,7 +2,7 @@ import { FILTER_LABELS, type FilterGroup } from "../lib/messages.ts";
 import { PERMISSION_MODES, type PermissionMode, type SlashCommand } from "../lib/workspace.ts";
 import { Sheet } from "./Sheet.tsx";
 
-const FILTER_ORDER: FilterGroup[] = ["user", "agent", "tools", "system"];
+const FILTER_ORDER: FilterGroup[] = ["user", "agent", "tools", "tasks", "system"];
 
 export function FilterSheet({
   active,

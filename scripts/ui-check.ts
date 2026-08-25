@@ -213,6 +213,12 @@ try {
     // Sheets open, and Escape closes them.
     await page.locator('.composer-row button[aria-label^="Filter"]').click();
     check("filters sheet opens", await page.locator(".sheet-panel").isVisible());
+    const groups = await page.locator(".sheet-panel .picker li strong").allInnerTexts();
+    check(
+      "five filter groups incl. Tasks",
+      groups.length === 5 && groups.some((g) => g.includes("Tasks")),
+      groups,
+    );
     await shot(page, "phone-filters");
     check(
       "sheet is a bottom sheet on a phone",

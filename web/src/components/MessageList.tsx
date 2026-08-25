@@ -15,6 +15,7 @@ const KIND_LABEL: Record<string, string> = {
   tool_call: "Tool",
   tool_return: "Result",
   system: "System",
+  task: "Task",
   approval_request: "Approval",
   approval_response: "Approval",
   event: "Event",
@@ -152,6 +153,39 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
     );
   }
 
+  if (entry.kind === "task") {
+    // Header always readable — what finished and whether it worked — with the
+    // result body (genuine markdown) behind the same disclosure tool output uses.
+    const hasResult = entry.text.trim().length > 0;
+    return (
+      <div className="entry task">
+        <button
+          type="button"
+          className="tool-head"
+          onClick={() => setOpen((v) => !v)}
+          disabled={!hasResult}
+        >
+          <Icon name="task" />
+          <span className="tag">Task</span>
+          {entry.status ? (
+            <span className={`tag${entry.status === "error" ? " bad" : " ok-tag"}`}>
+              {entry.status === "error" ? "failed" : "completed"}
+            </span>
+          ) : null}
+          <span className="grow-text">{entry.title ?? ""}</span>
+          {hasResult ? (
+            <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
+          ) : null}
+        </button>
+        {open && hasResult ? (
+          <div className="bubble task-result">
+            <Markdown text={entry.text} />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   if (entry.reminder) {
     // Machine payload, not prose: shown verbatim rather than through Markdown,
     // which would swallow the tags and the paragraph after them.
@@ -169,6 +203,8 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
   return (
     <div className={`entry ${entry.kind}`}>
       {entry.kind !== "user" ? <span className="tag">{label}</span> : null}
+      {/* Arrived from Telegram/Slack rather than typed here — still you. */}
+      {entry.channel ? <span className="tag">via {entry.channel}</span> : null}
       <div className={`bubble ${entry.kind}`}>
         <Markdown text={entry.text} />
         {entry.streaming ? <span className="caret" /> : null}

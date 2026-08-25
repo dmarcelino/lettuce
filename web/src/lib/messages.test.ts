@@ -7,6 +7,7 @@ import {
   filterEntries,
   settleStreaming,
   sortedEntries,
+  stripInjectedBlocks,
   type Transcript,
   transcriptFromHistory,
 } from "./messages.ts";
@@ -465,5 +466,133 @@ describe("history ordering", () => {
     const entries = sortedEntries(transcript);
     expect(entries[0]!.kind).toBe("user");
     expect(entries[1]!.kind).toBe("assistant");
+  });
+});
+
+describe("task notifications", () => {
+  /** Captured verbatim from local-conv-38; only the result prose is truncated. */
+  const TASK = `<task-notification>
+<task-id>task_2</task-id>
+<status>completed</status>
+<summary>Agent "Search weather in Redmond, WA using DuckDuckGo MCP" completed</summary>
+<result>subagent_type=general-purpose subagent_id=subagent-1787612610887-2 subagent_status=success agent_id=agent-local-1ccda99b-db50-424f-91f9-6b09771512bf conversation_id=default
+
+The requested command to l
+…truncated for the fixture…</result>
+<usage>total_tokens: 146416
+tool_uses: 9
+duration_ms: 972873</usage>
+</task-notification>
+Full transcript available at: /tmp/letta-background-tRlfjO/task_2.log`;
+
+  const entriesFor = (text: string) =>
+    sortedEntries(
+      transcriptFromHistory([{ id: "u1", message_type: "user_message", content: text }]),
+    );
+
+  test("the real payload becomes one Task entry, not a user message", () => {
+    const entries = entriesFor(TASK);
+    expect(entries).toHaveLength(1);
+    const task = entries[0]!;
+    expect(task.kind).toBe("task");
+    expect(task.taskId).toBe("task_2");
+    expect(task.status).toBe("success");
+    expect(task.title).toBe('Agent "Search weather in Redmond, WA using DuckDuckGo MCP" completed');
+    // No XML survives into anything rendered.
+    expect(task.text).not.toContain("<result>");
+    expect(task.text).not.toContain("</task-notification>");
+    expect(task.text).toContain("subagent_type=general-purpose");
+  });
+
+  test("it lands in the Tasks filter group, not You", () => {
+    const entries = entriesFor(TASK);
+    expect(filterEntries(entries, new Set<FilterGroup>(["tasks"]))).toHaveLength(1);
+    expect(filterEntries(entries, new Set<FilterGroup>(["user"]))).toHaveLength(0);
+  });
+
+  test("the trailing transcript pointer does not leak as a user message", () => {
+    // Upstream appends this line OUTSIDE the closing tag.
+    const entries = entriesFor(`${TASK}\nFull transcript available at: /tmp/letta/task_2.log`);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.kind).toBe("task");
+  });
+
+  test("the Monitor variant has no status, so it must not read as failed", () => {
+    const entries = entriesFor(
+      "<task-notification>\n<task-id>task_9</task-id>\n<summary>Monitor fired</summary>\n<result><event>errors in deploy.log</event></result>\n</task-notification>",
+    );
+    const task = entries[0]!;
+    expect(task.kind).toBe("task");
+    expect(task.status).toBeUndefined();
+    expect(task.title).toBe("Monitor fired");
+  });
+
+  test("the reflection variant is summary-only and still renders", () => {
+    const entries = entriesFor(
+      "<task-notification><summary>Reflection complete</summary><reflection-agent-id>agent-x</reflection-agent-id></task-notification>",
+    );
+    const task = entries[0]!;
+    expect(task.kind).toBe("task");
+    expect(task.title).toBe("Reflection complete");
+    expect(task.text).toBe("");
+  });
+
+  test("a notification with no summary still produces a usable card", () => {
+    const entries = entriesFor("<task-notification>something unparseable</task-notification>");
+    expect(entries[0]!.kind).toBe("task");
+    expect(entries[0]!.title).toContain("something unparseable");
+  });
+
+  test("a task notification never titles a conversation", () => {
+    expect(stripInjectedBlocks(TASK)).toBe("");
+  });
+});
+
+describe("skill blocks with open-ended tag names", () => {
+  const entriesFor = (text: string) =>
+    sortedEntries(
+      transcriptFromHistory([{ id: "u1", message_type: "user_message", content: text }]),
+    );
+
+  test("an arbitrary skill id is treated as injected, not typed", () => {
+    // The tag name IS the skill id, so there is no fixed list to match.
+    const entries = entriesFor("<some-other-skill>\n# Skill Directory\nbody\n</some-other-skill>");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.kind).toBe("system");
+    expect(entries[0]!.text).toContain("Skill Directory");
+  });
+
+  test("ordinary prose containing a < is left alone", () => {
+    // The case that would wreck real messages.
+    for (const text of ["is 3 < 5 or not?", "use <div> in html", "a < b and c > d"]) {
+      const entries = entriesFor(text);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]!.kind).toBe("user");
+      expect(entries[0]!.text).toBe(text);
+    }
+  });
+
+  test("a message that is only an HTML tag stays a user message", () => {
+    const entries = entriesFor("<p>hello</p>");
+    expect(entries[0]!.kind).toBe("user");
+  });
+});
+
+describe("channel messages", () => {
+  test("an inbound channel message stays yours, labelled with the channel", () => {
+    const entries = sortedEntries(
+      transcriptFromHistory([
+        {
+          id: "u1",
+          message_type: "user_message",
+          content:
+            '<channel-notification channel="telegram"><mention>what is the weather?</mention></channel-notification>',
+        },
+      ]),
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.kind).toBe("user");
+    expect(entries[0]!.channel).toBe("telegram");
+    expect(filterEntries(entries, new Set<FilterGroup>(["user"]))).toHaveLength(1);
   });
 });

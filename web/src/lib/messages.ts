@@ -16,13 +16,14 @@ export type EntryKind =
   | "tool_call"
   | "tool_return"
   | "system"
+  | "task"
   | "approval_request"
   | "approval_response"
   | "event"
   | "notice";
 
-/** The four filter groups offered in the UI. */
-export type FilterGroup = "user" | "agent" | "tools" | "system";
+/** The filter groups offered in the UI. */
+export type FilterGroup = "user" | "agent" | "tools" | "tasks" | "system";
 
 export interface TranscriptEntry {
   id: string;
@@ -45,6 +46,12 @@ export interface TranscriptEntry {
   streaming?: boolean;
   /** A machine-injected block lifted out of a user message; rendered collapsed. */
   reminder?: boolean;
+  /** task: the summary line, shown in the header. */
+  title?: string;
+  /** task: the originating task id. */
+  taskId?: string;
+  /** user: arrived over a channel (telegram, slack) rather than being typed. */
+  channel?: string;
   /**
    * Rendered by us on send, before any server frame. The app-server only echoes
    * a user message when it was queued, so without this your own message never
@@ -63,6 +70,9 @@ export const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
   reasoning: "agent",
   tool_call: "tools",
   tool_return: "tools",
+  // Background work reporting back carries content you asked for, unlike the
+  // environment plumbing in "system" — so it gets its own switch.
+  task: "tasks",
   approval_request: "tools",
   approval_response: "tools",
   system: "system",
@@ -74,6 +84,7 @@ export const FILTER_LABELS: Record<FilterGroup, string> = {
   user: "You",
   agent: "Agent",
   tools: "Tools",
+  tasks: "Tasks",
   system: "System",
 };
 
@@ -132,25 +143,157 @@ function resolveCanonicalKey(
 /**
  * Machine-injected blocks that ride along inside a user message.
  *
- * They are not something the person typed, so rendering them in the user
- * bubble is wrong twice over: it attributes them to the human, and — because
- * an opening tag on its own line is a CommonMark HTML block that react-markdown
+ * These are not something the person typed, so rendering them in the user
+ * bubble is wrong twice over: it credits them to the human, and — because an
+ * opening tag on its own line is a CommonMark HTML block that react-markdown
  * drops along with the paragraph after it — the body silently disappears.
- * Splitting them out before rendering fixes both.
+ *
+ * The tag text is the only signal available. No structured marker survives into
+ * history: `otid` is a bare UUID on every path, `role` is always "user", and
+ * `created_by_id` is absent both for notification batches and for real messages
+ * here. letta-code parses text everywhere it consumes these too, so this is the
+ * sanctioned approach rather than a workaround.
  */
-const INJECTED_BLOCK_TAGS = ["system-reminder", "letta-guide"] as const;
+const INJECTED_BLOCKS: Record<string, EntryKind> = {
+  "system-reminder": "system",
+  // Legacy: no longer constructed upstream, still parsed there for old history.
+  "system-alert": "system",
+  "stop-hook": "system",
+  skill_content: "system",
+  loaded_skills: "system",
+  "task-notification": "task",
+  // A person talking from another device, not machine noise — stays a user
+  // message, just labelled with where it came from.
+  "channel-notification": "user",
+};
 
 const INJECTED_BLOCK_RE = new RegExp(
-  // The closing tag is optional so a block still mid-stream is recognised
-  // rather than swallowing the rest of the transcript when it completes.
-  `<(${INJECTED_BLOCK_TAGS.join("|")})>([\\s\\S]*?)(?:</\\1>|$)`,
+  // The tag may carry attributes (`<skill_content name="...">`). The closing tag
+  // is optional so a block still mid-stream is recognised rather than swallowing
+  // the rest of the transcript once it completes.
+  `<(${Object.keys(INJECTED_BLOCKS).join("|")})(\\s[^>]*)?>([\\s\\S]*?)(?:</\\1>|$)`,
   "g",
 );
+
+/**
+ * A message that OPENS with an unknown tag block.
+ *
+ * Pre-loaded skills inject `<${skillId}>…</${skillId}>` — the tag name IS the
+ * skill id, so there is no fixed list to match. Two guards keep this off real
+ * prose: the block must start the message, and it must be properly closed (no
+ * open-ended fallback). So "is 3 < 5?" and "use <div> in html" are untouched,
+ * while a skill dump followed by a question still splits correctly.
+ */
+const LEADING_TAG_RE = /^<([a-z][a-z0-9_-]*)>([\s\S]*?)<\/\1>/;
+
+/** Tags that are real HTML, so a message using them is prose, not an injection. */
+const HTML_TAGS = new Set([
+  "p",
+  "div",
+  "span",
+  "a",
+  "b",
+  "i",
+  "em",
+  "strong",
+  "code",
+  "pre",
+  "ul",
+  "ol",
+  "li",
+  "br",
+  "hr",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "table",
+  "img",
+  "blockquote",
+]);
+
+/** The trailing pointer upstream appends OUTSIDE the closing tag. */
+const TRANSCRIPT_LINE_RE = /^Full transcript available at: .*$/gm;
+
+interface InjectedBlock {
+  tag: string;
+  kind: EntryKind;
+  attrs: string;
+  body: string;
+}
+
+/** Pull out every known block, plus the whole-message skill case. */
+function extractBlocks(text: string): { blocks: InjectedBlock[]; prose: string } {
+  const blocks: InjectedBlock[] = [];
+  let prose = text
+    .replace(INJECTED_BLOCK_RE, (_match, tag: string, attrs: string | undefined, body: string) => {
+      blocks.push({
+        tag,
+        kind: INJECTED_BLOCKS[tag] ?? "system",
+        attrs: attrs ?? "",
+        body: body.trim(),
+      });
+      return "";
+    })
+    .replace(TRANSCRIPT_LINE_RE, "")
+    .trim();
+
+  if (blocks.length === 0) {
+    const leading = LEADING_TAG_RE.exec(prose);
+    if (leading && !HTML_TAGS.has(leading[1] ?? "")) {
+      blocks.push({
+        tag: leading[1] ?? "",
+        kind: "system",
+        attrs: "",
+        body: (leading[2] ?? "").trim(),
+      });
+      prose = prose.slice(leading[0].length).trim();
+    }
+  }
+  return { blocks, prose };
+}
+
+/** First `<tag>value</tag>` inside a block body. */
+function innerTag(body: string, tag: string): string | undefined {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(body);
+  return match?.[1]?.trim() || undefined;
+}
+
+/**
+ * Task notifications come in three incompatible shapes — the full subagent/Bash
+ * form, a Monitor variant with no status and a nested <event>, and a reflection
+ * variant that is a summary and nothing else. Only <summary> is common to all,
+ * so every field is optional and the raw body is the fallback.
+ */
+function taskEntry(base: TranscriptEntry, body: string): TranscriptEntry {
+  const summary = innerTag(body, "summary");
+  const status = innerTag(body, "status");
+  const result = innerTag(body, "result");
+  const taskId = innerTag(body, "task-id");
+
+  return {
+    ...base,
+    kind: "task",
+    // Never an empty card: without a summary the raw block is still readable.
+    ...(summary ? { title: summary } : { title: body.slice(0, 120) }),
+    ...(taskId ? { taskId } : {}),
+    // Absent status (Monitor) must not read as a failure, so no badge at all.
+    ...(status ? { status: status === "completed" ? "success" : "error" } : {}),
+    text: result ?? (summary ? "" : body),
+  };
+}
+
+/** `<channel-notification channel="telegram">` → the channel name. */
+function channelName(attrs: string): string | undefined {
+  return /channel="([^"]+)"/.exec(attrs)?.[1];
+}
 
 /** Whatever the person actually wrote, with machine-injected blocks removed. */
 export function stripInjectedBlocks(text: string): string {
   if (!text.includes("<")) return text.trim();
-  return text.replace(INJECTED_BLOCK_RE, "").trim();
+  return extractBlocks(text).prose;
 }
 
 /**
@@ -160,24 +303,20 @@ export function stripInjectedBlocks(text: string): string {
 function splitInjectedBlocks(entry: TranscriptEntry): TranscriptEntry[] {
   if (entry.kind !== "user" || !entry.text.includes("<")) return [entry];
 
-  const blocks: string[] = [];
-  const prose = entry.text
-    .replace(INJECTED_BLOCK_RE, (_match, _tag, body: string) => {
-      blocks.push(body.trim());
-      return "";
-    })
-    .trim();
-
+  const { blocks, prose } = extractBlocks(entry.text);
   if (blocks.length === 0) return [entry];
 
-  const out: TranscriptEntry[] = blocks.map((text, index) => ({
-    ...entry,
-    id: `${entry.id}:reminder:${index}`,
-    kind: "system" as const,
-    reminder: true,
-    text,
-  }));
-  // A message that was nothing but reminders leaves no user bubble behind.
+  const out: TranscriptEntry[] = blocks.map((block, index) => {
+    const base: TranscriptEntry = { ...entry, id: `${entry.id}:block:${index}` };
+    if (block.kind === "task") return taskEntry(base, block.body);
+    if (block.kind === "user") {
+      const channel = channelName(block.attrs);
+      return { ...base, text: block.body, ...(channel ? { channel } : {}) };
+    }
+    return { ...base, kind: "system", reminder: true, text: block.body };
+  });
+
+  // A message that was nothing but injected blocks leaves no user bubble behind.
   if (prose) out.push({ ...entry, text: prose });
   return out;
 }

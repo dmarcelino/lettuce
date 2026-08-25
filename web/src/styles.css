@@ -439,6 +439,38 @@ pre {
   font-size: 14px;
 }
 
+/* Background work reporting back. Sits with tool output visually — it is a
+   result you asked for, not the accent-blue "you said this" it used to wear. */
+.entry.task {
+  align-items: flex-start;
+  width: 100%;
+}
+.entry.task .tool-head {
+  width: 100%;
+  text-align: left;
+}
+.entry.task .tool-head:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.entry.task .grow-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.bubble.task-result {
+  max-width: 100%;
+  margin-top: 6px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.tag.ok-tag {
+  color: var(--ok);
+}
+
 /* Machine-injected blocks lifted out of a user message. Muted like every other
    System entry — they used to wear the accent-blue "you" bubble, which credited
    them to the person. */

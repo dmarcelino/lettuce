@@ -33,7 +33,8 @@ export type IconName =
   | "warning"
   | "memory"
   | "settings"
-  | "plus";
+  | "plus"
+  | "task";
 
 /** Path data on a 24×24 grid; stroked, never filled. */
 const PATHS: Record<IconName, string> = {
@@ -61,6 +62,8 @@ const PATHS: Record<IconName, string> = {
   settings:
     "M12 15a3 3 0 100-6 3 3 0 000 6zM19 12l2-1-2-4-2 1a7 7 0 00-2-1V5h-4v2a7 7 0 00-2 1L7 7 5 11l2 1a7 7 0 000 2l-2 1 2 4 2-1a7 7 0 002 1v2h4v-2a7 7 0 002-1l2 1 2-4-2-1a7 7 0 000-2z",
   plus: "M12 5v14M5 12h14",
+  // Clipboard with a tick: background work that reported back.
+  task: "M9 4h6v3H9zM8 5H6a1 1 0 00-1 1v13a1 1 0 001 1h12a1 1 0 001-1V6a1 1 0 00-1-1h-2M9 13l2 2 4-4",
 };
 
 interface Props {
