@@ -665,6 +665,19 @@ pre {
   max-height: 160px;
 }
 
+/* In flow above the textarea, not floating over it: an overlay anchored to a
+   composer the on-screen keyboard has already pushed up gets clipped on a
+   phone, and the list is short enough to simply take the room. Shares .picker
+   so a suggestion and a sheet row are the same object. */
+.composer-suggestions {
+  max-height: min(40vh, 220px);
+  overflow-y: auto;
+  gap: 4px;
+}
+.composer-suggestions button {
+  padding: 8px 12px;
+}
+
 .composer-row {
   display: flex;
   align-items: center;

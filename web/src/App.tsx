@@ -82,7 +82,12 @@ function SignIn({ status }: { status: Status }) {
 function Workspace({ status }: { status: Status }) {
   const session = useSession(true);
   const agents = useAgents(session);
-  const conversation = useConversation(session, agents.agentId, agents.conversationId);
+  // /clear creates a new conversation server-side instead of clearing this one,
+  // so the UI has to follow it there or it sits on a conversation the runtime
+  // has already moved off.
+  const conversation = useConversation(session, agents.agentId, agents.conversationId, () => {
+    void agents.adoptNewConversation();
+  });
 
   const [tab, setTab] = useState<Tab>("Chat");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -211,7 +216,7 @@ function Workspace({ status }: { status: Status }) {
               permissionMode={conversation.permissionMode}
               onPermissionMode={conversation.setPermissionMode}
               commands={conversation.commands}
-              onRunCommand={(id) => conversation.runCommand(id)}
+              onRunCommand={(id, args) => conversation.runCommand(id, args)}
               onOpenModels={() => setShowModels(true)}
               modelsDisabled={!scope}
             />

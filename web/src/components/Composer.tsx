@@ -1,6 +1,12 @@
 import { useRef, useState } from "react";
 import type { FilterGroup } from "../lib/messages.ts";
-import { PERMISSION_MODES, type PermissionMode, type SlashCommand } from "../lib/workspace.ts";
+import {
+  matchSlashCommands,
+  PERMISSION_MODES,
+  type PermissionMode,
+  parseSlashCommand,
+  type SlashCommand,
+} from "../lib/workspace.ts";
 import { CommandSheet, FilterSheet, PermissionSheet } from "./ComposerSheets.tsx";
 import { Icon } from "./Icon.tsx";
 
@@ -15,7 +21,7 @@ interface Props {
   permissionMode: PermissionMode | null;
   onPermissionMode: (mode: PermissionMode) => void;
   commands: SlashCommand[];
-  onRunCommand: (id: string) => void;
+  onRunCommand: (id: string, args?: string) => void;
   onOpenModels: () => void;
   modelsDisabled: boolean;
 }
@@ -45,15 +51,74 @@ export function Composer({
 }: Props) {
   const [value, setValue] = useState("");
   const [sheet, setSheet] = useState<OpenSheet>(null);
+  const [highlight, setHighlight] = useState(0);
+  /** Escape closes the popover without clearing what was typed. */
+  const [dismissed, setDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const suggestions = disabled || dismissed ? [] : matchSlashCommands(value, commands);
+  const highlighted = suggestions.length > 0 ? Math.min(highlight, suggestions.length - 1) : -1;
+  const active = highlighted >= 0 ? suggestions[highlighted] : undefined;
+
+  const reset = () => {
+    setValue("");
+    setHighlight(0);
+    setDismissed(false);
+    const textarea = textareaRef.current;
+    if (textarea) textarea.style.height = "auto";
+  };
+
+  /** Fill the box with a command name and leave the caret ready for its args. */
+  const complete = (id: string) => {
+    setValue(`/${id} `);
+    setHighlight(0);
+    textareaRef.current?.focus();
+  };
+
+  /**
+   * Take a suggestion. One that declares arguments is completed rather than
+   * fired: running it bare would hand the mod an empty `args` to work with.
+   */
+  const choose = (command: SlashCommand) => {
+    if (command.args) {
+      complete(command.id);
+      return;
+    }
+    onRunCommand(command.id);
+    reset();
+  };
+
+  /**
+   * Send what is in the box — or run it, when it names a command.
+   *
+   * The app-server's message path never inspects a leading slash: that parsing
+   * lives only in the CLI, and running a command over the protocol takes an
+   * explicit `execute_command` frame. So without this branch a typed "/clear"
+   * reaches the agent as a literal question. `parseSlashCommand` matches only
+   * advertised ids, which is what keeps a pasted path a message.
+   */
   const submit = () => {
     const text = value.trim();
     if (!text || disabled) return;
+
+    const command = parseSlashCommand(text, commands);
+    if (command) {
+      onRunCommand(command.id, command.args);
+      reset();
+      return;
+    }
+
+    // Send is the primary action on a phone, where Enter is a newline key. With
+    // the popover open it therefore has to do what Enter does on a hardware
+    // keyboard — take the highlighted command — rather than hand the agent a
+    // half-typed "/cl".
+    if (active) {
+      choose(active);
+      return;
+    }
+
     onSend(text);
-    setValue("");
-    const textarea = textareaRef.current;
-    if (textarea) textarea.style.height = "auto";
+    reset();
   };
 
   const modeLabel =
@@ -68,6 +133,36 @@ export function Composer({
           submit();
         }}
       >
+        {/* Above the textarea, not below: on a phone the on-screen keyboard
+            owns the bottom half of the viewport, so a list rendered under the
+            composer would open behind it. */}
+        {active ? (
+          <ul className="composer-suggestions picker" id="composer-suggestions">
+            {suggestions.map((command, index) => (
+              <li key={command.id}>
+                <button
+                  type="button"
+                  id={`composer-suggestion-${command.id}`}
+                  className={index === highlighted ? "active" : undefined}
+                  // Mouse-down, not click: click lands after the textarea has
+                  // lost focus and the popover has already unmounted.
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    choose(command);
+                  }}
+                  onMouseEnter={() => setHighlight(index)}
+                >
+                  <strong>
+                    /{command.id}
+                    {command.args ? <span className="tag">{command.args}</span> : null}
+                  </strong>
+                  {command.description ? <code>{command.description}</code> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         <textarea
           ref={textareaRef}
           value={value}
@@ -76,18 +171,52 @@ export function Composer({
           disabled={disabled}
           onChange={(event) => {
             setValue(event.target.value);
+            setHighlight(0);
+            setDismissed(false);
             const textarea = event.target;
             textarea.style.height = "auto";
             textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
           }}
           onKeyDown={(event) => {
+            // An IME mid-composition owns every key; the send button is still
+            // there for anyone who needs it.
+            if (event.nativeEvent.isComposing) return;
+
+            if (active) {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                const step = event.key === "ArrowDown" ? 1 : -1;
+                setHighlight((highlighted + step + suggestions.length) % suggestions.length);
+                return;
+              }
+              if (event.key === "Tab") {
+                event.preventDefault();
+                complete(active.id);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setDismissed(true);
+                return;
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                // The popover is open, so Enter takes the highlighted command
+                // rather than sending a half-typed name to the agent.
+                event.preventDefault();
+                choose(active);
+                return;
+              }
+            }
+
             // Enter sends; Shift+Enter is a newline. On touch keyboards Enter is
             // usually a newline key, so the send button carries the same action.
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               submit();
             }
           }}
+          aria-controls={active ? "composer-suggestions" : undefined}
+          aria-activedescendant={active ? `composer-suggestion-${active.id}` : undefined}
         />
 
         <div className="composer-row">

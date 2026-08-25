@@ -102,21 +102,44 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   agent entry, write it back, and then `execute_command {command_id:"reload"}` — which
   replies "Reloaded settings, local mods, and agent secrets". Merge rather than replace:
   the file holds ~18 unrelated top-level settings including `deviceId`.
-- **The agent sandbox needs bubblewrap AND two relaxed container profiles.**
+- **The agent sandbox needs bubblewrap, two relaxed container profiles AND `CAP_SYS_ADMIN`.**
   `runtime_start.workspace_sandbox {root, isolation_root}` is what confines an agent to its
   own directory, and letta-code's only Linux backend is `bwrap`
-  (`src/sandbox/availability.ts`). Its probe runs a real
-  `bwrap --ro-bind / / --unshare-user` mount, and the two Docker defaults block a different
-  half each — measured: seccomp stops the `unshare`, AppArmor stops the "make / slave".
-  Both `seccomp:unconfined` and `apparmor:unconfined` are required; `SYS_ADMIN` and
-  `privileged` are not. The package is added by `docker/app-server.Dockerfile`, a thin layer
-  over the fork's own image (built via `bun run build-images`).
+  (`src/sandbox/availability.ts`). The package is added by `docker/app-server.Dockerfile`, a
+  thin layer over the fork's own image (built via `bun run build-images`).
+
+  **Measure against `buildBwrapArgs`, never against the probe — they differ, and only the probe
+  is forgiving.** `availability.ts` probes with `bwrap --ro-bind / / --unshare-user`, but the
+  policy actually run (`src/sandbox/bwrap.ts` `buildBwrapArgs`) never passes `--unshare-user`.
+  bubblewrap running as real root then takes its *privileged* path — no user namespace — and
+  calls `unshare(CLONE_NEWNS)` directly, which needs `CAP_SYS_ADMIN`. So the probe passes,
+  `runtime_start` accepts the sandbox, the UI reports it active, and every wrapped shell command
+  dies with `bwrap: Creating new namespace failed: Operation not permitted`. That is exactly how
+  the sandbox sat broken-but-green until 2026-08-25. Re-measured against the real arg list:
+
+  | container config | result |
+  |---|---|
+  | default caps | fails |
+  | `cap_drop: ALL` | fails — uid 0 stays on the privileged path |
+  | `SYS_ADMIN` alone (default seccomp + AppArmor) | fails |
+  | `SYS_ADMIN` + one profile unconfined | fails |
+  | `SYS_ADMIN` + `seccomp:unconfined` + `apparmor:unconfined` | **works** |
+  | non-root uid + both profiles unconfined, no added caps | works |
+
+  All three of `seccomp:unconfined`, `apparmor:unconfined` and `cap_add: SYS_ADMIN` are
+  load-bearing; `privileged` is still not needed. (An earlier note here said `SYS_ADMIN` was
+  not needed. It was measured against the probe's arguments, not the policy's.) Running the
+  app-server as a non-root uid drops the capability requirement entirely — bwrap then takes the
+  unprivileged user-namespace path — but it needs the `letta-home` and `letta-data` volumes
+  chowned, so it is a migration rather than a flag.
 
   Scope, so it is not oversold: it confines **writes by spawned shell commands**, plus
   in-process file tools via a TypeScript guard. It does **not** restrict reads — 
   `policy.ts` says so outright — and does not touch the network. `runtime_start` **rejects
   the whole command** when no backend is available rather than degrading, which is why
-  `use-conversation.ts` retries once without the sandbox and surfaces a banner.
+  `use-conversation.ts` retries once without the sandbox and surfaces a banner. That banner
+  only covers a *missing* backend; a present-but-unusable one is invisible to it, which is why
+  the capability check above belongs in `docker/compose.yml` and not in the UI.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.

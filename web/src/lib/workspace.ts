@@ -114,3 +114,43 @@ export function readCommands(supported: unknown, mods: unknown): SlashCommand[] 
 
   return [...builtins, ...modCommands];
 }
+
+/**
+ * Split "/id rest" into a command id and its arguments, or null when the text
+ * is an ordinary message.
+ *
+ * Only an EXACT match against an advertised id counts, because a leading slash
+ * is not evidence of intent on its own: `/work/agent-x/notes.md` is a path
+ * someone pasted, and the app-server answers an unrecognised `command_id` with
+ * "Unknown command" (`commands.ts`, default case) rather than falling back to
+ * treating it as text. Anything unmatched must therefore still be sent as a
+ * message — the app-server's own `input` path never inspects the slash, so this
+ * function is the only place the distinction is ever made.
+ */
+export function parseSlashCommand(
+  text: string,
+  commands: SlashCommand[],
+): { id: string; args?: string } | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/")) return null;
+
+  const separator = trimmed.search(/\s/);
+  const id = separator === -1 ? trimmed.slice(1) : trimmed.slice(1, separator);
+  if (!commands.some((command) => command.id === id)) return null;
+
+  const args = separator === -1 ? "" : trimmed.slice(separator).trim();
+  return args ? { id, args } : { id };
+}
+
+/**
+ * Commands whose id the typed text is a prefix of, for the composer's popover.
+ *
+ * Returns nothing once a space has been typed: from there on the user is
+ * writing arguments, and a suggestion list hovering over the composer would be
+ * covering the transcript for no reason.
+ */
+export function matchSlashCommands(text: string, commands: SlashCommand[]): SlashCommand[] {
+  if (!text.startsWith("/") || /\s/.test(text)) return [];
+  const prefix = text.slice(1).toLowerCase();
+  return commands.filter((command) => command.id.toLowerCase().startsWith(prefix));
+}

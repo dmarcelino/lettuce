@@ -26,30 +26,46 @@ services:
         # running app-server must match. The fork carries zero delta, so the
         # published package at this version is equivalent to our source.
         LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.30.30}"
-    # Deliberate trade, not an oversight. letta-code's sandbox probe runs a real
-    # `bwrap --ro-bind / / --unshare-user` mount, and BOTH default profiles
-    # block a different half of it — measured, not assumed:
+    # Deliberate trade, not an oversight — and the argument list matters, so read
+    # this before trimming anything from it.
     #
-    #   (none)                          unshare blocked
-    #   apparmor=unconfined only        unshare blocked      (seccomp stops it)
-    #   seccomp=unconfined only         mount blocked        ("make / slave")
-    #   seccomp + apparmor unconfined   works
-    #   + cap_add SYS_ADMIN             works, and is NOT needed
+    # letta-code probes for bwrap with `--ro-bind / / --unshare-user`
+    # (sandbox/availability.ts), but the policy it actually runs never passes
+    # `--unshare-user` (sandbox/bwrap.ts buildBwrapArgs). bubblewrap running as
+    # real root therefore takes its privileged path — no user namespace — and
+    # calls unshare(CLONE_NEWNS) directly, which needs CAP_SYS_ADMIN. So the
+    # probe can pass on a host where every wrapped command dies with
+    # "bwrap: Creating new namespace failed: Operation not permitted". Measure
+    # against buildBwrapArgs, never against the probe:
     #
-    # So this is the minimum that works: no added capabilities, not privileged.
-    # Without it bubblewrap is installed but unusable and every agent runs
-    # unconfined.
+    #   default caps                              FAIL
+    #   cap_drop ALL                              FAIL  (uid 0 stays privileged)
+    #   SYS_ADMIN, default seccomp + apparmor     FAIL
+    #   SYS_ADMIN + seccomp unconfined only       FAIL
+    #   SYS_ADMIN + apparmor unconfined only      FAIL
+    #   SYS_ADMIN + BOTH unconfined               works
+    #
+    # All three are load-bearing; `privileged` is still not needed. (Running the
+    # server as a non-root uid works with no added capability at all, because
+    # bwrap then takes the unprivileged user-namespace path — but it needs the
+    # letta-home and letta-data volumes chowned, so it is a migration, not a
+    # flag.)
     #
     # What is given up: the default syscall filter and MAC profile that harden
-    # container -> host. What is gained: the agent's shell commands are confined
-    # to its own workspace directory, so one agent cannot write over another's
-    # files. For a single-user, self-hosted assistant the realistic threat is an
-    # agent or a prompt injection clobbering files, not kernel exploitation from
-    # a semi-trusted local process — so this is the better side of the trade.
-    # Revert it (and accept unconfined agents) if that ever stops being true.
+    # container -> host, plus SYS_ADMIN — together that makes an escape from
+    # this container materially easier, and this is the one service reachable
+    # by agent-authored shell commands. What is gained: those same commands are
+    # confined to the agent's own workspace directory, so one agent cannot write
+    # over another's files. For a single-user, self-hosted assistant the
+    # realistic threat is an agent or a prompt injection clobbering files, not
+    # kernel exploitation from a semi-trusted local process — so this is still
+    # the better side of the trade. Revert it (and accept unconfined agents) if
+    # that ever stops being true.
     security_opt:
       - seccomp:unconfined
       - apparmor:unconfined
+    cap_add:
+      - SYS_ADMIN
     command:
       - letta
       - server

@@ -249,6 +249,35 @@ try {
     await shot(page, "phone-commands");
     await page.keyboard.press("Escape");
 
+    // Typed slash commands. The popover has to be reachable without the sheet,
+    // and it must not be the thing that pushes the composer off-screen — it
+    // sits above a textarea the on-screen keyboard has already crowded.
+    const textarea = page.locator(".composer textarea");
+    await textarea.fill("/cl");
+    const popover = page.locator(".composer-suggestions");
+    check("typing a slash opens the suggestions", await popover.isVisible());
+    check(
+      "suggestions are filtered to the prefix",
+      (await popover.locator("li").count()) > 0 &&
+        (await popover.locator('li:has-text("/clear")').count()) === 1,
+    );
+    check(
+      "a suggestion is highlighted by default",
+      (await popover.locator("button.active").count()) === 1,
+    );
+    await shot(page, "phone-slash-suggestions");
+    const withPopover = await overflow(page);
+    check("suggestions do not clip the composer", withPopover.clipped.length === 0, withPopover);
+
+    await page.keyboard.press("Escape");
+    check("escape closes the suggestions", (await popover.count()) === 0);
+
+    // A pasted absolute path is a message, not a command — the popover must
+    // stay out of the way of it.
+    await textarea.fill("/work/agent-x/notes.md");
+    check("a path does not open the suggestions", (await popover.count()) === 0);
+    await textarea.fill("");
+
     await page.close();
   }
 

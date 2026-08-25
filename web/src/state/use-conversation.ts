@@ -71,6 +71,25 @@ export interface ConversationApi {
   sandboxed: boolean | null;
 }
 
+/**
+ * Whether this stream delta is the successful end of a `/clear`.
+ *
+ * `execute_command_response` would be the obvious signal, but it carries only a
+ * `request_id` — no command id — and awaiting it is not an option either: the
+ * same frame type answers `/init` and `/doctor`, which run whole agent turns
+ * and would outlive the client's request timeout. The lifecycle delta names the
+ * command, so it is what we match on.
+ */
+function isClearCompleted(delta: unknown): boolean {
+  if (!delta || typeof delta !== "object") return false;
+  const message = delta as { message_type?: unknown; command_id?: unknown; success?: unknown };
+  return (
+    message.message_type === "slash_command_end" &&
+    message.command_id === "clear" &&
+    message.success !== false
+  );
+}
+
 function readQueue(raw: unknown): QueuedItem[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
@@ -129,10 +148,22 @@ export function useConversation(
   session: SessionApi,
   agentId: string | null,
   conversationId: string | null,
+  /**
+   * Fired when the agent reports that `/clear` completed. `/clear` does not
+   * clear in place: the app-server creates a fresh conversation and re-points
+   * its runtime at it, so the caller has to go and find it.
+   */
+  onConversationCleared?: () => void,
 ): ConversationApi {
   // Individually stable; depending on the whole session object would re-fire
   // these effects on every link-state change.
   const { request, send, setScopes, onFrame, onResync, ready } = session;
+
+  // Held in a ref, not a dep: the frame subscription below must not re-run when
+  // a caller passes a fresh closure, and re-subscribing per render is exactly
+  // the unbounded loop `use-session.ts` documents.
+  const clearedRef = useRef(onConversationCleared);
+  clearedRef.current = onConversationCleared;
 
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -275,6 +306,12 @@ export function useConversation(
             typeof subagentId === "string" ? subagentId : undefined,
           );
           flush();
+          // The one signal that /clear landed which actually reaches us. The
+          // device status the app-server emits afterwards is scoped to the NEW
+          // conversation, so the BFF's per-scope frame filter drops it for a
+          // browser still subscribed to this one; this end marker carries the
+          // scope captured before the runtime was re-pointed.
+          if (isClearCompleted(delta)) clearedRef.current?.();
           break;
         }
         case "turn_finished": {
