@@ -346,6 +346,19 @@ try {
       (await page.locator(warningSelector).count()) === 0,
     );
 
+    // Skills: the enable field is the only route to a global skill now that the
+    // sandbox stops the agent writing /root/.letta/skills itself.
+    await page.locator('.pane-bar button:text-is("Skills")').click();
+    await page.waitForTimeout(300);
+    const enableButton = page.locator('button:text-is("Enable globally")');
+    check("skills section offers an enable field", (await enableButton.count()) === 1);
+    check("enable is disabled until a path is typed", await enableButton.isDisabled());
+    await page.locator('.pane input[placeholder^="/work/"]').fill("/work/agent-x/.agents/skills/s");
+    check("enable becomes available with a path", await enableButton.isEnabled());
+    const skillsBox = await overflow(page);
+    check("skills section has nothing clipped", skillsBox.clipped.length === 0, skillsBox);
+    await shot(page, "desktop-skills");
+
     await shot(page, "desktop-settings");
 
     await page.close();

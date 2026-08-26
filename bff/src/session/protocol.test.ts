@@ -59,6 +59,16 @@ describe("workspace clamp", () => {
     allow({ type: "grep_in_files", query: "token" });
   });
 
+  test("skill_enable is clamped on skill_path", () => {
+    // A skill_enable symlinks whatever it is given into /root/.letta/skills,
+    // where it loads for every agent — so an unclamped path here would hand a
+    // browser session the whole filesystem to pick a SKILL.md out of.
+    refuse({ type: "skill_enable", skill_path: "/root/.letta/skills" });
+    refuse({ type: "skill_enable", skill_path: "/etc" });
+    refuse({ type: "skill_enable", skill_path: `${WORKSPACE_ROOT}/../root` });
+    allow({ type: "skill_enable", skill_path: `${WORKSPACE_ROOT}/agent-1/.agents/skills/thing` });
+  });
+
   test("relative paths are refused rather than resolved", () => {
     refuse({ type: "read_file", path: "notes.md" });
     refuse({ type: "read_file", path: "../etc/passwd" });

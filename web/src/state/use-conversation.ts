@@ -62,6 +62,8 @@ export interface ConversationApi {
   removeQueued: (itemId: string) => void;
   runCommand: (commandId: string, args?: string) => void;
   reload: () => Promise<void>;
+  /** True once a skill was enabled or disabled but no turn has rebuilt the list yet. */
+  skillsStale: boolean;
   /** Live permission mode, from device status. Null until the first status frame. */
   permissionMode: PermissionMode | null;
   setPermissionMode: (mode: PermissionMode) => void;
@@ -173,6 +175,9 @@ export function useConversation(
   const [error, setError] = useState<string | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [skillsStale, setSkillsStale] = useState(false);
+  /** Ids behind the last `skills` we accepted, to notice when a turn refreshed them. */
+  const skillIdsRef = useRef("");
   const [permissionMode, setPermissionModeFromStatus] = useState<PermissionMode | null>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   /**
@@ -338,7 +343,19 @@ export function useConversation(
             setCwd(status.current_working_directory);
           }
           if (Array.isArray(status?.current_available_skills)) {
-            setSkills(status.current_available_skills as SkillSummary[]);
+            const next = status.current_available_skills as SkillSummary[];
+            // A turn recomputes the list (turn-setup.ts); nothing else does. So
+            // a list that actually changed is the only evidence that whatever
+            // was enabled or disabled has landed.
+            const ids = next
+              .map((skill) => skill.id)
+              .sort()
+              .join(",");
+            if (ids !== skillIdsRef.current) {
+              skillIdsRef.current = ids;
+              setSkillsStale(false);
+            }
+            setSkills(next);
           }
           // `change_device_state` has no response frame; this is the only
           // acknowledgement a mode change ever gets, so the status frame is the
@@ -350,6 +367,15 @@ export function useConversation(
           if (Array.isArray(status?.supported_commands)) {
             setCommands(readCommands(status.supported_commands, status.mod_commands));
           }
+          break;
+        }
+        case "skills_updated": {
+          // Enable/disable only moves a symlink in /root/.letta/skills; the
+          // advertised list is rebuilt in turn-setup.ts and NOWHERE else, and
+          // no protocol command asks for a fresh one. So there is nothing to
+          // reload here — all the client can honestly do is say the list it is
+          // showing is behind, until the next turn rebuilds it.
+          setSkillsStale(true);
           break;
         }
         case "update_loop_status": {
@@ -507,6 +533,7 @@ export function useConversation(
     respondToApproval,
     removeQueued,
     runCommand,
+    skillsStale,
     reload: loadHistory,
     permissionMode,
     setPermissionMode,

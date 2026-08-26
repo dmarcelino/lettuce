@@ -165,13 +165,22 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
 export const WORKSPACE_ROOT = "/work";
 
 /**
- * Path-bearing file commands, and which field carries the path.
+ * Path-bearing commands, and which field carries the path.
  *
  * The field name is not uniform: search_files and grep_in_files take `cwd`
- * (falling back to the server's process cwd when absent), everything else takes
- * `path`. A clamp keyed only on `path` would leave those two unguarded.
+ * (falling back to the server's process cwd when absent), skill_enable takes
+ * `skill_path`, everything else takes `path`. A clamp keyed only on `path`
+ * would leave those unguarded.
+ *
+ * `skill_enable` is here for the same reason the file commands are, and it is
+ * the one that would hurt most: it symlinks whatever directory it is given into
+ * `/root/.letta/skills`, from where the skill is loaded for every agent and its
+ * `scripts/` earn their own scoped permission rules upstream
+ * (`permissions/analyzer.ts`). Nothing legitimate is lost by the clamp —
+ * `/work` is the only place either the browser or a sandboxed agent can put
+ * files in the first place.
  */
-export const FILE_PATH_FIELDS: ReadonlyMap<string, "path" | "cwd"> = new Map([
+export const FILE_PATH_FIELDS: ReadonlyMap<string, "path" | "cwd" | "skill_path"> = new Map([
   ["get_tree", "path"],
   ["list_in_directory", "path"],
   ["read_file", "path"],
@@ -181,6 +190,7 @@ export const FILE_PATH_FIELDS: ReadonlyMap<string, "path" | "cwd"> = new Map([
   ["unwatch_file", "path"],
   ["search_files", "cwd"],
   ["grep_in_files", "cwd"],
+  ["skill_enable", "skill_path"],
 ]);
 
 /**
@@ -225,8 +235,9 @@ export function workspaceViolation(
   if (!field) return null;
 
   const raw = command[field];
-  // An absent cwd means "the server's own cwd", which is inside the workspace
-  // once compose anchors it there, so there is nothing to check.
+  // An absent path is left to the app-server. For `cwd` that is deliberate — it
+  // means "the server's own cwd", which compose anchors inside the workspace —
+  // and for the required fields it is simply the app-server's error to give.
   if (raw === undefined || raw === null) return null;
   if (typeof raw !== "string" || raw === "") {
     return `${command.type}.${field} must be a non-empty string`;

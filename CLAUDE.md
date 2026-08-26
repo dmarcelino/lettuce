@@ -140,6 +140,37 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   `use-conversation.ts` retries once without the sandbox and surfaces a banner. That banner
   only covers a *missing* backend; a present-but-unusable one is invisible to it, which is why
   the capability check above belongs in `docker/compose.yml` and not in the UI.
+- **Skills have four scopes, and none of them is per-conversation.** Discovery
+  (`src/agent/skills.ts`, `src/agent/client-skills.ts`) reads, lowest priority first: bundled
+  (in the package), global `/root/.letta/skills/`, agent `~/.letta/agents/<id>/memory/skills/`,
+  project `<cwd>/.agents/skills/` with `<cwd>/.skills/` as a legacy fallback. Our cwd is
+  `/work/<agent-id>`, so **project scope is effectively per-agent** — every conversation with
+  that agent, no others. Symlinks are followed deliberately (`findSkillFiles` stats symlinked
+  entries, with a realpath loop guard), so linking a skill in from a git checkout works and stays
+  current.
+
+  - **`skill_enable` always means global.** It validates `<skill_path>/SKILL.md` and then does
+    exactly one thing: symlink the directory into `/root/.letta/skills`
+    (`listener/commands/skills-agents.ts`). `skill_disable` only unlinks from there, so on a
+    project- or agent-scoped skill it answers "Skill not found" — which is why the Skills tab
+    offers Disable only for `source === "global"`.
+  - **With the workspace sandbox on, the agent can only install into project scope.** Its shell
+    is confined to `/work/<agent-id>`, so it cannot write `/root/.letta/skills` or an agent
+    memory dir. Ask it to clone into `.agents/skills/` under its working directory; use the
+    Skills tab's enable field for anything that should be global.
+  - **The advertised list is rebuilt in `turn-setup.ts` and nowhere else.** It starts empty and
+    is recomputed at the start of each turn, and no protocol command asks for a fresh one — so
+    Settings→Skills is blank until the agent has taken a turn, and after an enable/disable the
+    `skills_updated` frame can only mark the list stale, never reload it.
+  - **`skillsDirectory` is not reachable.** It exists on `runtime-context.ts` but has no
+    `runtime_start` field and no settings key, so a repo shipping its skills under its own
+    convention (`.letta/skills`, `.claude/skills`) has to be symlinked into a scanned path.
+  - **Upstream quirk:** `permissions/analyzer.ts` `projectRegex` matches only
+    `<cwd>/.skills/<name>/scripts/`, not the canonical `.agents/skills/`. A project skill with a
+    `scripts/` directory earns scoped skill-script permission rules at the *legacy* path only.
+  - `runtime_start` sending neither `skill_sources` nor `preserve_skill_sources` clears
+    `scopedRuntime.skillSources`, which is harmless: `getSkillSources()` then falls back to
+    `ALL_SKILL_SOURCES`. Do not "fix" it into an empty list.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.

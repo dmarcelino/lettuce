@@ -42,6 +42,8 @@ interface Props {
   agentId: string | null;
   /** Skills advertised on the latest device status snapshot. */
   skills: SkillSummary[];
+  /** True once a skill was enabled or disabled but no turn has rebuilt the list. */
+  skillsStale: boolean;
 }
 
 type Section = "connection" | "mcp" | "skills";
@@ -68,7 +70,7 @@ function currentValues(provider: ProviderEntry): Record<string, string> {
   return state?.base_url ? { baseUrl: state.base_url } : {};
 }
 
-export function SettingsTab({ session, agentId, skills }: Props) {
+export function SettingsTab({ session, agentId, skills, skillsStale }: Props) {
   const [section, setSection] = useState<Section>("connection");
 
   return (
@@ -88,7 +90,9 @@ export function SettingsTab({ session, agentId, skills }: Props) {
 
       {section === "connection" ? <ConnectionSection session={session} /> : null}
       {section === "mcp" ? <McpEditor session={session} agentId={agentId} /> : null}
-      {section === "skills" ? <SkillsSection session={session} skills={skills} /> : null}
+      {section === "skills" ? (
+        <SkillsSection session={session} skills={skills} stale={skillsStale} />
+      ) : null}
     </div>
   );
 }
@@ -389,8 +393,45 @@ function ProviderRow({
   );
 }
 
-function SkillsSection({ session, skills }: { session: SessionApi; skills: SkillSummary[] }) {
+function SkillsSection({
+  session,
+  skills,
+  stale,
+}: {
+  session: SessionApi;
+  skills: SkillSummary[];
+  stale: boolean;
+}) {
   const [status, setStatus] = useState("");
+  const [path, setPath] = useState("");
+
+  /**
+   * `skill_enable` does exactly one thing: symlink the directory it is given
+   * into `/root/.letta/skills`, which is the GLOBAL scope — every agent, every
+   * conversation. There is no protocol command for any narrower scope, so the
+   * label says global rather than pretending otherwise.
+   */
+  const enable = async () => {
+    const skillPath = path.trim();
+    if (!skillPath) return;
+    setStatus(`Enabling ${skillPath}…`);
+    try {
+      const response = await session.request<{ success?: boolean; error?: string }>(
+        "skill_enable",
+        {
+          skill_path: skillPath,
+        },
+      );
+      if (response?.success === false) {
+        setStatus(response.error ?? "Failed");
+        return;
+      }
+      setStatus("Enabled. It appears in the list after the agent's next turn.");
+      setPath("");
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
 
   const disable = async (skill: SkillSummary) => {
     setStatus(`Disabling ${skill.name}…`);
@@ -413,6 +454,16 @@ function SkillsSection({ session, skills }: { session: SessionApi; skills: Skill
         {skills.length} skill{skills.length === 1 ? "" : "s"} loaded
       </p>
 
+      {/* The app-server rebuilds this list in turn-setup.ts and nowhere else,
+          and no command asks for a fresh one — so after an enable or disable
+          the honest thing is to say the list is behind, not to fake a reload. */}
+      {stale ? (
+        <p className="muted small pad">
+          Skills changed. This list is rebuilt at the start of the agent's next turn — send a
+          message to refresh it.
+        </p>
+      ) : null}
+
       <ul className="list">
         {skills.map((skill) => (
           <li key={skill.id}>
@@ -421,10 +472,13 @@ function SkillsSection({ session, skills }: { session: SessionApi; skills: Skill
                 <strong>{skill.name}</strong>
                 <div className="muted small">{skill.description}</div>
                 <div className="muted small">
-                  <code>{skill.source}</code>
+                  <code>{skill.source}</code> {skill.path}
                 </div>
               </span>
-              {skill.source !== "bundled" ? (
+              {/* Only a global skill can be disabled: skill_disable unlinks from
+                  /root/.letta/skills and nothing else, so on a project- or
+                  agent-scoped skill it answers "Skill not found". */}
+              {skill.source === "global" ? (
                 <button type="button" className="link danger" onClick={() => void disable(skill)}>
                   Disable
                 </button>
@@ -432,17 +486,52 @@ function SkillsSection({ session, skills }: { session: SessionApi; skills: Skill
             </div>
           </li>
         ))}
-        {skills.length === 0 ? <li className="muted pad">No skills loaded</li> : null}
+        {skills.length === 0 ? (
+          <li className="muted pad">
+            No skills loaded. The list is empty until the agent has taken a turn in this
+            conversation.
+          </li>
+        ) : null}
       </ul>
+
+      <p className="section-note">Enable a skill globally</p>
+      <p className="muted small pad">
+        Symlinks a directory containing a <code>SKILL.md</code> into{" "}
+        <code>/root/.letta/skills</code>, where every agent loads it. The path must be inside{" "}
+        <code>/work</code>.
+      </p>
+      <div className="pad-x">
+        <label className="field">
+          Skill directory
+          <input
+            value={path}
+            placeholder="/work/<agent-id>/.agents/skills/my-skill"
+            onChange={(event) => setPath(event.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          className="button"
+          disabled={!path.trim()}
+          onClick={() => void enable()}
+        >
+          Enable globally
+        </button>
+      </div>
 
       <p className="section-note">Installing from git</p>
       <p className="muted small pad">
-        Skill installation runs on the app-server host, which the browser has no shell access to by
-        design. Ask the agent in Chat — it has git and can install into its own memory:
+        The browser has no shell on the app-server host, so ask the agent in Chat. Its shell is
+        confined to its own workspace, which means it can install for itself but not globally — have
+        it clone into <code>.agents/skills/</code> under its working directory:
       </p>
       <pre className="tool-args pad-x">
-        Install the skill from https://github.com/me/my-private-skills and enable it.
+        Clone https://github.com/me/my-skill into .agents/skills/my-skill in your working directory.
       </pre>
+      <p className="muted small pad">
+        That is per-agent: every conversation with this agent sees it, other agents do not. For a
+        skill every agent should have, use the field above.
+      </p>
     </>
   );
 }

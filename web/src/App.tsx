@@ -232,7 +232,12 @@ function Workspace({ status }: { status: Status }) {
         ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />
         ) : (
-          <SettingsTab session={session} agentId={agents.agentId} skills={conversation.skills} />
+          <SettingsTab
+            session={session}
+            agentId={agents.agentId}
+            skills={conversation.skills}
+            skillsStale={conversation.skillsStale}
+          />
         )}
       </div>
 
