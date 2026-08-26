@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { readSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
 import { readAgentModelHandle } from "./use-models.ts";
 import type { SessionApi } from "./use-session.ts";
@@ -126,8 +127,13 @@ export function useAgents(session: SessionApi): AgentsApi {
   const { request, ready } = session;
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [agentId, setAgentId] = useState<string | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  // Seeded from the last visit, so a reload comes back where you were rather
+  // than on whichever agent `agent_list` happens to return first. Read once, on
+  // mount: a stale id here is harmless, because both refreshers below check
+  // their selection against the list they just fetched.
+  const [restored] = useState(readSelection);
+  const [agentId, setAgentId] = useState<string | null>(restored.agentId);
+  const [conversationId, setConversationId] = useState<string | null>(restored.conversationId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -138,7 +144,13 @@ export function useAgents(session: SessionApi): AgentsApi {
       const response = await request("agent_list", { query: { limit: 100 } });
       const list = readAgents(response);
       setAgents(list);
-      setAgentId((current) => current ?? list[0]?.id ?? null);
+      // A restored id is only good if the agent still exists — it may have been
+      // deleted since, or from another browser. Falling back to the first is
+      // what the selection did before it was remembered at all.
+      setAgentId((current) => {
+        if (current && list.some((agent) => agent.id === current)) return current;
+        return list[0]?.id ?? null;
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -174,6 +186,14 @@ export function useAgents(session: SessionApi): AgentsApi {
   useEffect(() => {
     if (ready && agentId) void refreshConversations(agentId);
   }, [ready, agentId, refreshConversations]);
+
+  // Remember the pair for the next visit. Writing the transient states too —
+  // `selectAgent` blanks the conversation until its list arrives — is fine: the
+  // very next resolution overwrites it, and a half-written pair still restores
+  // correctly because the agent is what the conversation is looked up under.
+  useEffect(() => {
+    writeSelection({ agentId, conversationId });
+  }, [agentId, conversationId]);
 
   const selectAgent = useCallback((next: string) => {
     setAgentId(next);

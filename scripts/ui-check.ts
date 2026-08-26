@@ -361,6 +361,49 @@ try {
 
     await shot(page, "desktop-settings");
 
+    // A reload must come back to the agent you were on. It used to land on
+    // whichever one agent_list returned first, which on a phone meant losing
+    // your place every time the tab was reloaded.
+    await page.locator('nav.tabs button:text-is("Chat")').click();
+    const agentSelect = page.locator("#agent-select");
+    const agentIds = (
+      await agentSelect
+        .locator("option")
+        .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value))
+    ).filter((value) => value !== "");
+
+    if (agentIds.length < 2) {
+      // Nothing to switch to, so the assertion would pass for the wrong reason.
+      console.log("  SKIP  selection survives a reload (needs two agents)");
+    } else {
+      const before = await agentSelect.inputValue();
+      const target = agentIds.find((id) => id !== before) ?? before;
+      await agentSelect.selectOption(target);
+      await page.waitForTimeout(1500);
+      const conversationBefore = await page
+        .locator(".conversations li.active .conversation-name")
+        .innerText()
+        .catch(() => "");
+
+      await page.reload({ waitUntil: "networkidle" });
+      await page.waitForTimeout(2000);
+      check("agent selection survives a reload", (await agentSelect.inputValue()) === target, {
+        expected: target,
+        got: await agentSelect.inputValue(),
+      });
+      if (conversationBefore) {
+        const conversationAfter = await page
+          .locator(".conversations li.active .conversation-name")
+          .innerText()
+          .catch(() => "");
+        check(
+          "conversation selection survives a reload",
+          conversationAfter === conversationBefore,
+          { expected: conversationBefore, got: conversationAfter },
+        );
+      }
+    }
+
     await page.close();
   }
 } finally {
