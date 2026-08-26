@@ -40,6 +40,8 @@ export interface TranscriptEntry {
   status?: "success" | "error";
   /** notice */
   level?: "info" | "success" | "warning" | "error";
+  /** loop_error: the run it belongs to, used to fold the duplicate pair. */
+  runId?: string;
   /** reasoning */
   redacted?: boolean;
   /** Set while the entry is still being streamed. */
@@ -548,6 +550,59 @@ export function applyMessage(
   transcript.set(key, entry);
 }
 
+/**
+ * The error notice this one merely repeats, or null.
+ *
+ * ONE failure emits TWO loop_error deltas upstream. While the stream drains,
+ * `turn.ts` emits a non-terminal notice off the error chunk and stashes the
+ * chunk in `latestErrorInfoRef`; at the stop it emits a terminal one whose
+ * message is `latestErrorInfo.detail || latestErrorInfo.message`. Against the
+ * local backend those are the same sentence — `localErrorChunk` fills both
+ * fields from a single `normalizeLocalProviderError` — so the transcript drew
+ * the same error twice. Each delta carries its own `lifecycle-<uuid>`, so
+ * keying on the id cannot catch it, and the fork carries zero delta so it
+ * cannot be fixed at the source.
+ *
+ * The match is kept tight so a real repeat is never swallowed: when both
+ * notices name a run, only the same run folds — errors from different turns
+ * stay separate. Without a run to key on, only a repeat of the MOST RECENT
+ * notice folds, which is the ordinary adjacent-log-line collapse and cannot
+ * reach back across a turn.
+ */
+function duplicateErrorNotice(
+  transcript: Transcript,
+  text: string,
+  runId: string,
+): TranscriptEntry | null {
+  let latest: TranscriptEntry | null = null;
+  for (const entry of transcript.values()) {
+    latest = entry;
+    if (
+      runId &&
+      entry.kind === "notice" &&
+      entry.level === "error" &&
+      entry.runId === runId &&
+      entry.text === text
+    ) {
+      return entry;
+    }
+  }
+  if (runId) return null;
+
+  // No run to key on, so fold only what immediately precedes this — anything at
+  // all in between, an assistant message included, means the turn carried on and
+  // this is a second failure rather than the same one being finalised.
+  if (
+    latest?.kind === "notice" &&
+    latest.level === "error" &&
+    !latest.runId &&
+    latest.text === text
+  ) {
+    return latest;
+  }
+  return null;
+}
+
 /** Non-message lifecycle deltas: status lines, retries, errors, command output. */
 export function applyNotice(
   transcript: Transcript,
@@ -594,14 +649,23 @@ export function applyNotice(
 
   if (!text) return;
 
-  transcript.set(id, {
-    id,
+  const runId = typeof raw.run_id === "string" ? raw.run_id : "";
+  // Fold the terminal half of a duplicated error into the entry the
+  // non-terminal half already made, keeping that entry's `seenAt` so it holds
+  // its place — `sortedEntries` orders on `seenAt`. No repeat count: this is
+  // one failure reported twice, so a badge would assert something untrue.
+  const duplicate =
+    messageType === "loop_error" ? duplicateErrorNotice(transcript, text, runId) : null;
+
+  transcript.set(duplicate?.id ?? id, {
+    id: duplicate?.id ?? id,
     kind: "notice",
     date: typeof raw.date === "string" ? raw.date : new Date().toISOString(),
-    seenAt: seq,
+    seenAt: duplicate?.seenAt ?? seq,
     text,
     level,
     dim,
+    ...(runId ? { runId } : {}),
   });
 }
 

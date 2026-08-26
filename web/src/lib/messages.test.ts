@@ -245,6 +245,100 @@ describe("lifecycle notices", () => {
   });
 });
 
+/**
+ * One failure emits two loop_error deltas — a non-terminal one while the stream
+ * drains and a terminal one at the stop, carrying the same text because the
+ * local backend fills a chunk's `message` and `detail` from one normalized
+ * error. Both carry their own lifecycle uuid, so only the text plus the run can
+ * tell them apart from a genuine second failure.
+ */
+describe("duplicated error notices", () => {
+  const DEVICE_LOST = "decode() failed: vk::Queue::submit: ErrorDeviceLost";
+
+  const loopError = (id: string, message: string, runId?: string) => ({
+    message_type: "loop_error",
+    id,
+    date: "d",
+    message,
+    ...(runId ? { run_id: runId } : {}),
+  });
+
+  test("the terminal half folds into the non-terminal one", () => {
+    const transcript = streamed([
+      loopError("lifecycle-a", DEVICE_LOST, "local-run-37"),
+      loopError("lifecycle-b", DEVICE_LOST, "local-run-37"),
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.text).toBe(DEVICE_LOST);
+    expect(entries[0]!.level).toBe("error");
+  });
+
+  test("the surviving entry keeps the first one's position", () => {
+    const transcript = streamed([
+      loopError("lifecycle-a", DEVICE_LOST, "local-run-37"),
+      { message_type: "status", id: "s1", date: "d", message: "wrapping up" },
+      loopError("lifecycle-b", DEVICE_LOST, "local-run-37"),
+    ]);
+    expect(sortedEntries(transcript).map((e) => e.text)).toEqual([DEVICE_LOST, "wrapping up"]);
+  });
+
+  test("the same error in a different run stays its own entry", () => {
+    const transcript = streamed([
+      loopError("lifecycle-a", DEVICE_LOST, "local-run-37"),
+      loopError("lifecycle-b", DEVICE_LOST, "local-run-38"),
+    ]);
+    expect(sortedEntries(transcript)).toHaveLength(2);
+  });
+
+  test("without a run id, only an adjacent repeat folds", () => {
+    const adjacent = streamed([
+      loopError("lifecycle-a", DEVICE_LOST),
+      loopError("lifecycle-b", DEVICE_LOST),
+    ]);
+    expect(sortedEntries(adjacent)).toHaveLength(1);
+
+    // Something else happened in between, so this is a second failure, not the
+    // terminal half of the first: both errors survive, either side of the status.
+    const separated = streamed([
+      loopError("lifecycle-a", DEVICE_LOST),
+      { message_type: "status", id: "s1", date: "d", message: "retrying" },
+      loopError("lifecycle-b", DEVICE_LOST),
+    ]);
+    expect(sortedEntries(separated).map((e) => e.text)).toEqual([
+      DEVICE_LOST,
+      "retrying",
+      DEVICE_LOST,
+    ]);
+
+    // An assistant message counts as "something else" too — the turn carried on.
+    const afterReply = streamed([
+      loopError("lifecycle-a", DEVICE_LOST),
+      { type: "message", id: "a1", date: "d", message_type: "assistant_message", content: "hi" },
+      loopError("lifecycle-b", DEVICE_LOST),
+    ]);
+    expect(afterReply.size).toBe(3);
+  });
+
+  test("different error text in the same run stays two entries", () => {
+    const transcript = streamed([
+      loopError("lifecycle-a", DEVICE_LOST, "local-run-37"),
+      loopError("lifecycle-b", "context window exceeded", "local-run-37"),
+    ]);
+    expect(sortedEntries(transcript)).toHaveLength(2);
+  });
+
+  test("status and retry notices are untouched", () => {
+    const transcript = streamed([
+      { message_type: "status", id: "s1", date: "d", message: "same" },
+      { message_type: "status", id: "s2", date: "d", message: "same" },
+      { message_type: "retry", id: "r1", date: "d", message: "same" },
+      { message_type: "retry", id: "r2", date: "d", message: "same" },
+    ]);
+    expect(sortedEntries(transcript)).toHaveLength(4);
+  });
+});
+
 describe("filtering", () => {
   const transcript = streamed([
     { type: "message", id: "u", date: "d", message_type: "user_message", content: "u" },
