@@ -372,13 +372,28 @@ try {
       console.log("  SKIP  a file downloads (no files in this agent's workspace)");
     } else {
       check("file rows carry a download button", downloadable > 0, { downloadable });
-      const label = (await fileRows.first().getAttribute("aria-label")) ?? "";
-      const expected = label.replace(/^Download /, "");
+
+      // Prefer an ordinary file: a dotfile is a worse subject, because the
+      // browser renames it on the way out (see below).
+      const labels = await fileRows.evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("aria-label") ?? ""),
+      );
+      const names = labels.map((label) => label.replace(/^Download /, ""));
+      const pick = Math.max(
+        names.findIndex((name) => !name.startsWith(".")),
+        0,
+      );
+      // Chromium strips leading dots from a download filename on purpose, so a
+      // page cannot drop a hidden file into someone's Downloads folder. Nothing
+      // we can or should override — the expectation is what the browser will
+      // actually write.
+      const expected = (names[pick] ?? "").replace(/^\.+/, "");
+
       // The only assertion that proves the blob actually reaches the browser's
       // download manager rather than just being built in memory.
       const [download] = await Promise.all([
         page.waitForEvent("download", { timeout: 15_000 }),
-        fileRows.first().click(),
+        fileRows.nth(pick).click(),
       ]);
       check(
         "a file download starts with the right name",
