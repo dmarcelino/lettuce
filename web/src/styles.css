@@ -1139,6 +1139,38 @@ button {
   font-size: 13px;
 }
 
+/* Name and download side by side. The name button carries the row padding and
+   grows; the action sits at the end, mirroring .conversation-name /
+   .conversation-actions rather than inventing a second vocabulary for it. */
+.file-row {
+  display: flex;
+  align-items: center;
+}
+.file-row .grow-row {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-row .icon-button.ghost {
+  flex-shrink: 0;
+  margin-right: 8px;
+  opacity: 0.65;
+}
+.file-row .icon-button.ghost:hover {
+  opacity: 1;
+}
+
+/* Fits the sheet at any width without pushing the actions off the bottom. */
+.file-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+
 .row {
   display: flex;
   align-items: center;

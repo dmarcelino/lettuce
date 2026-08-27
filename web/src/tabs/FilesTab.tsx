@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import {
+  base64ToBytes,
+  isBinaryReadError,
+  isImageFile,
+  mimeTypeFor,
+  saveBytes,
+} from "../lib/download.ts";
 import { agentWorkspace, WORKSPACE_ROOT } from "../lib/workspace.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -53,6 +60,8 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
+  /** Data URL of an image preview, when the open file is one. */
+  const [image, setImage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<GrepMatch[] | null>(null);
   const [status, setStatus] = useState("");
@@ -76,6 +85,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
     setMatches(null);
     setSelected(null);
     setContent(null);
+    setImage(null);
   }, []);
 
   const load = useCallback(
@@ -104,18 +114,95 @@ export function FilesTab({ session, cwd, agentId }: Props) {
     if (root) void load(root);
   }, [root, load]);
 
+  const basename = (path: string) => path.split("/").pop() || path;
+
+  interface ReadResponse {
+    content?: string | null;
+    success?: boolean;
+    error?: string;
+  }
+
+  /**
+   * Pull a file down as bytes.
+   *
+   * Always base64 — that is the only encoding that survives a docx or a pdf
+   * intact, and the app-server offers it precisely so a web client can do this.
+   * A refusal (missing file, or the 25MB base64 cap upstream) arrives as
+   * `success: false` and goes to the status line rather than being swallowed.
+   */
+  const downloadFile = async (path: string) => {
+    const name = basename(path);
+    setStatus(`Downloading ${name}…`);
+    try {
+      const response = await session.request<ReadResponse>("read_file", {
+        path,
+        encoding: "base64",
+      });
+      if (response?.success === false || typeof response?.content !== "string") {
+        setStatus(response?.error ?? "Failed to read file");
+        return;
+      }
+      saveBytes(name, base64ToBytes(response.content), mimeTypeFor(name));
+      setStatus("");
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  /**
+   * Open a file, guessing from its name what it is — because nothing else can
+   * say. `get_tree` reports `{path, type}` and no protocol command reports a
+   * size or a mime type, so an image is recognised by extension and everything
+   * else is tried as text first.
+   *
+   * A text read that fails on strict UTF-8 means the file is binary, and the
+   * thing the user wanted was the file: download it instead of leaving them on
+   * an error, which is all this tab could do before.
+   */
   const openFile = async (path: string) => {
+    const name = basename(path);
+
+    if (isImageFile(name)) {
+      setSelected(path);
+      setContent(null);
+      setImage(null);
+      setStatus("Loading image…");
+      try {
+        const response = await session.request<ReadResponse>("read_file", {
+          path,
+          encoding: "base64",
+        });
+        if (response?.success === false || typeof response?.content !== "string") {
+          setStatus(response?.error ?? "Failed to read file");
+          setSelected(null);
+          return;
+        }
+        setImage(`data:${mimeTypeFor(name)};base64,${response.content}`);
+        setStatus("");
+      } catch (cause) {
+        setStatus(cause instanceof Error ? cause.message : String(cause));
+        setSelected(null);
+      }
+      return;
+    }
+
     setSelected(path);
     setContent(null);
+    setImage(null);
     setStatus("Loading file…");
     try {
-      const response = await session.request<{
-        content?: string | null;
-        success?: boolean;
-        error?: string;
-      }>("read_file", { path, encoding: "utf8" });
+      const response = await session.request<ReadResponse>("read_file", {
+        path,
+        encoding: "utf8",
+      });
       if (response?.success === false) {
-        setStatus(response.error ?? "Failed to read file");
+        const error = response.error ?? "Failed to read file";
+        if (isBinaryReadError(error)) {
+          setSelected(null);
+          await downloadFile(path);
+          return;
+        }
+        setStatus(error);
         return;
       }
       setContent(response?.content ?? "");
@@ -217,37 +304,63 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         </ul>
       ) : (
         <ul className="list">
-          {entries.map((entry) => (
-            <li key={entry.path}>
-              <button
-                type="button"
-                className="row"
-                onClick={() => {
-                  const absolute = resolve(root, entry.path);
-                  if (entry.type === "dir") setRoot(absolute);
-                  else void openFile(absolute);
-                }}
-              >
-                <Icon name={entry.type === "dir" ? "folder" : "file"} />
-                {entry.path}
-              </button>
-            </li>
-          ))}
+          {entries.map((entry) => {
+            const absolute = resolve(root, entry.path);
+            return (
+              <li key={entry.path} className="file-row">
+                {/* Name and download are siblings, not nested: a button cannot
+                    contain a button, which is why the whole row used to be one. */}
+                <button
+                  type="button"
+                  className="row grow-row"
+                  onClick={() => {
+                    if (entry.type === "dir") setRoot(absolute);
+                    else void openFile(absolute);
+                  }}
+                >
+                  <Icon name={entry.type === "dir" ? "folder" : "file"} />
+                  {entry.path}
+                </button>
+                {/* Directories have nothing to hand over: there is no archive
+                    command in the protocol, so ask the agent to tar one. */}
+                {entry.type === "file" ? (
+                  <button
+                    type="button"
+                    className="icon-button ghost"
+                    title={`Download ${entry.path}`}
+                    aria-label={`Download ${entry.path}`}
+                    onClick={() => void downloadFile(absolute)}
+                  >
+                    <Icon name="download" />
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
           {entries.length === 0 && !status ? <li className="muted pad">Empty</li> : null}
         </ul>
       )}
 
-      {selected && content !== null ? (
+      {selected && (content !== null || image !== null) ? (
         <Sheet
-          title={selected.split("/").pop() ?? selected}
+          title={basename(selected)}
           onClose={() => setSelected(null)}
           actions={
-            <button type="button" className="button ghost" onClick={() => setSelected(null)}>
-              Close
-            </button>
+            <>
+              <button type="button" className="button" onClick={() => void downloadFile(selected)}>
+                Download
+              </button>
+              <button type="button" className="button ghost" onClick={() => setSelected(null)}>
+                Close
+              </button>
+            </>
           }
         >
-          <pre className="tool-args">{content}</pre>
+          {image !== null ? (
+            <img className="file-preview" src={image} alt={basename(selected)} />
+          ) : (
+            <pre className="tool-args">{content}</pre>
+          )}
         </Sheet>
       ) : null}
     </div>

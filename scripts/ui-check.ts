@@ -361,6 +361,38 @@ try {
 
     await shot(page, "desktop-settings");
 
+    // Files must be retrievable, not just browsable. Anything the agent writes
+    // — a tailored docx, a converted pdf — is otherwise stranded on the server.
+    await page.locator('nav.tabs button:text-is("Files")').click();
+    await page.waitForTimeout(1500);
+    const fileRows = page.locator('.file-row button[aria-label^="Download "]');
+    const downloadable = await fileRows.count();
+    if (downloadable === 0) {
+      // Asserting against an empty tree would pass for the wrong reason.
+      console.log("  SKIP  a file downloads (no files in this agent's workspace)");
+    } else {
+      check("file rows carry a download button", downloadable > 0, { downloadable });
+      const label = (await fileRows.first().getAttribute("aria-label")) ?? "";
+      const expected = label.replace(/^Download /, "");
+      // The only assertion that proves the blob actually reaches the browser's
+      // download manager rather than just being built in memory.
+      const [download] = await Promise.all([
+        page.waitForEvent("download", { timeout: 15_000 }),
+        fileRows.first().click(),
+      ]);
+      check(
+        "a file download starts with the right name",
+        download.suggestedFilename() === expected,
+        {
+          expected,
+          got: download.suggestedFilename(),
+        },
+      );
+      const filesBox = await overflow(page);
+      check("files list has nothing clipped", filesBox.clipped.length === 0, filesBox);
+      await shot(page, "desktop-files");
+    }
+
     // A reload must come back to the agent you were on. It used to land on
     // whichever one agent_list returned first, which on a phone meant losing
     // your place every time the tab was reloaded.

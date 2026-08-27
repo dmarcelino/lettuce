@@ -30,6 +30,7 @@ export type IconName =
   | "chevron-right"
   | "chevron-down"
   | "arrow-down"
+  | "download"
   | "warning"
   | "memory"
   | "settings"
@@ -56,6 +57,10 @@ const PATHS: Record<IconName, string> = {
   "chevron-right": "M9 5l7 7-7 7",
   "chevron-down": "M5 9l7 7 7-7",
   "arrow-down": "M12 5v14M5 12l7 7 7-7",
+  // An arrow onto a line, not the bare "arrow-down" above: that one already
+  // means "scroll to latest", and one glyph meaning two things is the problem
+  // this icon set exists to solve.
+  download: "M12 4v10M8 10l4 4 4-4M5 19h14",
   warning: "M12 4l9 16H3zM12 10v4M12 17h.01",
   memory:
     "M9 4a3 3 0 00-3 3 3 3 0 00-1 5 3 3 0 001 5 3 3 0 003 3 3 3 0 003-3V7a3 3 0 00-3-3zM15 7a3 3 0 013-3 3 3 0 013 3",
