@@ -403,6 +403,38 @@ try {
     await page.waitForTimeout(300);
     check("escape closes the task sheet", (await page.locator(".sheet-panel").count()) === 0);
 
+    // A document sheet must actually be bigger than a form sheet, and must give
+    // its height to the content: the memory editor used to scroll inside a
+    // scrolling body, so a 5KB block showed about a dozen lines.
+    await page.locator('nav.tabs button:text-is("Memory")').click();
+    await page.waitForTimeout(1500);
+    const memoryBlocks = await page.locator(".pane .list > li button").count();
+    if (memoryBlocks === 0) {
+      console.log("  SKIP  document sheet sizing (this agent has no memory blocks)");
+    } else {
+      await page.locator(".pane .list > li button").first().click();
+      await page.waitForTimeout(600);
+      const doc = await page.evaluate(() => {
+        const panel = document.querySelector(".sheet-panel.document");
+        const body = document.querySelector(".sheet-panel.document .sheet-body");
+        const editor = document.querySelector(".sheet-panel.document .memory-editor");
+        if (!panel || !body || !editor) return null;
+        return {
+          panelWidth: Math.round(panel.getBoundingClientRect().width),
+          editorHeight: Math.round(editor.getBoundingClientRect().height),
+          // The body must NOT be the scroller; the editor must be.
+          bodyScrolls: body.scrollHeight > body.clientHeight + 1,
+        };
+      });
+      check("memory sheet uses the document panel", doc !== null);
+      check("document panel is far wider than a form sheet", (doc?.panelWidth ?? 0) > 700, doc);
+      check("the editor gets the panel's height", (doc?.editorHeight ?? 0) > 300, doc);
+      check("only one scroll region — the body does not scroll", doc?.bodyScrolls === false, doc);
+      await shot(page, "desktop-memory-sheet");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+    }
+
     // Files must be retrievable, not just browsable. Anything the agent writes
     // — a tailored docx, a converted pdf — is otherwise stranded on the server.
     await page.locator('nav.tabs button:text-is("Files")').click();

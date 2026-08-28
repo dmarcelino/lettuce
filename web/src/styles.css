@@ -1115,6 +1115,11 @@ button {
     overflow: auto;
     resize: none;
   }
+  /* A flex column stretches its children, which turns an inline link into a
+     full-width button with centred text. Keep it the size of its label. */
+  .sheet-panel.document .sheet-body > .link {
+    align-self: flex-start;
+  }
   /* Anything after the primary content keeps its natural size and gets its own
      bounded scroll rather than pushing the editor out of the panel. */
   .sheet-panel.document .list.compact {
