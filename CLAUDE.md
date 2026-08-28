@@ -171,6 +171,26 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   - `runtime_start` sending neither `skill_sources` nor `preserve_skill_sources` clears
     `scopedRuntime.skillSources`, which is harmless: `getSkillSources()` then falls back to
     `ALL_SKILL_SOURCES`. Do not "fix" it into an empty list.
+- **The LLM timeout bounds prefill, not generation — and there is no idle timeout.**
+  `DEFAULT_LOCAL_PROVIDER_TIMEOUT_MS` (`backend/local/local-provider-timeout.ts`) is 5 minutes;
+  `docker/compose.yml` raises it to 30 for the app-server. It reaches the wire as pi-ai's
+  `timeoutMs` → the OpenAI SDK's `timeout`, and the SDK clears that abort timer in a `finally`
+  once the fetch resolves (`openai/client.js`, `fetchWithTimeout`). **A streaming fetch resolves
+  on headers**, so the clock covers connect + queueing + prompt eval and stops the moment tokens
+  start. A long generation is never cut off; a stream that stalls mid-flight is never rescued.
+
+  - Env names are derived from the provider's `localProviderNames`, most specific first:
+    `LETTA_CODE_OPENAI_COMPATIBLE_TIMEOUT_MS`, `OPENAI_COMPATIBLE_TIMEOUT_MS`, then the global
+    `LETTA_CODE_LOCAL_PROVIDER_TIMEOUT_MS`. A stored `timeout` on the provider record outranks
+    all of them. Values parse as ms, `600s`, `10m`, or `false` to disable — **an unparseable
+    value throws**, it does not fall back.
+  - A timeout here **is** retryable: the SDK's `Request timed out.` matches `"timed out"` in
+    `RETRYABLE_LOCAL_PROVIDER_DETAIL_PATTERNS`, so the turn retries. Contrast a GPU fault like
+    `vk::Queue::submit: ErrorDeviceLost`, which classifies as `local_backend_error` and ends it.
+  - `createLocalProviderFetch` in that same file looks like the enforcement point and is **not**:
+    it has no callers. Do not "fix" a timeout by editing it.
+  - Changing this env means recreating `app-server`, which drops the BFF's permanent upstream
+    connection — see the version-bump note for what that costs.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.

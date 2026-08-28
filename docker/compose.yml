@@ -82,6 +82,21 @@ services:
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
       # getFallbackWorkingDirectory() prefers this over process.cwd().
       USER_CWD: /work
+      # 30 minutes, up from letta-code's 5-minute default
+      # (DEFAULT_LOCAL_PROVIDER_TIMEOUT_MS in backend/local/local-provider-timeout.ts).
+      #
+      # This buys PREFILL headroom, not longer generations. It arrives as the
+      # OpenAI SDK's `timeout`, whose abort timer is cleared in a `finally` once
+      # the fetch resolves — and a streaming fetch resolves on HEADERS. So it
+      # bounds connect + queueing + prompt eval; once tokens flow the stream is
+      # unbounded, and a mid-stream stall is not covered by anything at all.
+      #
+      # The global name is deliberate over the provider-specific
+      # LETTA_CODE_OPENAI_COMPATIBLE_TIMEOUT_MS: there is one local provider
+      # here, and the setting should follow it if the endpoint is ever swapped.
+      # Milliseconds to match the variable name; the parser would also take
+      # "30m", but an unparseable value throws rather than falling back.
+      LETTA_CODE_LOCAL_PROVIDER_TIMEOUT_MS: "1800000"
     volumes:
       - letta-home:/root/.letta
       - letta-data:/data
