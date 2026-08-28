@@ -1085,6 +1085,48 @@ button {
   .sheet-actions {
     padding-bottom: 12px;
   }
+
+  /* Reading or editing a document, not answering a question. A 560px column
+     with a 40vh textarea inside a 68vh scrolling body meant TWO nested
+     scrollbars and a dozen visible lines of a 5KB memory block. This takes a
+     fixed large panel and gives its height to the body, so the content scrolls
+     once, in the element that holds it. */
+  .sheet-panel.document {
+    width: min(1040px, 94vw);
+    height: min(88vh, 940px);
+  }
+  .sheet-panel.document .sheet-body {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden;
+  }
+  /* The one scroll region. `min-height: 0` is load-bearing: without it a flex
+     item refuses to shrink below its content and the overflow moves back up to
+     the body, restoring the nesting this is meant to remove. */
+  .sheet-panel.document .memory-editor,
+  .sheet-panel.document .tool-args {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow: auto;
+    resize: none;
+  }
+  /* Anything after the primary content keeps its natural size and gets its own
+     bounded scroll rather than pushing the editor out of the panel. */
+  .sheet-panel.document .list.compact {
+    flex-shrink: 0;
+    max-height: 26vh;
+    overflow-y: auto;
+  }
+  .sheet-panel.document .file-preview {
+    max-height: none;
+    min-height: 0;
+    object-fit: contain;
+  }
 }
 
 /* ── Tab panes (Files / Tasks / Memory) ──────────────────────────────────── */
