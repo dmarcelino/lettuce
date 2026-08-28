@@ -77,6 +77,13 @@ app-server, the BFF, and the gateway all share one network namespace
 namespace can reach the app-server at all — stronger isolation than a shared token on a
 bridge network, and it removes the capability token entirely.
 
+**Never recreate `app-server` on its own.** Its network namespace is the one the other two
+services live in, so `docker compose up -d app-server` recreates it and leaves `bff` and
+`channel-gateway` `Exited (1)` — the whole UI goes down, and `docker ps` without `-a` shows a
+healthy app-server and no sign of why. Always run `docker compose -f docker/compose.yml up -d`
+unscoped; it restarts the dependents in the right order. (Rebuilding only `bff` is still fine —
+nothing shares *its* namespace.)
+
 **Channel configuration is not reachable from the web UI, by design of letta-code.** The
 app-server only dispatches `channel_*` commands when `runtime.serviceCommandHandler` is set
 (`message-router.ts`), and that is installed by `startChannelGatewaySupervisor` — which has
