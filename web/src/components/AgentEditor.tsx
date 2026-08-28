@@ -206,15 +206,31 @@ export function AgentEditor({ session, agents, agentId, onClose }: Props) {
           </label>
 
           {creating ? null : (
-            <label className="field">
-              System prompt
-              <textarea
-                className="deny-reason"
-                value={draft.system}
-                rows={8}
-                onChange={(event) => setDraft({ ...draft, system: event.target.value })}
-              />
-            </label>
+            <>
+              <label className="field">
+                Base system prompt (managed by letta-code)
+                <textarea
+                  className="deny-reason"
+                  value={draft.system}
+                  rows={8}
+                  onChange={(event) => setDraft({ ...draft, system: event.target.value })}
+                />
+                {/* Neither half of this is discoverable from the field itself, and
+                    both surprised someone: an agent asked to "update its system
+                    prompt" rewrites its persona block, not this, so this looked
+                    unchanged and the work looked lost. */}
+                <span className="small">
+                  A versioned preset letta-code refreshes on upgrade (tracked as{" "}
+                  <code>systemPromptPreset</code> / <code>systemPromptHash</code>). Editing it marks
+                  this agent <strong>custom</strong> and stops those refreshes for good.
+                </span>
+              </label>
+              <p className="muted small">
+                This is not where an agent's own instructions live. What it writes about itself —
+                and what you should edit to shape its behaviour — is the{" "}
+                <code>system/persona.md</code> block in the <strong>Memory</strong> tab.
+              </p>
+            </>
           )}
         </>
       )}

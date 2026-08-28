@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
+import { Sheet } from "../components/Sheet.tsx";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface MemoryEntry {
@@ -145,54 +146,55 @@ export function MemoryTab({ session, agentId }: Props) {
       </ul>
 
       {open ? (
-        <div className="sheet">
-          <div className="sheet-body">
-            <h2>{open.relative_path}</h2>
-            {open.is_system ? <p className="muted small">System block — edit with care.</p> : null}
+        <Sheet
+          title={open.relative_path}
+          onClose={() => setOpen(null)}
+          actions={
+            <>
+              <button type="button" className="button ghost" onClick={() => setOpen(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={draft === open.content}
+                onClick={() => void save()}
+              >
+                Save
+              </button>
+            </>
+          }
+        >
+          {open.is_system ? <p className="muted small">System block — edit with care.</p> : null}
 
-            <textarea
-              className="memory-editor"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-            />
+          <textarea
+            className="memory-editor"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+          />
 
-            <button
-              type="button"
-              className="link"
-              onClick={() => void loadHistory(open.relative_path)}
-            >
-              History
-            </button>
+          <button
+            type="button"
+            className="link"
+            onClick={() => void loadHistory(open.relative_path)}
+          >
+            History
+          </button>
 
-            {history ? (
-              <ul className="list compact">
-                {history.map((commit) => (
-                  <li key={commit.sha}>
-                    <span className="muted small">
-                      {new Date(commit.timestamp).toLocaleString()} · {commit.sha.slice(0, 7)}
-                    </span>
-                    <div>{commit.message}</div>
-                  </li>
-                ))}
-                {history.length === 0 ? <li className="muted pad">No history</li> : null}
-              </ul>
-            ) : null}
-          </div>
-
-          <div className="sheet-actions">
-            <button type="button" className="button ghost" onClick={() => setOpen(null)}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="button"
-              disabled={draft === open.content}
-              onClick={() => void save()}
-            >
-              Save
-            </button>
-          </div>
-        </div>
+          {history ? (
+            <ul className="list compact">
+              {history.map((commit) => (
+                <li key={commit.sha}>
+                  <span className="muted small">
+                    {new Date(commit.timestamp).toLocaleString()} · {commit.sha.slice(0, 7)}
+                  </span>
+                  <div>{commit.message}</div>
+                </li>
+              ))}
+              {history.length === 0 ? <li className="muted pad">No history</li> : null}
+            </ul>
+          ) : null}
+        </Sheet>
       ) : null}
     </div>
   );

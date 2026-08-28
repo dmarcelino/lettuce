@@ -361,6 +361,48 @@ try {
 
     await shot(page, "desktop-settings");
 
+    // Sheet geometry. MemoryTab and TasksTab used to hand-roll the markup and
+    // omit .sheet-panel, so on desktop the body and the actions became two
+    // independently centred flex items — a narrow box with the buttons floating
+    // outside it. The panel carries the desktop width, the radius and the
+    // shadow, so its presence is the assertion that matters.
+    await page.locator('nav.tabs button:text-is("Tasks")').click();
+    await page.waitForTimeout(1000);
+    await page.locator(".pane-bar button, .pane button").filter({ hasText: "New" }).first().click();
+    await page.waitForTimeout(500);
+    check("task sheet renders a panel", (await page.locator(".sheet-panel").count()) === 1);
+    check(
+      "actions live inside the panel, not beside it",
+      (await page.locator(".sheet-panel .sheet-actions").count()) === 1,
+    );
+    const geometry = await page.evaluate(() => {
+      const p = document.querySelector(".sheet-panel")?.getBoundingClientRect();
+      const a = document.querySelector(".sheet-actions")?.getBoundingClientRect();
+      const b = document.querySelector(".sheet-body")?.getBoundingClientRect();
+      return p && a && b
+        ? {
+            panelWidth: Math.round(p.width),
+            actionsInside: a.left >= p.left - 1 && a.right <= p.right + 1,
+            bodyInside: b.left >= p.left - 1 && b.right <= p.right + 1,
+            centred: Math.abs(p.left + p.width / 2 - window.innerWidth / 2) < 2,
+          }
+        : null;
+    });
+    check("panel takes the desktop width", (geometry?.panelWidth ?? 0) >= 500, geometry);
+    check("panel is centred", geometry?.centred === true, geometry);
+    check(
+      "body and actions are within the panel",
+      Boolean(geometry?.bodyInside && geometry?.actionsInside),
+      geometry,
+    );
+    await shot(page, "desktop-sheet");
+
+    // The shared Sheet supplies a scrim and an Escape handler; the hand-rolled
+    // ones had neither, so a sheet could only be dismissed by its own button.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    check("escape closes the task sheet", (await page.locator(".sheet-panel").count()) === 0);
+
     // Files must be retrievable, not just browsable. Anything the agent writes
     // — a tailored docx, a converted pdf — is otherwise stranded on the server.
     await page.locator('nav.tabs button:text-is("Files")').click();

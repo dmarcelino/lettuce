@@ -198,6 +198,20 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     it has no callers. Do not "fix" a timeout by editing it.
   - Changing this env means recreating `app-server`, which drops the BFF's permanent upstream
     connection — see the version-bump note for what that costs.
+- **Two different things are called "the system prompt", and an agent can only change one.**
+  `agent.system` — what the agent editor shows — is a letta-code-**managed** preset, tracked in
+  `settings.json` as `systemPromptPreset` + `systemPromptHash` + `systemPromptVersion`. On
+  startup `scheduleManagedSystemPromptUpdate` (`agent/system-prompt-versioning.ts`) compares the
+  hash and, while it still matches, **overwrites `system`** with the new preset text on a version
+  bump. Editing it flips the agent to `systemPromptPreset: "custom"` and opts it out of every
+  future refresh. No agent tool writes this field.
+
+  What an agent rewrites when asked to change its own instructions is
+  `memory/system/persona.md` in its memfs (`/data/local-backend/memfs/<agent-id>/memory/`, a git
+  repo — `git log` there is the provenance). That block is composed into context every turn when
+  `memfs: true`, and the UI surfaces it in the **Memory** tab, not the agent editor. Expect
+  "I asked it to update its system prompt and the UI shows the old one" — both statements are
+  true and about different fields.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.

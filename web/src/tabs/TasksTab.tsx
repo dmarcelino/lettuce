@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
+import { Sheet } from "../components/Sheet.tsx";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface CronTask {
@@ -91,6 +92,12 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
       return false;
     }
+  };
+
+  /** Shared by Cancel, the scrim and Escape, now that the Sheet supplies all three. */
+  const closeEditor = () => {
+    setCreating(false);
+    setEditing(null);
   };
 
   const submit = async () => {
@@ -233,78 +240,71 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
       </ul>
 
       {creating || editing ? (
-        <div className="sheet">
-          <div className="sheet-body">
-            <h2>{editing ? "Edit task" : "New task"}</h2>
+        <Sheet
+          title={editing ? "Edit task" : "New task"}
+          onClose={closeEditor}
+          actions={
+            <>
+              <button type="button" className="button ghost" onClick={closeEditor}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={!draft.name.trim() || !draft.prompt.trim()}
+                onClick={() => void submit()}
+              >
+                {editing ? "Save" : "Create"}
+              </button>
+            </>
+          }
+        >
+          <label className="field">
+            Name
+            <input
+              value={draft.name}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            />
+          </label>
 
-            <label className="field">
-              Name
-              <input
-                value={draft.name}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-              />
-            </label>
+          <label className="field">
+            Description
+            <input
+              value={draft.description}
+              onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+            />
+          </label>
 
-            <label className="field">
-              Description
-              <input
-                value={draft.description}
-                onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-              />
-            </label>
+          <label className="field">
+            Schedule (cron)
+            <input
+              value={draft.cron}
+              placeholder="0 9 * * *"
+              onChange={(event) => setDraft({ ...draft, cron: event.target.value })}
+            />
+            <span className="muted small">
+              minute hour day month weekday — e.g. <code>0 9 * * *</code> is 9am daily
+            </span>
+          </label>
 
-            <label className="field">
-              Schedule (cron)
-              <input
-                value={draft.cron}
-                placeholder="0 9 * * *"
-                onChange={(event) => setDraft({ ...draft, cron: event.target.value })}
-              />
-              <span className="muted small">
-                minute hour day month weekday — e.g. <code>0 9 * * *</code> is 9am daily
-              </span>
-            </label>
+          <label className="field">
+            Prompt sent to the agent
+            <textarea
+              value={draft.prompt}
+              rows={4}
+              onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
+            />
+          </label>
 
-            <label className="field">
-              Prompt sent to the agent
-              <textarea
-                value={draft.prompt}
-                rows={4}
-                onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
-              />
-            </label>
-
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={draft.recurring}
-                onChange={(event) => setDraft({ ...draft, recurring: event.target.checked })}
-              />
-              Repeating
-            </label>
-          </div>
-
-          <div className="sheet-actions">
-            <button
-              type="button"
-              className="button ghost"
-              onClick={() => {
-                setCreating(false);
-                setEditing(null);
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="button"
-              disabled={!draft.name.trim() || !draft.prompt.trim()}
-              onClick={() => void submit()}
-            >
-              {editing ? "Save" : "Create"}
-            </button>
-          </div>
-        </div>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={draft.recurring}
+              onChange={(event) => setDraft({ ...draft, recurring: event.target.checked })}
+            />
+            Repeating
+          </label>
+        </Sheet>
       ) : null}
     </div>
   );
