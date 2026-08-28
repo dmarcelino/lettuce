@@ -54,13 +54,14 @@ services:
     # What is given up: the default syscall filter and MAC profile that harden
     # container -> host, plus SYS_ADMIN — together that makes an escape from
     # this container materially easier, and this is the one service reachable
-    # by agent-authored shell commands. What is gained: those same commands are
-    # confined to the agent's own workspace directory, so one agent cannot write
-    # over another's files. For a single-user, self-hosted assistant the
-    # realistic threat is an agent or a prompt injection clobbering files, not
-    # kernel exploitation from a semi-trusted local process — so this is still
-    # the better side of the trade. Revert it (and accept unconfined agents) if
-    # that ever stops being true.
+    # by agent-authored shell commands. What is gained is the cross-agent
+    # profile described at LETTA_FS_SANDBOX below: no agent can read or write
+    # another agent's memory. For a single-user, self-hosted assistant the
+    # realistic threat is an agent or a prompt injection reading or clobbering
+    # something it was never meant to see, not kernel exploitation from a
+    # semi-trusted local process — so this is still the better side of the
+    # trade. Revert it (and accept unconfined agents) if that ever stops being
+    # true.
     security_opt:
       - seccomp:unconfined
       - apparmor:unconfined
@@ -82,6 +83,53 @@ services:
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
       # getFallbackWorkingDirectory() prefers this over process.cwd().
       USER_CWD: /work
+      # Confine every agent-spawned shell with bubblewrap, using letta-code's
+      # CROSS-AGENT profile (permissions/sandbox-policy.ts
+      # buildCrossAgentSandboxPolicy): writes allowed by default, both agents
+      # trees masked with an empty tmpfs, and the current agent's own memory
+      # roots bound back read-write. Measured inside this container with the
+      # real argument list:
+      #
+      #   own memfs memory dir      writable
+      #   /tmp                      writable
+      #   /root/.letta              writable
+      #   other agents' memfs       MASKED — `ls` shows only this agent
+      #   /work/<other agent>       writable
+      #
+      # Chosen over `runtime_start`'s workspace_sandbox, which the UI used to
+      # request, for three reasons measured against the running stack:
+      #
+      #  1. workspace_sandbox is a WRITE-SCOPED profile with exactly ONE
+      #     writable root. Rooted at /work/<agent-id> it left the agent's own
+      #     memory (/data/local-backend/memfs/<id>/memory), /tmp and
+      #     /root/.letta all read-only — so an agent could not record anything
+      #     it learned, and any tool reaching for a temp file failed. The
+      #     protocol carries only {root, isolation_root}; policy.ts's
+      #     baseWritableRoots would express "workspace plus /tmp plus memory"
+      #     exactly, but nothing in the protocol reaches it.
+      #  2. Its isolation root was /work, so it masked peer WORKSPACES while
+      #     leaving every agent's MEMORY world-readable. This profile inverts
+      #     that, and memory is the part worth hiding.
+      #  3. Coverage was not uniform. workspace_sandbox lives on the
+      #     per-conversation runtime, and cron (cron/scheduler.ts) and the
+      #     channel gateway both create runtimes via
+      #     getOrCreateConversationRuntime with no sandbox at all. Worse, a BFF
+      #     upstream reconnect re-syncs known scopes, which creates a
+      #     subscribed unsandboxed runtime; the browser's next runtime_start
+      #     then trips assertRuntimeWorkspaceSandboxChangeAllowed and falls
+      #     back to no sandbox for the life of that conversation. This flag is
+      #     process env, so it covers every shell in every conversation —
+      #     browser, cron, Telegram and subagents alike.
+      #
+      # What it does NOT do: agents are no longer confined to /work/<agent-id>,
+      # so one can still write another's workspace files. Reads are never
+      # restricted outside the agents trees (permissions/policy.ts says so
+      # outright) and the network is untouched. In-process file tools are
+      # covered separately and unconditionally by evaluateCrossAgentGuard.
+      #
+      # Changing this value recreates app-server, which drops the BFF's
+      # permanent upstream connection — always `docker compose up -d` unscoped.
+      LETTA_FS_SANDBOX: "1"
       # 30 minutes, up from letta-code's 5-minute default
       # (DEFAULT_LOCAL_PROVIDER_TIMEOUT_MS in backend/local/local-provider-timeout.ts).
       #
@@ -165,6 +213,11 @@ services:
       LETTA_LOCAL_BACKEND_EXPERIMENTAL: "true"
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
       USER_CWD: /work
+      # Deliberately NO LETTA_FS_SANDBOX here. The gateway is a relay: it hands
+      # inbound channel messages to the app-server, which runs the turn and
+      # executes every tool, so a gateway-initiated turn is already confined by
+      # the app-server's flag. This image is the fork's own (no bubblewrap
+      # layer), so setting it here would only log "sandbox backend unavailable".
       # The app-server owns scheduling; a second scheduler would fight for the lease.
       LETTA_DISABLE_CRON_SCHEDULER: "1"
     volumes:

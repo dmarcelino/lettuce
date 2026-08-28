@@ -17,7 +17,6 @@ import {
   type PermissionMode,
   readCommands,
   type SlashCommand,
-  WORKSPACE_ROOT,
 } from "../lib/workspace.ts";
 import type { SessionApi } from "./use-session.ts";
 
@@ -69,8 +68,6 @@ export interface ConversationApi {
   setPermissionMode: (mode: PermissionMode) => void;
   /** Slash commands this server advertises, built-ins plus mod-contributed. */
   commands: SlashCommand[];
-  /** Null until a runtime starts; false when the kernel sandbox was unavailable. */
-  sandboxed: boolean | null;
 }
 
 /**
@@ -180,14 +177,6 @@ export function useConversation(
   const skillIdsRef = useRef("");
   const [permissionMode, setPermissionModeFromStatus] = useState<PermissionMode | null>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
-  /**
-   * Whether the agent's own tools are confined to its workspace directory.
-   * False means bubblewrap is missing on the app-server host: the browser is
-   * still clamped by the BFF, but the agent itself can reach the whole
-   * container filesystem through its tools.
-   */
-  const [sandboxed, setSandboxed] = useState<boolean | null>(null);
-
   const transcriptRef = useRef<Transcript>(new Map());
   // Alias maps that hold a streamed message together; reset wherever the
   // transcript is, so a stale otid can never bind to a rebuilt transcript.
@@ -241,42 +230,33 @@ export function useConversation(
     void (async () => {
       const home = agentWorkspace(scope.agent_id);
       try {
-        // resolveWorkspaceSandbox refuses a root that does not exist, and no
-        // mkdir command exists — but write_file does `mkdir -p` on the parent
-        // before writing, so seeding a marker file is how the directory gets
-        // created. Best effort: a failure here should not block the turn, it
-        // just means the sandbox is declined below.
+        // `cwd` below refuses a directory that does not exist, and no mkdir
+        // command exists — but write_file does `mkdir -p` on the parent before
+        // writing, so seeding a marker file is how the directory gets created.
+        // Best effort: a failure here should not block the turn.
         await request("write_file", {
           path: `${home}/.keep`,
           content: "",
         }).catch(() => undefined);
 
-        const base = {
+        // No `workspace_sandbox`. Agent shells are confined by the app-server's
+        // LETTA_FS_SANDBOX cross-agent profile instead — see the long note in
+        // docker/compose.yml for why. Briefly: workspace_sandbox is
+        // write-scoped to a SINGLE root, which left the agent's own memfs
+        // memory, /tmp and /root/.letta read-only, and it rode on the
+        // per-conversation runtime, so cron- and Telegram-fired turns escaped
+        // it entirely. `cwd` still points each runtime at its own directory —
+        // that is now a convention, not a kernel boundary.
+        const started = await request<{ success?: boolean; error?: string }>("runtime_start", {
           agent_id: scope.agent_id,
           conversation_id: scope.conversation_id,
           wait_for_replay: true,
           cwd: home,
-        };
-
-        // Ask for the kernel sandbox: root inside isolation_root means the
-        // agent works in its own directory but can still reach the shared level
-        // above it. It needs bubblewrap, and runtime_start REJECTS the whole
-        // command when bwrap is missing rather than degrading — so an
-        // unsandboxed retry is what keeps the conversation usable on a host
-        // without it. `success: false` does not throw, so it is checked here.
-        const sandboxed = await request<{ success?: boolean; error?: string }>("runtime_start", {
-          ...base,
-          workspace_sandbox: { root: home, isolation_root: WORKSPACE_ROOT },
         });
 
-        if (sandboxed?.success === false) {
-          setSandboxed(false);
-          const retry = await request<{ success?: boolean; error?: string }>("runtime_start", base);
-          if (retry?.success === false) {
-            setError(retry.error ?? "Failed to start the runtime");
-          }
-        } else {
-          setSandboxed(true);
+        // `success: false` does not throw, so it is checked here.
+        if (started?.success === false) {
+          setError(started.error ?? "Failed to start the runtime");
         }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -538,6 +518,5 @@ export function useConversation(
     permissionMode,
     setPermissionMode,
     commands,
-    sandboxed,
   };
 }

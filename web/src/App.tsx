@@ -168,15 +168,6 @@ function Workspace({ status }: { status: Status }) {
           <>
             {conversation.error ? <p className="warning small">{conversation.error}</p> : null}
 
-            {conversation.sandboxed === false ? (
-              <p className="warning small">
-                Running without the workspace sandbox, so the agent can <strong>write</strong>
-                anywhere in the container rather than only its own directory. The file browser is
-                still restricted. Needs <code>bwrap</code> plus <code>seccomp:unconfined</code> and{" "}
-                <code>apparmor:unconfined</code> on the app-server — see docker/compose.yml.
-              </p>
-            ) : null}
-
             <MessageList entries={visibleEntries} processing={conversation.processing} />
 
             {conversation.queue.length > 0 ? (

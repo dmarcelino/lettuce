@@ -110,17 +110,18 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   replies "Reloaded settings, local mods, and agent secrets". Merge rather than replace:
   the file holds ~18 unrelated top-level settings including `deviceId`.
 - **The agent sandbox needs bubblewrap, two relaxed container profiles AND `CAP_SYS_ADMIN`.**
-  `runtime_start.workspace_sandbox {root, isolation_root}` is what confines an agent to its
-  own directory, and letta-code's only Linux backend is `bwrap`
-  (`src/sandbox/availability.ts`). The package is added by `docker/app-server.Dockerfile`, a
-  thin layer over the fork's own image (built via `bun run build-images`).
+  `LETTA_FS_SANDBOX=1` on the app-server is what confines agent shells, and letta-code's only
+  Linux backend is `bwrap` (`src/sandbox/availability.ts`). The package is added by
+  `docker/app-server.Dockerfile`, a thin layer over the fork's own image (built via
+  `bun run build-images`). The channel-gateway deliberately does **not** carry the flag: it is
+  a relay, the app-server runs every turn, and the gateway image has no bwrap.
 
   **Measure against `buildBwrapArgs`, never against the probe — they differ, and only the probe
   is forgiving.** `availability.ts` probes with `bwrap --ro-bind / / --unshare-user`, but the
   policy actually run (`src/sandbox/bwrap.ts` `buildBwrapArgs`) never passes `--unshare-user`.
   bubblewrap running as real root then takes its *privileged* path — no user namespace — and
-  calls `unshare(CLONE_NEWNS)` directly, which needs `CAP_SYS_ADMIN`. So the probe passes,
-  `runtime_start` accepts the sandbox, the UI reports it active, and every wrapped shell command
+  calls `unshare(CLONE_NEWNS)` directly, which needs `CAP_SYS_ADMIN`. So the probe passes, the
+  gate reports a backend, and every wrapped shell command
   dies with `bwrap: Creating new namespace failed: Operation not permitted`. That is exactly how
   the sandbox sat broken-but-green until 2026-08-25. Re-measured against the real arg list:
 
@@ -140,13 +141,46 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   unprivileged user-namespace path — but it needs the `letta-home` and `letta-data` volumes
   chowned, so it is a migration rather than a flag.
 
-  Scope, so it is not oversold: it confines **writes by spawned shell commands**, plus
-  in-process file tools via a TypeScript guard. It does **not** restrict reads — 
-  `policy.ts` says so outright — and does not touch the network. `runtime_start` **rejects
-  the whole command** when no backend is available rather than degrading, which is why
-  `use-conversation.ts` retries once without the sandbox and surfaces a banner. That banner
-  only covers a *missing* backend; a present-but-unusable one is invisible to it, which is why
-  the capability check above belongs in `docker/compose.yml` and not in the UI.
+  **The profile is cross-agent, not per-workspace — and that was a deliberate swap.** With
+  `LETTA_FS_SANDBOX=1`, `applyShellSandbox` builds `buildCrossAgentSandboxPolicy`: `--bind / /`
+  (writes allowed by default), both agents trees (`~/.letta/agents` and
+  `<local-backend>/memfs`) masked with an empty tmpfs, and the current agent's own memory roots
+  bound back read-write. Measured in the container: own memfs memory dir **writable**, `/tmp`
+  **writable**, `/root/.letta` **writable**, other agents' memfs **masked** (`ls` shows only
+  this agent), `/work/<other agent>` **writable**.
+
+  The UI used to request `runtime_start.workspace_sandbox {root: /work/<agent-id>,
+  isolation_root: /work}` instead. Do not put it back. Three measured reasons:
+
+  1. It is a **write-scoped** profile with exactly ONE writable root
+     (`buildWorkspaceSandboxPolicy` → `restrictWrites: true`). Rooted at the agent workspace it
+     left the agent's own memory (`/data/local-backend/memfs/<id>/memory`), `/tmp` and
+     `/root/.letta` **read-only** — so an agent could not record anything it learned, and
+     anything reaching for a temp file failed (a `curl -o /tmp/...` exits 23). `policy.ts` has
+     a `baseWritableRoots` field that would express "workspace plus `/tmp` plus memory"
+     exactly, but no protocol field reaches it, so it is unobtainable without a fork delta.
+  2. Its isolation root was `/work`, so it masked peer **workspaces** while leaving every
+     agent's **memory** world-readable. The cross-agent profile inverts that, and memory is the
+     part worth hiding.
+  3. Coverage was not uniform. `workspaceSandbox` lives on the per-conversation runtime, so
+     cron (`cron/scheduler.ts` → `getOrCreateConversationRuntime`) and channel-fired turns got
+     no sandbox at all, and a cron-*created* conversation also gets `cwd = /work` rather than
+     `/work/<agent-id>`. Worse, a BFF upstream reconnect re-syncs known scopes
+     (`bff/src/upstream/connection.ts` `resubscribe()` → `sync {runtime}`), which subscribes the
+     connection and creates an unsandboxed runtime; the browser's next `runtime_start` then
+     trips `assertRuntimeWorkspaceSandboxChangeAllowed` and `use-conversation.ts` fell back to
+     no sandbox **for the life of that conversation**. Two conversations of the same agent an
+     hour apart could differ. `LETTA_FS_SANDBOX` is process env, so it covers every shell in
+     every conversation — browser, cron, Telegram and subagents alike.
+
+  Scope, so it is not oversold: it confines **spawned shell commands**, cross-agent only.
+  Agents are *not* confined to `/work/<agent-id>` — one can still write another's workspace
+  files. Reads outside the agents trees are **not** restricted — `policy.ts` says so outright —
+  and the network is untouched. In-process file tools are covered separately and
+  unconditionally by `evaluateCrossAgentGuard`, which does not depend on this flag. The gate
+  degrades silently when no backend is available (`warnSandboxBackendUnavailable`, then run
+  unwrapped), so the capability check above belongs in `docker/compose.yml` and nothing in the
+  UI reports sandbox state any more.
 - **Skills have four scopes, and none of them is per-conversation.** Discovery
   (`src/agent/skills.ts`, `src/agent/client-skills.ts`) reads, lowest priority first: bundled
   (in the package), global `/root/.letta/skills/`, agent `~/.letta/agents/<id>/memory/skills/`,
@@ -161,10 +195,11 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     (`listener/commands/skills-agents.ts`). `skill_disable` only unlinks from there, so on a
     project- or agent-scoped skill it answers "Skill not found" — which is why the Skills tab
     offers Disable only for `source === "global"`.
-  - **With the workspace sandbox on, the agent can only install into project scope.** Its shell
-    is confined to `/work/<agent-id>`, so it cannot write `/root/.letta/skills` or an agent
-    memory dir. Ask it to clone into `.agents/skills/` under its working directory; use the
-    Skills tab's enable field for anything that should be global.
+  - **An agent can install into any scope except another agent's.** Under the cross-agent
+    sandbox its shell can write `/root/.letta/skills` (global) and its own agent memory dir, so
+    `skill_enable` from a shell works. Only peer agents' trees are masked. (This was not true
+    under the old workspace sandbox, which confined the shell to `/work/<agent-id>` and left
+    project scope as the only writable option.)
   - **The advertised list is rebuilt in `turn-setup.ts` and nowhere else.** It starts empty and
     is recomputed at the start of each turn, and no protocol command asks for a fresh one — so
     Settings→Skills is blank until the agent has taken a turn, and after an enable/disable the
@@ -212,6 +247,17 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   `memfs: true`, and the UI surfaces it in the **Memory** tab, not the agent editor. Expect
   "I asked it to update its system prompt and the UI shows the old one" — both statements are
   true and about different fields.
+- **Memory lives outside every agent workspace, and there are two ways to write it.** The memfs
+  repo is `/data/local-backend/memfs/<agent-id>/memory` (`$MEMORY_DIR` in the agent's shell
+  env) — never under `/work/<agent-id>`. Agents reach it two ways: the in-process `memory` tool
+  (`memory {command:"str_replace", file_path:"system/human.md", reason:…}`, present in
+  `ANTHROPIC_DEFAULT_TOOLS`), which writes with node `fs` and commits with `execFile("git")`,
+  neither of them sandboxed; or plain `Edit`/`Write`/`Bash` on `$MEMORY_DIR`, which works
+  because the cross-agent profile binds the agent's own memory roots read-write. Prefer the
+  `memory` tool: the repo carries `pre-commit`/`post-commit` hooks that validate frontmatter,
+  and the tool commits for you. `letta memory` (the CLI) has status/diff/backup/export/pull but
+  **no write verb** — its own help says "use git commands" — so an agent that goes looking
+  there finds nothing and concludes memory is unwritable.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.

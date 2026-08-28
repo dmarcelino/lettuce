@@ -7,13 +7,17 @@
  * image's own `WORKDIR /workspace` is container-layer storage that vanishes on
  * recreate.
  *
- * Each agent gets `/work/<agent-id>` and stays inside it; `/work` itself is the
- * shared level above, reachable by every agent.
+ * Each agent gets `/work/<agent-id>`, which `use-conversation.ts` passes as the
+ * runtime `cwd`. That is a CONVENTION, not a kernel boundary: the app-server's
+ * sandbox (LETTA_FS_SANDBOX, see docker/compose.yml) confines agent shells
+ * cross-agent — no agent can reach another's memory — but leaves `/work`
+ * writable, so an agent can still reach a peer's workspace files.
  *
- * Keep in sync with `WORKSPACE_ROOT` in bff/src/session/protocol.ts, which
- * enforces this boundary. The two packages cannot import from each other, and
- * the BFF copy is the one that actually refuses traffic — this one only decides
- * where to point the runtime.
+ * The one hard boundary here is the BROWSER's. Keep in sync with
+ * `WORKSPACE_ROOT` in bff/src/session/protocol.ts, which clamps every file
+ * command a browser session can issue. The two packages cannot import from each
+ * other, and the BFF copy is the one that actually refuses traffic — this one
+ * only decides where to point the runtime.
  */
 export const WORKSPACE_ROOT = "/work";
 
