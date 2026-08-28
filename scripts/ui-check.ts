@@ -388,7 +388,8 @@ try {
           }
         : null;
     });
-    check("panel takes the desktop width", (geometry?.panelWidth ?? 0) >= 500, geometry);
+    const formPanelWidth = geometry?.panelWidth ?? 0;
+    check("panel takes the desktop width", formPanelWidth >= 500, geometry);
     check("panel is centred", geometry?.centred === true, geometry);
     check(
       "body and actions are within the panel",
@@ -415,9 +416,9 @@ try {
       await page.locator(".pane .list > li button").first().click();
       await page.waitForTimeout(600);
       const doc = await page.evaluate(() => {
-        const panel = document.querySelector(".sheet-panel.document");
-        const body = document.querySelector(".sheet-panel.document .sheet-body");
-        const editor = document.querySelector(".sheet-panel.document .memory-editor");
+        const panel = document.querySelector(".sheet-panel.fill");
+        const body = document.querySelector(".sheet-panel.fill .sheet-body");
+        const editor = document.querySelector(".sheet-panel.fill .memory-editor");
         if (!panel || !body || !editor) return null;
         return {
           panelWidth: Math.round(panel.getBoundingClientRect().width),
@@ -426,8 +427,14 @@ try {
           bodyScrolls: body.scrollHeight > body.clientHeight + 1,
         };
       });
-      check("memory sheet uses the document panel", doc !== null);
-      check("document panel is far wider than a form sheet", (doc?.panelWidth ?? 0) > 700, doc);
+      check("memory sheet fills its panel", doc !== null);
+      // The point of the `fill` modifier is height, NOT width: a form sheet and
+      // a document sheet must be the same size across, or the app looks like two
+      // different apps depending on which modal you opened.
+      check("every sheet is the same width", doc?.panelWidth === formPanelWidth, {
+        form: formPanelWidth,
+        document: doc?.panelWidth,
+      });
       check("the editor gets the panel's height", (doc?.editorHeight ?? 0) > 300, doc);
       check("only one scroll region — the body does not scroll", doc?.bodyScrolls === false, doc);
       await shot(page, "desktop-memory-sheet");

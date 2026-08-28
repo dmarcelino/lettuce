@@ -1069,36 +1069,49 @@ button {
     padding-inline: max(12px, calc((100% - 880px) / 2));
   }
 
-  /* Bottom sheets are a phone idiom; on a desktop browser this is a modal. */
+  /* Bottom sheets are a phone idiom; on a desktop browser this is a modal.
+     ONE width for every sheet, matching the 880px content column the messages,
+     composer and panes already use above — a modal that agrees with the app it
+     sits on top of. Short sheets still hug their content; the cap only bites
+     when there is more than a screenful. */
   .sheet {
     justify-content: center;
     align-items: center;
   }
   .sheet-panel {
-    width: min(560px, 92vw);
+    width: min(880px, 94vw);
+    max-height: min(88vh, 940px);
     border-radius: 14px;
     box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
   }
   .sheet-body {
-    max-height: min(68vh, 620px);
+    /* The panel owns the height cap now, so the body just takes what is left
+       and scrolls. `min-height: 0` lets it shrink below its content. */
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
   }
   .sheet-actions {
     padding-bottom: 12px;
   }
+  /* Full-width buttons are a touch-target idiom. At 880px they become two
+     440px slabs, so let them hug and sit where `justify-content: flex-end`
+     always intended. */
+  .sheet-actions .button {
+    flex: 0 0 auto;
+    min-width: 130px;
+  }
 
-  /* Reading or editing a document, not answering a question. A 560px column
-     with a 40vh textarea inside a 68vh scrolling body meant TWO nested
-     scrollbars and a dozen visible lines of a 5KB memory block. This takes a
-     fixed large panel and gives its height to the body, so the content scrolls
-     once, in the element that holds it. */
-  .sheet-panel.document {
-    width: min(1040px, 94vw);
+  /* `fill` is about the CONTENT, not the size: a body that is one document to
+     read or edit, rather than a form or a list. It swaps the height cap for a
+     definite height and hands that height to the document, so the content
+     scrolls once — in the element that holds it — instead of a small pane
+     scrolling inside a scrolling sheet. */
+  .sheet-panel.fill {
     height: min(88vh, 940px);
   }
-  .sheet-panel.document .sheet-body {
-    flex: 1;
-    min-height: 0;
-    max-height: none;
+  .sheet-panel.fill .sheet-body {
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -1107,8 +1120,8 @@ button {
   /* The one scroll region. `min-height: 0` is load-bearing: without it a flex
      item refuses to shrink below its content and the overflow moves back up to
      the body, restoring the nesting this is meant to remove. */
-  .sheet-panel.document .memory-editor,
-  .sheet-panel.document .tool-args {
+  .sheet-panel.fill .memory-editor,
+  .sheet-panel.fill .tool-args {
     flex: 1;
     min-height: 0;
     max-height: none;
@@ -1117,17 +1130,17 @@ button {
   }
   /* A flex column stretches its children, which turns an inline link into a
      full-width button with centred text. Keep it the size of its label. */
-  .sheet-panel.document .sheet-body > .link {
+  .sheet-panel.fill .sheet-body > .link {
     align-self: flex-start;
   }
   /* Anything after the primary content keeps its natural size and gets its own
      bounded scroll rather than pushing the editor out of the panel. */
-  .sheet-panel.document .list.compact {
+  .sheet-panel.fill .list.compact {
     flex-shrink: 0;
     max-height: 26vh;
     overflow-y: auto;
   }
-  .sheet-panel.document .file-preview {
+  .sheet-panel.fill .file-preview {
     max-height: none;
     min-height: 0;
     object-fit: contain;

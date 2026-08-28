@@ -344,7 +344,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
       {selected && (content !== null || image !== null) ? (
         <Sheet
           title={basename(selected)}
-          size="document"
+          fill
           onClose={() => setSelected(null)}
           actions={
             <>
