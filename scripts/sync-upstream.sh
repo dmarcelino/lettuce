@@ -27,6 +27,8 @@ BEHAVIOR_FILES=(
   "src/channels/gateway-supervisor.ts"
   "src/websocket/app-server.ts"
   "src/websocket/app-server-auth.ts"
+  "src/websocket/listener/interrupts.ts"
+  "src/websocket/listener/control-inputs.ts"
 )
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -99,6 +101,11 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "   * gateway-supervisor.ts — did channels move to the spawned gateway? It has no"
   warn "     --ws-auth support and would break Telegram under capability-token auth."
   warn "   * app-server.ts / app-server-auth.ts — did the Origin / Bearer handling change?"
+  warn "   * interrupts.ts — is a live tool_return_message still BOTH the singular fields and"
+  warn "     a tool_returns[] array? web/src/lib/messages.ts reads both; protocol_v2.ts types"
+  warn "     neither, so typecheck sees nothing."
+  warn "   * control-inputs.ts — does handleAbortMessageInput still return false with no frames"
+  warn "     when nothing is active, and still emit Interrupted before the turn unwinds?"
 else
   echo "  none"
 fi

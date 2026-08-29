@@ -15,6 +15,8 @@ interface Props {
   processing: boolean;
   onSend: (text: string) => void;
   onAbort: () => void;
+  /** A stop was accepted but the turn has not ended yet. */
+  stopping: boolean;
   filters: ReadonlySet<FilterGroup>;
   onToggleFilter: (group: FilterGroup) => void;
   onClearFilters: () => void;
@@ -39,6 +41,7 @@ export function Composer({
   processing,
   onSend,
   onAbort,
+  stopping,
   filters,
   onToggleFilter,
   onClearFilters,
@@ -273,12 +276,16 @@ export function Composer({
           <span className="spacer" />
 
           {processing ? (
+            // A second abort while the first is still unwinding is a guaranteed
+            // no-op upstream (`handleAbortMessageInput` returns early once the
+            // turn lifecycle is `cancelling`), so the button stops offering it.
             <button
               type="button"
-              className="icon-button stop"
+              className={`icon-button stop${stopping ? " pending" : ""}`}
               onClick={onAbort}
-              title="Stop"
-              aria-label="Stop generating"
+              disabled={stopping}
+              title={stopping ? "Stopping…" : "Stop"}
+              aria-label={stopping ? "Stopping" : "Stop generating"}
             >
               <Icon name="stop" />
             </button>

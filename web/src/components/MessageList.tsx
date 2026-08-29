@@ -1,11 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { TranscriptEntry } from "../lib/messages.ts";
+import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
 
 interface Props {
   entries: TranscriptEntry[];
   processing: boolean;
+  /** The runtime's working directory, used to shorten paths in tool summaries. */
+  cwd: string | null;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -16,7 +19,11 @@ const KIND_LABEL: Record<string, string> = {
   tool_return: "Result",
   system: "System",
   task: "Task",
-  approval_request: "Approval",
+  // Every tool call arrives as an `approval_request_message`, whether or not it
+  // needed approving — the real prompt is the ApprovalSheet, driven by
+  // `control_request`. Labelling these "Approval" implied a decision that was
+  // never asked for, so they read as what they are.
+  approval_request: "Tool",
   approval_response: "Approval",
   event: "Event",
   notice: "",
@@ -32,7 +39,7 @@ function formatArgs(args: string | undefined): string {
   }
 }
 
-export function MessageList({ entries, processing }: Props) {
+export function MessageList({ entries, processing, cwd }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Auto-scroll only while the reader is at the bottom, so scrolling up to read
   // history is not yanked away by an incoming token.
@@ -65,7 +72,7 @@ export function MessageList({ entries, processing }: Props) {
         ) : null}
 
         {entries.map((entry) => (
-          <MessageItem key={entry.id} entry={entry} />
+          <MessageItem key={entry.id} entry={entry} cwd={cwd} />
         ))}
 
         {processing ? (
@@ -92,7 +99,7 @@ export function MessageList({ entries, processing }: Props) {
   );
 }
 
-function MessageItem({ entry }: { entry: TranscriptEntry }) {
+function MessageItem({ entry, cwd }: { entry: TranscriptEntry; cwd: string | null }) {
   const [open, setOpen] = useState(false);
   const label = KIND_LABEL[entry.kind] ?? entry.kind;
 
@@ -100,39 +107,67 @@ function MessageItem({ entry }: { entry: TranscriptEntry }) {
     return (
       <div className={`entry notice ${entry.level ?? "info"}${entry.dim ? " dim" : ""}`}>
         <pre>{entry.text}</pre>
+        {/* The provider's raw payload, kept reachable but out of the way — it
+            names the real fault often enough to be worth one tap. */}
+        {entry.detail ? (
+          <>
+            <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
+              <span className="tag">Details</span>
+              <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
+            </button>
+            {open ? <pre className="tool-args">{entry.detail}</pre> : null}
+          </>
+        ) : null}
       </div>
     );
   }
 
   if (entry.kind === "tool_call" || entry.kind === "approval_request") {
     const args = formatArgs(entry.toolArgs);
+    // Mid-stream the argument JSON is truncated and unparseable, so the summary
+    // is absent until the call is whole; the tool name carries the row until
+    // then. The raw JSON stays behind the disclosure either way.
+    const summary = summarizeToolCall(entry.toolName, parseToolArgs(entry.toolArgs), cwd);
     return (
       <div className={`entry ${entry.kind}`}>
         <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
           <span className="tag">{label}</span>
           <code>{entry.toolName ?? "…"}</code>
+          {summary ? (
+            <span className={`grow-text summary${summary.mono ? " mono" : ""}`}>
+              {summary.headline}
+            </span>
+          ) : null}
           {args ? (
             <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
           ) : null}
         </button>
+        {summary?.subtitle ? <p className="tool-subtitle">{summary.subtitle}</p> : null}
         {open && args ? <pre className="tool-args">{args}</pre> : null}
       </div>
     );
   }
 
   if (entry.kind === "tool_return") {
+    // stdout and stderr arrive separately on the running snapshot but not on
+    // the canonical frame that replaces it, so `text` is the reliable body and
+    // the streams are only shown when they add something it does not carry.
+    const stderr = entry.stderr?.join("\n") ?? "";
+    const showStderr = stderr.length > 0 && !entry.text.includes(stderr);
     const long = entry.text.length > 400;
     const shown = open || !long ? entry.text : `${entry.text.slice(0, 400)}…`;
     return (
       <div className={`entry tool_return ${entry.status ?? "success"}`}>
         <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
           <span className="tag">{label}</span>
+          {entry.toolName ? <code>{entry.toolName}</code> : null}
           {entry.status === "error" ? <span className="tag bad">error</span> : null}
           {long ? (
             <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
           ) : null}
         </button>
-        <pre className="tool-args">{shown}</pre>
+        {shown ? <pre className="tool-args">{shown}</pre> : null}
+        {showStderr ? <pre className="tool-args stderr">{stderr}</pre> : null}
       </div>
     );
   }

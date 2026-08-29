@@ -38,8 +38,13 @@ export interface TranscriptEntry {
   toolCallId?: string;
   /** tool_return */
   status?: "success" | "error";
+  /** tool_return: the captured streams, when the app-server sent them separately. */
+  stdout?: string[];
+  stderr?: string[];
   /** notice */
   level?: "info" | "success" | "warning" | "error";
+  /** notice: the machine payload behind the headline, shown behind a disclosure. */
+  detail?: string;
   /** loop_error: the run it belongs to, used to fold the duplicate pair. */
   runId?: string;
   /** reasoning */
@@ -355,15 +360,37 @@ export function addLocalUserMessage(
   });
 }
 
+/**
+ * Name each tool return after the call it answers.
+ *
+ * A `tool_return_message` carries no tool name — only `tool_call_id` — so the
+ * name has to come from the matching call. Done here rather than in
+ * `applyMessage` because a return can be merged before its call has been seen
+ * whole, and this runs over the finished transcript.
+ */
+function nameToolReturns(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const names = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.kind !== "tool_call" && entry.kind !== "approval_request") continue;
+    if (entry.toolCallId && entry.toolName) names.set(entry.toolCallId, entry.toolName);
+  }
+  if (names.size === 0) return entries;
+  return entries.map((entry) => {
+    if (entry.kind !== "tool_return" || entry.toolName || !entry.toolCallId) return entry;
+    const toolName = names.get(entry.toolCallId);
+    return toolName ? { ...entry, toolName } : entry;
+  });
+}
+
 export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
-  return (
+  return nameToolReturns(
     [...transcript.values()]
       .sort((a, b) => {
         if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       })
       // After sorting, so an extracted block keeps its parent's position.
-      .flatMap(splitInjectedBlocks)
+      .flatMap(splitInjectedBlocks),
   );
 }
 
@@ -408,6 +435,86 @@ function readToolCall(message: Record<string, unknown>): ToolCallish | null {
   return null;
 }
 
+interface ToolReturnPart {
+  toolCallId: string;
+  status: "success" | "error";
+  text: string;
+  stdout?: string[];
+  stderr?: string[];
+}
+
+function readOutputLines(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const lines = value.filter((line): line is string => typeof line === "string");
+  return lines.length > 0 ? lines : undefined;
+}
+
+/** The return body as text, whatever shape it arrived in. */
+function toolReturnText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return contentToText(value);
+  if (value === undefined || value === null) return "";
+  return JSON.stringify(value);
+}
+
+function readToolReturnPart(raw: unknown): ToolReturnPart | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const toolCallId = typeof record.tool_call_id === "string" ? record.tool_call_id : "";
+  if (!toolCallId) return null;
+  const stdout = readOutputLines(record.stdout);
+  const stderr = readOutputLines(record.stderr);
+  return {
+    toolCallId,
+    status: record.status === "error" ? "error" : "success",
+    text: toolReturnText(record.tool_return),
+    ...(stdout ? { stdout } : {}),
+    ...(stderr ? { stderr } : {}),
+  };
+}
+
+/**
+ * Every tool return carried by one `tool_return_message`.
+ *
+ * The wire has two shapes and a live frame carries BOTH: the singular
+ * `tool_call_id`/`status`/`tool_return` fields that history persists, and a
+ * `tool_returns[]` array that `normalizeToolReturnWireMessage` adds upstream
+ * (`websocket/listener/interrupts.ts`) and that alone can describe an interrupt
+ * settling several calls at once. The array wins when present; the singular
+ * fields are the history fallback. `tool_returns` is absent from
+ * `protocol_v2.ts`, so typecheck cannot see drift here.
+ */
+function readToolReturns(message: Record<string, unknown>): ToolReturnPart[] {
+  const many = message.tool_returns;
+  if (Array.isArray(many)) {
+    const parts = many.flatMap((raw) => {
+      const part = readToolReturnPart(raw);
+      return part ? [part] : [];
+    });
+    if (parts.length > 0) return parts;
+  }
+  const single = readToolReturnPart(message);
+  return single ? [single] : [];
+}
+
+/**
+ * The key one tool return accumulates under.
+ *
+ * ONE call produces at least TWO frames — a `synthetic-tool-return-stream-<id>`
+ * snapshot while the tool runs and a `synthetic-tool-return-<uuid>` canonical
+ * one after (verified against a live turn), and upstream says so outright:
+ * "Client-executed tools emit repeated tool_return_message snapshots while
+ * running" (`websocket/app-server-openai-tools.ts`). Their ids differ and they
+ * carry no `otid`, so keying the usual way drew one Result row per snapshot —
+ * which a reload then collapsed, because history stores a single record.
+ *
+ * `tool_call_id` is the one field constant across every frame AND present in
+ * history, so live and reloaded transcripts land on the same key.
+ */
+function toolReturnKey(toolCallId: string): string {
+  return `return:${toolCallId}`;
+}
+
 function kindForMessageType(messageType: string): EntryKind | null {
   switch (messageType) {
     case "user_message":
@@ -434,6 +541,42 @@ function kindForMessageType(messageType: string): EntryKind | null {
   }
 }
 
+/**
+ * Merge every tool return in one frame into the transcript, one entry per call.
+ *
+ * Later frames overwrite earlier ones, which is what makes the corrected status
+ * stick: the running snapshot reports `success` even for a command that went on
+ * to fail, and only the canonical frame that follows says `error`.
+ */
+function applyToolReturns(
+  transcript: Transcript,
+  message: Record<string, unknown>,
+  fallbackKey: string,
+  options: { streaming: boolean; seq: number; subagentId?: string },
+): void {
+  for (const part of readToolReturns(message)) {
+    const key = part.toolCallId ? toolReturnKey(part.toolCallId) : fallbackKey;
+    if (!key) continue;
+    const existing = transcript.get(key);
+    transcript.set(key, {
+      ...(existing ?? {
+        id: key,
+        date: typeof message.date === "string" ? message.date : new Date().toISOString(),
+        seenAt: options.seq,
+        ...(options.subagentId ? { subagentId: options.subagentId } : {}),
+      }),
+      id: key,
+      kind: "tool_return",
+      streaming: options.streaming,
+      text: part.text,
+      status: part.status,
+      toolCallId: part.toolCallId,
+      ...(part.stdout ? { stdout: part.stdout } : {}),
+      ...(part.stderr ? { stderr: part.stderr } : {}),
+    } as TranscriptEntry);
+  }
+}
+
 /** Merge one Letta message (delta or complete) into the transcript. */
 export function applyMessage(
   transcript: Transcript,
@@ -452,6 +595,13 @@ export function applyMessage(
   // A chunk with an otid but no id is a real shape (a raw pre-store provider
   // chunk); only a chunk with neither is unaddressable.
   if (!id && !otid) return;
+
+  // Tool returns key on their tool call, not on the frame, and one frame can
+  // settle several calls — so they never reach the single-entry path below.
+  if (kind === "tool_return") {
+    applyToolReturns(transcript, message, id || otid, options);
+    return;
+  }
 
   // History carries a stable id and no otid, so it still keys by id and the
   // replay path is unchanged.
@@ -518,13 +668,6 @@ export function applyMessage(
             : call.arguments;
         }
       }
-      break;
-    }
-    case "tool_return": {
-      const value = message.tool_return;
-      entry.text = typeof value === "string" ? value : JSON.stringify(value ?? "");
-      entry.status = message.status === "error" ? "error" : "success";
-      if (typeof message.tool_call_id === "string") entry.toolCallId = message.tool_call_id;
       break;
     }
     case "system": {
@@ -603,6 +746,59 @@ function duplicateErrorNotice(
   return null;
 }
 
+/**
+ * Split a provider error into a sentence and the machine detail behind it.
+ *
+ * `local-provider-errors.ts` builds the detail a terminal `loop_error` carries
+ * by joining the error message with `JSON.stringify()` of whichever of
+ * `responseBody`, `data`, `body`, `detail`, `code` the failure happened to
+ * have — so what reaches the transcript is a sentence followed by llama.cpp's
+ * raw HTTP body. Rendering that verbatim is how "ERROR messages come as JSON".
+ *
+ * The body is not discarded, only demoted: the caller shows it behind a
+ * disclosure, because the actual cause is sometimes only in there.
+ */
+export function splitErrorDetail(text: string): { headline: string; detail?: string } {
+  const prose: string[] = [];
+  const machine: string[] = [];
+  let lifted = "";
+
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
+      if (trimmed) prose.push(trimmed);
+      continue;
+    }
+    machine.push(trimmed);
+    if (lifted) continue;
+    try {
+      lifted = liftErrorMessage(JSON.parse(trimmed));
+    } catch {
+      // Not JSON after all — it stays in the detail and nothing is lifted.
+    }
+  }
+
+  // Prefer what the provider itself said over our own wrapper sentence: an
+  // "Error: 500 status code (no body)" tells you nothing a payload message does
+  // not, and the payload is the part that names the actual fault.
+  const headline = lifted || prose.join(" ") || text.trim();
+  const detail = machine.length > 0 ? machine.join("\n") : undefined;
+  return detail ? { headline, detail } : { headline };
+}
+
+/** The human sentence inside a provider error payload, if it has one. */
+function liftErrorMessage(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const record = payload as Record<string, unknown>;
+  const nested = record.error;
+  if (nested && typeof nested === "object") {
+    const inner = liftErrorMessage(nested);
+    if (inner) return inner;
+  }
+  const message = record.message;
+  return typeof message === "string" ? message.trim() : "";
+}
+
 /** Non-message lifecycle deltas: status lines, retries, errors, command output. */
 export function applyNotice(
   transcript: Transcript,
@@ -615,20 +811,27 @@ export function applyNotice(
   let text = "";
   let level: TranscriptEntry["level"] = "info";
   let dim = false;
+  let detail: string | undefined;
 
   switch (messageType) {
     case "status":
       text = typeof raw.message === "string" ? raw.message : "";
       level = raw.level === "warning" ? "warning" : raw.level === "success" ? "success" : "info";
       break;
-    case "retry":
-      text = typeof raw.message === "string" ? raw.message : "Retrying";
+    case "retry": {
+      const split = splitErrorDetail(typeof raw.message === "string" ? raw.message : "Retrying");
+      text = split.headline;
+      detail = split.detail;
       level = "warning";
       break;
-    case "loop_error":
-      text = typeof raw.message === "string" ? raw.message : "Error";
+    }
+    case "loop_error": {
+      const split = splitErrorDetail(typeof raw.message === "string" ? raw.message : "Error");
+      text = split.headline;
+      detail = split.detail;
       level = "error";
       break;
+    }
     case "command_end":
     case "slash_command_end": {
       const command = typeof raw.command_id === "string" ? raw.command_id : "command";
@@ -665,8 +868,39 @@ export function applyNotice(
     text,
     level,
     dim,
+    ...(detail ? { detail } : {}),
     ...(runId ? { runId } : {}),
   });
+}
+
+/**
+ * Put a line in the transcript that came from us, not from the app-server.
+ *
+ * Used for the things only the client knows: that a stop was refused because
+ * nothing was running, or that a stop was accepted but cannot reach the model.
+ * Keyed so repeating it replaces the previous one rather than stacking.
+ */
+export function setLocalNotice(
+  transcript: Transcript,
+  id: string,
+  text: string,
+  level: NonNullable<TranscriptEntry["level"]>,
+  seq: number,
+): void {
+  const existing = transcript.get(id);
+  transcript.set(id, {
+    id,
+    kind: "notice",
+    date: existing?.date ?? new Date().toISOString(),
+    seenAt: existing?.seenAt ?? seq,
+    text,
+    level,
+  });
+}
+
+/** Remove a notice this client put there. */
+export function clearLocalNotice(transcript: Transcript, id: string): boolean {
+  return transcript.delete(id);
 }
 
 /** Route one `stream_delta.delta` into the transcript. */

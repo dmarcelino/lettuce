@@ -258,6 +258,60 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   and the tool commits for you. `letta memory` (the CLI) has status/diff/backup/export/pull but
   **no write verb** — its own help says "use git commands" — so an agent that goes looking
   there finds nothing and concludes memory is unwritable.
+- **Stop cannot actually cancel a local generation, and the app-server says it did.**
+  `abort_message` → `handleAbortMessageInput` (`listener/control-inputs.ts`) →
+  `turnLifecycle.requestCancellation()`, which **synchronously** flips the lifecycle to
+  `cancelling` — so `is_processing` goes false at once — and then emits
+  `emitInterruptedStatusDelta`, the "Interrupted" line. All of that is optimistic: it happens
+  before anything has stopped.
+
+  The abort reaches `stream.ts` → `abortStreamController(stream)` → `stream.controller.abort()`,
+  and **that controller is wired to nothing.** `backend/dev/provider-turn-executor.ts`
+  (`createProviderLettaStream`) mints `new AbortController()` whose signal is never passed
+  anywhere — the provider event iterable was already built without it — and
+  `backend/local/local-executor-factory.ts` constructs `new PiStreamAdapter({…})` with **no
+  `abortSignal`**, so `pi-stream-adapter.ts` never puts a `signal` on the HTTP request.
+  `HeadlessBackend` stores that dangling controller as the run's controller and
+  `persistExecutorStream` passes it straight through, so `cancelRun` → `controller?.abort()` is
+  a no-op against llama.cpp.
+
+  Consequence: the turn can only end when the model's **next chunk** arrives, because
+  `stream.ts` checks `abortSignal.aborted` only *inside* `for await (const chunk of stream)`.
+  Press Stop during prefill and the loop stays parked while llama.cpp finishes the whole
+  response — the reported "I pressed Stop, got Interrupted, and the LLM kept going".
+
+  Two more shapes of "Stop did nothing": `handleAbortMessageInput` returns early with **no
+  frames at all** when there is no active turn and no pending approval — which a *second* press
+  always hits, since the lifecycle is already `cancelling` — and `message-router.ts` answers a
+  stale runtime with `success: false, error: "Runtime is no longer active"`. Both are visible
+  only in `abort_message_response`, so the UI **must** use `request()` and not `send()` for
+  abort. `use-conversation.ts` does, and renders its own honest "Stopping" line for the gap.
+  Fixing the cancellation itself needs a fork delta; do not add one.
+- **`tool_return_message` has two shapes, and one call emits several frames.** A live delta
+  carries the singular `tool_call_id`/`status`/`tool_return` fields **and** a `tool_returns[]`
+  array (`normalizeToolReturnWireMessage`, `listener/interrupts.ts`); history persists only the
+  singular ones. `tool_returns` is absent from `protocol_v2.ts`, so **typecheck cannot catch
+  drift here** — it is a behavioural item, like `connection-lifecycle.ts`.
+
+  One Bash call produced two frames in a live capture: a `synthetic-tool-return-stream-<id>`
+  snapshot while the command ran, then a `synthetic-tool-return-<uuid>` canonical one — upstream
+  says so outright ("Client-executed tools emit repeated tool_return_message snapshots while
+  running", `app-server-openai-tools.ts`). Their ids differ, they carry no `otid`, and every
+  local-backend stream chunk gets a fresh `letta-msg-N` from `local-store.ts` `createStoredChunk`
+  anyway. So keying a return the ordinary way drew one Result row per snapshot, which a reload
+  then collapsed. `web/src/lib/messages.ts` keys them `return:<tool_call_id>` in both paths.
+  The later frame also carries the **corrected** status: the running snapshot reports `success`
+  even for a command that went on to fail. (The store persists the snapshot's status, so a
+  failed command still reads as a success after a reload — upstream, not ours.)
+- **Every tool call arrives as `approval_request_message`**, approved or not. The real approval
+  prompt is the `control_request` frame that drives `ApprovalSheet`; the message is just the
+  call record, so the transcript labels it "Tool".
+- **Provider errors reach the transcript as JSON.** `local-provider-errors.ts`
+  `localProviderErrorDetail` joins the error message with `JSON.stringify()` of whichever of
+  `responseBody`, `data`, `body`, `detail`, `code` the failure had, and the terminal `loop_error`
+  carries that detail — so a llama.cpp fault arrives as a sentence followed by its raw HTTP body.
+  `splitErrorDetail` in `web/src/lib/messages.ts` lifts the payload's own `message` for the
+  headline and keeps the body behind a disclosure.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.

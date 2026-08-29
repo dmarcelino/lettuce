@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   addLocalUserMessage,
   applyStreamDelta,
+  clearLocalNotice,
   createStreamIndex,
   type StreamIndex,
+  setLocalNotice,
   settleStreaming,
   sortedEntries,
   type Transcript,
@@ -19,6 +21,13 @@ import {
   type SlashCommand,
 } from "../lib/workspace.ts";
 import type { SessionApi } from "./use-session.ts";
+
+/**
+ * Transcript id for the client's own line about a stop.
+ *
+ * Fixed, so pressing Stop twice replaces the note instead of stacking notes.
+ */
+const STOP_NOTICE_ID = "local-stop-notice";
 
 export interface PendingApproval {
   requestId: string;
@@ -47,6 +56,13 @@ export interface QueuedItem {
 export interface ConversationApi {
   entries: TranscriptEntry[];
   processing: boolean;
+  /**
+   * A stop was accepted upstream but the turn has not ended yet.
+   *
+   * Not the same as `!processing`: the app-server reports idle the instant it
+   * accepts the abort, long before the turn actually unwinds. See `abort`.
+   */
+  stopping: boolean;
   /** Working directory of this runtime, from device status. */
   cwd: string | null;
   /** Skills the runtime currently has loaded, from device status. */
@@ -56,7 +72,7 @@ export interface ConversationApi {
   loadingHistory: boolean;
   error: string | null;
   sendMessage: (text: string) => Promise<void>;
-  abort: () => void;
+  abort: () => Promise<void>;
   respondToApproval: (requestId: string, approve: boolean, reason?: string) => void;
   removeQueued: (itemId: string) => void;
   runCommand: (commandId: string, args?: string) => void;
@@ -166,6 +182,7 @@ export function useConversation(
 
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [queue, setQueue] = useState<QueuedItem[]>([]);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -225,6 +242,7 @@ export function useConversation(
     setEntries([]);
     setQueue([]);
     setApprovals([]);
+    setStopping(false);
 
     setScopes([scope]);
     void (async () => {
@@ -302,6 +320,12 @@ export function useConversation(
         case "turn_finished": {
           settleStreaming(transcriptRef.current);
           setProcessing(false);
+          // The turn has genuinely unwound now, whatever the app-server said
+          // when it accepted the abort. Our own note was about the gap between
+          // those two moments, so it goes; the app-server's "Interrupted"
+          // status line stays as the record.
+          setStopping(false);
+          clearLocalNotice(transcriptRef.current, STOP_NOTICE_ID);
           flush();
           break;
         }
@@ -392,6 +416,8 @@ export function useConversation(
     async (text: string) => {
       if (!scope || !text.trim()) return;
       setProcessing(true);
+      setStopping(false);
+      clearLocalNotice(transcriptRef.current, STOP_NOTICE_ID);
       const clientMessageId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       // Render it ourselves: the app-server echoes a user message back only
@@ -432,10 +458,63 @@ export function useConversation(
     [scope, send, flush],
   );
 
-  const abort = useCallback(() => {
+  const abort = useCallback(async () => {
     if (!scope) return;
-    send({ type: "abort_message", runtime: scope, request_id: `abort-${Date.now()}` });
-  }, [scope, send]);
+
+    // `send` was fire-and-forget, which threw away the only frame that says
+    // whether anything was actually cancelled — and swallowed the "Not
+    // connected" throw with it. `request` correlates the response back.
+    try {
+      const response = await request<{ aborted?: boolean; success?: boolean; error?: string }>(
+        "abort_message",
+        { runtime: scope },
+      );
+
+      if (response?.success === false) {
+        setError(response.error ?? "Could not stop the turn");
+        return;
+      }
+
+      if (response?.aborted === false) {
+        // `handleAbortMessageInput` returns early with no active turn and no
+        // pending approval, emitting NOTHING — so without this the press was
+        // invisible. It also means our `processing` was stale.
+        setProcessing(false);
+        setStopping(false);
+        seqRef.current += 1;
+        setLocalNotice(
+          transcriptRef.current,
+          STOP_NOTICE_ID,
+          "Nothing to stop — the agent is not running.",
+          "info",
+          seqRef.current,
+        );
+        flush();
+        return;
+      }
+
+      // Accepted, but NOT finished. The app-server flips its lifecycle to
+      // `cancelling` and emits "Interrupted" synchronously, then asks the
+      // backend to cancel the run — and against a local provider that request
+      // reaches a dead end: `createProviderLettaStream` hands out an
+      // AbortController wired to nothing and `PiStreamAdapter` is built with no
+      // `abortSignal`, so the HTTP request to the model is never aborted. The
+      // turn can only end when the model's next chunk arrives. Saying so is the
+      // honest thing the UI can do; see CLAUDE.md.
+      setStopping(true);
+      seqRef.current += 1;
+      setLocalNotice(
+        transcriptRef.current,
+        STOP_NOTICE_ID,
+        "Stopping — the response already in flight may still finish first.",
+        "warning",
+        seqRef.current,
+      );
+      flush();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [scope, request, flush]);
 
   const respondToApproval = useCallback(
     (requestId: string, approve: boolean, reason?: string) => {
@@ -502,6 +581,7 @@ export function useConversation(
   return {
     entries,
     processing,
+    stopping,
     cwd,
     skills,
     queue,

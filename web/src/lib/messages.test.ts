@@ -7,6 +7,7 @@ import {
   filterEntries,
   settleStreaming,
   sortedEntries,
+  splitErrorDetail,
   stripInjectedBlocks,
   type Transcript,
   transcriptFromHistory,
@@ -688,5 +689,189 @@ describe("channel messages", () => {
     expect(entries[0]!.kind).toBe("user");
     expect(entries[0]!.channel).toBe("telegram");
     expect(filterEntries(entries, new Set<FilterGroup>(["user"]))).toHaveLength(1);
+  });
+});
+
+/**
+ * A tool return exactly as a live turn puts it on the wire.
+ *
+ * Captured from a real turn against the running app-server: ONE Bash call
+ * produced TWO frames with different ids — a `synthetic-tool-return-stream-…`
+ * snapshot while the command ran, then a `synthetic-tool-return-<uuid>`
+ * canonical one — and both carried the singular fields AND a `tool_returns`
+ * array. Neither carries an `otid`.
+ */
+function toolReturnFrame(
+  id: string,
+  toolCallId: string,
+  status: "success" | "error",
+  text: string,
+  streams?: { stdout?: string[]; stderr?: string[] },
+) {
+  return {
+    type: "message",
+    message_type: "tool_return_message",
+    id,
+    date: "2026-08-29T02:46:21.743Z",
+    run_id: "local-run-40",
+    status,
+    tool_call_id: toolCallId,
+    tool_return: text,
+    tool_returns: [{ tool_call_id: toolCallId, status, tool_return: text, ...streams }],
+  };
+}
+
+function toolCallFrame(id: string, toolCallId: string, name: string, args: string) {
+  return {
+    type: "message",
+    message_type: "approval_request_message",
+    id,
+    date: "2026-08-29T02:46:21.690Z",
+    tool_call: { tool_call_id: toolCallId, name, arguments: args },
+  };
+}
+
+describe("tool returns", () => {
+  test("repeated snapshots of one call collapse into a single entry", () => {
+    const transcript = streamed([
+      toolReturnFrame("synthetic-tool-return-stream-abc", "abc", "success", "hi", {
+        stdout: ["hi"],
+      }),
+      toolReturnFrame("synthetic-tool-return-uuid-1", "abc", "success", "hi\n"),
+    ]);
+
+    const returns = sortedEntries(transcript).filter((entry) => entry.kind === "tool_return");
+    expect(returns).toHaveLength(1);
+    expect(returns[0]?.text).toBe("hi\n");
+  });
+
+  test("the corrected status on the later frame wins", () => {
+    // The running snapshot reports success even for a command that then failed;
+    // only the canonical frame that follows says error.
+    const transcript = streamed([
+      toolReturnFrame("synthetic-tool-return-stream-def", "def", "success", "ls: cannot access", {
+        stderr: ["ls: cannot access"],
+      }),
+      toolReturnFrame(
+        "synthetic-tool-return-uuid-2",
+        "def",
+        "error",
+        "Exit code: 2\nls: cannot access\n",
+      ),
+    ]);
+
+    const returns = sortedEntries(transcript).filter((entry) => entry.kind === "tool_return");
+    expect(returns).toHaveLength(1);
+    expect(returns[0]?.status).toBe("error");
+  });
+
+  test("a streamed return and its history record land on the same key", () => {
+    const live = streamed([
+      toolReturnFrame("synthetic-tool-return-stream-ghi", "ghi", "success", "out"),
+    ]);
+    const history = transcriptFromHistory([
+      {
+        message_type: "tool_return_message",
+        id: "ui-msg-719",
+        date: "2026-08-29T02:46:21.796Z",
+        tool_call_id: "ghi",
+        status: "success",
+        tool_return: "out",
+      },
+    ]);
+
+    const liveId = sortedEntries(live)[0]?.id;
+    expect(liveId).toBeDefined();
+    expect(sortedEntries(history)[0]?.id).toBe(liveId as string);
+  });
+
+  test("one interrupt frame settling several calls expands to one entry each", () => {
+    const transcript = streamed([
+      {
+        type: "message",
+        message_type: "tool_return_message",
+        id: "lifecycle-interrupt",
+        date: "2026-08-29T02:46:21.796Z",
+        tool_returns: [
+          { tool_call_id: "one", status: "error", tool_return: "Interrupted by user" },
+          { tool_call_id: "two", status: "error", tool_return: "Interrupted by user" },
+        ],
+      },
+    ]);
+
+    const returns = sortedEntries(transcript).filter((entry) => entry.kind === "tool_return");
+    expect(returns).toHaveLength(2);
+    expect(returns.map((entry) => entry.toolCallId).sort()).toEqual(["one", "two"]);
+  });
+
+  test("a return is named after the call it answers", () => {
+    const transcript = streamed([
+      toolCallFrame("letta-msg-1", "abc", "Bash", '{"command":"echo hi"}'),
+      toolReturnFrame("synthetic-tool-return-stream-abc", "abc", "success", "hi"),
+    ]);
+
+    const returns = sortedEntries(transcript).filter((entry) => entry.kind === "tool_return");
+    expect(returns[0]?.toolName).toBe("Bash");
+  });
+
+  test("a return with no tool_call_id anywhere is dropped rather than mis-keyed", () => {
+    const transcript = streamed([
+      {
+        type: "message",
+        message_type: "tool_return_message",
+        id: "orphan",
+        tool_return: "nothing to attach this to",
+      },
+    ]);
+    expect(sortedEntries(transcript)).toHaveLength(0);
+  });
+});
+
+describe("provider error notices", () => {
+  test("lifts the model's own message out of a raw JSON body", () => {
+    expect(
+      splitErrorDetail(
+        '500 status code (no body)\n{"error":{"code":500,"message":"vk::Queue::submit: ErrorDeviceLost","type":"server_error"}}',
+      ),
+    ).toEqual({
+      headline: "vk::Queue::submit: ErrorDeviceLost",
+      detail:
+        '{"error":{"code":500,"message":"vk::Queue::submit: ErrorDeviceLost","type":"server_error"}}',
+    });
+  });
+
+  test("a plain sentence is left alone and gains no detail", () => {
+    expect(splitErrorDetail("Request timed out.")).toEqual({ headline: "Request timed out." });
+  });
+
+  test("a JSON body with no message still keeps the prose headline", () => {
+    expect(splitErrorDetail('Connection refused\n{"code":"ECONNREFUSED"}')).toEqual({
+      headline: "Connection refused",
+      detail: '{"code":"ECONNREFUSED"}',
+    });
+  });
+
+  test("something that only looks like JSON is not lost", () => {
+    const result = splitErrorDetail("{not actually json");
+    expect(result.headline).toBe("{not actually json");
+  });
+
+  test("loop_error notices carry the headline and the payload separately", () => {
+    const transcript: Transcript = new Map();
+    applyStreamDelta(
+      transcript,
+      createStreamIndex(),
+      {
+        message_type: "loop_error",
+        id: "lifecycle-1",
+        message: 'Error\n{"error":{"message":"context window exceeded"}}',
+      },
+      0,
+    );
+
+    const notice = sortedEntries(transcript)[0];
+    expect(notice?.text).toBe("context window exceeded");
+    expect(notice?.detail).toBe('{"error":{"message":"context window exceeded"}}');
+    expect(notice?.level).toBe("error");
   });
 });

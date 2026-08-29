@@ -168,7 +168,11 @@ function Workspace({ status }: { status: Status }) {
           <>
             {conversation.error ? <p className="warning small">{conversation.error}</p> : null}
 
-            <MessageList entries={visibleEntries} processing={conversation.processing} />
+            <MessageList
+              entries={visibleEntries}
+              processing={conversation.processing}
+              cwd={conversation.cwd}
+            />
 
             {conversation.queue.length > 0 ? (
               <div className="queue">
@@ -200,7 +204,8 @@ function Workspace({ status }: { status: Status }) {
                   agents.autoTitleConversation(agents.conversationId, text);
                 }
               }}
-              onAbort={conversation.abort}
+              onAbort={() => void conversation.abort()}
+              stopping={conversation.stopping}
               filters={filters}
               onToggleFilter={toggleFilter}
               onClearFilters={() => setFilters(new Set())}
