@@ -14,7 +14,7 @@ UI_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LETTA_CODE_DIR="${LETTA_CODE_DIR:-$UI_ROOT/../letta-code}"
 
 # Keep in step with the default in docker/compose.yml.
-LETTA_CODE_VERSION="${LETTA_CODE_VERSION:-0.30.30}"
+LETTA_CODE_VERSION="${LETTA_CODE_VERSION:-0.31.13}"
 
 if [[ ! -f "$LETTA_CODE_DIR/docker/Dockerfile" ]]; then
   echo "Fork not found at $LETTA_CODE_DIR (set LETTA_CODE_DIR)" >&2

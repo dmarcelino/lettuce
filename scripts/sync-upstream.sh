@@ -55,7 +55,7 @@ if [[ "$CURRENT" == "$TARGET" ]]; then
 fi
 
 say "Syncing $(git rev-parse --short "$CURRENT") -> $(git rev-parse --short "$TARGET") ($REF)"
-git --no-pager log --oneline "$CURRENT".."$TARGET" | head -40
+git --no-pager log --oneline "$CURRENT".."$TARGET" | head -40 || true
 echo "  ($(git rev-list --count "$CURRENT".."$TARGET") commits)"
 
 # ── 2. Protocol drift ─────────────────────────────────────────────────────────

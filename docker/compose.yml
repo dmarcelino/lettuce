@@ -25,7 +25,7 @@ services:
         # against this exact release's protocol types (see CLAUDE.md), so the
         # running app-server must match. The fork carries zero delta, so the
         # published package at this version is equivalent to our source.
-        LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.30.30}"
+        LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.31.13}"
     # Deliberate trade, not an oversight — and the argument list matters, so read
     # this before trimming anything from it.
     #
@@ -194,7 +194,7 @@ services:
       context: ../../letta-code
       dockerfile: docker/Dockerfile
       args:
-        LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.30.30}"
+        LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.31.13}"
     depends_on:
       app-server:
         condition: service_healthy

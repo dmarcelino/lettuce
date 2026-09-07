@@ -14,7 +14,7 @@
 # Note that installing it is necessary but NOT sufficient: the probe also runs
 # a real `--unshare-user` mount, which Docker's default seccomp profile blocks.
 # See `security_opt` on the app-server service in compose.yml.
-ARG LETTA_CODE_VERSION=0.30.30
+ARG LETTA_CODE_VERSION=0.31.13
 
 FROM letta-app-server-base:${LETTA_CODE_VERSION}
 
