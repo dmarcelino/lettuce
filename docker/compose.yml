@@ -152,8 +152,12 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # The UI port is published here because the BFF shares this namespace.
+    # Loopback by default: Cloudflare Access is the only auth gate now, and it
+    # only guards the tunnel's public hostname, not this port. Only override
+    # to 0.0.0.0 if you deliberately want a second, unauthenticated way in
+    # (e.g. LAN access to the dev-bypass path).
     ports:
-      - "${BFF_BIND:-0.0.0.0}:${BFF_PORT:-8090}:8080"
+      - "${BFF_BIND:-127.0.0.1}:${BFF_PORT:-8090}:8080"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4500/healthz"]
@@ -175,8 +179,9 @@ services:
       PORT: "8080"
       LETTA_APP_SERVER_URL: ws://127.0.0.1:4500
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8090}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+      CF_ACCESS_ISSUER: ${CF_ACCESS_ISSUER:-}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       USERS_FILE: /app/config/users.json
       DEV_BYPASS_EMAIL: ${DEV_BYPASS_EMAIL:-}
@@ -224,6 +229,22 @@ services:
       - letta-home:/root/.letta
       - letta-data:/data
       - ../../workspaces:/work
+    restart: unless-stopped
+
+  # Outbound-only, dashboard-managed tunnel: the public-hostname-to-origin
+  # mapping lives in the Cloudflare Zero Trust dashboard (see docker/README.md),
+  # not in a local config.yml. No ports, no network_mode — it joins Compose's
+  # default network like any other service, which is what lets it resolve
+  # `app-server` (the BFF's port 8080 answers there too — see the note above
+  # `bff.network_mode`).
+  cloudflared:
+    image: cloudflare/cloudflared:2026.8.3
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+    depends_on:
+      app-server:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

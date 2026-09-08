@@ -2,14 +2,7 @@ import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import {
-  buildAuthorizationUrl,
-  createOAuthState,
-  deriveCodeVerifier,
-  exchangeCode,
-  fetchProfile,
-  OAUTH_STATE_COOKIE,
-} from "./auth/google.ts";
+import { CF_ACCESS_JWT_HEADER, verifyAccessJwt } from "./auth/cf-access.ts";
 import {
   buildSessionCookie,
   clearSessionCookie,
@@ -25,7 +18,6 @@ import { UpstreamConnection } from "./upstream/connection.ts";
 
 const config: BffConfig = loadConfig();
 const secureCookies = config.publicOrigin.startsWith("https://");
-const redirectUri = `${config.publicOrigin}/auth/google/callback`;
 
 function log(message: string): void {
   console.log(`[bff] ${new Date().toISOString()} ${message}`);
@@ -51,7 +43,11 @@ const registry = new SessionRegistry(upstream, config.frameBufferSize, log);
 upstream.start();
 
 // ── HTTP ─────────────────────────────────────────────────────────────────────
-const app = new Hono();
+interface AppVariables {
+  session: SessionPayload | null;
+}
+
+const app = new Hono<{ Variables: AppVariables }>();
 
 app.get("/healthz", (c) => c.text("ok\n"));
 
@@ -59,11 +55,60 @@ app.get("/readyz", (c) =>
   upstream.isReady() ? c.text("ok\n") : c.text(`app-server ${upstream.getState()}\n`, 503),
 );
 
+// Resolves the session for every other route, minting one transparently from
+// a Cloudflare Access JWT the first time it sees one with no cookie yet.
+// After that first hit, every request (including this one) uses the cheap
+// cookie check below — no per-request JWKS/JWT verification. Applied as
+// middleware (rather than one dedicated login route) so it also covers plain
+// XHRs like `/api/status`, not just top-level navigations.
+app.use("*", async (c, next) => {
+  let session = currentSession(c.req.raw);
+
+  if (!session) {
+    const jwt = c.req.header(CF_ACCESS_JWT_HEADER);
+    if (jwt) {
+      try {
+        const { email } = await verifyAccessJwt(jwt, {
+          teamDomain: config.cfAccessTeamDomain,
+          audience: config.cfAccessAud,
+          issuer: config.cfAccessIssuer,
+        });
+        const allowed = isAllowedUser(config, email);
+        if (allowed) {
+          session = {
+            email,
+            name: allowed.name ?? email,
+            exp: Math.floor(Date.now() / 1000) + config.sessionTtlSeconds,
+          };
+          const token = encodeSession(session, config.sessionSecret);
+          c.header(
+            "set-cookie",
+            buildSessionCookie(token, config.sessionTtlSeconds, secureCookies),
+            {
+              append: true,
+            },
+          );
+          log(`Signed in ${email} via Cloudflare Access`);
+        } else {
+          log(`Rejected Access sign-in for ${email} (not in allowlist)`);
+        }
+      } catch (error) {
+        log(
+          `Access JWT verification failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+
+  c.set("session", session);
+  await next();
+});
+
 app.get("/api/status", (c) => {
-  const session = currentSession(c.req.raw);
+  const session = c.get("session");
   return c.json({
     authenticated: session !== null,
-    auth_mode: config.devBypassEmail ? "dev-bypass" : "google",
+    auth_mode: config.devBypassEmail ? "dev-bypass" : "cf-access",
     user: session ? { email: session.email, name: session.name } : null,
     upstream: {
       state: upstream.getState(),
@@ -75,23 +120,13 @@ app.get("/api/status", (c) => {
   });
 });
 
-app.get("/auth/login", async (c) => {
-  if (config.devBypassEmail) {
-    return c.redirect("/auth/dev-login");
-  }
-  const state = createOAuthState();
-  const verifier = deriveCodeVerifier(state, config.sessionSecret);
-  const url = await buildAuthorizationUrl({
-    clientId: config.googleClientId,
-    redirectUri,
-    state,
-    verifier,
-  });
-  c.header(
-    "set-cookie",
-    `${OAUTH_STATE_COOKIE}=${state}; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=600${secureCookies ? "; Secure" : ""}`,
-  );
-  return c.redirect(url);
+// Dev-bypass's only self-service entry point. In production (Access
+// enforcing) there is nothing for this route to do — a visitor who reaches
+// the origin at all already has a valid Access JWT, which the middleware
+// above turns into a session before any handler runs.
+app.get("/auth/login", (c) => {
+  if (config.devBypassEmail) return c.redirect("/auth/dev-login");
+  return c.text("Sign in via Cloudflare Access.", 400);
 });
 
 app.get("/auth/dev-login", (c) => {
@@ -103,47 +138,6 @@ app.get("/auth/dev-login", (c) => {
 
   log(`Dev login as ${email} (NO AUTHENTICATION — loopback only)`);
   return issueSession(allowed.name ?? email, email);
-});
-
-app.get("/auth/google/callback", async (c) => {
-  const url = new URL(c.req.url);
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const expectedState = readCookie(c.req.header("cookie") ?? null, OAUTH_STATE_COOKIE);
-
-  if (!code || !state || !expectedState || state !== expectedState) {
-    return c.text("Invalid OAuth state", 400);
-  }
-
-  try {
-    const accessToken = await exchangeCode({
-      clientId: config.googleClientId,
-      clientSecret: config.googleClientSecret,
-      redirectUri,
-      code,
-      verifier: deriveCodeVerifier(state, config.sessionSecret),
-    });
-    const profile = await fetchProfile(accessToken);
-
-    if (!profile.emailVerified) {
-      return c.text("Google account email is not verified", 403);
-    }
-
-    const allowed = isAllowedUser(config, profile.email);
-    if (!allowed) {
-      log(`Rejected sign-in for ${profile.email} (not in allowlist)`);
-      return c.text("This account is not authorized for this instance.", 403);
-    }
-
-    log(`Signed in ${profile.email}`);
-    return issueSession(allowed.name ?? profile.name, profile.email, [
-      // The state cookie is single-use; drop it now that it has been consumed.
-      `${OAUTH_STATE_COOKIE}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0${secureCookies ? "; Secure" : ""}`,
-    ]);
-  } catch (error) {
-    log(`OAuth callback failed: ${error instanceof Error ? error.message : String(error)}`);
-    return c.text("Sign-in failed", 500);
-  }
 });
 
 app.post("/auth/logout", (c) => {

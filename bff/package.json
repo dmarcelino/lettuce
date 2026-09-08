@@ -10,6 +10,7 @@
   "dependencies": {
     "@letta-ai/letta-code": "file:../../letta-code",
     "hono": "^4.6.0",
+    "jose": "^6.2.12",
     "ws": "^8.19.0"
   },
   "devDependencies": {

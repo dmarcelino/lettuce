@@ -17,10 +17,14 @@ export interface BffConfig {
    * token of its own).
    */
   appServerToken: string;
-  /** Absolute public origin of this BFF, used to build the OAuth redirect URI. */
+  /** Absolute public origin of this BFF. */
   publicOrigin: string;
-  googleClientId: string;
-  googleClientSecret: string;
+  /** The `<team>` in `https://<team>.cloudflareaccess.com`. */
+  cfAccessTeamDomain: string;
+  /** The Access Application's Audience (AUD) tag. */
+  cfAccessAud: string;
+  /** Explicit issuer override — see `auth/cf-access.ts` for why this exists. */
+  cfAccessIssuer: string | null;
   sessionSecret: string;
   sessionTtlSeconds: number;
   allowedUsers: AllowedUser[];
@@ -122,7 +126,7 @@ function assertBypassIsSafe(
       `(${publicOrigin}) is reachable from other machines. The bypass authenticates ` +
       `nobody — anyone who can reach this port would get a session as ${devBypassEmail}. ` +
       `Set PUBLIC_ORIGIN to a loopback address, or unset DEV_BYPASS_EMAIL and configure ` +
-      `GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET. To knowingly expose unauthenticated ` +
+      `CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD. To knowingly expose unauthenticated ` +
       `access on this network anyway, set DEV_BYPASS_ALLOW_REMOTE=true.`,
   );
 }
@@ -139,13 +143,12 @@ export function loadConfig(): BffConfig {
     appServerUrl: required("LETTA_APP_SERVER_URL"),
     appServerToken: readAppServerToken(),
     publicOrigin,
-    // OAuth credentials are not needed when the dev bypass is active.
-    googleClientId: devBypassEmail
-      ? (process.env.GOOGLE_CLIENT_ID ?? "")
-      : required("GOOGLE_CLIENT_ID"),
-    googleClientSecret: devBypassEmail
-      ? (process.env.GOOGLE_CLIENT_SECRET ?? "")
-      : required("GOOGLE_CLIENT_SECRET"),
+    // Cloudflare Access credentials are not needed when the dev bypass is active.
+    cfAccessTeamDomain: devBypassEmail
+      ? (process.env.CF_ACCESS_TEAM_DOMAIN ?? "")
+      : required("CF_ACCESS_TEAM_DOMAIN"),
+    cfAccessAud: devBypassEmail ? (process.env.CF_ACCESS_AUD ?? "") : required("CF_ACCESS_AUD"),
+    cfAccessIssuer: process.env.CF_ACCESS_ISSUER?.trim() || null,
     sessionSecret: required("SESSION_SECRET"),
     sessionTtlSeconds: optionalNumber("SESSION_TTL_SECONDS", 60 * 60 * 24 * 30),
     allowedUsers: readAllowedUsers(),

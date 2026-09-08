@@ -21,7 +21,7 @@ import { TasksTab } from "./tabs/TasksTab.tsx";
 
 interface Status {
   authenticated: boolean;
-  auth_mode: "google" | "dev-bypass";
+  auth_mode: "cf-access" | "dev-bypass";
   user: { email: string; name: string } | null;
   upstream: { state: ConnectionState; info: unknown };
 }
@@ -61,19 +61,17 @@ function SignIn({ status }: { status: Status }) {
           <p className="warning">
             Developer sign-in is enabled. This does <strong>not</strong> authenticate anyone — any
             visitor becomes the configured user. Unset <code>DEV_BYPASS_EMAIL</code> to require
-            Google sign-in.
+            Cloudflare Access sign-in.
           </p>
           <a className="button" href="/auth/login">
             Continue without signing in
           </a>
         </>
       ) : (
-        <>
-          <p className="muted">Sign in to continue.</p>
-          <a className="button" href="/auth/login">
-            Sign in with Google
-          </a>
-        </>
+        <p className="muted">
+          Not signed in. This instance is reached through Cloudflare Access — if you're seeing this
+          on the tunnel, try reloading; direct access without Access is not supported.
+        </p>
       )}
     </main>
   );
