@@ -5,5 +5,10 @@
     "jsx": "react-jsx",
     "types": ["vite/client", "bun"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  // The service worker runs in a WebWorker global scope, not DOM — it
+  // conflicts with the `lib: ["DOM", ...]` above (both declare a different
+  // `self`). See tsconfig.sw.json for checking it in isolation; Vite/esbuild
+  // bundle it at build time regardless, without needing it in this program.
+  "exclude": ["src/sw.ts"]
 }

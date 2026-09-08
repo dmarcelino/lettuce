@@ -3,6 +3,14 @@ import { Icon } from "../components/Icon.tsx";
 import { McpEditor } from "../components/McpEditor.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { handleProvider, isLocalHandle, localProviderKeys } from "../lib/providers.ts";
+import {
+  isIOS,
+  isPushSupported,
+  isStandalone,
+  isSubscribed,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from "../lib/push.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -46,7 +54,7 @@ interface Props {
   skillsStale: boolean;
 }
 
-type Section = "connection" | "mcp" | "skills";
+type Section = "connection" | "mcp" | "skills" | "notifications";
 
 function isConnected(provider: ProviderEntry): boolean {
   if (typeof provider.connected === "boolean") return provider.connected;
@@ -76,14 +84,20 @@ export function SettingsTab({ session, agentId, skills, skillsStale }: Props) {
   return (
     <div className="pane">
       <div className="pane-bar">
-        {(["connection", "mcp", "skills"] as const).map((name) => (
+        {(["connection", "mcp", "skills", "notifications"] as const).map((name) => (
           <button
             key={name}
             type="button"
             className={`chip${section === name ? " on" : ""}`}
             onClick={() => setSection(name)}
           >
-            {name === "mcp" ? "MCP" : name === "connection" ? "Connection" : "Skills"}
+            {name === "mcp"
+              ? "MCP"
+              : name === "connection"
+                ? "Connection"
+                : name === "skills"
+                  ? "Skills"
+                  : "Notifications"}
           </button>
         ))}
       </div>
@@ -93,6 +107,7 @@ export function SettingsTab({ session, agentId, skills, skillsStale }: Props) {
       {section === "skills" ? (
         <SkillsSection session={session} skills={skills} stale={skillsStale} />
       ) : null}
+      {section === "notifications" ? <NotificationsSection /> : null}
     </div>
   );
 }
@@ -532,6 +547,73 @@ function SkillsSection({
         That is per-agent: every conversation with this agent sees it, other agents do not. For a
         skill every agent should have, use the field above.
       </p>
+    </>
+  );
+}
+
+function NotificationsSection() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    if (!isPushSupported()) {
+      setEnabled(false);
+      return;
+    }
+    void isSubscribed().then(setEnabled);
+  }, []);
+
+  const toggle = async () => {
+    setStatus(enabled ? "Disabling…" : "Enabling…");
+    try {
+      if (enabled) {
+        await unsubscribeFromPush();
+        setEnabled(false);
+      } else {
+        await subscribeToPush();
+        setEnabled(true);
+      }
+      setStatus("");
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  // Web Push only reaches an iOS PWA actually added to the Home Screen — a
+  // Safari tab (or any browser other than Safari, which is the only one that
+  // can install a PWA on iOS at all) never receives it, silently.
+  if (isIOS() && !isStandalone()) {
+    return (
+      <p className="muted small pad">
+        Add this app to your Home Screen (Safari's Share menu → Add to Home Screen) to enable
+        notifications on iPhone or iPad — Web Push only reaches an installed app there, never a
+        browser tab.
+      </p>
+    );
+  }
+
+  if (!isPushSupported()) {
+    return <p className="muted small pad">Push notifications are not supported in this browser.</p>;
+  }
+
+  return (
+    <>
+      {status ? <p className="muted small pad">{status}</p> : null}
+      <p className="section-note">Notify when your agent finishes a turn</p>
+      <p className="muted small pad">
+        Sends a notification to this device when the agent finishes responding while you're not
+        watching that conversation.
+      </p>
+      <div className="pad-x">
+        <button
+          type="button"
+          className="button"
+          disabled={enabled === null}
+          onClick={() => void toggle()}
+        >
+          {enabled ? "Disable notifications" : "Enable notifications"}
+        </button>
+      </div>
     </>
   );
 }

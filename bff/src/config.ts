@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 export interface AllowedUser {
   email: string;
-  /** Display name shown in the UI. Falls back to the Google profile name. */
+  /** Display name shown in the UI. Falls back to the Access-verified email. */
   name?: string;
 }
 
@@ -30,10 +30,24 @@ export interface BffConfig {
   allowedUsers: AllowedUser[];
   /** Total frames retained for session resume across all conversations. */
   frameBufferSize: number;
-  /** Set for local development: skips OAuth and signs in as this email. */
+  /** Set for local development: skips Cloudflare Access and signs in as this email. */
   devBypassEmail: string | null;
   /** Explicit opt-in to serving the bypass beyond the local machine. */
   devBypassAllowRemote: boolean;
+  /**
+   * Push is fully optional and self-gating: null unless all three VAPID
+   * settings are present, so a plain local dev run needs no push setup at
+   * all. Callers check `config.push !== null` before wiring up push routes.
+   */
+  push: PushConfig | null;
+}
+
+export interface PushConfig {
+  vapidPublicKey: string;
+  vapidPrivateKey: string;
+  /** The address in the VAPID `sub` claim — a bare email, no scheme. */
+  vapidContactEmail: string;
+  subscriptionsFile: string;
 }
 
 function required(name: string): string {
@@ -155,6 +169,22 @@ export function loadConfig(): BffConfig {
     frameBufferSize: optionalNumber("FRAME_BUFFER_SIZE", 5000),
     devBypassEmail,
     devBypassAllowRemote,
+    push: readPushConfig(),
+  };
+}
+
+function readPushConfig(): PushConfig | null {
+  const vapidPublicKey = process.env.PUSH_VAPID_PUBLIC_KEY?.trim() || "";
+  const vapidPrivateKey = process.env.PUSH_VAPID_PRIVATE_KEY?.trim() || "";
+  const vapidContactEmail = process.env.PUSH_VAPID_CONTACT_EMAIL?.trim() || "";
+  if (!vapidPublicKey || !vapidPrivateKey || !vapidContactEmail) return null;
+
+  return {
+    vapidPublicKey,
+    vapidPrivateKey,
+    vapidContactEmail,
+    subscriptionsFile:
+      process.env.PUSH_SUBSCRIPTIONS_FILE?.trim() || "/app/data/push-subscriptions.json",
   };
 }
 

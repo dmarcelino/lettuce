@@ -133,6 +133,37 @@ $C letta channels pair --channel telegram --code <code-from-bot> \
 $C letta channels status
 ```
 
+## Push notifications
+
+Fully optional and self-gating — leave the three `PUSH_VAPID_*` variables
+unset and the BFF runs with push disabled, no error. The only trigger today
+is "the agent finished a turn while nobody was watching that conversation".
+
+Generate a VAPID keypair once:
+
+```bash
+cd bff && bunx web-push generate-vapid-keys
+```
+
+Put the public/private pair into `docker/.env` as `PUSH_VAPID_PUBLIC_KEY` /
+`PUSH_VAPID_PRIVATE_KEY`, and set `PUSH_VAPID_CONTACT_EMAIL` to the
+allowlisted email (it becomes the VAPID `sub` claim, as a bare `mailto:`
+address — push services use it to contact you if your server is misbehaving).
+
+**Rotating these keys silently invalidates every existing subscription** —
+every previously-subscribed device stops receiving pushes until it
+re-subscribes from Settings → Notifications. There is no migration path;
+this is an operational fact to plan around, not a bug.
+
+Subscriptions persist in `bff-data/push-subscriptions.json` on the host (bind
+mounted, gitignored — it holds device push endpoints, not secrets, but isn't
+meant to be committed either).
+
+iOS only delivers Web Push to a PWA actually added to the Home Screen — a
+Safari tab (or Chrome/Firefox on iOS, which can't install a PWA at all) never
+receives it. The Notifications settings section shows an install prompt
+instead of a toggle when it detects this.
+
 ## Local development without Docker
 
 ```bash

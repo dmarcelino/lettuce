@@ -25,6 +25,7 @@ FROM deps AS web-build
 
 COPY letta-code-ui/tsconfig.base.json ./tsconfig.base.json
 COPY letta-code-ui/web/src            ./web/src
+COPY letta-code-ui/web/public         ./web/public
 COPY letta-code-ui/web/index.html     ./web/index.html
 COPY letta-code-ui/web/tsconfig.json  ./web/tsconfig.json
 COPY letta-code-ui/web/vite.config.ts ./web/vite.config.ts

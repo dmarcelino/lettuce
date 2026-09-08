@@ -186,8 +186,17 @@ services:
       USERS_FILE: /app/config/users.json
       DEV_BYPASS_EMAIL: ${DEV_BYPASS_EMAIL:-}
       DEV_BYPASS_ALLOW_REMOTE: ${DEV_BYPASS_ALLOW_REMOTE:-}
+      # Push is fully optional — leave all three unset to run without it.
+      PUSH_VAPID_PUBLIC_KEY: ${PUSH_VAPID_PUBLIC_KEY:-}
+      PUSH_VAPID_PRIVATE_KEY: ${PUSH_VAPID_PRIVATE_KEY:-}
+      PUSH_VAPID_CONTACT_EMAIL: ${PUSH_VAPID_CONTACT_EMAIL:-}
+      PUSH_SUBSCRIPTIONS_FILE: /app/data/push-subscriptions.json
     volumes:
       - ../config/users.json:/app/config/users.json:ro
+      # Push subscriptions are runtime state the BFF writes, not config — a
+      # plain host directory (like config/ and workspaces/) rather than an
+      # opaque named volume, so it stays inspectable and backupable.
+      - ../../bff-data:/app/data
     restart: unless-stopped
 
   # Telegram and the other messaging channels. A separate process by design:

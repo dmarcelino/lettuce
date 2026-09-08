@@ -13,11 +13,21 @@ import {
   type SessionPayload,
 } from "./auth/session-cookie.ts";
 import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
+import { configureWebPush } from "./push/send.ts";
+import { PushSubscriptionStore } from "./push/store.ts";
+import { TurnCompletionWatcher } from "./push/turn-watcher.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 
 const config: BffConfig = loadConfig();
 const secureCookies = config.publicOrigin.startsWith("https://");
+
+// Push is fully optional (see `config.push`'s doc comment) — null when the
+// three VAPID settings aren't configured, same "degrade silently, run
+// without it" pattern this repo already uses for the sandbox backend.
+const pushStore = config.push ? new PushSubscriptionStore(config.push.subscriptionsFile) : null;
+if (config.push) configureWebPush(config.push);
+const turnWatcher = pushStore ? new TurnCompletionWatcher(pushStore, log) : null;
 
 function log(message: string): void {
   console.log(`[bff] ${new Date().toISOString()} ${message}`);
@@ -30,7 +40,10 @@ function log(message: string): void {
 const upstream = new UpstreamConnection({
   url: config.appServerUrl,
   authToken: config.appServerToken,
-  onFrame: (frame: WsProtocolMessage) => registry.handleUpstreamFrame(frame),
+  onFrame: (frame: WsProtocolMessage) => {
+    registry.handleUpstreamFrame(frame);
+    turnWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
+  },
   onStateChange: (state, info) => {
     log(`Upstream state: ${state}`);
     registry.broadcastUpstreamState(state, info);
@@ -142,6 +155,38 @@ app.get("/auth/dev-login", (c) => {
 
 app.post("/auth/logout", (c) => {
   c.header("set-cookie", clearSessionCookie(secureCookies));
+  return c.json({ ok: true });
+});
+
+app.get("/push/vapid-key", (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.push) return c.text("Push notifications are not configured on this instance", 404);
+  return c.json({ key: config.push.vapidPublicKey });
+});
+
+app.post("/push/subscribe", async (c) => {
+  const session = c.get("session");
+  if (!session) return c.text("Unauthorized", 401);
+  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
+
+  try {
+    const body = await c.req.json();
+    pushStore.add(body, session.email);
+    return c.json({ ok: true });
+  } catch (error) {
+    return c.text(error instanceof Error ? error.message : "Malformed subscription", 400);
+  }
+});
+
+app.post("/push/unsubscribe", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
+
+  const body = await c.req.json().catch(() => null);
+  const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
+  if (typeof endpoint !== "string" || !endpoint) return c.text("Missing endpoint", 400);
+
+  pushStore.remove(endpoint);
   return c.json({ ok: true });
 });
 

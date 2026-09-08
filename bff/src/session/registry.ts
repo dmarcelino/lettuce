@@ -68,6 +68,14 @@ export class SessionRegistry {
     return this.sessions.size;
   }
 
+  /** Whether any session is subscribed to this scope (or to everything). */
+  isScopeWatched(scopeKey: string): boolean {
+    for (const session of this.sessions.values()) {
+      if (session.scopes.size === 0 || session.scopes.has(scopeKey)) return true;
+    }
+    return false;
+  }
+
   get latestSeq(): number {
     return this.buffer.latestSeq;
   }

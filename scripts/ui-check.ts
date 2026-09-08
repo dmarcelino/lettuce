@@ -322,8 +322,8 @@ try {
       (await page.locator('.pane-bar button:text-is("Channels")').count()) === 0,
     );
     check(
-      "Connection / MCP / Skills remain",
-      (await page.locator(".pane-bar button").count()) === 3,
+      "Connection / MCP / Skills / Notifications remain",
+      (await page.locator(".pane-bar button").count()) === 4,
     );
     const settingsBox = await overflow(page);
     check("settings has nothing clipped", settingsBox.clipped.length === 0, settingsBox);
@@ -358,6 +358,25 @@ try {
     const skillsBox = await overflow(page);
     check("skills section has nothing clipped", skillsBox.clipped.length === 0, skillsBox);
     await shot(page, "desktop-skills");
+
+    // Notifications: headless Chromium supports the Push/Notification APIs,
+    // so this renders the real toggle rather than the iOS install notice —
+    // just needs to render without clipping, not actually subscribe.
+    await page.locator('.pane-bar button:text-is("Notifications")').click();
+    await page.waitForTimeout(300);
+    check(
+      "notifications section offers a toggle or an unsupported notice",
+      (await page
+        .locator('button:has-text("Enable notifications"), p:has-text("not supported")')
+        .count()) > 0,
+    );
+    const notificationsBox = await overflow(page);
+    check(
+      "notifications section has nothing clipped",
+      notificationsBox.clipped.length === 0,
+      notificationsBox,
+    );
+    await shot(page, "desktop-notifications");
 
     await shot(page, "desktop-settings");
 

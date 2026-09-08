@@ -5,6 +5,7 @@ dist/
 config/users.json
 config/secrets/
 docker/secrets/
+bff-data/
 *.log
 .DS_Store
 .ui-check/
