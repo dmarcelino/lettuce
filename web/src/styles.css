@@ -1293,8 +1293,13 @@ p.warning code {
 /* A directory has nothing to download, but the slot still renders — same
    classes, hidden — so Size/Modified line up whether or not a row after them
    carries a button. Without this a folder's date sat flush against the row's
-   right edge while a file's sat one icon-width short of it. */
-.file-row .icon-button.ghost.placeholder {
+   right edge while a file's sat one icon-width short of it.
+   Named file-download-placeholder, not the bare "placeholder": that generic
+   class already exists (line ~150, an empty-state icon+text centering rule)
+   and also matches this span, and since neither rule declares every flex
+   property, the two silently blend — its `flex: 1` overrode this element's
+   width, growing it to fill the row instead of holding a fixed slot. */
+.file-row .icon-button.ghost.file-download-placeholder {
   visibility: hidden;
 }
 

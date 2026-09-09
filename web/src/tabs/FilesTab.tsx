@@ -331,7 +331,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
             </button>
             {/* Matches the download slot's box exactly (same classes) so this
                 header row is exactly as wide as a body row — see styles.css. */}
-            <span className="icon-button ghost placeholder" aria-hidden="true" />
+            <span className="icon-button ghost file-download-placeholder" aria-hidden="true" />
           </div>
           <ul className="list">
             {sortedEntries.map((entry) => {
@@ -372,7 +372,10 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                       <Icon name="download" />
                     </button>
                   ) : (
-                    <span className="icon-button ghost placeholder" aria-hidden="true" />
+                    <span
+                      className="icon-button ghost file-download-placeholder"
+                      aria-hidden="true"
+                    />
                   )}
                 </li>
               );
