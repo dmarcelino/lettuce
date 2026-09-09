@@ -77,7 +77,11 @@ app.get("/readyz", (c) =>
 app.use("*", async (c, next) => {
   let session = currentSession(c.req.raw);
 
-  if (!session) {
+  // Local mode never looks at this header at all, even if one shows up (e.g.
+  // a curious client hitting the LAN port directly) — there is no team
+  // domain/audience configured to verify it against, and not even trying is
+  // clearer than an incidental failure inside verifyAccessJwt.
+  if (!session && config.mode === "cloudflared") {
     const jwt = c.req.header(CF_ACCESS_JWT_HEADER);
     if (jwt) {
       try {
@@ -121,7 +125,11 @@ app.get("/api/status", (c) => {
   const session = c.get("session");
   return c.json({
     authenticated: session !== null,
-    auth_mode: config.devBypassEmail ? "dev-bypass" : "cf-access",
+    auth_mode: config.devBypassEmail
+      ? "dev-bypass"
+      : config.mode === "cloudflared"
+        ? "cf-access"
+        : "none",
     user: session ? { email: session.email, name: session.name } : null,
     upstream: {
       state: upstream.getState(),
@@ -286,6 +294,7 @@ const server = Bun.serve<SocketData>({
   },
 });
 
+log(`Mode: ${config.mode}`);
 log(`Listening on ${bindHostname}:${server.port} (public origin ${config.publicOrigin})`);
 log(`App-server: ${config.appServerUrl}`);
 log(`Allowlisted users: ${config.allowedUsers.map((u) => u.email).join(", ")}`);

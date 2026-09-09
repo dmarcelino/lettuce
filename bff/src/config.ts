@@ -8,6 +8,16 @@ export interface AllowedUser {
 
 export interface BffConfig {
   port: number;
+  /**
+   * "local" (default) — no Cloudflare configuration needed, reachable
+   * directly on the LAN; sign-in is DEV_BYPASS_EMAIL or nothing.
+   * "cloudflared" — Cloudflare Access is the gate; set via
+   * `LETTA_MODE`, itself a pass-through of Compose's own
+   * `COMPOSE_PROFILES` (see docker/compose.yml), so the one setting that
+   * decides whether the `cloudflared` container even exists is the same
+   * one the app reads.
+   */
+  mode: "local" | "cloudflared";
   /** App-server WebSocket base URL, e.g. ws://letta:4500 */
   appServerUrl: string;
   /**
@@ -145,23 +155,39 @@ function assertBypassIsSafe(
   );
 }
 
+/**
+ * `LETTA_MODE` is a pass-through of Compose's own `COMPOSE_PROFILES` (see
+ * docker/compose.yml) — whatever decides if the `cloudflared` container
+ * exists is the same value the app reads. Checked with `includes` rather
+ * than equality so a future multi-profile value like `"cloudflared,other"`
+ * still resolves correctly.
+ */
+function readMode(): "local" | "cloudflared" {
+  const raw = process.env.LETTA_MODE?.trim() ?? "";
+  return raw.includes("cloudflared") ? "cloudflared" : "local";
+}
+
 export function loadConfig(): BffConfig {
+  const mode = readMode();
   const devBypassEmail = process.env.DEV_BYPASS_EMAIL?.trim() || null;
   const devBypassAllowRemote = process.env.DEV_BYPASS_ALLOW_REMOTE?.trim() === "true";
   const publicOrigin = required("PUBLIC_ORIGIN").replace(/\/$/, "");
   if (devBypassEmail) {
     assertBypassIsSafe(devBypassEmail, publicOrigin, devBypassAllowRemote);
   }
+  // Cloudflare Access credentials are only needed in cloudflared mode, and
+  // not even then if the dev bypass is active. Local mode never reads them.
+  const needsCfAccess = mode === "cloudflared" && !devBypassEmail;
   return {
+    mode,
     port: optionalNumber("PORT", 8080),
     appServerUrl: required("LETTA_APP_SERVER_URL"),
     appServerToken: readAppServerToken(),
     publicOrigin,
-    // Cloudflare Access credentials are not needed when the dev bypass is active.
-    cfAccessTeamDomain: devBypassEmail
-      ? (process.env.CF_ACCESS_TEAM_DOMAIN ?? "")
-      : required("CF_ACCESS_TEAM_DOMAIN"),
-    cfAccessAud: devBypassEmail ? (process.env.CF_ACCESS_AUD ?? "") : required("CF_ACCESS_AUD"),
+    cfAccessTeamDomain: needsCfAccess
+      ? required("CF_ACCESS_TEAM_DOMAIN")
+      : (process.env.CF_ACCESS_TEAM_DOMAIN ?? ""),
+    cfAccessAud: needsCfAccess ? required("CF_ACCESS_AUD") : (process.env.CF_ACCESS_AUD ?? ""),
     cfAccessIssuer: process.env.CF_ACCESS_ISSUER?.trim() || null,
     sessionSecret: required("SESSION_SECRET"),
     sessionTtlSeconds: optionalNumber("SESSION_TTL_SECONDS", 60 * 60 * 24 * 30),

@@ -152,12 +152,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # The UI port is published here because the BFF shares this namespace.
-    # Loopback by default: Cloudflare Access is the only auth gate now, and it
-    # only guards the tunnel's public hostname, not this port. Only override
-    # to 0.0.0.0 if you deliberately want a second, unauthenticated way in
-    # (e.g. LAN access to the dev-bypass path).
+    # 0.0.0.0 by default: local mode's whole point is direct LAN reachability
+    # with no Cloudflare involved. Switching to cloudflared mode (see the
+    # `cloudflared` service below) means Access becomes the only gate that
+    # matters, so pair `COMPOSE_PROFILES=cloudflared` with `BFF_BIND=127.0.0.1`
+    # to close this direct-LAN door — Compose can't derive one setting's
+    # default from another's value, so this is a manual pairing, not automatic.
     ports:
-      - "${BFF_BIND:-127.0.0.1}:${BFF_PORT:-8090}:8080"
+      - "${BFF_BIND:-0.0.0.0}:${BFF_PORT:-8090}:8080"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4500/healthz"]
@@ -179,6 +181,11 @@ services:
       PORT: "8080"
       LETTA_APP_SERVER_URL: ws://127.0.0.1:4500
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8090}
+      # Pass-through of the exact same value that decides, at the Compose
+      # level, whether the `cloudflared` service below even exists — one
+      # setting (COMPOSE_PROFILES) drives both. "local" unless it contains
+      # "cloudflared".
+      LETTA_MODE: ${COMPOSE_PROFILES:-local}
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       CF_ACCESS_ISSUER: ${CF_ACCESS_ISSUER:-}
@@ -246,11 +253,25 @@ services:
   # default network like any other service, which is what lets it resolve
   # `app-server` (the BFF's port 8080 answers there too — see the note above
   # `bff.network_mode`).
+  #
+  # profiles gates whether this container is even CREATED: with
+  # COMPOSE_PROFILES unset (local mode, the default), `docker compose up -d`
+  # skips it entirely. Set COMPOSE_PROFILES=cloudflared to opt in.
+  #
+  # TUNNEL_TOKEN stays soft-optional (`:-`, not `:?`) on purpose even though
+  # cloudflared cannot run without one: Compose interpolates every service's
+  # environment at parse time regardless of profile activation, so a hard
+  # `:?` requirement here would break local mode's `up`/`build` even though
+  # this container never gets created — that was exactly the placeholder-token
+  # workaround this change removes. In cloudflared mode, an empty token just
+  # means cloudflared itself fails at startup with an auth error (see its own
+  # logs) — scoped to this one container, not the rest of the stack.
   cloudflared:
     image: cloudflare/cloudflared:2026.8.3
     command: tunnel --no-autoupdate run
+    profiles: ["cloudflared"]
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       app-server:
         condition: service_healthy

@@ -21,7 +21,7 @@ import { TasksTab } from "./tabs/TasksTab.tsx";
 
 interface Status {
   authenticated: boolean;
-  auth_mode: "cf-access" | "dev-bypass";
+  auth_mode: "cf-access" | "dev-bypass" | "none";
   user: { email: string; name: string } | null;
   upstream: { state: ConnectionState; info: unknown };
 }
@@ -52,25 +52,30 @@ export function App() {
 }
 
 function SignIn({ status }: { status: Status }) {
-  const bypass = status.auth_mode === "dev-bypass";
   return (
     <main className="shell center">
       <h1>Letta</h1>
-      {bypass ? (
+      {status.auth_mode === "dev-bypass" ? (
         <>
           <p className="warning">
             Developer sign-in is enabled. This does <strong>not</strong> authenticate anyone — any
-            visitor becomes the configured user. Unset <code>DEV_BYPASS_EMAIL</code> to require
-            Cloudflare Access sign-in.
+            visitor becomes the configured user. Unset <code>DEV_BYPASS_EMAIL</code> in
+            <code>docker/.env</code> once real sign-in is configured.
           </p>
           <a className="button" href="/auth/login">
             Continue without signing in
           </a>
         </>
-      ) : (
+      ) : status.auth_mode === "cf-access" ? (
         <p className="muted">
           Not signed in. This instance is reached through Cloudflare Access — if you're seeing this
           on the tunnel, try reloading; direct access without Access is not supported.
+        </p>
+      ) : (
+        <p className="warning">
+          Nothing is configured to sign anyone in. This instance is running in local mode with no{" "}
+          <code>DEV_BYPASS_EMAIL</code> set — add one to <code>docker/.env</code> and restart, or
+          switch to cloudflared mode for real sign-in. See <code>docker/README.md</code>.
         </p>
       )}
     </main>

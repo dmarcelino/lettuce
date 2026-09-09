@@ -13,23 +13,66 @@ cp config/users.example.json config/users.json   # edit it
 
 # 3. Environment.
 cat > docker/.env <<'ENV'
-PUBLIC_ORIGIN=https://<your-tunnel-hostname>
+PUBLIC_ORIGIN=http://localhost:8090
 SESSION_SECRET=<openssl rand -hex 32>
-CF_ACCESS_TEAM_DOMAIN=<your-team>.cloudflareaccess.com's <your-team> part
-CF_ACCESS_AUD=<from the Access Application, see Authentication below>
-CLOUDFLARE_TUNNEL_TOKEN=<from the Cloudflare Tunnel, see Authentication below>
+# To actually sign in locally, also set (see Authentication below):
+# DEV_BYPASS_EMAIL=you@example.com
 ENV
 
 # 4. Build the fork so its dist/ (protocol types + client) exists.
 cd ../letta-code && bun install && bun run build
 ```
 
+## Modes: local (default) vs cloudflared
+
+The stack runs in one of two modes, switched by **one setting**:
+`COMPOSE_PROFILES` in `docker/.env`.
+
+| | `COMPOSE_PROFILES` unset (default) | `COMPOSE_PROFILES=cloudflared` |
+|---|---|---|
+| Reachability | Directly on the LAN | Only through the Cloudflare Tunnel |
+| Auth | `DEV_BYPASS_EMAIL` (see below) | Cloudflare Access |
+| `cloudflared` container | Not created at all | Created, tunnels to `app-server:8080` |
+| Cloudflare account needed | No | Yes |
+
+Compose's own `COMPOSE_PROFILES` variable is also what the app reads (as
+`LETTA_MODE`, passed through in `docker/compose.yml`) — one setting drives
+both which containers exist and how the BFF behaves, nothing to keep in sync
+by hand.
+
 ## Authentication
 
-The compose stack is gated by **Cloudflare Access**, not by anything this app
-runs itself — the app only verifies the JWT Access injects once a visitor
-signs in. All of the following is manual, done once in the Cloudflare Zero
-Trust dashboard (none of it is automatable from this repo):
+### Local mode (default)
+
+Nothing is required beyond the one-time setup above to *boot*, but by
+default **nothing signs anyone in either** — the app answers "not signed in"
+until you configure `DEV_BYPASS_EMAIL`. It skips sign-in entirely: any
+request that reaches the port becomes the configured user, no credential
+check at all.
+
+Because that is easy to leave on by accident, exposing it beyond the local
+machine takes a second, deliberate flag:
+
+| Configuration | Result |
+|---|---|
+| `DEV_BYPASS_EMAIL` unset | Nobody can sign in (safe default, but unusable until set) |
+| Set, loopback `PUBLIC_ORIGIN` | Bypass active, bound to `127.0.0.1` only |
+| Set, non-loopback `PUBLIC_ORIGIN` (e.g. a LAN IP) | **Refuses to start** |
+| Set, plus `DEV_BYPASS_ALLOW_REMOTE=true` | Bypass active and reachable on the network, with a startup banner |
+
+The last row is the normal local-mode configuration for reaching the UI from
+your phone or another device on the same network — set `PUBLIC_ORIGIN` to
+your machine's LAN IP (e.g. `http://192.168.1.4:8090`) alongside it. It means
+anyone who can reach the port controls the agent — and the agent has your
+Gmail, Calendar and shell — so use it only on a network you trust.
+
+### Remote access via Cloudflare Tunnel (cloudflared mode)
+
+Set `COMPOSE_PROFILES=cloudflared` and gate access with **Cloudflare
+Access**, not anything this app runs itself — the app only verifies the JWT
+Access injects once a visitor signs in. All of the following is manual, done
+once in the Cloudflare Zero Trust dashboard (none of it is automatable from
+this repo):
 
 1. **Networks → Tunnels → Create a tunnel** (choose "Cloudflared"). Copy the
    token it gives you into `docker/.env` as `CLOUDFLARE_TUNNEL_TOKEN`.
@@ -50,35 +93,22 @@ Trust dashboard (none of it is automatable from this repo):
    `CF_ACCESS_AUD`, and the team domain (the `<team>` in
    `<team>.cloudflareaccess.com`) as `CF_ACCESS_TEAM_DOMAIN`.
 
+Also update, in `docker/.env`:
+- `PUBLIC_ORIGIN=https://<your-tunnel-hostname>` — the `https://` is what
+  marks the session cookie `Secure`.
+- `BFF_BIND=127.0.0.1` — Compose can't derive this from `COMPOSE_PROFILES`'s
+  value, so it's a manual pairing. Once Access is the gate, the tunnel
+  reaches the BFF over the internal Docker network, not this published port,
+  so there's no legitimate reason to leave it reachable on the LAN too.
+- Optionally unset `DEV_BYPASS_EMAIL` — it still works in cloudflared mode
+  exactly as in local mode (it's unrelated to and unaffected by Access), so
+  leaving it set means BOTH doors are open. Decide deliberately.
+
 If the Zero Trust team is ever renamed, JWKS moves to the new team domain but
 outstanding tokens may still carry the old one in `iss`. Set
 `CF_ACCESS_ISSUER` to the *old* `https://<old-team>.cloudflareaccess.com`
 during the transition, and remove it once every session has naturally
 re-authenticated.
-
-`DEV_BYPASS_EMAIL` skips sign-in entirely, for local development only. It
-authenticates **nobody** — any request that reaches the port becomes the
-configured user. It is unrelated to Cloudflare Access and unaffected by it.
-
-Because that is easy to leave switched on by accident, exposing it beyond the
-local machine takes a second, deliberate flag:
-
-| Configuration | Result |
-|---|---|
-| `DEV_BYPASS_EMAIL` unset | Cloudflare Access required (default for the compose stack) |
-| Set, loopback `PUBLIC_ORIGIN` | Bypass active, bound to `127.0.0.1` |
-| Set, non-loopback `PUBLIC_ORIGIN` | **Refuses to start** |
-| Set, plus `DEV_BYPASS_ALLOW_REMOTE=true` | Bypass active and reachable on the network, with a startup banner |
-
-The last row means anyone who can reach the port controls the agent — and the
-agent has your Gmail, Calendar and shell. Use it only on a network you trust,
-and only until Access is configured.
-
-Once Access is the only gate, `BFF_BIND` defaults to `127.0.0.1` — the tunnel
-reaches the BFF over the internal Docker network (`app-server:8080`), not
-through this published port, so there is no legitimate reason for it to be
-reachable from the LAN any more. Override to `0.0.0.0` only if you deliberately
-want a second, unauthenticated way in.
 
 ## Run
 
@@ -91,12 +121,6 @@ The BFF serves the built SPA at `PUBLIC_ORIGIN` (default
 builds `web/` in its own stage and the BFF serves it from `WEB_DIST`
 (`web/dist`); API, auth and health routes are registered first, so the SPA
 fallback cannot shadow them.
-
-`PUBLIC_ORIGIN` should be the tunnel's `https://` hostname in production —
-that's what marks the session cookie `Secure`, and it's the only supported
-production entry point now that Cloudflare Access is the sole auth gate. Plain
-LAN IP access (`http://192.168.1.4:8090`) still works for reaching
-`DEV_BYPASS_EMAIL` locally, but is not a supported way to reach real users.
 
 ## Connect the model
 
@@ -170,7 +194,7 @@ instead of a toggle when it detects this.
 # Terminal 1 — app-server on the host
 LETTA_LOCAL_BACKEND_EXPERIMENTAL=true letta server --listen ws://127.0.0.1:4500
 
-# Terminal 2 — BFF (dev bypass skips Cloudflare Access entirely)
+# Terminal 2 — BFF (dev bypass; local mode needs no CF_ACCESS_* vars at all)
 cd bff && \
   LETTA_APP_SERVER_URL=ws://127.0.0.1:4500 \
   LETTA_APP_SERVER_TOKEN=unused \
