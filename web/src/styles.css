@@ -1149,9 +1149,22 @@ p.warning code {
   }
   .sheet-panel {
     width: min(880px, 94vw);
-    max-height: min(88vh, 940px);
+    /* max-height is also the resize ceiling (CSS has one slot for it), so
+       this now bounds a drag too — raised from the old min(88vh, 940px) to
+       leave room to grow into, since that cap left almost no headroom on a
+       typical laptop screen. */
+    max-height: 96vh;
     border-radius: 14px;
     box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+    /* Draggable from the bottom-right corner. `overflow: hidden` (set above,
+       for every viewport) already satisfies resize's one requirement —
+       "not visible" — so this needs no other CSS to work. min-width/height
+       keep a drag from shrinking the panel into something unreadable;
+       max-width keeps it inside the viewport it sits in. */
+    resize: both;
+    min-width: 360px;
+    max-width: 98vw;
+    min-height: 240px;
   }
   .sheet-body {
     /* The panel owns the height cap now, so the body just takes what is left
