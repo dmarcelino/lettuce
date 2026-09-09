@@ -1162,9 +1162,27 @@ p.warning code {
        keep a drag from shrinking the panel into something unreadable;
        max-width keeps it inside the viewport it sits in. */
     resize: both;
+    /* "Standard" tier — a picker list or an ordinary form, most sheets.
+       See Sheet.tsx's `size` prop for the other two tiers, and CLAUDE.md's
+       notes on this session's two class-name collisions for why these are
+       compound selectors (`.sheet-panel.sheet-compact`), never bare ones. */
     min-width: 360px;
     max-width: 98vw;
-    min-height: 240px;
+    min-height: 320px;
+  }
+  /* Compact: a notice or a 1-3 field form (AuthPill, SettingsTab's
+     connect-provider sheet, McpEditor). Nothing in this group needs more
+     than a few short lines. */
+  .sheet-panel.sheet-compact {
+    min-width: 320px;
+    min-height: 200px;
+  }
+  /* Spacious: a document to read or edit (MemoryTab/FilesTab, both already
+     `fill`), or a diff/JSON review (ApprovalSheet) that can run long and
+     wide. Should never feel cramped when resized down. */
+  .sheet-panel.sheet-spacious {
+    min-width: 480px;
+    min-height: 400px;
   }
   .sheet-body {
     /* The panel owns the height cap now, so the body just takes what is left

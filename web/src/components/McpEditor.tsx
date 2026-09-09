@@ -211,7 +211,7 @@ env: SEARXNG_URL=http://host.docker.internal:8080`}</pre>
 
       {draft ? (
         <div className="sheet">
-          <div className="sheet-panel" role="dialog" aria-modal="true">
+          <div className="sheet-panel sheet-compact" role="dialog" aria-modal="true">
             <div className="sheet-body">
               <h2>{draftIndex === null ? "Add MCP server" : `Edit ${draft.name}`}</h2>
 

@@ -389,6 +389,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         <Sheet
           title={basename(selected)}
           fill
+          size="spacious"
           onClose={() => setSelected(null)}
           actions={
             <>
