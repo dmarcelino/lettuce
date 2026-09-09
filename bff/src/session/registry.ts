@@ -33,7 +33,7 @@ interface Session {
   /**
    * BFF request ids this session is awaiting, mapped to its own original id.
    * `path` is remembered only for `get_tree` requests, so the response
-   * handler can resolve entries' absolute paths for a `modified` stat.
+   * handler can resolve entries' absolute paths for a modified/size stat.
    */
   pendingRequests: Map<string, { originalId: string; path?: string }>;
   /** Sliding-window timestamps for rate limiting. */
@@ -344,7 +344,7 @@ export class SessionRegistry {
   }
 }
 
-/** Merge real mtimes into a `get_tree_response`'s entries; see `file-stat.ts`. */
+/** Merge real mtimes and sizes into a `get_tree_response`'s entries; see `file-stat.ts`. */
 function withGetTreeModifiedTimes(
   frame: GetTreeResponseMessage,
   root: string,

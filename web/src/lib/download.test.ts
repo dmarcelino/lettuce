@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { downloadUrl, isBinaryReadError, isImageFile, mimeTypeFor } from "./download.ts";
+import {
+  downloadUrl,
+  formatBytes,
+  isBinaryReadError,
+  isImageFile,
+  isMarkdownFile,
+  mimeTypeFor,
+} from "./download.ts";
 
 describe("downloadUrl", () => {
   test("builds a URL the BFF's download route understands", () => {
@@ -52,6 +59,39 @@ describe("isImageFile", () => {
     expect(isImageFile("resume.pdf")).toBe(false);
     expect(isImageFile("MASTER.md")).toBe(false);
     expect(isImageFile("README")).toBe(false);
+  });
+});
+
+describe("isMarkdownFile", () => {
+  test("recognises markdown extensions", () => {
+    expect(isMarkdownFile("README.md")).toBe(true);
+    expect(isMarkdownFile("notes.MARKDOWN")).toBe(true);
+  });
+
+  test("everything else previews as plain text", () => {
+    expect(isMarkdownFile("resume.pdf")).toBe(false);
+    expect(isMarkdownFile("notes.txt")).toBe(false);
+    expect(isMarkdownFile("README")).toBe(false);
+  });
+});
+
+describe("formatBytes", () => {
+  test("bytes under a kilobyte are not divided", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(823)).toBe("823 B");
+  });
+
+  test("scales up through the units", () => {
+    expect(formatBytes(1024)).toBe("1.0 KB");
+    expect(formatBytes(1536)).toBe("1.5 KB");
+    expect(formatBytes(1024 * 1024)).toBe("1.0 MB");
+    expect(formatBytes(1024 * 1024 * 1024 * 2.5)).toBe("2.5 GB");
+  });
+
+  test("drops the decimal once the number reaches two digits", () => {
+    // A resume-length PDF being "12.3 KB" is fine; "123.4 KB" is noise.
+    expect(formatBytes(1024 * 12)).toBe("12 KB");
+    expect(formatBytes(1024 * 123)).toBe("123 KB");
   });
 });
 
