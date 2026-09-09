@@ -258,8 +258,11 @@ try {
     check("typing a slash opens the suggestions", await popover.isVisible());
     check(
       "suggestions are filtered to the prefix",
+      // An id match, not has-text: "/clear" is a text substring of
+      // "/clear-messages" too, so has-text(/clear) over-counted once a second
+      // command shared the prefix.
       (await popover.locator("li").count()) > 0 &&
-        (await popover.locator('li:has-text("/clear")').count()) === 1,
+        (await popover.locator("#composer-suggestion-clear").count()) === 1,
     );
     check(
       "a suggestion is highlighted by default",
