@@ -1069,7 +1069,15 @@ button {
   font-size: 13px;
 }
 
-.warning {
+/* Scoped to <p>, not a bare .warning: a transcript notice
+   (`.entry.notice.warning`, MessageList.tsx) reuses the class name "warning"
+   as its level, and a bare selector here matched that div too — wrapping the
+   notice's own dark pill in this banner's full tan border and tinted
+   background as well, the "big yellow box" around e.g. "Interrupted". Every
+   real caller of this banner (App.tsx, SettingsTab.tsx, AgentEditor.tsx,
+   ApprovalSheet.tsx, ModelPicker.tsx, Sidebar.tsx, AuthPill.tsx) renders it on
+   a <p>, so the element qualifier costs nothing there. */
+p.warning {
   background: color-mix(in srgb, var(--warn) 12%, var(--surface));
   border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
   border-radius: 10px;
@@ -1077,7 +1085,7 @@ button {
   margin: 8px 12px;
   font-size: 14px;
 }
-.warning code {
+p.warning code {
   background: rgba(0, 0, 0, 0.28);
   padding: 1px 5px;
   border-radius: 4px;
@@ -1282,6 +1290,13 @@ button {
 .file-row .icon-button.ghost:hover {
   opacity: 1;
 }
+/* A directory has nothing to download, but the slot still renders — same
+   classes, hidden — so Size/Modified line up whether or not a row after them
+   carries a button. Without this a folder's date sat flush against the row's
+   right edge while a file's sat one icon-width short of it. */
+.file-row .icon-button.ghost.placeholder {
+  visibility: hidden;
+}
 
 /* The sortable column-header row above the list; not a <li>, so it needs its
    own border where .list > li normally gets one. */
@@ -1293,15 +1308,22 @@ button {
   white-space: nowrap;
 }
 
+/* Fixed widths, not content-sized: a column only lines up across rows when
+   every row reserves the same space for it regardless of what it holds. */
+.file-size,
 .file-modified {
   flex: 0 0 auto;
-  min-width: 0;
-  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: right;
   padding-right: 8px;
+}
+.file-size {
+  width: 64px;
+}
+.file-modified {
+  width: 170px;
 }
 
 /* Fits the sheet at any width without pushing the actions off the bottom. */

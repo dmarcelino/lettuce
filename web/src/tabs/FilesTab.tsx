@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
+import { Markdown } from "../components/Markdown.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import {
   downloadUrl,
+  formatBytes,
   isBinaryReadError,
   isImageFile,
+  isMarkdownFile,
   mimeTypeFor,
   triggerDownload,
 } from "../lib/download.ts";
@@ -17,9 +20,11 @@ interface TreeEntry {
   type: "file" | "dir";
   /** Epoch ms, merged in by the BFF via a direct stat() — see file-stat.ts. */
   modified?: number;
+  /** Bytes, merged in the same way. Directories don't get one — see file-stat.ts. */
+  size?: number;
 }
 
-type SortKey = "name" | "modified";
+type SortKey = "name" | "size" | "modified";
 type SortDir = "asc" | "desc";
 
 interface GrepMatch {
@@ -88,6 +93,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
       if (sortKey === "modified") {
         return ((a.modified ?? 0) - (b.modified ?? 0)) * factor;
       }
+      if (sortKey === "size") {
+        return ((a.size ?? 0) - (b.size ?? 0)) * factor;
+      }
       return a.path.localeCompare(b.path) * factor;
     });
   }, [entries, sortKey, sortDir]);
@@ -155,9 +163,8 @@ export function FilesTab({ session, cwd, agentId }: Props) {
 
   /**
    * Open a file, guessing from its name what it is — because nothing else can
-   * say. `get_tree` reports `{path, type}` and no protocol command reports a
-   * size or a mime type, so an image is recognised by extension and everything
-   * else is tried as text first.
+   * say. `get_tree` carries no mime type, so an image is recognised by
+   * extension and everything else is tried as text first.
    *
    * A text read that fails on strict UTF-8 means the file is binary, and the
    * thing the user wanted was the file: download it instead of leaving them on
@@ -312,6 +319,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
             <button type="button" className="link grow-row" onClick={() => toggleSort("name")}>
               Name{sortKey === "name" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
             </button>
+            <button type="button" className="link file-size" onClick={() => toggleSort("size")}>
+              Size{sortKey === "size" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+            </button>
             <button
               type="button"
               className="link file-modified"
@@ -319,6 +329,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
             >
               Modified{sortKey === "modified" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
             </button>
+            {/* Matches the download slot's box exactly (same classes) so this
+                header row is exactly as wide as a body row — see styles.css. */}
+            <span className="icon-button ghost placeholder" aria-hidden="true" />
           </div>
           <ul className="list">
             {sortedEntries.map((entry) => {
@@ -338,11 +351,16 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                     <Icon name={entry.type === "dir" ? "folder" : "file"} />
                     {entry.path}
                   </button>
+                  <span className="muted small file-size">
+                    {entry.size !== undefined ? formatBytes(entry.size) : "—"}
+                  </span>
                   <span className="muted small file-modified">
                     {entry.modified ? new Date(entry.modified).toLocaleString() : "—"}
                   </span>
                   {/* Directories have nothing to hand over: there is no archive
-                      command in the protocol, so ask the agent to tar one. */}
+                      command in the protocol, so ask the agent to tar one. A
+                      placeholder still renders in their slot — same classes,
+                      hidden — so Size/Modified line up with file rows either way. */}
                   {entry.type === "file" ? (
                     <button
                       type="button"
@@ -353,7 +371,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                     >
                       <Icon name="download" />
                     </button>
-                  ) : null}
+                  ) : (
+                    <span className="icon-button ghost placeholder" aria-hidden="true" />
+                  )}
                 </li>
               );
             })}
@@ -380,6 +400,10 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         >
           {image !== null ? (
             <img className="file-preview" src={image} alt={basename(selected)} />
+          ) : isMarkdownFile(basename(selected)) ? (
+            <div className="tool-args">
+              <Markdown text={content ?? ""} />
+            </div>
           ) : (
             <pre className="tool-args">{content}</pre>
           )}

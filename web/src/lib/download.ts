@@ -8,8 +8,10 @@
  * hands the browser a real URL with `Content-Disposition: attachment`, so the
  * browser's own download manager does the work — no base64 decode, no blob.
  *
- * Size is not this module's problem: the app-server refuses a base64 read over
- * 25MB with a readable message, and the read_file call sites show it.
+ * A read failing over the size limit is still not this module's problem: the
+ * app-server refuses a base64 read over 25MB with a readable message, and the
+ * read_file call sites show it. Formatting an already-known size for display
+ * (see `formatBytes`) is a different, much smaller thing.
  */
 
 /** The BFF route that streams a workspace file as an attachment. */
@@ -84,9 +86,9 @@ const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "
 /**
  * Whether to preview this as an image rather than as text.
  *
- * Decided from the name because nothing else can decide it: `get_tree` reports
- * only `{path, type}`, so the client has no size, no mime type, and no way to
- * know what a file holds until it has already read it.
+ * Decided from the name because nothing else can decide it: `get_tree` carries
+ * no mime type, and there is no way to know what a file holds until it has
+ * already been read.
  *
  * SVG is deliberately absent. It is text, it previews fine in the normal
  * viewer, and rendering it as an image would mean handing the browser markup
@@ -94,6 +96,33 @@ const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "
  */
 export function isImageFile(name: string): boolean {
   return IMAGE_EXTENSIONS.has(extension(name));
+}
+
+const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
+
+/** Whether to render this as formatted markdown rather than a raw text dump. */
+export function isMarkdownFile(name: string): boolean {
+  return MARKDOWN_EXTENSIONS.has(extension(name));
+}
+
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
+
+/**
+ * Human-readable file size, e.g. "1.2 MB". `get_tree` carries no size field —
+ * the BFF merges one in via a direct `stat()` (see `file-stat.ts`), only for
+ * files, so callers only ever pass a defined byte count for something that
+ * actually has one.
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const precision = value < 10 ? 1 : 0;
+  return `${value.toFixed(precision)} ${BYTE_UNITS[unit]}`;
 }
 
 /**
