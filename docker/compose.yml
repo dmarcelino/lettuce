@@ -204,6 +204,13 @@ services:
       # plain host directory (like config/ and workspaces/) rather than an
       # opaque named volume, so it stays inspectable and backupable.
       - ../../bff-data:/app/data
+      # Same host directory the app-server mounts read-write at /work.
+      # Read-only here: the BFF only needs `stat()` to report real modified
+      # times for the Files tab (get_tree carries no mtime field, and the
+      # fork cannot be patched to add one — see CLAUDE.md). It never lists
+      # directories from this mount itself, only stats paths get_tree already
+      # returned, so it can't show anything get_tree wouldn't have.
+      - ../../workspaces:/work:ro
     restart: unless-stopped
 
   # Telegram and the other messaging channels. A separate process by design:

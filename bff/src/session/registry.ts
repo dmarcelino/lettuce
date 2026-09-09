@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
+import type {
+  GetTreeResponseMessage,
+  WsProtocolMessage,
+} from "@letta-ai/letta-code/app-server-protocol";
 import type { UpstreamConnection, UpstreamState } from "../upstream/connection.ts";
 import { FrameBuffer, frameScopeKey } from "./buffer.ts";
+import { withModifiedTimes } from "./file-stat.ts";
 import {
   ALLOWED_SESSION_COMMANDS,
   type BffServerMessage,
@@ -26,8 +30,12 @@ interface Session {
   socket: SessionSocket;
   /** Scopes this session cares about; empty means "everything". */
   scopes: Set<string>;
-  /** BFF request ids this session is awaiting, mapped to its own original id. */
-  pendingRequests: Map<string, string>;
+  /**
+   * BFF request ids this session is awaiting, mapped to its own original id.
+   * `path` is remembered only for `get_tree` requests, so the response
+   * handler can resolve entries' absolute paths for a `modified` stat.
+   */
+  pendingRequests: Map<string, { originalId: string; path?: string }>;
   /** Sliding-window timestamps for rate limiting. */
   recentCommands: number[];
   /** Set once the session is throttled, so we complain only once. */
@@ -196,7 +204,12 @@ export class SessionRegistry {
     if (typeof command.request_id === "string") {
       this.requestCounter += 1;
       const bffRequestId = `bff-${session.id.slice(0, 8)}-${this.requestCounter}`;
-      session.pendingRequests.set(bffRequestId, command.request_id);
+      session.pendingRequests.set(bffRequestId, {
+        originalId: command.request_id,
+        ...(command.type === "get_tree" && typeof command.path === "string"
+          ? { path: command.path }
+          : {}),
+      });
       outbound.request_id = bffRequestId;
     }
 
@@ -218,12 +231,18 @@ export class SessionRegistry {
     // A correlated response belongs to exactly one session.
     if (typeof requestId === "string") {
       for (const session of this.sessions.values()) {
-        const originalId = session.pendingRequests.get(requestId);
-        if (originalId === undefined) continue;
+        const pending = session.pendingRequests.get(requestId);
+        if (pending === undefined) continue;
         session.pendingRequests.delete(requestId);
+
+        const relayed =
+          pending.path !== undefined && frame.type === "get_tree_response"
+            ? withGetTreeModifiedTimes(frame, pending.path)
+            : frame;
+
         this.sendTo(session.socket, {
-          ...frame,
-          request_id: originalId,
+          ...relayed,
+          request_id: pending.originalId,
         } as unknown as BffServerMessage);
         return;
       }
@@ -323,4 +342,13 @@ export class SessionRegistry {
       // unregisters it; nothing upstream is affected.
     }
   }
+}
+
+/** Merge real mtimes into a `get_tree_response`'s entries; see `file-stat.ts`. */
+function withGetTreeModifiedTimes(
+  frame: GetTreeResponseMessage,
+  root: string,
+): GetTreeResponseMessage {
+  if (!frame.entries) return frame;
+  return { ...frame, entries: withModifiedTimes(root, frame.entries) };
 }

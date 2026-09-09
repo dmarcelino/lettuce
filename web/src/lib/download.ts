@@ -1,23 +1,34 @@
 /**
  * Getting a file the agent produced out of the browser it is being viewed in.
  *
- * The transport is `read_file` with `encoding: "base64"` — an option the
- * app-server documents as existing for exactly this, "binary reads such as
- * image previews on web clients". It is already on the BFF's browser allowlist
- * and already clamped to `/work`, so nothing here needs a new server surface.
+ * Previewing (image data URLs, text content in the Files tab) still goes
+ * through `read_file` with `encoding: "base64"` over the multiplexed WS
+ * session — that part needs the decoded bytes in JS to build a data URL or
+ * show text. An actual download does not: `/api/files/download` (bff/src)
+ * hands the browser a real URL with `Content-Disposition: attachment`, so the
+ * browser's own download manager does the work — no base64 decode, no blob.
  *
  * Size is not this module's problem: the app-server refuses a base64 read over
- * 25MB with a readable message, and the caller shows it.
+ * 25MB with a readable message, and the read_file call sites show it.
  */
 
-/** Decode a base64 payload into the bytes it stands for. */
-export function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+/** The BFF route that streams a workspace file as an attachment. */
+export function downloadUrl(path: string): string {
+  return `/api/files/download?path=${encodeURIComponent(path)}`;
+}
+
+/** Hand the browser a URL to download, without navigating the app away. */
+export function triggerDownload(url: string): void {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  // Opened in its own tab so a broken/hallucinated path shows its error there
+  // instead of navigating the SPA away.
+  anchor.target = "_blank";
+  anchor.rel = "noreferrer noopener";
+  // Firefox only honours a click on an anchor that is in the document.
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -61,11 +72,8 @@ function extension(name: string): string {
 }
 
 /**
- * Best-guess content type for a filename.
- *
- * The `download` attribute means the browser saves the bytes either way, so
- * this is mostly cosmetic — except on iOS, where a correct type is the
- * difference between previewing a PDF and being handed an opaque blob.
+ * Best-guess content type for a filename, used to build the `data:` URL an
+ * image preview renders from a base64 `read_file` response.
  */
 export function mimeTypeFor(name: string): string {
   return MIME_TYPES[extension(name)] ?? "application/octet-stream";
@@ -100,17 +108,4 @@ export function isImageFile(name: string): boolean {
  */
 export function isBinaryReadError(message: string): boolean {
   return message.includes("File is not valid UTF-8 text");
-}
-
-/** Hand bytes to the browser's download manager under a given filename. */
-export function saveBytes(name: string, bytes: Uint8Array, mime: string): void {
-  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = name;
-  // Firefox only honours a click on an anchor that is in the document.
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
 }
