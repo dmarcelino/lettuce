@@ -589,11 +589,19 @@ pre {
   overflow-wrap: anywhere;
   max-width: 100%;
 }
+/* Square the left corners before adding the accent bar: border-radius rounds
+   every corner, so a border-left with no other side set follows that curve
+   into a hooked bracket shape instead of a flat vertical line. */
+.entry.notice.warning pre,
+.entry.notice.error pre {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
 .entry.notice.warning pre {
-  border-left: 2px solid var(--warn);
+  border-left: 3px solid var(--warn);
 }
 .entry.notice.error pre {
-  border-left: 2px solid var(--bad);
+  border-left: 3px solid var(--bad);
 }
 .entry.notice.dim pre {
   opacity: 0.6;
