@@ -242,8 +242,14 @@ function Workspace({ status }: { status: Status }) {
 
       {conversation.approvals.length > 0 ? (
         <ApprovalSheet
+          // Keyed by request id so a fresh approval always mounts fresh —
+          // without this, answering one question mid-form and moving straight
+          // to the next queued approval reused the same component instance,
+          // carrying over its denying/reason/selection state.
+          key={conversation.approvals[0]!.requestId}
           approval={conversation.approvals[0]!}
           onRespond={conversation.respondToApproval}
+          onAnswerQuestions={conversation.answerQuestions}
         />
       ) : null}
 

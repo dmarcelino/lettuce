@@ -74,6 +74,21 @@ export interface ConversationApi {
   sendMessage: (text: string) => Promise<void>;
   abort: () => Promise<void>;
   respondToApproval: (requestId: string, approve: boolean, reason?: string) => void;
+  /**
+   * `AskUserQuestion` gets no special protocol treatment — it arrives as an
+   * ordinary `approval_request_message`, and plain allow/deny re-runs the
+   * tool with its original `input`, which has no way to carry the user's
+   * answers back in. `updated_input` is the generic escape hatch every
+   * allow decision already supports (see `ApprovalResponseAllowDecision` in
+   * the fork's protocol_v2.ts); the Telegram gateway answers this same tool
+   * the same way (`channels/interactive.ts`, `buildAllowResponse` with
+   * `updated_input: {...input, answers}}`).
+   */
+  answerQuestions: (
+    requestId: string,
+    input: Record<string, unknown>,
+    answers: Record<string, string>,
+  ) => void;
   removeQueued: (itemId: string) => void;
   runCommand: (commandId: string, args?: string) => void;
   reload: () => Promise<void>;
@@ -535,6 +550,23 @@ export function useConversation(
     [scope, send],
   );
 
+  const answerQuestions = useCallback(
+    (requestId: string, input: Record<string, unknown>, answers: Record<string, string>) => {
+      if (!scope) return;
+      send({
+        type: "input",
+        runtime: scope,
+        payload: {
+          kind: "approval_response",
+          request_id: requestId,
+          decision: { behavior: "allow", updated_input: { ...input, answers } },
+        },
+      });
+      setApprovals((current) => current.filter((a) => a.requestId !== requestId));
+    },
+    [scope, send],
+  );
+
   const removeQueued = useCallback(
     (itemId: string) => {
       if (!scope) return;
@@ -591,6 +623,7 @@ export function useConversation(
     sendMessage,
     abort,
     respondToApproval,
+    answerQuestions,
     removeQueued,
     runCommand,
     skillsStale,
