@@ -52,7 +52,7 @@ export function ApprovalSheet({ approval, onRespond }: Props) {
 
   return (
     <div className="sheet">
-      <div className="sheet-panel" role="dialog" aria-modal="true">
+      <div className="sheet-panel sheet-spacious" role="dialog" aria-modal="true">
         <div className="sheet-body">
           <h2>Approve {approval.toolName}?</h2>
 

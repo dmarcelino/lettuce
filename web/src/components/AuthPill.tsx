@@ -30,6 +30,7 @@ export function AuthPill({ email }: Props) {
       {open ? (
         <Sheet
           title="Unauthenticated (dev bypass)"
+          size="compact"
           onClose={() => setOpen(false)}
           actions={
             <button type="button" className="button ghost" onClick={() => setOpen(false)}>

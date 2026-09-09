@@ -149,6 +149,7 @@ export function MemoryTab({ session, agentId }: Props) {
         <Sheet
           title={open.relative_path}
           fill
+          size="spacious"
           onClose={() => setOpen(null)}
           actions={
             <>

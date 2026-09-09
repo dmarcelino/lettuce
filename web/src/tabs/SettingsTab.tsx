@@ -322,6 +322,7 @@ function ConnectionSection({ session }: { session: SessionApi }) {
       {editing ? (
         <Sheet
           title={editing.display_name}
+          size="compact"
           onClose={() => setEditing(null)}
           actions={
             <>

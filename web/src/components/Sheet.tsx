@@ -13,6 +13,13 @@ interface Props {
    * sheet. No effect on a phone, where sheets are full-width already.
    */
   fill?: boolean;
+  /**
+   * Resize floor, on desktop only (see `size` in styles.css): "compact" for a
+   * notice or a 1-3 field form, "spacious" for a document (usually paired with
+   * `fill`) or something as open-ended as a diff review. Omitted means
+   * "standard" — a picker list or an ordinary form — which is most callers.
+   */
+  size?: "compact" | "spacious";
   actions: ReactNode;
   children: ReactNode;
 }
@@ -24,7 +31,7 @@ interface Props {
  * Not used by ApprovalSheet, which is deliberately undismissable — an approval
  * has to be answered, not escaped.
  */
-export function Sheet({ title, onClose, status, fill = false, actions, children }: Props) {
+export function Sheet({ title, onClose, status, fill = false, size, actions, children }: Props) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -40,7 +47,7 @@ export function Sheet({ title, onClose, status, fill = false, actions, children 
           click handler bolted onto a presentational div. */}
       <button type="button" className="sheet-scrim" aria-label="Close" onClick={onClose} />
       <div
-        className={`sheet-panel${fill ? " fill" : ""}`}
+        className={`sheet-panel${fill ? " fill" : ""}${size ? ` sheet-${size}` : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
