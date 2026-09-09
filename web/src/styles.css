@@ -1275,6 +1275,27 @@ button {
   opacity: 1;
 }
 
+/* The sortable column-header row above the list; not a <li>, so it needs its
+   own border where .list > li normally gets one. */
+.file-row-head {
+  border-bottom: 1px solid var(--border);
+}
+.file-row-head .link {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.file-modified {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  padding-right: 8px;
+}
+
 /* Fits the sheet at any width without pushing the actions off the bottom. */
 .file-preview {
   display: block;

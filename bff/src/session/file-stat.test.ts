@@ -1,0 +1,43 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { withModifiedTimes } from "./file-stat.ts";
+
+/**
+ * `get_tree` reports paths relative to its root — these assert the join
+ * mirrors `FilesTab.tsx`'s own `resolve()`, and that a stat failure degrades
+ * to "no modified field" rather than breaking the whole response, since
+ * `get_tree` and this stat call race against the same filesystem.
+ */
+describe("withModifiedTimes", () => {
+  const root = mkdtempSync(join(tmpdir(), "file-stat-test-"));
+  const knownMtime = new Date("2024-01-01T00:00:00Z");
+  writeFileSync(join(root, "notes.md"), "hello");
+  utimesSync(join(root, "notes.md"), knownMtime, knownMtime);
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("attaches a real mtime for an entry that exists", () => {
+    const [entry] = withModifiedTimes(root, [{ path: "notes.md", type: "file" }]);
+    expect(entry?.modified).toBe(knownMtime.getTime());
+  });
+
+  test("resolves a root ending in a slash the same as one that doesn't", () => {
+    const [entry] = withModifiedTimes(`${root}/`, [{ path: "notes.md", type: "file" }]);
+    expect(entry?.modified).toBe(knownMtime.getTime());
+  });
+
+  test("omits `modified` for a path that does not exist, without throwing", () => {
+    const [entry] = withModifiedTimes(root, [{ path: "missing.md", type: "file" }]);
+    expect(entry?.modified).toBeUndefined();
+    expect(entry?.path).toBe("missing.md");
+  });
+
+  test("leaves every other field untouched", () => {
+    const [entry] = withModifiedTimes(root, [{ path: "notes.md", type: "file", extra: "kept" }]);
+    expect(entry).toMatchObject({ path: "notes.md", type: "file", extra: "kept" });
+  });
+});

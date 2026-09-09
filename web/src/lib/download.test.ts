@@ -1,22 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { base64ToBytes, isBinaryReadError, isImageFile, mimeTypeFor } from "./download.ts";
+import { downloadUrl, isBinaryReadError, isImageFile, mimeTypeFor } from "./download.ts";
 
-describe("base64ToBytes", () => {
-  test("round-trips text", () => {
-    const bytes = base64ToBytes(btoa("hello"));
-    expect(new TextDecoder().decode(bytes)).toBe("hello");
+describe("downloadUrl", () => {
+  test("builds a URL the BFF's download route understands", () => {
+    expect(downloadUrl("/work/agent-1/report.pdf")).toBe(
+      "/api/files/download?path=%2Fwork%2Fagent-1%2Freport.pdf",
+    );
   });
 
-  test("round-trips bytes above 127, which is the whole point", () => {
-    // A docx is a zip; these are its first four bytes plus a high byte. Getting
-    // this wrong is the classic "downloaded file is corrupt" bug.
-    const original = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff, 0x00, 0x80, 0xfe]);
-    const base64 = btoa(String.fromCharCode(...original));
-    expect([...base64ToBytes(base64)]).toEqual([...original]);
-  });
-
-  test("an empty payload is an empty file, not an error", () => {
-    expect(base64ToBytes("")).toHaveLength(0);
+  test("encodes characters that would otherwise break the query string", () => {
+    expect(downloadUrl("/work/agent-1/a b & c.txt")).toBe(
+      "/api/files/download?path=%2Fwork%2Fagent-1%2Fa%20b%20%26%20c.txt",
+    );
   });
 });
 

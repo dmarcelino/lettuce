@@ -1,4 +1,8 @@
-import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
+import { randomUUID } from "node:crypto";
+import type {
+  ReadFileResponseMessage,
+  WsProtocolMessage,
+} from "@letta-ai/letta-code/app-server-protocol";
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
@@ -16,6 +20,7 @@ import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
 import { configureWebPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnCompletionWatcher } from "./push/turn-watcher.ts";
+import { workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 
@@ -196,6 +201,49 @@ app.post("/push/unsubscribe", async (c) => {
 
   pushStore.remove(endpoint);
   return c.json({ ok: true });
+});
+
+// A real HTTP URL for a workspace file, so a chat-message link or the Files
+// tab can hand the browser a plain download instead of driving the read_file
+// WS command itself. Goes through the app-server exactly like every other
+// file command — no new upstream surface, just a new way to reach the
+// existing one over HTTP instead of the browser's multiplexed WS session.
+app.get("/api/files/download", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+
+  const path = c.req.query("path");
+  if (!path) return c.text("Missing path", 400);
+
+  const violation = workspaceViolation({ type: "read_file", path });
+  if (violation) return c.text(violation, 400);
+
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+
+  let response: ReadFileResponseMessage;
+  try {
+    response = await upstream.request<ReadFileResponseMessage>({
+      type: "read_file",
+      path,
+      request_id: `bff-download-${randomUUID()}`,
+      encoding: "base64",
+    });
+  } catch (error) {
+    return c.text(error instanceof Error ? error.message : String(error), 502);
+  }
+
+  if (!response.success || typeof response.content !== "string") {
+    return c.text(response.error ?? "Failed to read file", 404);
+  }
+
+  const bytes = Buffer.from(response.content, "base64");
+  const filename = (path.split("/").pop() || "download").replaceAll('"', "");
+  return new Response(new Uint8Array(bytes), {
+    headers: {
+      "content-type": "application/octet-stream",
+      "content-disposition": `attachment; filename="${filename}"`,
+      "content-length": String(bytes.length),
+    },
+  });
 });
 
 // ── Static SPA ───────────────────────────────────────────────────────────────

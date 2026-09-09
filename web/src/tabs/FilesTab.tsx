@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import {
-  base64ToBytes,
+  downloadUrl,
   isBinaryReadError,
   isImageFile,
   mimeTypeFor,
-  saveBytes,
+  triggerDownload,
 } from "../lib/download.ts";
 import { agentWorkspace, WORKSPACE_ROOT } from "../lib/workspace.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -15,7 +15,12 @@ interface TreeEntry {
   /** Relative to the requested root, not absolute. */
   path: string;
   type: "file" | "dir";
+  /** Epoch ms, merged in by the BFF via a direct stat() — see file-stat.ts. */
+  modified?: number;
 }
+
+type SortKey = "name" | "modified";
+type SortDir = "asc" | "desc";
 
 interface GrepMatch {
   path: string;
@@ -65,6 +70,27 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<GrepMatch[] | null>(null);
   const [status, setStatus] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedEntries = useMemo(() => {
+    const factor = sortDir === "asc" ? 1 : -1;
+    return [...entries].sort((a, b) => {
+      if (sortKey === "modified") {
+        return ((a.modified ?? 0) - (b.modified ?? 0)) * factor;
+      }
+      return a.path.localeCompare(b.path) * factor;
+    });
+  }, [entries, sortKey, sortDir]);
 
   useEffect(() => {
     if (root) return;
@@ -122,31 +148,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
     error?: string;
   }
 
-  /**
-   * Pull a file down as bytes.
-   *
-   * Always base64 — that is the only encoding that survives a docx or a pdf
-   * intact, and the app-server offers it precisely so a web client can do this.
-   * A refusal (missing file, or the 25MB base64 cap upstream) arrives as
-   * `success: false` and goes to the status line rather than being swallowed.
-   */
-  const downloadFile = async (path: string) => {
-    const name = basename(path);
-    setStatus(`Downloading ${name}…`);
-    try {
-      const response = await session.request<ReadResponse>("read_file", {
-        path,
-        encoding: "base64",
-      });
-      if (response?.success === false || typeof response?.content !== "string") {
-        setStatus(response?.error ?? "Failed to read file");
-        return;
-      }
-      saveBytes(name, base64ToBytes(response.content), mimeTypeFor(name));
-      setStatus("");
-    } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
-    }
+  /** Hand the file to the browser's download manager via the BFF's HTTP route. */
+  const downloadFile = (path: string) => {
+    triggerDownload(downloadUrl(path));
   };
 
   /**
@@ -199,7 +203,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         const error = response.error ?? "Failed to read file";
         if (isBinaryReadError(error)) {
           setSelected(null);
-          await downloadFile(path);
+          downloadFile(path);
           return;
         }
         setStatus(error);
@@ -303,42 +307,59 @@ export function FilesTab({ session, cwd, agentId }: Props) {
           ))}
         </ul>
       ) : (
-        <ul className="list">
-          {entries.map((entry) => {
-            const absolute = resolve(root, entry.path);
-            return (
-              <li key={entry.path} className="file-row">
-                {/* Name and download are siblings, not nested: a button cannot
-                    contain a button, which is why the whole row used to be one. */}
-                <button
-                  type="button"
-                  className="row grow-row"
-                  onClick={() => {
-                    if (entry.type === "dir") setRoot(absolute);
-                    else void openFile(absolute);
-                  }}
-                >
-                  <Icon name={entry.type === "dir" ? "folder" : "file"} />
-                  {entry.path}
-                </button>
-                {/* Directories have nothing to hand over: there is no archive
-                    command in the protocol, so ask the agent to tar one. */}
-                {entry.type === "file" ? (
+        <>
+          <div className="file-row file-row-head">
+            <button type="button" className="link grow-row" onClick={() => toggleSort("name")}>
+              Name{sortKey === "name" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+            </button>
+            <button
+              type="button"
+              className="link file-modified"
+              onClick={() => toggleSort("modified")}
+            >
+              Modified{sortKey === "modified" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+            </button>
+          </div>
+          <ul className="list">
+            {sortedEntries.map((entry) => {
+              const absolute = resolve(root, entry.path);
+              return (
+                <li key={entry.path} className="file-row">
+                  {/* Name and download are siblings, not nested: a button cannot
+                      contain a button, which is why the whole row used to be one. */}
                   <button
                     type="button"
-                    className="icon-button ghost"
-                    title={`Download ${entry.path}`}
-                    aria-label={`Download ${entry.path}`}
-                    onClick={() => void downloadFile(absolute)}
+                    className="row grow-row"
+                    onClick={() => {
+                      if (entry.type === "dir") setRoot(absolute);
+                      else void openFile(absolute);
+                    }}
                   >
-                    <Icon name="download" />
+                    <Icon name={entry.type === "dir" ? "folder" : "file"} />
+                    {entry.path}
                   </button>
-                ) : null}
-              </li>
-            );
-          })}
-          {entries.length === 0 && !status ? <li className="muted pad">Empty</li> : null}
-        </ul>
+                  <span className="muted small file-modified">
+                    {entry.modified ? new Date(entry.modified).toLocaleString() : "—"}
+                  </span>
+                  {/* Directories have nothing to hand over: there is no archive
+                      command in the protocol, so ask the agent to tar one. */}
+                  {entry.type === "file" ? (
+                    <button
+                      type="button"
+                      className="icon-button ghost"
+                      title={`Download ${entry.path}`}
+                      aria-label={`Download ${entry.path}`}
+                      onClick={() => downloadFile(absolute)}
+                    >
+                      <Icon name="download" />
+                    </button>
+                  ) : null}
+                </li>
+              );
+            })}
+            {entries.length === 0 && !status ? <li className="muted pad">Empty</li> : null}
+          </ul>
+        </>
       )}
 
       {selected && (content !== null || image !== null) ? (
@@ -348,7 +369,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
           onClose={() => setSelected(null)}
           actions={
             <>
-              <button type="button" className="button" onClick={() => void downloadFile(selected)}>
+              <button type="button" className="button" onClick={() => downloadFile(selected)}>
                 Download
               </button>
               <button type="button" className="button ghost" onClick={() => setSelected(null)}>

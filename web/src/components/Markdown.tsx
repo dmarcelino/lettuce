@@ -1,5 +1,7 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { downloadUrl } from "../lib/download.ts";
+import { WORKSPACE_ROOT } from "../lib/workspace.ts";
 
 /**
  * Model output is markdown, so render it as such.
@@ -11,9 +13,20 @@ import remarkGfm from "remark-gfm";
  */
 const COMPONENTS: Components = {
   // Links leave the app, so they open in a new tab and cannot leak the
-  // referrer or hand the opened page a handle on this window.
-  a: ({ children, ...props }) => (
-    <a {...props} target="_blank" rel="noreferrer noopener">
+  // referrer or hand the opened page a handle on this window. A link to a
+  // file the agent produced (always an absolute /work/<agent-id>/... path —
+  // that's the only path form the file protocol and cwd ever give it) is
+  // rewritten to the BFF's download route instead: the SPA has no route at
+  // that path, so left alone the click just landed on a blank tab.
+  a: ({ children, href, ...props }) => (
+    <a
+      {...props}
+      href={
+        typeof href === "string" && href.startsWith(`${WORKSPACE_ROOT}/`) ? downloadUrl(href) : href
+      }
+      target="_blank"
+      rel="noreferrer noopener"
+    >
       {children}
     </a>
   ),
