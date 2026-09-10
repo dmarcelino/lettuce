@@ -17,6 +17,7 @@ import {
   type SessionPayload,
 } from "./auth/session-cookie.ts";
 import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
+import { inlineContentType } from "./files/content-type.ts";
 import { configureWebPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnCompletionWatcher } from "./push/turn-watcher.ts";
@@ -237,10 +238,13 @@ app.get("/api/files/download", async (c) => {
 
   const bytes = Buffer.from(response.content, "base64");
   const filename = (path.split("/").pop() || "download").replaceAll('"', "");
+  // `?inline=1` (chat-message links) asks for a viewable response; only PDFs
+  // and raster images actually get one — see `inlineContentType`.
+  const inlineType = c.req.query("inline") != null ? inlineContentType(filename) : null;
   return new Response(new Uint8Array(bytes), {
     headers: {
-      "content-type": "application/octet-stream",
-      "content-disposition": `attachment; filename="${filename}"`,
+      "content-type": inlineType ?? "application/octet-stream",
+      "content-disposition": `${inlineType ? "inline" : "attachment"}; filename="${filename}"`,
       "content-length": String(bytes.length),
     },
   });

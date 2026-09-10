@@ -363,6 +363,53 @@ if (agent2) {
     rf.error,
   );
 
+  // The chat transcript's file links go through this HTTP route, not the WS
+  // file protocol. Plain: an attachment. `?inline=1` (used by message links):
+  // a viewable response, but only for PDFs and images — a .md stays an
+  // attachment so agent-authored markup never renders on the BFF origin.
+  const dlUrl = `${ORIGIN}/api/files/download?path=${encodeURIComponent(probeFile)}`;
+  const dl = await fetch(dlUrl, { headers: { cookie } });
+  const dlBody = await dl.text();
+  check(
+    "GET /api/files/download streams the file as an attachment",
+    dl.status === 200 &&
+      dlBody.includes("findable-token") &&
+      (dl.headers.get("content-disposition") ?? "").startsWith("attachment"),
+    { status: dl.status, disposition: dl.headers.get("content-disposition") },
+  );
+
+  const dlMdInline = await fetch(`${dlUrl}&inline=1`, { headers: { cookie } });
+  await dlMdInline.text();
+  check(
+    "inline=1 on a .md is still an octet-stream attachment",
+    dlMdInline.status === 200 &&
+      (dlMdInline.headers.get("content-disposition") ?? "").startsWith("attachment") &&
+      (dlMdInline.headers.get("content-type") ?? "").startsWith("application/octet-stream"),
+    {
+      disposition: dlMdInline.headers.get("content-disposition"),
+      type: dlMdInline.headers.get("content-type"),
+    },
+  );
+
+  const pdfProbe = `${cwd}/smoke-probe.pdf`;
+  e.send({ type: "write_file", request_id: "wfp", path: pdfProbe, content: "%PDF-1.4 smoke\n" });
+  await e.waitFor((f) => f.request_id === "wfp");
+  const dlPdfInline = await fetch(
+    `${ORIGIN}/api/files/download?path=${encodeURIComponent(pdfProbe)}&inline=1`,
+    { headers: { cookie } },
+  );
+  await dlPdfInline.text();
+  check(
+    "inline=1 on a .pdf serves application/pdf inline",
+    dlPdfInline.status === 200 &&
+      (dlPdfInline.headers.get("content-disposition") ?? "").startsWith("inline") &&
+      (dlPdfInline.headers.get("content-type") ?? "") === "application/pdf",
+    {
+      disposition: dlPdfInline.headers.get("content-disposition"),
+      type: dlPdfInline.headers.get("content-type"),
+    },
+  );
+
   e.send({
     type: "grep_in_files",
     request_id: "gf",

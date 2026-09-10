@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { clearDraft, readDraft, writeDraft } from "../lib/draft.ts";
 import type { FilterGroup } from "../lib/messages.ts";
 import {
   matchSlashCommands,
@@ -13,6 +14,12 @@ import { Icon } from "./Icon.tsx";
 interface Props {
   disabled: boolean;
   processing: boolean;
+  /**
+   * `<agentId>::<conversationId>`, or `null` with no conversation selected.
+   * The composer unmounts on every tab switch, so what was typed is kept
+   * under this key and restored on the way back. See `lib/draft.ts`.
+   */
+  draftKey: string | null;
   onSend: (text: string) => void;
   onAbort: () => void;
   /** A stop was accepted but the turn has not ended yet. */
@@ -39,6 +46,7 @@ type OpenSheet = "filters" | "permissions" | "commands" | null;
 export function Composer({
   disabled,
   processing,
+  draftKey,
   onSend,
   onAbort,
   stopping,
@@ -52,12 +60,35 @@ export function Composer({
   onOpenModels,
   modelsDisabled,
 }: Props) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   const [sheet, setSheet] = useState<OpenSheet>(null);
   const [highlight, setHighlight] = useState(0);
   /** Escape closes the popover without clearing what was typed. */
   const [dismissed, setDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  /** Persist every edit so a tab switch (which unmounts this) does not lose it. */
+  const remember = (next: string) => {
+    if (draftKey) writeDraft(draftKey, next);
+  };
+
+  // Switching conversation without leaving the Chat tab keeps this mounted, so
+  // the lazy initialiser above never re-runs — reload the draft for the new
+  // conversation here. (Also runs on mount, harmlessly setting the same value.)
+  useEffect(() => {
+    setValue(draftKey ? readDraft(draftKey) : "");
+    setHighlight(0);
+    setDismissed(false);
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    // The restored value has not hit the DOM yet; grow to fit it after paint,
+    // the same clamp `onChange` uses, so a multi-line draft is not squashed.
+    const frame = requestAnimationFrame(() => {
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [draftKey]);
 
   const suggestions = disabled || dismissed ? [] : matchSlashCommands(value, commands);
   const highlighted = suggestions.length > 0 ? Math.min(highlight, suggestions.length - 1) : -1;
@@ -65,6 +96,7 @@ export function Composer({
 
   const reset = () => {
     setValue("");
+    if (draftKey) clearDraft(draftKey);
     setHighlight(0);
     setDismissed(false);
     const textarea = textareaRef.current;
@@ -74,6 +106,7 @@ export function Composer({
   /** Fill the box with a command name and leave the caret ready for its args. */
   const complete = (id: string) => {
     setValue(`/${id} `);
+    remember(`/${id} `);
     setHighlight(0);
     textareaRef.current?.focus();
   };
@@ -174,6 +207,7 @@ export function Composer({
           disabled={disabled}
           onChange={(event) => {
             setValue(event.target.value);
+            remember(event.target.value);
             setHighlight(0);
             setDismissed(false);
             const textarea = event.target;
