@@ -199,141 +199,145 @@ export function Composer({
           </ul>
         ) : null}
 
-        <textarea
-          ref={textareaRef}
-          value={value}
-          rows={1}
-          placeholder={disabled ? "Select a conversation" : "Message the agent…"}
-          disabled={disabled}
-          onChange={(event) => {
-            setValue(event.target.value);
-            remember(event.target.value);
-            setHighlight(0);
-            setDismissed(false);
-            const textarea = event.target;
-            textarea.style.height = "auto";
-            textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
-          }}
-          onKeyDown={(event) => {
-            // An IME mid-composition owns every key; the send button is still
-            // there for anyone who needs it.
-            if (event.nativeEvent.isComposing) return;
+        <div className="composer-box">
+          <textarea
+            ref={textareaRef}
+            value={value}
+            rows={1}
+            placeholder={disabled ? "Select a conversation" : "Message the agent…"}
+            disabled={disabled}
+            onChange={(event) => {
+              setValue(event.target.value);
+              remember(event.target.value);
+              setHighlight(0);
+              setDismissed(false);
+              const textarea = event.target;
+              textarea.style.height = "auto";
+              textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+            }}
+            onKeyDown={(event) => {
+              // An IME mid-composition owns every key; the send button is still
+              // there for anyone who needs it.
+              if (event.nativeEvent.isComposing) return;
 
-            if (active) {
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                event.preventDefault();
-                const step = event.key === "ArrowDown" ? 1 : -1;
-                setHighlight((highlighted + step + suggestions.length) % suggestions.length);
-                return;
+              if (active) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  const step = event.key === "ArrowDown" ? 1 : -1;
+                  setHighlight((highlighted + step + suggestions.length) % suggestions.length);
+                  return;
+                }
+                if (event.key === "Tab") {
+                  event.preventDefault();
+                  complete(active.id);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setDismissed(true);
+                  return;
+                }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  // The popover is open, so Enter takes the highlighted command
+                  // rather than sending a half-typed name to the agent.
+                  event.preventDefault();
+                  choose(active);
+                  return;
+                }
               }
-              if (event.key === "Tab") {
-                event.preventDefault();
-                complete(active.id);
-                return;
-              }
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setDismissed(true);
-                return;
-              }
+
+              // Enter sends; Shift+Enter is a newline. On touch keyboards Enter is
+              // usually a newline key, so the send button carries the same action.
               if (event.key === "Enter" && !event.shiftKey) {
-                // The popover is open, so Enter takes the highlighted command
-                // rather than sending a half-typed name to the agent.
                 event.preventDefault();
-                choose(active);
-                return;
+                submit();
               }
-            }
+            }}
+            aria-controls={active ? "composer-suggestions" : undefined}
+            aria-activedescendant={active ? `composer-suggestion-${active.id}` : undefined}
+          />
 
-            // Enter sends; Shift+Enter is a newline. On touch keyboards Enter is
-            // usually a newline key, so the send button carries the same action.
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-          aria-controls={active ? "composer-suggestions" : undefined}
-          aria-activedescendant={active ? `composer-suggestion-${active.id}` : undefined}
-        />
+          <div className="composer-row">
+            <button
+              type="button"
+              className={`icon-button flat${filters.size > 0 ? " on" : ""}`}
+              onClick={() => setSheet("filters")}
+              title={
+                filters.size > 0 ? `Filters (${filters.size} active)` : "Filter the transcript"
+              }
+              aria-label={
+                filters.size > 0 ? `Filters, ${filters.size} active` : "Filter the transcript"
+              }
+            >
+              <Icon name="filter" />
+              {filters.size > 0 ? <span className="badge">{filters.size}</span> : null}
+            </button>
 
-        <div className="composer-row">
-          <button
-            type="button"
-            className={`icon-button flat${filters.size > 0 ? " on" : ""}`}
-            onClick={() => setSheet("filters")}
-            title={filters.size > 0 ? `Filters (${filters.size} active)` : "Filter the transcript"}
-            aria-label={
-              filters.size > 0 ? `Filters, ${filters.size} active` : "Filter the transcript"
-            }
-          >
-            <Icon name="filter" />
-            {filters.size > 0 ? <span className="badge">{filters.size}</span> : null}
-          </button>
-
-          {/* Icon only: the shield's colour carries the mode, ordered by how
+            {/* Icon only: the shield's colour carries the mode, ordered by how
               much the agent may do without asking. Colour is never the sole
               channel — the accessible name spells the mode out, and the sheet
               marks the current one. */}
-          <button
-            type="button"
-            className={`icon-button flat mode-${permissionMode ?? "unknown"}`}
-            disabled={disabled}
-            onClick={() => setSheet("permissions")}
-            title={`Permission mode: ${modeLabel}`}
-            aria-label={`Permission mode: ${modeLabel}`}
-          >
-            <Icon name="shield" />
-          </button>
-
-          <button
-            type="button"
-            className="icon-button flat"
-            disabled={disabled}
-            onClick={() => setSheet("commands")}
-            title="Run a command"
-            aria-label="Run a command"
-          >
-            <Icon name="slash" />
-          </button>
-
-          <button
-            type="button"
-            className="icon-button flat"
-            disabled={modelsDisabled}
-            onClick={onOpenModels}
-            title="Model for this conversation"
-            aria-label="Model for this conversation"
-          >
-            <Icon name="model" />
-          </button>
-
-          <span className="spacer" />
-
-          {processing ? (
-            // A second abort while the first is still unwinding is a guaranteed
-            // no-op upstream (`handleAbortMessageInput` returns early once the
-            // turn lifecycle is `cancelling`), so the button stops offering it.
             <button
               type="button"
-              className={`icon-button stop${stopping ? " pending" : ""}`}
-              onClick={onAbort}
-              disabled={stopping}
-              title={stopping ? "Stopping…" : "Stop"}
-              aria-label={stopping ? "Stopping" : "Stop generating"}
+              className={`icon-button flat mode-${permissionMode ?? "unknown"}`}
+              disabled={disabled}
+              onClick={() => setSheet("permissions")}
+              title={`Permission mode: ${modeLabel}`}
+              aria-label={`Permission mode: ${modeLabel}`}
             >
-              <Icon name="stop" />
+              <Icon name="shield" />
             </button>
-          ) : (
+
             <button
-              type="submit"
-              className="icon-button send"
-              disabled={disabled || !value.trim()}
-              title="Send"
-              aria-label="Send message"
+              type="button"
+              className="icon-button flat"
+              disabled={disabled}
+              onClick={() => setSheet("commands")}
+              title="Run a command"
+              aria-label="Run a command"
             >
-              <Icon name="send" />
+              <Icon name="slash" />
             </button>
-          )}
+
+            <button
+              type="button"
+              className="icon-button flat"
+              disabled={modelsDisabled}
+              onClick={onOpenModels}
+              title="Model for this conversation"
+              aria-label="Model for this conversation"
+            >
+              <Icon name="model" />
+            </button>
+
+            <span className="spacer" />
+
+            {processing ? (
+              // A second abort while the first is still unwinding is a guaranteed
+              // no-op upstream (`handleAbortMessageInput` returns early once the
+              // turn lifecycle is `cancelling`), so the button stops offering it.
+              <button
+                type="button"
+                className={`icon-button stop${stopping ? " pending" : ""}`}
+                onClick={onAbort}
+                disabled={stopping}
+                title={stopping ? "Stopping…" : "Stop"}
+                aria-label={stopping ? "Stopping" : "Stop generating"}
+              >
+                <Icon name="stop" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="icon-button send"
+                disabled={disabled || !value.trim()}
+                title="Send"
+                aria-label="Send message"
+              >
+                <Icon name="send" />
+              </button>
+            )}
+          </div>
         </div>
       </form>
 
