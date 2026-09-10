@@ -270,10 +270,7 @@ function MessageItem({
       {entry.kind !== "user" ? <span className="tag">{label}</span> : null}
       {/* Arrived from Telegram/Slack rather than typed here — still you. */}
       {entry.channel ? <span className="tag">via {entry.channel}</span> : null}
-      <div className={`bubble ${entry.kind}`}>
-        {md(entry.text)}
-        {entry.streaming ? <span className="caret" /> : null}
-      </div>
+      <div className={`bubble ${entry.kind}`}>{md(entry.text)}</div>
     </div>
   );
 }

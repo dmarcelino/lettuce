@@ -538,11 +538,16 @@ pre {
   max-height: 320px;
 }
 
-.entry.tool_return.error .tool-args {
-  border-left: 2px solid var(--bad);
+/* Match the transcript warning notice (`.entry.notice.warning pre`): a 3px
+   accent bar with the left corners squared off, so an error tool result and a
+   warning read as the same shape in the column. */
+.entry.tool_return.error .tool-args,
+.tool-args.stderr {
+  border-left: 3px solid var(--bad);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 .tool-args.stderr {
-  border-left: 2px solid var(--bad);
   color: var(--bad);
 }
 
@@ -605,22 +610,6 @@ pre {
 }
 .entry.notice.dim pre {
   opacity: 0.6;
-}
-
-.caret {
-  display: inline-block;
-  width: 7px;
-  height: 1em;
-  background: currentColor;
-  opacity: 0.6;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  animation: blink 1s steps(2, start) infinite;
-}
-@keyframes blink {
-  to {
-    visibility: hidden;
-  }
 }
 
 .working {
