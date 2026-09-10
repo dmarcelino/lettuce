@@ -1,19 +1,21 @@
 import { useState } from "react";
 import type { RuntimeScope } from "../lib/protocol.ts";
-import { type ModelEntry, useCurrentModel, useModels } from "../state/use-models.ts";
+import { type ModelEntry, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Sheet } from "./Sheet.tsx";
 
 interface Props {
   session: SessionApi;
   scope: RuntimeScope | null;
+  /** Lifted to App so the composer button reflects a switch made here. */
+  currentModel: { handle: string | null; setHandle: (handle: string | null) => void };
   onClose: () => void;
 }
 
 /** Applies to the conversation, not the agent, so each thread can differ. */
-export function ModelPicker({ session, scope, onClose }: Props) {
+export function ModelPicker({ session, scope, currentModel, onClose }: Props) {
   const models = useModels(session);
-  const current = useCurrentModel(session, scope?.agent_id ?? null, scope?.conversation_id ?? null);
+  const current = currentModel;
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

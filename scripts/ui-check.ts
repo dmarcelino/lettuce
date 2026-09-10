@@ -144,11 +144,16 @@ try {
 
     // The composer is the single control surface; each control must exist and
     // be an icon button with an accessible name.
-    for (const label of ["Filter the transcript", "Run a command", "Model for this conversation"]) {
+    for (const label of ["Filter the transcript", "Run a command"]) {
       const button = page.locator(`.composer-row button[aria-label="${label}"]`);
       check(`composer has "${label}"`, (await button.count()) === 1);
       check(`"${label}" is an icon button`, (await button.locator("svg.icon").count()) === 1);
     }
+    // The model button's accessible name gains the model in force once one is
+    // known ("Model: <name>"), so match on the prefix.
+    const model = page.locator('.composer-row button[aria-label^="Model"]');
+    check("composer has a model button", (await model.count()) === 1);
+    check("model button is an icon button", (await model.locator("svg.icon").count()) === 1);
     const permission = page.locator('.composer-row button[aria-label^="Permission mode"]');
     check("composer has a permission-mode button", (await permission.count()) === 1);
     check(

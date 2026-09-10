@@ -851,6 +851,16 @@ pre {
   color: var(--accent);
 }
 
+/* The model button carries the model in force as a label on desktop; the phone
+   block below hides it, leaving the icon. */
+.model-name {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
 /* The send button must stay reachable however far the chips scroll. */
 .composer-row .icon-button.send,
 .composer-row .icon-button.stop {
@@ -1171,6 +1181,11 @@ p.warning code {
 /* ── Phone ───────────────────────────────────────────────────────────────── */
 
 @media (max-width: 899px) {
+  /* Not enough room for a model name next to the controls — icon only. */
+  .composer-row .model-name {
+    display: none;
+  }
+
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;

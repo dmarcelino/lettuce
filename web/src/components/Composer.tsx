@@ -33,6 +33,8 @@ interface Props {
   onRunCommand: (id: string, args?: string) => void;
   onOpenModels: () => void;
   modelsDisabled: boolean;
+  /** The model in force for this conversation; shown on the button on desktop. */
+  modelLabel: string | null;
 }
 
 type OpenSheet = "filters" | "permissions" | "commands" | null;
@@ -59,6 +61,7 @@ export function Composer({
   onRunCommand,
   onOpenModels,
   modelsDisabled,
+  modelLabel,
 }: Props) {
   const [value, setValue] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   const [sheet, setSheet] = useState<OpenSheet>(null);
@@ -258,6 +261,20 @@ export function Composer({
           />
 
           <div className="composer-row">
+            {/* Command on the left; everything else clusters by the send button. */}
+            <button
+              type="button"
+              className="icon-button flat"
+              disabled={disabled}
+              onClick={() => setSheet("commands")}
+              title="Run a command"
+              aria-label="Run a command"
+            >
+              <Icon name="slash" />
+            </button>
+
+            <span className="spacer" />
+
             <button
               type="button"
               className={`icon-button flat${filters.size > 0 ? " on" : ""}`}
@@ -290,27 +307,15 @@ export function Composer({
 
             <button
               type="button"
-              className="icon-button flat"
-              disabled={disabled}
-              onClick={() => setSheet("commands")}
-              title="Run a command"
-              aria-label="Run a command"
-            >
-              <Icon name="slash" />
-            </button>
-
-            <button
-              type="button"
-              className="icon-button flat"
+              className="icon-button flat model-btn"
               disabled={modelsDisabled}
               onClick={onOpenModels}
-              title="Model for this conversation"
-              aria-label="Model for this conversation"
+              title={modelLabel ? `Model: ${modelLabel}` : "Model for this conversation"}
+              aria-label={modelLabel ? `Model: ${modelLabel}` : "Model for this conversation"}
             >
               <Icon name="model" />
+              {modelLabel ? <span className="model-name">{modelLabel}</span> : null}
             </button>
-
-            <span className="spacer" />
 
             {processing ? (
               // A second abort while the first is still unwinding is a guaranteed

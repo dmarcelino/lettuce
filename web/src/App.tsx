@@ -15,6 +15,7 @@ import type { ConnectionState, RuntimeScope } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { useAgents } from "./state/use-agents.ts";
 import { useConversation } from "./state/use-conversation.ts";
+import { useCurrentModel } from "./state/use-models.ts";
 import { useSession } from "./state/use-session.ts";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { MemoryTab } from "./tabs/MemoryTab.tsx";
@@ -107,6 +108,13 @@ function Workspace({ status }: { status: Status }) {
     agents.agentId && agents.conversationId
       ? { agent_id: agents.agentId, conversation_id: agents.conversationId }
       : null;
+
+  // Lifted so the composer button and the picker share one source of truth —
+  // switching model in the picker updates the button without a reload.
+  const currentModel = useCurrentModel(session, agents.agentId, agents.conversationId);
+  const modelLabel = currentModel.handle
+    ? (currentModel.handle.split("/").pop() ?? currentModel.handle)
+    : null;
 
   const visibleEntries = useMemo(
     () => filterEntries(conversation.entries, filters),
@@ -225,6 +233,7 @@ function Workspace({ status }: { status: Status }) {
               onRunCommand={(id, args) => conversation.runCommand(id, args)}
               onOpenModels={() => setShowModels(true)}
               modelsDisabled={!scope}
+              modelLabel={modelLabel}
             />
           </>
         ) : tab === "Files" ? (
@@ -270,7 +279,12 @@ function Workspace({ status }: { status: Status }) {
       ) : null}
 
       {showModels ? (
-        <ModelPicker session={session} scope={scope} onClose={() => setShowModels(false)} />
+        <ModelPicker
+          session={session}
+          scope={scope}
+          currentModel={currentModel}
+          onClose={() => setShowModels(false)}
+        />
       ) : null}
 
       {agentEditor ? (
