@@ -1,8 +1,12 @@
 {
+  "id": "/",
   "name": "Letta",
   "short_name": "Letta",
+  "description": "Self-hosted personal assistant — memory, crons and skills, driven from a mobile-first web UI.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#171a21",
   "theme_color": "#171a21",
   "icons": [

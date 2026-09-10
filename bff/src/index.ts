@@ -259,7 +259,13 @@ app.get("/api/files/download", async (c) => {
 // proxies those paths here, so a missing build is not an error.
 const webDist = process.env.WEB_DIST ?? "web/dist";
 
-app.use("/assets/*", serveStatic({ root: webDist }));
+// Any real file in the build — hashed `/assets/*`, and the root-level PWA files
+// `sw.js`, `manifest.webmanifest`, `icon-*.png`. Without this the catch-all
+// below answered `/sw.js` and `/manifest.webmanifest` with the HTML shell, so
+// the service worker never registered and the manifest never parsed — the app
+// looked like a PWA in source but could not be installed. `serveStatic` calls
+// `next()` when the file is absent, so client routes still fall through.
+app.get("*", serveStatic({ root: webDist }));
 
 // SPA fallback — every unmatched GET renders the app shell so client-side
 // routes survive a reload or a deep link.
