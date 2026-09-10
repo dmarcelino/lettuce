@@ -96,11 +96,10 @@ app.use("*", async (c, next) => {
           audience: config.cfAccessAud,
           issuer: config.cfAccessIssuer,
         });
-        const allowed = isAllowedUser(config, email);
-        if (allowed) {
+        if (isAllowedUser(config, email)) {
           session = {
             email,
-            name: allowed.name ?? email,
+            name: email,
             exp: Math.floor(Date.now() / 1000) + config.sessionTtlSeconds,
           };
           const token = encodeSession(session, config.sessionSecret);
@@ -160,11 +159,15 @@ app.get("/auth/dev-login", (c) => {
   const email = config.devBypassEmail;
   if (!email) return c.text("Dev login is disabled", 404);
 
-  const allowed = isAllowedUser(config, email);
-  if (!allowed) return c.text(`DEV_BYPASS_EMAIL ${email} is not in the allowlist`, 403);
+  // Unset ALLOWED_USERS makes the bypass email its own allowlist, so this can
+  // only fire when both were set explicitly and name different people — a real
+  // misconfiguration rather than the self-contradiction it used to report.
+  if (!isAllowedUser(config, email)) {
+    return c.text(`DEV_BYPASS_EMAIL ${email} is not listed in ALLOWED_USERS`, 403);
+  }
 
   log(`Dev login as ${email} (NO AUTHENTICATION — loopback only)`);
-  return issueSession(allowed.name ?? email, email);
+  return issueSession(email, email);
 });
 
 app.post("/auth/logout", (c) => {
@@ -349,7 +352,7 @@ const server = Bun.serve<SocketData>({
 log(`Mode: ${config.mode}`);
 log(`Listening on ${bindHostname}:${server.port} (public origin ${config.publicOrigin})`);
 log(`App-server: ${config.appServerUrl}`);
-log(`Allowlisted users: ${config.allowedUsers.map((u) => u.email).join(", ")}`);
+log(`Allowlisted users: ${config.allowedUsers.join(", ") || "(none — nobody can sign in)"}`);
 if (config.devBypassEmail) {
   log("!".repeat(72));
   log(`DEV BYPASS ACTIVE — no authentication. Any request gets a session as`);

@@ -15,8 +15,6 @@ web/dist/
 *.log
 
 # Secrets and local state — none of it belongs in an image layer.
-config/users.json
-config/secrets/
 docker/secrets/
 docker/.env
 .env

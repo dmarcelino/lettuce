@@ -1,77 +1,63 @@
 import { describe, expect, test } from "bun:test";
 import { parseAllowedUsers } from "./config";
 
-describe("parseAllowedUsers — JSON", () => {
-  test("reads the users.json shape and keeps names", () => {
-    expect(parseAllowedUsers('[{"email":"A@Example.com","name":"Dima"}]', "src")).toEqual([
-      { email: "a@example.com", name: "Dima" },
-    ]);
-  });
-
-  test("normalizes email case and surrounding space", () => {
-    // isAllowedUser() compares against an already-lowercased address, so the
-    // normalization has to happen here or a capitalized allowlist never matches.
-    expect(parseAllowedUsers('[{"email":"  Mixed@Case.COM  "}]', "src")).toEqual([
-      { email: "mixed@case.com" },
-    ]);
-  });
-
-  test("omits name when absent rather than inventing one", () => {
-    expect(parseAllowedUsers('[{"email":"a@example.com"}]', "src")[0]).not.toHaveProperty("name");
-  });
-
-  test("rejects an empty array", () => {
-    expect(() => parseAllowedUsers("[]", "src")).toThrow(/non-empty array/);
-  });
-
-  test("rejects an entry with no email, naming the index", () => {
-    expect(() => parseAllowedUsers('[{"email":"a@example.com"},{"name":"B"}]', "src")).toThrow(
-      /src\[1\]/,
-    );
-  });
-
-  test("reports invalid JSON against the source name", () => {
-    expect(() => parseAllowedUsers("[{oops}]", "USERS_FILE")).toThrow(/USERS_FILE is not valid/);
-  });
-
-  test("rejects an empty string", () => {
-    expect(() => parseAllowedUsers("   ", "src")).toThrow(/empty/);
-  });
-});
-
-describe("parseAllowedUsers — bare emails", () => {
-  test("splits a comma-separated list when opted in", () => {
-    expect(parseAllowedUsers("a@example.com, B@Example.com", "ALLOWED_USERS", true)).toEqual([
-      { email: "a@example.com" },
-      { email: "b@example.com" },
+describe("parseAllowedUsers", () => {
+  test("splits a comma-separated list", () => {
+    expect(parseAllowedUsers("a@example.com,b@example.com", "src")).toEqual([
+      "a@example.com",
+      "b@example.com",
     ]);
   });
 
   test("accepts a single address", () => {
-    expect(parseAllowedUsers("solo@example.com", "ALLOWED_USERS", true)).toEqual([
-      { email: "solo@example.com" },
+    expect(parseAllowedUsers("solo@example.com", "src")).toEqual(["solo@example.com"]);
+  });
+
+  test("normalizes case and surrounding space", () => {
+    // isAllowedUser() compares against an already-lowercased address, so a
+    // capitalized entry would never match without this.
+    expect(parseAllowedUsers("  Mixed@Case.COM , B@Example.com ", "src")).toEqual([
+      "mixed@case.com",
+      "b@example.com",
     ]);
   });
 
-  test("ignores trailing separators rather than yielding a blank entry", () => {
-    expect(parseAllowedUsers("a@example.com,,", "ALLOWED_USERS", true)).toEqual([
-      { email: "a@example.com" },
+  test("de-duplicates, including across case differences", () => {
+    expect(parseAllowedUsers("a@example.com, A@Example.com", "src")).toEqual(["a@example.com"]);
+  });
+
+  test("ignores empty entries rather than yielding blanks", () => {
+    expect(parseAllowedUsers("a@example.com,,", "src")).toEqual(["a@example.com"]);
+  });
+
+  test("rejects a value with no addresses at all", () => {
+    expect(() => parseAllowedUsers(",,,", "ALLOWED_USERS")).toThrow(
+      /ALLOWED_USERS lists no addresses/,
+    );
+  });
+
+  test("rejects an empty string", () => {
+    expect(() => parseAllowedUsers("   ", "ALLOWED_USERS")).toThrow(/no addresses/);
+  });
+
+  test("rejects an entry that is not an address, naming it", () => {
+    // The point of this check is to fail at boot instead of as an unexplained
+    // 403 at sign-in — an address matching nothing is otherwise silent.
+    expect(() => parseAllowedUsers("a@example.com, oops", "ALLOWED_USERS")).toThrow(
+      /not email addresses: oops/,
+    );
+  });
+
+  test("does not reject unusual but valid addresses", () => {
+    // Guards against someone 'improving' the @ check into an email regex.
+    const exotic = "a+tag@sub.example.co.uk, first.last@example.museum";
+    expect(parseAllowedUsers(exotic, "src")).toEqual([
+      "a+tag@sub.example.co.uk",
+      "first.last@example.museum",
     ]);
   });
 
-  test("still parses JSON when opted in, so both env shapes work", () => {
-    expect(parseAllowedUsers('[{"email":"a@example.com"}]', "ALLOWED_USERS", true)).toEqual([
-      { email: "a@example.com" },
-    ]);
-  });
-
-  test("a comma-only value is rejected, not silently empty", () => {
-    expect(() => parseAllowedUsers(",,,", "ALLOWED_USERS", true)).toThrow(/no addresses/);
-  });
-
-  test("the shorthand is env-only: a malformed file is an error, not one address", () => {
-    // The regression this guards: without the opt-in, `{}` in users.json would
-    // parse as a single allowlisted address named "{}".
-    expect(() => parseAllowedUsers("{}", "users.json")).toThrow(/not valid JSON|non-empty array/);
+  test("names the source in errors so the operator knows what to fix", () => {
+    expect(() => parseAllowedUsers("", "SOME_SOURCE")).toThrow(/SOME_SOURCE/);
   });
 });

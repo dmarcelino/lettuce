@@ -134,6 +134,21 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 - **No per-user isolation.** One process-wide runtime; every socket sees every event. v1 is
   single-user by decision. Keep agent-id filtering in the BFF frame router so multi-user stays
   a small change.
+
+  Note what that does *not* mean: it is a statement about isolation, not about how many people
+  may sign in. **`ALLOWED_USERS` therefore stays a list** — in cloudflared mode it is a
+  defense-in-depth mirror of the Cloudflare Access policy, which is itself a list, and it is
+  what still stands if that policy is ever misconfigured (a bypass rule, "everyone in the
+  directory"). Do not collapse it to a single address.
+- **The allowlist is env-only, and local mode infers it.** `ALLOWED_USERS` is a comma-separated
+  list, required exactly when Access is the live gate (`mode === "cloudflared" && !devBypassEmail`
+  — the same condition that requires `CF_ACCESS_*`). There is no `users.json` and no `config/`
+  directory: a gitignored single-file bind meant a fresh clone got a *directory* at that path and
+  the BFF crash-looped on `EISDIR`. In local mode `DEV_BYPASS_EMAIL` implies its own entry, so the
+  two settings can no longer disagree — requiring both used to produce a 403 saying the bypass
+  email was not in the allowlist, which is a self-contradiction rather than a diagnosis.
+  `AllowedUser.name` was deleted with the file: nothing ever rendered it (the UI reads only
+  `status.user?.email`).
 - **MCP is not in the protocol.** Servers live in `/root/.letta/settings.json` under
   `agents[<n>].mcpServers[]` (keyed by `agentId`). We read the file, merge into that one
   agent entry, write it back, and then `execute_command {command_id:"reload"}` — which
@@ -461,17 +476,17 @@ to run in the container first.
 
 `origin` is `dmarchevsky/letta-code-ui`, private, and was empty until the first push. There
 is no `main` upstream to track on a fresh clone — the first push of a branch needs
-`git push -u origin main`. `.gitignore` covers `docker/.env`, `config/users.json` and
-`docker/secrets/`; none are tracked, and no secret values are in history. Re-check that
-before pushing anything new that touches configuration.
+`git push -u origin main`. `.gitignore` covers `docker/.env` and `docker/secrets/`; neither is
+tracked, and no secret values are in history. Re-check that before pushing anything new that
+touches configuration.
 
 Only `bff` is rebuilt in step 4 — it is the only service carrying our code. Rebuild
 `app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or the fork changes.
 
 **`web/dist` is baked into the bff image, never mounted.** `bff.Dockerfile` builds the SPA
 in its `web-build` stage and copies the result into the runtime image; the BFF's only mounts
-are `config/` (read-only), the `bff-data` volume and `/work` (read-only). So `docker compose
-up -d` on its own will happily serve a months-old
+are the `bff-data` volume and `/work` (read-only) — it takes no configuration from disk at
+all. So `docker compose up -d` on its own will happily serve a months-old
 UI, and a local `bun run build` changes nothing the container sees. That is the trap step 5
 catches: it compares the served `assets/index-*.js` name against the local one.
 

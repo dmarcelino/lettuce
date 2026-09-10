@@ -1,11 +1,5 @@
 import { readFileSync } from "node:fs";
 
-export interface AllowedUser {
-  email: string;
-  /** Display name shown in the UI. Falls back to the Access-verified email. */
-  name?: string;
-}
-
 export interface BffConfig {
   port: number;
   /**
@@ -37,7 +31,17 @@ export interface BffConfig {
   cfAccessIssuer: string | null;
   sessionSecret: string;
   sessionTtlSeconds: number;
-  allowedUsers: AllowedUser[];
+  /**
+   * Lower-cased addresses permitted to hold a session. In cloudflared mode this
+   * is a defense-in-depth mirror of the Cloudflare Access policy — Access is
+   * the gate, and this is what still stands if that policy is ever
+   * misconfigured (a bypass rule, "everyone in the directory"). It stays a
+   * LIST, not a single address, precisely because the policy it mirrors is one.
+   *
+   * "Single-user" in this project means no per-user isolation — one runtime,
+   * every socket sees every event — not that only one address may sign in.
+   */
+  allowedUsers: string[];
   /** Total frames retained for session resume across all conversations. */
   frameBufferSize: number;
   /** Set for local development: skips Cloudflare Access and signs in as this email. */
@@ -91,93 +95,65 @@ function readAppServerToken(): string {
 }
 
 /**
- * Parses an allowlist from either shape, naming `source` in every error so a
+ * Parses a comma-separated allowlist, naming `source` in every error so a
  * misconfiguration says which input to go and fix.
- *
- * JSON — the `users.json` shape — is always accepted:
- *
- *   [{"email":"a@example.com","name":"A"}]
- *
- * `acceptBareEmails` additionally allows a comma-separated list, which is far
- * nicer to type into an env var:
  *
  *   a@example.com, b@example.com
  *
- * A leading `[` picks JSON; nothing else could start a bare email. That
- * shorthand is env-only on purpose — accepting it for a file would silently
- * read a malformed `users.json` (say, `{}`) as a one-address allowlist instead
- * of reporting it as broken.
+ * Addresses are lower-cased and de-duplicated; `isAllowedUser` compares against
+ * an already-lowercased address, so normalizing here is what makes a
+ * capitalized entry match at all.
+ *
+ * The `@` check is deliberately the only validation. It catches the realistic
+ * failure — a typo'd or truncated env var — at BOOT rather than as an
+ * unexplained 403 at sign-in, which is all that would happen otherwise since an
+ * address that matches nothing simply never matches. Anything stricter is the
+ * classic email-regex trap and would start rejecting valid addresses.
  */
-export function parseAllowedUsers(
-  raw: string,
-  source: string,
-  acceptBareEmails = false,
-): AllowedUser[] {
-  const trimmed = raw.trim();
-  if (!trimmed) throw new Error(`${source} is empty`);
+export function parseAllowedUsers(raw: string, source: string): string[] {
+  const emails = raw
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
 
-  if (acceptBareEmails && !trimmed.startsWith("[")) {
-    const emails = trimmed
-      .split(",")
-      .map((email) => email.trim())
-      .filter(Boolean);
-    if (emails.length === 0) throw new Error(`${source} lists no addresses`);
-    return emails.map((email) => ({ email: email.toLowerCase() }));
-  }
+  if (emails.length === 0) throw new Error(`${source} lists no addresses`);
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch (error) {
+  const invalid = emails.filter((email) => !email.includes("@"));
+  if (invalid.length > 0) {
     throw new Error(
-      `${source} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      `${source} contains entries that are not email addresses: ${invalid.join(", ")}`,
     );
   }
 
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error(`${source} must be a non-empty array of users`);
-  }
-
-  return parsed.map((entry, index) => {
-    if (
-      !entry ||
-      typeof entry !== "object" ||
-      typeof (entry as { email?: unknown }).email !== "string"
-    ) {
-      throw new Error(`${source}[${index}] must have a string "email"`);
-    }
-    const user = entry as { email: string; name?: unknown };
-    return {
-      email: user.email.trim().toLowerCase(),
-      ...(typeof user.name === "string" ? { name: user.name } : {}),
-    };
-  });
+  return [...new Set(emails)];
 }
 
 /**
- * ALLOWED_USERS wins over USERS_FILE when set, so a prod deployment can keep
- * its entire configuration in the environment and never place a file on disk.
- * That also sidesteps the file's sharpest edge: `config/users.json` is
- * gitignored, so on a fresh clone it does not exist — and a compose single-file
- * bind of a missing path silently creates a DIRECTORY, which used to surface
- * only as an unexplained EISDIR crash loop at boot.
+ * The allowlist comes from the environment and nowhere else — there is no file.
+ *
+ * In local mode DEV_BYPASS_EMAIL *is* the whole configuration, so it implies
+ * its own entry. Requiring both used to mean two settings naming the same
+ * person that could only ever disagree with each other, and when they did the
+ * result was a 403 saying the bypass email was not in the allowlist — a
+ * self-contradiction rather than a diagnosis.
+ *
+ * With neither set the list is empty and nobody can sign in, which is the
+ * documented safe default rather than an error.
  */
-function readAllowedUsers(): AllowedUser[] {
+function readAllowedUsers(accessIsTheGate: boolean, devBypassEmail: string | null): string[] {
   const inline = process.env.ALLOWED_USERS?.trim();
-  if (inline) return parseAllowedUsers(inline, "ALLOWED_USERS", true);
+  if (inline) return parseAllowedUsers(inline, "ALLOWED_USERS");
 
-  const path = process.env.USERS_FILE?.trim() ?? "config/users.json";
-  let raw: string;
-  try {
-    raw = readFileSync(path, "utf8");
-  } catch (error) {
+  if (accessIsTheGate) {
     throw new Error(
-      `Cannot read allowlist ${path}: ${error instanceof Error ? error.message : String(error)}. ` +
-        `Set ALLOWED_USERS instead to configure the allowlist from the environment.`,
+      "Missing required environment variable ALLOWED_USERS. Cloudflare Access is the gate in " +
+        "this mode, and this list is the check that still stands if that policy is ever " +
+        "misconfigured — so it cannot be inferred. Set it to a comma-separated list of the " +
+        "same addresses the Access policy allows.",
     );
   }
 
-  return parseAllowedUsers(raw, path);
+  return devBypassEmail ? [devBypassEmail.toLowerCase()] : [];
 }
 
 export function isLoopbackOrigin(publicOrigin: string): boolean {
@@ -235,6 +211,8 @@ export function loadConfig(): BffConfig {
   }
   // Cloudflare Access credentials are only needed in cloudflared mode, and
   // not even then if the dev bypass is active. Local mode never reads them.
+  // The allowlist keys off the same condition: it is required exactly when
+  // Access is the thing actually signing people in.
   const needsCfAccess = mode === "cloudflared" && !devBypassEmail;
   return {
     mode,
@@ -249,7 +227,7 @@ export function loadConfig(): BffConfig {
     cfAccessIssuer: process.env.CF_ACCESS_ISSUER?.trim() || null,
     sessionSecret: required("SESSION_SECRET"),
     sessionTtlSeconds: optionalNumber("SESSION_TTL_SECONDS", 60 * 60 * 24 * 30),
-    allowedUsers: readAllowedUsers(),
+    allowedUsers: readAllowedUsers(needsCfAccess, devBypassEmail),
     frameBufferSize: optionalNumber("FRAME_BUFFER_SIZE", 5000),
     devBypassEmail,
     devBypassAllowRemote,
@@ -272,7 +250,6 @@ function readPushConfig(): PushConfig | null {
   };
 }
 
-export function isAllowedUser(config: BffConfig, email: string): AllowedUser | null {
-  const normalized = email.trim().toLowerCase();
-  return config.allowedUsers.find((user) => user.email === normalized) ?? null;
+export function isAllowedUser(config: BffConfig, email: string): boolean {
+  return config.allowedUsers.includes(email.trim().toLowerCase());
 }

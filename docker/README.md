@@ -8,11 +8,11 @@ host needs only `git` and `docker`.
 
 ## One-time setup
 
-```bash
-# 1. Allowlist. Local dev only — prod uses ALLOWED_USERS instead (see below).
-cp config/users.example.json config/users.json   # edit it
+There is no allowlist file to create: the allowlist is the `ALLOWED_USERS`
+environment variable, and in local mode `DEV_BYPASS_EMAIL` implies its own entry
+(see Authentication below), so local dev needs nothing here at all.
 
-# 2. Environment.
+```bash
 cat > docker/.env <<'ENV'
 PUBLIC_ORIGIN=http://localhost:8090
 SESSION_SECRET=<openssl rand -hex 32>
@@ -81,6 +81,10 @@ until you configure `DEV_BYPASS_EMAIL`. It skips sign-in entirely: any
 request that reaches the port becomes the configured user, no credential
 check at all.
 
+`DEV_BYPASS_EMAIL` is the whole configuration — it implies its own allowlist
+entry, so `ALLOWED_USERS` is not needed here. (Set both and they must agree;
+if they name different people, sign-in is refused.)
+
 Because that is easy to leave on by accident, exposing it beyond the local
 machine takes a second, deliberate flag:
 
@@ -117,9 +121,9 @@ this repo):
    is the one to register there.
 4. **Access → Applications → Add an application → Self-hosted**, for the
    hostname from step 2. Add a policy with an Include rule listing the same
-   email address(es) as the app's own allowlist (`ALLOWED_USERS`, or
-   `config/users.json`) — **these two lists are not kept in sync
-   automatically**; update both by hand when adding or removing a user.
+   email address(es) as the app's own `ALLOWED_USERS` — **these two lists are
+   not kept in sync automatically**; update both by hand when adding or removing
+   a user.
 5. Copy the Application's **Audience (AUD) tag** into `docker/.env` as
    `CF_ACCESS_AUD`, and the team domain (the `<team>` in
    `<team>.cloudflareaccess.com`) as `CF_ACCESS_TEAM_DOMAIN`.
@@ -166,17 +170,18 @@ Optional: the three `PUSH_VAPID_*` values, `BFF_PORT`, `SESSION_TTL_SECONDS`,
 **Leave `DEV_BYPASS_EMAIL` and `DEV_BYPASS_ALLOW_REMOTE` unset.** Either one
 opens a second door that bypasses Cloudflare Access completely.
 
-`ALLOWED_USERS` takes a comma-separated list, or the same JSON array shape as
-`config/users.json` when you want display names:
+`ALLOWED_USERS` is a comma-separated list of addresses:
 
 ```
 ALLOWED_USERS=a@example.com, b@example.com
-ALLOWED_USERS=[{"email":"a@example.com","name":"A"}]
 ```
 
-It wins over `USERS_FILE`, so prod needs no file on disk at all. Keep it in sync
-with the Cloudflare Access policy by hand — **the two lists are unrelated**, and
-Access is the gate that actually matters.
+It is the only source of the allowlist — prod places no files on disk at all —
+and it is **required** in cloudflared mode. Keep it in sync with the Cloudflare
+Access policy by hand: **the two lists are unrelated**. Access is the gate that
+actually matters, and this one is what still stands if that policy is ever
+misconfigured, so it deliberately mirrors the policy's list shape rather than
+collapsing to a single address.
 
 ## Run
 
@@ -262,13 +267,13 @@ instead of a toggle when it detects this.
 # Terminal 1 — app-server on the host
 LETTA_LOCAL_BACKEND_EXPERIMENTAL=true letta server --listen ws://127.0.0.1:4500
 
-# Terminal 2 — BFF (dev bypass; local mode needs no CF_ACCESS_* vars at all)
+# Terminal 2 — BFF (dev bypass; local mode needs no CF_ACCESS_* vars, and no
+# ALLOWED_USERS either — DEV_BYPASS_EMAIL implies its own allowlist entry)
 cd bff && \
   LETTA_APP_SERVER_URL=ws://127.0.0.1:4500 \
   LETTA_APP_SERVER_TOKEN=unused \
   PUBLIC_ORIGIN=http://localhost:8080 \
   SESSION_SECRET=$(openssl rand -hex 32) \
-  USERS_FILE=../config/users.json \
   DEV_BYPASS_EMAIL=you@example.com \
   bun --watch src/index.ts
 
