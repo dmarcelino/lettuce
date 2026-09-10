@@ -287,15 +287,13 @@ pre {
   gap: 4px;
   align-items: flex-start;
 }
-.entry.user {
-  align-items: flex-end;
-}
-
+/* No bubbles: user and agent text run full width. User messages get a subtle
+   bordered box (below) as their only affordance; the agent's is its tag. */
 .bubble {
-  max-width: min(90%, 640px);
-  padding: 9px 13px;
-  border-radius: var(--radius);
-  background: var(--surface);
+  max-width: 100%;
+  padding: 0;
+  background: none;
+  border-radius: 0;
   overflow-wrap: anywhere;
   /* Markdown supplies its own block spacing; pre-wrap here would double it.
      `.md p` keeps pre-wrap so hard line breaks inside a paragraph survive. */
@@ -420,19 +418,17 @@ pre {
 .md input[type="checkbox"] {
   margin-right: 6px;
 }
-/* Accent-tinted, not solid accent: links inside the bubble are var(--accent)
-   too, so a solid accent fill rendered them invisible. */
+/* A subtle full-width bordered box — not a coloured right-aligned bubble. */
 .bubble.user {
-  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
-  color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
-  border-bottom-right-radius: 4px;
+  align-self: stretch;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
 }
-.bubble.user .md a {
-  color: color-mix(in srgb, var(--accent) 80%, white);
-}
-.bubble.assistant {
-  border-bottom-left-radius: 4px;
+/* Collapsed, the reasoning row is just a muted "Thinking" line (MessageList). */
+.entry.reasoning .tool-head {
+  font-style: italic;
 }
 .bubble.thinking {
   background: var(--surface-2);
@@ -509,17 +505,25 @@ pre {
 .tool-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
+  gap: 6px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 2px 0;
   color: var(--text);
   font-size: 13px;
   max-width: 100%;
 }
 .tool-head code {
-  color: var(--accent);
+  color: var(--text);
+  font-weight: 650;
+}
+/* The bold tool name plus the IN/OUT rail identify a tool row, so the uppercase
+   kind tag is redundant on it. The red "error" tag on a failed return stays. */
+.entry.tool_call .tool-head > .tag,
+.entry.approval_request .tool-head > .tag,
+.entry.tool_return .tool-head > .tag:not(.bad) {
+  display: none;
 }
 .chevron {
   color: var(--muted);
@@ -538,16 +542,43 @@ pre {
   max-height: 320px;
 }
 
-/* Match the transcript warning notice (`.entry.notice.warning pre`): a 3px
-   accent bar with the left corners squared off, so an error tool result and a
-   warning read as the same shape in the column. */
-.entry.tool_return.error .tool-args,
+/* The call args and the return body sit on an inset rail — a left border plus a
+   small indent — so an adjacent call/return pair reads as one IN/OUT unit. */
+.rail {
+  align-self: stretch;
+  min-width: 0;
+  margin-top: 4px;
+  margin-left: 1px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.rail-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.entry.tool_return.error .rail {
+  border-left-color: var(--bad);
+}
+
+/* Pull a return up against its call so the two rows read as one block,
+   cancelling the `.messages` row gap. Every tool call arrives as an
+   approval_request, so that adjacency is the common case. */
+.entry.tool_call + .entry.tool_return,
+.entry.approval_request + .entry.tool_return {
+  margin-top: -6px;
+}
+
+/* stderr keeps the 3px bar with the left corners squared off, matching the
+   transcript warning notice (`.entry.notice.warning pre`). */
 .tool-args.stderr {
   border-left: 3px solid var(--bad);
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-}
-.tool-args.stderr {
   color: var(--bad);
 }
 
@@ -675,8 +706,8 @@ pre {
   white-space: nowrap;
 }
 
-/* Textarea and controls share one rounded container, so the whole thing reads
-   as a single input rather than a field with a toolbar bolted beside it. */
+/* The composer frame: a top border and safe-area padding around the slash
+   popover and the input box below it. */
 .composer {
   display: flex;
   flex-direction: column;
@@ -686,17 +717,42 @@ pre {
   background: var(--bg);
   flex-shrink: 0;
 }
+
+/* Textarea and the control row share one bordered container, so the whole thing
+   reads as a single input rather than a field with a toolbar bolted under it. */
+.composer-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+/* The ring is box-shadow (no layout effect) and fits inside .composer's 12px
+   inline padding. No `overflow` here: it would clip .composer-row's own
+   horizontal scroll and the sticky send button. */
+.composer-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .composer textarea {
   width: 100%;
   resize: none;
-  background: var(--surface);
+  background: none;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px 12px;
+  border: none;
+  padding: 6px 6px 2px;
   /* 16px keeps iOS Safari from zooming when the field is focused. */
   font: 16px / 1.4 inherit;
   max-height: 160px;
+}
+.composer textarea:focus {
+  outline: none;
+}
+.composer textarea::placeholder {
+  color: var(--muted);
 }
 
 /* In flow above the textarea, not floating over it: an overlay anchored to a
@@ -725,20 +781,24 @@ pre {
   display: none;
 }
 /* Composer controls are icon buttons, but must not all look like the send
-   action — flat means transparent until active or hovered. */
+   action — flat means a bare glyph, tinting only on hover or when active. */
 .icon-button.flat {
   width: auto;
   min-width: 34px;
   height: 34px;
   padding: 0 9px;
   border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: none;
+  border: none;
   color: var(--muted);
   font-size: 13px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+.icon-button.flat:hover {
+  background: var(--surface-2);
+  color: var(--text);
 }
 .icon-button.flat.on {
   background: var(--accent);

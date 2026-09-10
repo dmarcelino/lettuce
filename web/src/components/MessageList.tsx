@@ -181,7 +181,12 @@ function MessageItem({
           ) : null}
         </button>
         {summary?.subtitle ? <p className="tool-subtitle">{summary.subtitle}</p> : null}
-        {open && args ? <pre className="tool-args">{args}</pre> : null}
+        {open && args ? (
+          <div className="rail">
+            <span className="rail-label">IN</span>
+            <pre className="tool-args">{args}</pre>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -204,8 +209,13 @@ function MessageItem({
             <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
           ) : null}
         </button>
-        {shown ? <pre className="tool-args">{shown}</pre> : null}
-        {showStderr ? <pre className="tool-args stderr">{stderr}</pre> : null}
+        {shown || showStderr ? (
+          <div className="rail">
+            <span className="rail-label">OUT</span>
+            {shown ? <pre className="tool-args">{shown}</pre> : null}
+            {showStderr ? <pre className="tool-args stderr">{stderr}</pre> : null}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -214,7 +224,7 @@ function MessageItem({
     return (
       <div className="entry reasoning">
         <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
-          <span className="tag">{label}</span>
+          <span className="muted small">Thinking</span>
           <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
         </button>
         {open ? <div className="bubble thinking">{md(entry.text)}</div> : null}
