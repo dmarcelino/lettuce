@@ -1,18 +1,21 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { downloadUrl } from "../lib/download.ts";
+import { remarkFilePaths } from "../lib/file-links.ts";
 import { WORKSPACE_ROOT } from "../lib/workspace.ts";
 
 /**
  * A link to a file the agent produced (always an absolute
  * /work/<agent-id>/... path — that's the only path form the file protocol
- * and cwd ever give it) is rewritten to the BFF's download route: the SPA
- * has no route at that path, so left alone the click just landed on a blank
- * tab. Every other href passes through untouched.
+ * and cwd ever give it, and the one `remarkFilePaths` resolves bare paths to)
+ * is rewritten to the BFF's download route: the SPA has no route at that path,
+ * so left alone the click just landed on a blank tab. `inline` so a PDF or
+ * image opens in the tab to be read rather than downloading. Every other href
+ * passes through untouched.
  */
 export function resolveMarkdownHref(href: string | undefined): string | undefined {
   if (typeof href === "string" && href.startsWith(`${WORKSPACE_ROOT}/`)) {
-    return downloadUrl(href);
+    return downloadUrl(href, { inline: true });
   }
   return href;
 }
@@ -46,10 +49,13 @@ const COMPONENTS: Components = {
   ),
 };
 
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, cwd }: { text: string; cwd?: string | null }) {
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, [remarkFilePaths, { cwd: cwd ?? null }]]}
+        components={COMPONENTS}
+      >
         {text}
       </ReactMarkdown>
     </div>

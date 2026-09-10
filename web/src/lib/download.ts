@@ -14,9 +14,17 @@
  * (see `formatBytes`) is a different, much smaller thing.
  */
 
-/** The BFF route that streams a workspace file as an attachment. */
-export function downloadUrl(path: string): string {
-  return `/api/files/download?path=${encodeURIComponent(path)}`;
+/**
+ * The BFF route that streams a workspace file.
+ *
+ * `{ inline: true }` asks it to serve with the file's real content-type and
+ * `Content-Disposition: inline` (only for PDFs and raster images — see the
+ * route) so a chat-message link opens the file in the tab for review rather
+ * than downloading it. Left off, it is an attachment.
+ */
+export function downloadUrl(path: string, opts?: { inline?: boolean }): string {
+  const query = `path=${encodeURIComponent(path)}${opts?.inline ? "&inline=1" : ""}`;
+  return `/api/files/download?${query}`;
 }
 
 /** Hand the browser a URL to download, without navigating the app away. */

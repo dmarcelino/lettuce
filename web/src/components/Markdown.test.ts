@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { resolveMarkdownHref } from "./Markdown.tsx";
 
 describe("resolveMarkdownHref", () => {
-  test("rewrites a workspace file link to the download route", () => {
+  test("rewrites a workspace file link to the download route, opened inline", () => {
     expect(resolveMarkdownHref("/work/agent-1/report.pdf")).toBe(
-      "/api/files/download?path=%2Fwork%2Fagent-1%2Freport.pdf",
+      "/api/files/download?path=%2Fwork%2Fagent-1%2Freport.pdf&inline=1",
     );
   });
 

@@ -181,7 +181,7 @@ function MessageItem({ entry, cwd }: { entry: TranscriptEntry; cwd: string | nul
         </button>
         {open ? (
           <div className="bubble thinking">
-            <Markdown text={entry.text} />
+            <Markdown text={entry.text} cwd={cwd} />
           </div>
         ) : null}
       </div>
@@ -214,7 +214,7 @@ function MessageItem({ entry, cwd }: { entry: TranscriptEntry; cwd: string | nul
         </button>
         {open && hasResult ? (
           <div className="bubble task-result">
-            <Markdown text={entry.text} />
+            <Markdown text={entry.text} cwd={cwd} />
           </div>
         ) : null}
       </div>
@@ -241,7 +241,7 @@ function MessageItem({ entry, cwd }: { entry: TranscriptEntry; cwd: string | nul
       {/* Arrived from Telegram/Slack rather than typed here — still you. */}
       {entry.channel ? <span className="tag">via {entry.channel}</span> : null}
       <div className={`bubble ${entry.kind}`}>
-        <Markdown text={entry.text} />
+        <Markdown text={entry.text} cwd={cwd} />
         {entry.streaming ? <span className="caret" /> : null}
       </div>
     </div>

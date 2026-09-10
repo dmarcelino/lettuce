@@ -7,6 +7,7 @@ import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
+import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { type FilterGroup, filterEntries } from "./lib/messages.ts";
 import type { ConnectionState, RuntimeScope } from "./lib/protocol.ts";
@@ -199,6 +200,7 @@ function Workspace({ status }: { status: Status }) {
             <Composer
               disabled={!scope || !session.ready}
               processing={conversation.processing}
+              draftKey={draftKey(agents.agentId, agents.conversationId)}
               onSend={(text) => {
                 void conversation.sendMessage(text);
                 // Name the conversation after the first thing said in it. No-op

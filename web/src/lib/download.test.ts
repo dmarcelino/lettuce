@@ -20,6 +20,15 @@ describe("downloadUrl", () => {
       "/api/files/download?path=%2Fwork%2Fagent-1%2Fa%20b%20%26%20c.txt",
     );
   });
+
+  test("adds inline=1 when asked to open in place", () => {
+    expect(downloadUrl("/work/agent-1/report.pdf", { inline: true })).toBe(
+      "/api/files/download?path=%2Fwork%2Fagent-1%2Freport.pdf&inline=1",
+    );
+    expect(downloadUrl("/work/agent-1/report.pdf", { inline: false })).toBe(
+      "/api/files/download?path=%2Fwork%2Fagent-1%2Freport.pdf",
+    );
+  });
 });
 
 describe("mimeTypeFor", () => {
