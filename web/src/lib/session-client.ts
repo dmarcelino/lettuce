@@ -31,6 +31,19 @@ interface PendingRequest {
 const RECONNECT_BASE_MS = 300;
 const RECONNECT_MAX_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * How long a single connection attempt gets before it's abandoned and retried.
+ *
+ * Everything else here is event-driven — `scheduleReconnect` only runs from
+ * inside `onclose`. A handshake that hangs (routine right after a laptop
+ * wakes from sleep or switches networks: the old route is gone, but nothing
+ * tells the browser that) never fires `onopen`, `onerror`, or `onclose` on
+ * some platforms, so without this the link sits on "Reconnecting…" forever —
+ * the exact bug this timeout exists to close. A page reload "fixes" it only
+ * because it discards the whole hung socket and starts over; this makes the
+ * client do that to itself.
+ */
+const CONNECT_TIMEOUT_MS = 8_000;
 
 /**
  * Browser-side connection to the BFF.
@@ -62,12 +75,20 @@ export class SessionClient {
     this.connect();
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
     window.addEventListener("online", this.handleOnline);
+    // `visibilitychange` covers a backgrounded tab; it does not fire when the
+    // whole machine sleeps while this tab stayed the foreground one — the
+    // page's own visibility never changed, so nothing about waking up looks
+    // different to the DOM. `focus` reliably fires when the window becomes
+    // active again either way, so it catches that gap too. Reuses the same
+    // handler: it already no-ops when the socket is open.
+    window.addEventListener("focus", this.handleOnline);
   }
 
   stop(): void {
     this.closed = true;
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener("online", this.handleOnline);
+    window.removeEventListener("focus", this.handleOnline);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.socket?.close();
@@ -160,12 +181,37 @@ export class SessionClient {
 
   private connect(): void {
     if (this.closed) return;
+
+    // A stale attempt can still be outstanding here: `focus`, `online`, and
+    // `visibilitychange` can each independently ask for a fresh connection in
+    // quick succession (e.g. a window regaining focus while the network also
+    // just came back). Detach and close it first — otherwise its `onopen`
+    // could still fire later against a socket `this.socket` no longer points
+    // to, sending a second `__bff_resume` the rest of this class never sees.
+    if (this.socket && this.socket.readyState !== WebSocket.OPEN) {
+      this.socket.onopen = null;
+      this.socket.onmessage = null;
+      this.socket.onclose = null;
+      this.socket.onerror = null;
+      this.socket.close();
+    }
+
     this.setLinkState(this.lastSeq === null ? "connecting" : "reconnecting");
 
     const socket = new WebSocket(this.url);
     this.socket = socket;
 
+    // A hung handshake never reaches `onopen`, so nothing here would ever call
+    // `onclose` to schedule a retry — this is that fallback. `close()` on a
+    // still-CONNECTING socket is well-defined: it aborts the connection and
+    // fires `onclose`, which routes into the ordinary retry path below.
+    const connectTimeout = setTimeout(() => {
+      if (this.socket !== socket) return;
+      socket.close();
+    }, CONNECT_TIMEOUT_MS);
+
     socket.onopen = () => {
+      clearTimeout(connectTimeout);
       this.reconnectMs = RECONNECT_BASE_MS;
       // Ask for everything we missed while the tab was away.
       socket.send(
@@ -188,6 +234,7 @@ export class SessionClient {
     };
 
     socket.onclose = () => {
+      clearTimeout(connectTimeout);
       if (this.socket === socket) this.socket = null;
       this.rejectAllPending("Connection lost");
       if (this.closed) return;
