@@ -418,22 +418,31 @@ pre {
 .md input[type="checkbox"] {
   margin-right: 6px;
 }
-/* A subtle full-width bordered box — not a coloured right-aligned bubble. */
+/* A full-width panel with a faint accent tint and a 2px accent rail down the
+   left — the same rail idiom the tool IN/OUT blocks and the thinking body use,
+   with the left corners squared where the bar sits. */
 .bubble.user {
   align-self: stretch;
-  background: none;
-  border: 1px solid var(--border);
+  margin-left: 1px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  border-left: 2px solid var(--accent);
   border-radius: 8px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
   padding: 8px 12px;
 }
 /* Collapsed, the reasoning row is just a muted "Thinking" line (MessageList). */
 .entry.reasoning .tool-head {
   font-style: italic;
 }
+/* No panel: the expanded reasoning body is just indented italic text on the
+   same left rail the tool IN/OUT blocks use. */
 .bubble.thinking {
-  background: var(--surface-2);
   color: var(--muted);
   font-style: italic;
+  margin-left: 1px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
 }
 .bubble.system {
   background: var(--surface-2);
@@ -735,6 +744,14 @@ pre {
 .composer-box:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+/* A full-bleed divider between the text field and the control row. Negative
+   inline margin cancels .composer-box's 6px padding so the line meets both
+   edges; the matching padding keeps the buttons off it. */
+.composer-box .composer-row {
+  margin-inline: -6px;
+  padding: 6px 6px 0;
+  border-top: 1px solid var(--border);
 }
 
 .composer textarea {
