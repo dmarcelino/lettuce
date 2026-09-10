@@ -1,5 +1,16 @@
-# Build context is the parent directory holding both repos:
-#   docker compose -f letta-code-ui/docker/compose.yml up
+# Everything this stack builds comes from THIS repo — the sibling letta-code
+# fork is dev tooling (drift reporting via scripts/sync-upstream.sh), not a
+# build input. A host needs only `git` and `docker` to deploy:
+#   docker compose -f letta-code-ui/docker/compose.yml up -d
+#
+# ── Durable state lives under one host root ──────────────────────────────────
+# LETTA_STATE_DIR anchors every bind mount. Relative values resolve against
+# this file's directory, and the `../..` default reproduces the original dev
+# layout exactly (workspaces/ alongside the two repos). Prod sets an absolute
+# path (e.g. /srv/letta) so the mounts cannot wander into whatever directory a
+# compose manager happens to clone the stack into. Docker creates missing bind
+# sources as root, which is correct here — the app-server runs as uid 0 — so a
+# first boot on a clean host needs no mkdir.
 #
 # ── Why every service shares one network namespace ───────────────────────────
 # The app-server refuses to listen on a non-loopback address without
@@ -15,16 +26,17 @@ name: letta
 services:
   app-server:
     build:
-      # Our thin layer over the fork's own image, adding bubblewrap. The base
-      # tag it needs is built by `bun run build-images` — Compose alone cannot
-      # build A then FROM A.
+      # A thin bubblewrap layer over upstream's PUBLISHED image (see
+      # app-server.Dockerfile for why that is the same recipe we used to build
+      # locally). Because the base now comes from a registry, Compose can build
+      # this in one pass — the old two-step `build-images.sh` is gone.
       context: .
       dockerfile: app-server.Dockerfile
       args:
-        # Pinned to the fork's own version, never `latest`. The UI is compiled
+        # Pinned to a published release, never `latest`. The UI is compiled
         # against this exact release's protocol types (see CLAUDE.md), so the
-        # running app-server must match. The fork carries zero delta, so the
-        # published package at this version is equivalent to our source.
+        # running app-server must match. `scripts/check-version-pin.ts` asserts
+        # every copy of this literal agrees.
         LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.31.13}"
     # Deliberate trade, not an oversight — and the argument list matters, so read
     # this before trimming anything from it.
@@ -146,9 +158,9 @@ services:
       # "30m", but an unparseable value throws rather than falling back.
       LETTA_CODE_LOCAL_PROVIDER_TIMEOUT_MS: "1800000"
     volumes:
-      - letta-home:/root/.letta
-      - letta-data:/data
-      - ../../workspaces:/work
+      - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
+      - ${LETTA_STATE_DIR:-../..}/letta-data:/data
+      - ${LETTA_STATE_DIR:-../..}/workspaces:/work
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # The UI port is published here because the BFF shares this namespace.
@@ -170,8 +182,10 @@ services:
 
   bff:
     build:
-      context: ../..
-      dockerfile: letta-code-ui/docker/bff.Dockerfile
+      # This repo's root — see the note at the top of this file. `.dockerignore`
+      # there keeps node_modules and .git out of the context.
+      context: ..
+      dockerfile: docker/bff.Dockerfile
     depends_on:
       app-server:
         condition: service_healthy
@@ -190,6 +204,12 @@ services:
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       CF_ACCESS_ISSUER: ${CF_ACCESS_ISSUER:-}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      # The allowlist, two ways. ALLOWED_USERS wins when set and keeps prod
+      # configuration entirely in the environment — which matters for a compose
+      # manager that owns the stack env but not the checkout. USERS_FILE is the
+      # fallback for local dev, where editing a JSON file is nicer than editing
+      # an env var. See bff/src/config.ts readAllowedUsers().
+      ALLOWED_USERS: ${ALLOWED_USERS:-}
       USERS_FILE: /app/config/users.json
       DEV_BYPASS_EMAIL: ${DEV_BYPASS_EMAIL:-}
       DEV_BYPASS_ALLOW_REMOTE: ${DEV_BYPASS_ALLOW_REMOTE:-}
@@ -199,18 +219,26 @@ services:
       PUSH_VAPID_CONTACT_EMAIL: ${PUSH_VAPID_CONTACT_EMAIL:-}
       PUSH_SUBSCRIPTIONS_FILE: /app/data/push-subscriptions.json
     volumes:
-      - ../config/users.json:/app/config/users.json:ro
-      # Push subscriptions are runtime state the BFF writes, not config — a
-      # plain host directory (like config/ and workspaces/) rather than an
-      # opaque named volume, so it stays inspectable and backupable.
-      - ../../bff-data:/app/data
-      # Same host directory the app-server mounts read-write at /work.
+      # The DIRECTORY, not config/users.json itself. A single-file bind of a
+      # gitignored path is a trap: on a fresh clone the file does not exist, so
+      # Docker creates a directory there and the BFF crash-loops on EISDIR. It
+      # also pins an inode, so a host edit that replaces the file (vim, `>`) is
+      # never seen inside the container. config/ is tracked, so it always exists.
+      - ../config:/app/config:ro
+      # Push subscriptions: device endpoints the BFF rewrites on every
+      # subscribe/unsubscribe. Nothing reads this by hand and losing it only
+      # means re-subscribing from Settings → Notifications, so unlike the state
+      # under LETTA_STATE_DIR it does not need to be on the host.
+      - bff-data:/app/data
+      # Same host directory the app-server mounts read-write at /work, and at
+      # the same absolute path inside the container — file-stat.ts stats paths
+      # exactly as the app-server reported them.
       # Read-only here: the BFF only needs `stat()` to report real modified
       # times for the Files tab (get_tree carries no mtime field, and the
       # fork cannot be patched to add one — see CLAUDE.md). It never lists
       # directories from this mount itself, only stats paths get_tree already
       # returned, so it can't show anything get_tree wouldn't have.
-      - ../../workspaces:/work:ro
+      - ${LETTA_STATE_DIR:-../..}/workspaces:/work:ro
     restart: unless-stopped
 
   # Telegram and the other messaging channels. A separate process by design:
@@ -218,11 +246,10 @@ services:
   # attached (message-router.ts: runtime.serviceCommandTypes), so without this
   # service every channel command returns silence.
   channel-gateway:
-    build:
-      context: ../../letta-code
-      dockerfile: docker/Dockerfile
-      args:
-        LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.31.13}"
+    # Upstream's published image, used as-is — this service needs no layer of
+    # our own (deliberately no bubblewrap; see LETTA_FS_SANDBOX below). Pulling
+    # it is what removes the last build-time dependency on a fork checkout.
+    image: letta/letta:${LETTA_CODE_VERSION:-0.31.13}
     depends_on:
       app-server:
         condition: service_healthy
@@ -249,9 +276,9 @@ services:
       # The app-server owns scheduling; a second scheduler would fight for the lease.
       LETTA_DISABLE_CRON_SCHEDULER: "1"
     volumes:
-      - letta-home:/root/.letta
-      - letta-data:/data
-      - ../../workspaces:/work
+      - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
+      - ${LETTA_STATE_DIR:-../..}/letta-data:/data
+      - ${LETTA_STATE_DIR:-../..}/workspaces:/work
     restart: unless-stopped
 
   # Outbound-only, dashboard-managed tunnel: the public-hostname-to-origin
@@ -285,5 +312,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  letta-home:
-  letta-data:
+  # The only named volume left. Everything durable — agent memory, conversations,
+  # settings.json, agent workspaces — lives under LETTA_STATE_DIR on the host
+  # instead, where it can be inspected and backed up with ordinary tools.
+  bff-data:

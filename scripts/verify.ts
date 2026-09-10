@@ -18,6 +18,11 @@ interface Stage {
 }
 
 const STAGES: Stage[] = [
+  {
+    name: "version-pin",
+    cmd: ["bun", "scripts/check-version-pin.ts"],
+    why: "one letta-code release across images and types",
+  },
   { name: "lint", cmd: ["bun", "run", "lint"], why: "biome check" },
   { name: "typecheck", cmd: ["bun", "run", "typecheck"], why: "also the protocol-drift detector" },
   { name: "test", cmd: ["bun", "test"], why: "bun:test" },
