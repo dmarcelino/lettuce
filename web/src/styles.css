@@ -745,7 +745,8 @@ pre {
    edges; the matching padding keeps the buttons off it. */
 .composer-box .composer-row {
   margin-inline: -6px;
-  padding: 6px 6px 0;
+  /* Tight top pad so this band matches the textarea band's height. */
+  padding: 2px 6px 0;
   border-top: 1px solid var(--border);
 }
 
@@ -796,9 +797,9 @@ pre {
    action — flat means a bare glyph, tinting only on hover or when active. */
 .icon-button.flat {
   width: auto;
-  min-width: 34px;
-  height: 34px;
-  padding: 0 9px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 7px;
   border-radius: 4px;
   background: none;
   border: none;
@@ -853,9 +854,9 @@ pre {
 /* The send button must stay reachable however far the chips scroll. */
 .composer-row .icon-button.send,
 .composer-row .icon-button.stop {
-  width: 34px;
-  height: 34px;
-  font-size: 15px;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
   position: sticky;
   right: 0;
 }
