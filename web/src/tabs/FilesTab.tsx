@@ -1,16 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileViewer } from "../components/FileViewer.tsx";
 import { Icon } from "../components/Icon.tsx";
-import { Markdown } from "../components/Markdown.tsx";
-import { Sheet } from "../components/Sheet.tsx";
-import {
-  downloadUrl,
-  formatBytes,
-  isBinaryReadError,
-  isImageFile,
-  isMarkdownFile,
-  mimeTypeFor,
-  triggerDownload,
-} from "../lib/download.ts";
+import { downloadUrl, formatBytes, triggerDownload } from "../lib/download.ts";
 import { agentWorkspace, WORKSPACE_ROOT } from "../lib/workspace.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -69,9 +60,6 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [root, setRoot] = useState<string | null>(null);
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [content, setContent] = useState<string | null>(null);
-  /** Data URL of an image preview, when the open file is one. */
-  const [image, setImage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<GrepMatch[] | null>(null);
   const [status, setStatus] = useState("");
@@ -118,8 +106,6 @@ export function FilesTab({ session, cwd, agentId }: Props) {
     setEntries([]);
     setMatches(null);
     setSelected(null);
-    setContent(null);
-    setImage(null);
   }, []);
 
   const load = useCallback(
@@ -148,79 +134,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
     if (root) void load(root);
   }, [root, load]);
 
-  const basename = (path: string) => path.split("/").pop() || path;
-
-  interface ReadResponse {
-    content?: string | null;
-    success?: boolean;
-    error?: string;
-  }
-
   /** Hand the file to the browser's download manager via the BFF's HTTP route. */
   const downloadFile = (path: string) => {
     triggerDownload(downloadUrl(path));
-  };
-
-  /**
-   * Open a file, guessing from its name what it is — because nothing else can
-   * say. `get_tree` carries no mime type, so an image is recognised by
-   * extension and everything else is tried as text first.
-   *
-   * A text read that fails on strict UTF-8 means the file is binary, and the
-   * thing the user wanted was the file: download it instead of leaving them on
-   * an error, which is all this tab could do before.
-   */
-  const openFile = async (path: string) => {
-    const name = basename(path);
-
-    if (isImageFile(name)) {
-      setSelected(path);
-      setContent(null);
-      setImage(null);
-      setStatus("Loading image…");
-      try {
-        const response = await session.request<ReadResponse>("read_file", {
-          path,
-          encoding: "base64",
-        });
-        if (response?.success === false || typeof response?.content !== "string") {
-          setStatus(response?.error ?? "Failed to read file");
-          setSelected(null);
-          return;
-        }
-        setImage(`data:${mimeTypeFor(name)};base64,${response.content}`);
-        setStatus("");
-      } catch (cause) {
-        setStatus(cause instanceof Error ? cause.message : String(cause));
-        setSelected(null);
-      }
-      return;
-    }
-
-    setSelected(path);
-    setContent(null);
-    setImage(null);
-    setStatus("Loading file…");
-    try {
-      const response = await session.request<ReadResponse>("read_file", {
-        path,
-        encoding: "utf8",
-      });
-      if (response?.success === false) {
-        const error = response.error ?? "Failed to read file";
-        if (isBinaryReadError(error)) {
-          setSelected(null);
-          downloadFile(path);
-          return;
-        }
-        setStatus(error);
-        return;
-      }
-      setContent(response?.content ?? "");
-      setStatus("");
-    } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
-    }
   };
 
   const search = async () => {
@@ -301,7 +217,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
               <button
                 type="button"
                 className="row"
-                onClick={() => void openFile(resolve(root, match.path))}
+                onClick={() => setSelected(resolve(root, match.path))}
               >
                 <span className="grow-text">
                   <code className="small">
@@ -345,7 +261,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                     className="row grow-row"
                     onClick={() => {
                       if (entry.type === "dir") setRoot(absolute);
-                      else void openFile(absolute);
+                      else setSelected(absolute);
                     }}
                   >
                     <Icon name={entry.type === "dir" ? "folder" : "file"} />
@@ -385,33 +301,13 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         </>
       )}
 
-      {selected && (content !== null || image !== null) ? (
-        <Sheet
-          title={basename(selected)}
-          fill
-          size="spacious"
+      {selected ? (
+        <FileViewer
+          session={session}
+          path={selected}
           onClose={() => setSelected(null)}
-          actions={
-            <>
-              <button type="button" className="button" onClick={() => downloadFile(selected)}>
-                Download
-              </button>
-              <button type="button" className="button ghost" onClick={() => setSelected(null)}>
-                Close
-              </button>
-            </>
-          }
-        >
-          {image !== null ? (
-            <img className="file-preview" src={image} alt={basename(selected)} />
-          ) : isMarkdownFile(basename(selected)) ? (
-            <div className="tool-args">
-              <Markdown text={content ?? ""} />
-            </div>
-          ) : (
-            <pre className="tool-args">{content}</pre>
-          )}
-        </Sheet>
+          key={selected}
+        />
       ) : null}
     </div>
   );

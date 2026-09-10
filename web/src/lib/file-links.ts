@@ -1,33 +1,40 @@
 /**
- * Turn a workspace file path the agent mentions in prose into a link.
+ * Turn a workspace file the agent names in prose into a link.
  *
- * The agent routinely writes things like "waiting on your review of
- * tailored/Dima_2026-0910.pdf" — a real file under its workspace, but plain
- * text in the transcript. This remark plugin runs after `remark-gfm` and
- * rewrites path-shaped tokens (ending in a known extension) into `link` nodes
- * pointing at the absolute `/work/...` path, which `Markdown.tsx`'s `a`
- * component then sends to the BFF download route.
+ * The agent writes filenames constantly — `EVAL.md`, `tailored/Dima.pdf`,
+ * `scripts/monitor.py` — sometimes as prose, more often in backticks. This
+ * remark plugin runs after `remark-gfm` and rewrites a path-shaped token into a
+ * `link` node when, and only when, a resolver says it is a real file in the
+ * current workspace. `Markdown.tsx`'s `a` component then opens it.
  *
- * Deliberately narrow to avoid false positives:
- *  - only tokens ending in a known file extension (see `LINKABLE_EXTENSIONS`);
- *  - relative tokens need `cwd` to resolve, and both relative and absolute
- *    tokens must land inside `/work/` after normalising `.`/`..` — anything
- *    that escapes the workspace, or is `/work` itself, is left as text;
- *  - never descends into `link` / `linkReference` (no nested links) or code
- *    (`code` and `inlineCode` are leaf nodes holding their own `value`, so a
- *    path inside a fenced block or backticks is untouched);
+ * Eligibility is the resolver's call, not this file's:
+ *  - a RELATIVE token (`monitor.md`, `scripts/x.py`) links only if
+ *    `options.resolve(token)` returns a path — see `use-file-links.ts`, which
+ *    looks it up with `search_files`. No resolver (the Files tab's own preview)
+ *    means relative tokens stay text.
+ *  - an ABSOLUTE `/work/...` token links if it survives the `WORKSPACE_ROOT`
+ *    clamp in `resolveWorkspacePath`; it is explicit, so it is not verified and
+ *    the viewer reports a missing file honestly.
+ *
+ * The regex still narrows first, to keep `resolve` off obvious prose:
+ *  - only tokens ending in a known extension (`LINKABLE_EXTENSIONS`) — a
+ *    prefilter now, not the gate, so it is generous;
+ *  - never inside `link` / `linkReference` (no nested links) or fenced `code`;
+ *  - an `inlineCode` span links only when its WHOLE trimmed content is one such
+ *    token — `git add EVAL.md` and `cat foo.md` are left as code;
  *  - a token butting up against a word char, `@`, `.` or `-` is mid-word /
- *    mid-email and skipped; bare URLs (`http://…`, `www.…`) are already `link`
- *    nodes by the time this runs — gfm autolinked them — so they are skipped
- *    too, and any that slip through fail the `/work/` clamp anyway.
+ *    mid-email and skipped; bare URLs are already `link` nodes by now.
  *
  * No lookbehind in the regex on purpose: older Safari throws a SyntaxError
- * parsing one, which would take out the whole module. The leading-boundary
- * check is done in code instead.
+ * parsing one. The leading-boundary check is done in code instead.
  */
 import { WORKSPACE_ROOT } from "./workspace.ts";
 
-/** Extensions worth linking — the doc/text/image/archive types agents produce. */
+/**
+ * Extensions worth a lookup — doc/text/image/archive types agents produce, plus
+ * the code/config types they keep in a workspace. A PREFILTER, not the rule:
+ * something here still only links if the resolver finds the file.
+ */
 export const LINKABLE_EXTENSIONS = new Set([
   "pdf",
   "doc",
@@ -45,10 +52,17 @@ export const LINKABLE_EXTENSIONS = new Set([
   "csv",
   "tsv",
   "json",
+  "jsonl",
   "xml",
   "yaml",
   "yml",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "env",
   "html",
+  "css",
   "png",
   "jpg",
   "jpeg",
@@ -65,6 +79,18 @@ export const LINKABLE_EXTENSIONS = new Set([
   "gz",
   "tgz",
   "tar",
+  "py",
+  "ipynb",
+  "js",
+  "ts",
+  "tsx",
+  "jsx",
+  "sh",
+  "bash",
+  "rb",
+  "go",
+  "rs",
+  "sql",
 ]);
 
 /** The mdast shape this plugin touches — structural, to avoid an mdast dep. */
@@ -75,9 +101,13 @@ interface MdNode {
   children?: MdNode[];
 }
 
+type Resolver = (token: string) => string | null;
+
 export interface FilePathOptions {
   /** The conversation's cwd (`/work/<agent-id>`), or `null` when unknown. */
   cwd: string | null;
+  /** Resolve a relative token to an absolute path, or null to leave as text. */
+  resolve?: Resolver;
 }
 
 /**
@@ -117,8 +147,31 @@ export function resolveWorkspacePath(token: string, cwd: string | null): string 
   return normalized;
 }
 
+/** An absolute `/work` token is clamped; a relative one is the resolver's call. */
+function linkUrl(token: string, cwd: string | null, resolve: Resolver | undefined): string | null {
+  if (token.startsWith("/")) return resolveWorkspacePath(token, cwd);
+  return resolve ? resolve(token) : null;
+}
+
+/** If a code span's whole trimmed content is one linkable token, return it. */
+export function wholeToken(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  PATH_RE.lastIndex = 0;
+  const match = PATH_RE.exec(trimmed);
+  if (!match) return null;
+  const token = match[1] ?? "";
+  const ext = (match[2] ?? "").toLowerCase();
+  if (match.index !== 0 || token.length !== trimmed.length) return null;
+  return LINKABLE_EXTENSIONS.has(ext) ? token : null;
+}
+
 /** Split one text value into text/link nodes, or `null` if nothing matched. */
-function splitText(value: string, cwd: string | null): MdNode[] | null {
+function splitText(
+  value: string,
+  cwd: string | null,
+  resolve: Resolver | undefined,
+): MdNode[] | null {
   PATH_RE.lastIndex = 0;
   const nodes: MdNode[] = [];
   let last = 0;
@@ -129,7 +182,7 @@ function splitText(value: string, cwd: string | null): MdNode[] | null {
     const before = match.index === 0 ? "" : value.charAt(match.index - 1);
     const url =
       !NOT_A_BOUNDARY.test(before) && LINKABLE_EXTENSIONS.has(ext)
-        ? resolveWorkspacePath(token, cwd)
+        ? linkUrl(token, cwd, resolve)
         : null;
     if (url) {
       if (match.index > last) {
@@ -146,32 +199,64 @@ function splitText(value: string, cwd: string | null): MdNode[] | null {
   return nodes;
 }
 
-function transform(node: MdNode, cwd: string | null): void {
+function transform(node: MdNode, cwd: string | null, resolve: Resolver | undefined): void {
   if (!node.children || node.type === "link" || node.type === "linkReference") return;
 
   const next: MdNode[] = [];
   let changed = false;
   for (const child of node.children) {
     if (child.type === "text" && typeof child.value === "string") {
-      const pieces = splitText(child.value, cwd);
+      const pieces = splitText(child.value, cwd, resolve);
       if (pieces) {
         next.push(...pieces);
         changed = true;
         continue;
       }
       next.push(child);
+    } else if (child.type === "inlineCode" && typeof child.value === "string") {
+      // Whole-span only: never split a code span mid-content.
+      const token = wholeToken(child.value);
+      const url = token ? linkUrl(token, cwd, resolve) : null;
+      if (url) {
+        next.push({ type: "link", url, children: [{ type: "inlineCode", value: child.value }] });
+        changed = true;
+      } else {
+        next.push(child);
+      }
     } else {
-      transform(child, cwd);
+      transform(child, cwd, resolve);
       next.push(child);
     }
   }
   if (changed) node.children = next;
 }
 
-/** remark plugin: `[remarkFilePaths, { cwd }]`. */
+/**
+ * Every relative path-shaped token in raw text, for feeding a resolver. A
+ * superset of what renders as a link — a token inside a fenced block is
+ * included and simply never matched during the walk.
+ */
+export function collectFileTokens(text: string): string[] {
+  PATH_RE.lastIndex = 0;
+  const out = new Set<string>();
+  let match: RegExpExecArray | null = PATH_RE.exec(text);
+  while (match !== null) {
+    const token = match[1] ?? "";
+    const ext = (match[2] ?? "").toLowerCase();
+    const before = match.index === 0 ? "" : text.charAt(match.index - 1);
+    if (!token.startsWith("/") && !NOT_A_BOUNDARY.test(before) && LINKABLE_EXTENSIONS.has(ext)) {
+      out.add(token);
+    }
+    match = PATH_RE.exec(text);
+  }
+  return [...out];
+}
+
+/** remark plugin: `[remarkFilePaths, { cwd, resolve }]`. */
 export function remarkFilePaths(options: FilePathOptions): (tree: unknown) => void {
   const cwd = options?.cwd ?? null;
+  const resolve = options?.resolve;
   return (tree: unknown) => {
-    transform(tree as MdNode, cwd);
+    transform(tree as MdNode, cwd, resolve);
   };
 }
