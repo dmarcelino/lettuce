@@ -9,7 +9,7 @@ export interface SessionApi {
   request: <T = unknown>(type: string, body?: Record<string, unknown>) => Promise<T>;
   send: (command: Record<string, unknown> & { type: string }) => void;
   setScopes: (scopes: RuntimeScope[]) => void;
-  markResynced: (seq: number) => void;
+  markResynced: () => void;
   /** Subscribe to inbound app-server frames. Returns an unsubscribe function. */
   onFrame: (handler: (frame: SequencedFrame) => void) => () => void;
   /** Fires when the BFF buffer could not cover the gap and history must reload. */
@@ -67,8 +67,8 @@ export function useSession(enabled: boolean): SessionApi {
     clientRef.current?.setScopes(scopes);
   }, []);
 
-  const markResynced = useCallback((seq: number) => {
-    clientRef.current?.markResynced(seq);
+  const markResynced = useCallback(() => {
+    clientRef.current?.markResynced();
   }, []);
 
   const onFrame = useCallback((handler: (frame: SequencedFrame) => void) => {

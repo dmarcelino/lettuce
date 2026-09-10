@@ -187,7 +187,7 @@ export function useConversation(
 ): ConversationApi {
   // Individually stable; depending on the whole session object would re-fire
   // these effects on every link-state change.
-  const { request, send, setScopes, onFrame, onResync, ready } = session;
+  const { request, send, setScopes, onFrame, onResync, ready, markResynced } = session;
 
   // Held in a ref, not a dep: the frame subscription below must not re-run when
   // a caller passes a fresh closure, and re-subscribing per render is exactly
@@ -223,26 +223,34 @@ export function useConversation(
     setEntries(sortedEntries(transcriptRef.current));
   }, []);
 
-  const loadHistory = useCallback(async () => {
-    if (!conversationId) return;
-    setLoadingHistory(true);
-    setError(null);
-    try {
-      const response = await request<{ messages?: unknown[] }>("conversation_messages_list", {
-        conversation_id: conversationId,
-        query: { limit: 200 },
-      });
-      const messages = Array.isArray(response?.messages) ? response.messages : [];
-      transcriptRef.current = transcriptFromHistory(messages);
-      streamIndexRef.current = createStreamIndex();
-      seqRef.current = messages.length;
-      flush();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, [conversationId, request, flush]);
+  const loadHistory = useCallback(
+    async (afterResync = false) => {
+      if (!conversationId) return;
+      setLoadingHistory(true);
+      setError(null);
+      try {
+        const response = await request<{ messages?: unknown[] }>("conversation_messages_list", {
+          conversation_id: conversationId,
+          query: { limit: 200 },
+        });
+        const messages = Array.isArray(response?.messages) ? response.messages : [];
+        transcriptRef.current = transcriptFromHistory(messages);
+        streamIndexRef.current = createStreamIndex();
+        seqRef.current = messages.length;
+        flush();
+        // A request/response frame like this one never carries the sequence
+        // number that would otherwise flip the link back to "live" on its
+        // own — see session-client.ts's markResynced. Only relevant when this
+        // reload was resync-triggered; an ordinary load has nothing to un-stick.
+        if (afterResync) markResynced();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setLoadingHistory(false);
+      }
+    },
+    [conversationId, request, flush, markResynced],
+  );
 
   // Start (or resume) the runtime for this conversation, then load its history.
   useEffect(() => {
@@ -299,7 +307,7 @@ export function useConversation(
   }, [ready, scope?.agent_id, scope?.conversation_id, request, setScopes, loadHistory]);
 
   // A resync means the BFF buffer could not cover the gap while we were away.
-  useEffect(() => onResync(() => void loadHistory()), [onResync, loadHistory]);
+  useEffect(() => onResync(() => void loadHistory(true)), [onResync, loadHistory]);
 
   useEffect(() => {
     return onFrame((frame: SequencedFrame) => {

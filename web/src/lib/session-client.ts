@@ -105,12 +105,23 @@ export class SessionClient {
   }
 
   /**
-   * Called after the app rebuilds from `conversation_messages_list`, so the
-   * next resume starts from the live head instead of asking for a replay the
-   * buffer can no longer serve.
+   * Called once the app has rebuilt its own state from
+   * `conversation_messages_list` after a resync-required reconnect.
+   *
+   * `lastSeq` is already correct by this point — it was set to the BFF's
+   * `latest_seq` the moment `__bff_resume_result` reported the gap, so the
+   * next resume already starts from the live head. What this actually fixes:
+   * `handleFrame`'s generic path only flips the link back to "live" when a
+   * new *sequenced* frame arrives, and request/response frames (which is all
+   * `conversation_messages_list` ever produces) never carry one — see the
+   * BFF's `registry.ts`, which returns early for a request/response match
+   * before the sequencing/buffering step that attaches it. Without this call,
+   * a resync into an idle conversation left the status pill on "Resyncing…"
+   * indefinitely: correct on the inside, stuck-looking on the outside, and
+   * `ready` (which gates starting a runtime) stayed false right along with it.
    */
-  markResynced(latestSeq: number): void {
-    this.lastSeq = latestSeq;
+  markResynced(): void {
+    this.setLinkState("live");
   }
 
   send(command: Record<string, unknown> & { type: string }): void {
