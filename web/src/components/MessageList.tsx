@@ -45,6 +45,21 @@ function formatArgs(args: string | undefined): string {
   }
 }
 
+/** First non-blank line of a string, trimmed — the one-line preview. */
+function firstLine(text: string | undefined): string {
+  if (!text) return "";
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+/** Clip to n characters with an ellipsis. */
+function clip(text: string, n: number): string {
+  return text.length > n ? `${text.slice(0, n)}…` : text;
+}
+
 export function MessageList({ entries, processing, session, cwd, onOpenFile }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fileLinks = useFileLinks(session, cwd);
@@ -71,6 +86,22 @@ export function MessageList({ entries, processing, session, cwd, onOpenFile }: P
     return () => container.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Index every tool return by its call id, and note which returns get folded
+  // into a call so the standalone entry is dropped from the list.
+  const returnByCall = new Map<string, TranscriptEntry>();
+  for (const entry of entries) {
+    if (entry.kind === "tool_return" && entry.toolCallId && !returnByCall.has(entry.toolCallId)) {
+      returnByCall.set(entry.toolCallId, entry);
+    }
+  }
+  const pairedReturnIds = new Set<string>();
+  for (const entry of entries) {
+    if ((entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId) {
+      const paired = returnByCall.get(entry.toolCallId);
+      if (paired) pairedReturnIds.add(paired.id);
+    }
+  }
+
   return (
     <div className="messages-wrap">
       <div className="messages" ref={containerRef}>
@@ -78,15 +109,27 @@ export function MessageList({ entries, processing, session, cwd, onOpenFile }: P
           <p className="muted empty">No messages yet. Say something below.</p>
         ) : null}
 
-        {entries.map((entry) => (
-          <MessageItem
-            key={entry.id}
-            entry={entry}
-            cwd={cwd}
-            fileLinks={fileLinks}
-            onOpenFile={onOpenFile}
-          />
-        ))}
+        {entries.map((entry) => {
+          // A tool call and its result render as one block: skip the standalone
+          // return when it has a matching call, and hand the call its return.
+          if (entry.kind === "tool_return" && entry.toolCallId && pairedReturnIds.has(entry.id)) {
+            return null;
+          }
+          const retn =
+            (entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId
+              ? (returnByCall.get(entry.toolCallId) ?? null)
+              : null;
+          return (
+            <MessageItem
+              key={entry.id}
+              entry={entry}
+              retn={retn}
+              cwd={cwd}
+              fileLinks={fileLinks}
+              onOpenFile={onOpenFile}
+            />
+          );
+        })}
 
         {processing ? (
           <div className="entry working">
@@ -114,11 +157,14 @@ export function MessageList({ entries, processing, session, cwd, onOpenFile }: P
 
 function MessageItem({
   entry,
+  retn,
   cwd,
   fileLinks,
   onOpenFile,
 }: {
   entry: TranscriptEntry;
+  /** For a tool call: its matching return, folded into the same block. */
+  retn?: TranscriptEntry | null;
   cwd: string | null;
   fileLinks: FileLinks;
   onOpenFile: (path: string) => void;
@@ -163,28 +209,53 @@ function MessageItem({
   if (entry.kind === "tool_call" || entry.kind === "approval_request") {
     const args = formatArgs(entry.toolArgs);
     // Mid-stream the argument JSON is truncated and unparseable, so the summary
-    // is absent until the call is whole; the tool name carries the row until
-    // then. The raw JSON stays behind the disclosure either way.
+    // is absent until the call is whole; the raw args carry the preview until then.
     const summary = summarizeToolCall(entry.toolName, parseToolArgs(entry.toolArgs), cwd);
+    const inPreview = summary?.headline || firstLine(entry.toolArgs);
+    // `retn` is the folded return; null means it has not arrived yet.
+    const status = retn?.status ?? null;
+    const outText = retn?.text ?? "";
+    const stderr = retn?.stderr?.join("\n") ?? "";
+    const showStderr = stderr.length > 0 && !outText.includes(stderr);
+    const outPreview = firstLine(outText) || (showStderr ? firstLine(stderr) : "");
+    const hasBody = Boolean(args) || Boolean(outText) || showStderr;
     return (
-      <div className={`entry ${entry.kind}`}>
-        <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
-          <span className="tag">{label}</span>
+      <div className={`entry tool${status === "error" ? " error" : ""}`}>
+        <button
+          type="button"
+          className="tool-head"
+          onClick={() => setOpen((v) => !v)}
+          disabled={!hasBody}
+        >
           <code>{entry.toolName ?? "…"}</code>
-          {summary ? (
-            <span className={`grow-text summary${summary.mono ? " mono" : ""}`}>
-              {summary.headline}
+          {inPreview ? (
+            <span className={`grow-text summary${(summary?.mono ?? true) ? " mono" : ""}`}>
+              {clip(inPreview, 200)}
             </span>
           ) : null}
-          {args ? (
+          {status === "error" ? <span className="tag bad">error</span> : null}
+          {hasBody ? (
             <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
           ) : null}
         </button>
         {summary?.subtitle ? <p className="tool-subtitle">{summary.subtitle}</p> : null}
-        {open && args ? (
+        {open ? (
           <div className="rail">
-            <span className="rail-label">IN</span>
-            <pre className="tool-args">{args}</pre>
+            {args ? <span className="rail-label">IN</span> : null}
+            {args ? <pre className="tool-args">{args}</pre> : null}
+            {outText || showStderr ? <span className="rail-label">OUT</span> : null}
+            {outText ? <pre className="tool-args">{outText}</pre> : null}
+            {showStderr ? <pre className="tool-args stderr">{stderr}</pre> : null}
+            {!retn ? <span className="tool-peek">Running…</span> : null}
+          </div>
+        ) : outPreview ? (
+          <div className="rail peek">
+            <span className="rail-label">OUT</span>
+            <span className="tool-peek">{clip(outPreview, 200)}</span>
+          </div>
+        ) : !retn ? (
+          <div className="rail peek">
+            <span className="tool-peek">Running…</span>
           </div>
         ) : null}
       </div>

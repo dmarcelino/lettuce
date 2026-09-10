@@ -9,7 +9,8 @@
   --ok: #4ade80;
   --warn: #fbbf24;
   --bad: #f87171;
-  --radius: 12px;
+  /* Square everywhere. Kept as a token so the few call sites stay expressive. */
+  --radius: 0;
   color-scheme: dark;
 }
 
@@ -103,7 +104,7 @@ pre {
   border: none;
   color: var(--muted);
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 0;
   font-size: 14px;
   font-weight: 500;
 }
@@ -187,7 +188,7 @@ pre {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 9px 10px;
   font-size: 14px;
   width: 100%;
@@ -215,7 +216,7 @@ pre {
   display: flex;
   align-items: center;
   gap: 4px;
-  border-radius: 8px;
+  border-radius: 0;
   padding: 2px 4px;
 }
 .conversations li.active {
@@ -376,7 +377,7 @@ pre {
 
 .md code {
   background: var(--surface-2);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 1px 5px;
   font-size: 0.9em;
 }
@@ -384,7 +385,7 @@ pre {
   margin: 8px 0;
   padding: 10px;
   background: var(--surface-2);
-  border-radius: 8px;
+  border-radius: 0;
   font-size: 12px;
   /* Scroll the block, never the page. */
   overflow-x: auto;
@@ -419,16 +420,12 @@ pre {
   margin-right: 6px;
 }
 /* A full-width panel with a faint accent tint and a 2px accent rail down the
-   left — the same rail idiom the tool IN/OUT blocks and the thinking body use,
-   with the left corners squared where the bar sits. */
+   left — the same rail idiom the tool IN/OUT blocks and the thinking body use. */
 .bubble.user {
   align-self: stretch;
   margin-left: 1px;
   background: color-mix(in srgb, var(--accent) 6%, var(--surface));
   border-left: 2px solid var(--accent);
-  border-radius: 8px;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
   padding: 8px 12px;
 }
 /* Collapsed, the reasoning row is just a muted "Thinking" line (MessageList). */
@@ -528,9 +525,8 @@ pre {
   font-weight: 650;
 }
 /* The bold tool name plus the IN/OUT rail identify a tool row, so the uppercase
-   kind tag is redundant on it. The red "error" tag on a failed return stays. */
-.entry.tool_call .tool-head > .tag,
-.entry.approval_request .tool-head > .tag,
+   kind tag is redundant on it. The red "error" tag stays. */
+.entry.tool .tool-head > .tag:not(.bad),
 .entry.tool_return .tool-head > .tag:not(.bad) {
   display: none;
 }
@@ -542,7 +538,7 @@ pre {
   margin: 0;
   padding: 10px 12px;
   background: var(--surface-2);
-  border-radius: 8px;
+  border-radius: 0;
   font-size: 12.5px;
   max-width: 100%;
   overflow-x: auto;
@@ -551,8 +547,8 @@ pre {
   max-height: 320px;
 }
 
-/* The call args and the return body sit on an inset rail — a left border plus a
-   small indent — so an adjacent call/return pair reads as one IN/OUT unit. */
+/* IN and OUT sit on one inset rail under the header — a 2px left border and a
+   small indent — so a call and its result read as a single block. */
 .rail {
   align-self: stretch;
   min-width: 0;
@@ -570,32 +566,38 @@ pre {
   letter-spacing: 0.08em;
   color: var(--muted);
 }
+/* A second and later rail-label (the OUT after the IN) needs air above it. */
+.rail .rail-label ~ .rail-label {
+  margin-top: 5px;
+}
+.entry.tool.error .rail,
 .entry.tool_return.error .rail {
   border-left-color: var(--bad);
 }
 
-/* Pull a return up against its call so the two rows read as one block,
-   cancelling the `.messages` row gap. Every tool call arrives as an
-   approval_request, so that adjacency is the common case. */
-.entry.tool_call + .entry.tool_return,
-.entry.approval_request + .entry.tool_return {
-  margin-top: -6px;
+/* Collapsed, the block still shows one line of output on the same rail. */
+.rail.peek {
+  margin-top: 3px;
+}
+.tool-peek {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
 }
 
-/* stderr keeps the 3px bar with the left corners squared off, matching the
-   transcript warning notice (`.entry.notice.warning pre`). */
+/* The error colour is carried by the rail border; stderr text is just red. */
 .tool-args.stderr {
-  border-left: 3px solid var(--bad);
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
   color: var(--bad);
 }
 
 /* Tool rows carry a summary line, so the head has to span the column and the
    summary has to ellipsise rather than wrap — on a phone a shell command is
    routinely wider than the screen. */
-.entry.tool_call .tool-head,
-.entry.approval_request .tool-head,
+.entry.tool .tool-head,
 .entry.tool_return .tool-head {
   width: 100%;
   text-align: left;
@@ -627,26 +629,19 @@ pre {
 .entry.notice pre {
   margin: 0;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--surface-2);
   font-size: 12.5px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-width: 100%;
 }
-/* Square the left corners before adding the accent bar: border-radius rounds
-   every corner, so a border-left with no other side set follows that curve
-   into a hooked bracket shape instead of a flat vertical line. */
-.entry.notice.warning pre,
-.entry.notice.error pre {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
+/* Same 2px left bar the tool rails use, coloured by level. */
 .entry.notice.warning pre {
-  border-left: 3px solid var(--warn);
+  border-left: 2px solid var(--warn);
 }
 .entry.notice.error pre {
-  border-left: 3px solid var(--bad);
+  border-left: 2px solid var(--bad);
 }
 .entry.notice.dim pre {
   opacity: 0.6;
@@ -804,7 +799,7 @@ pre {
   min-width: 34px;
   height: 34px;
   padding: 0 9px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: none;
   border: none;
   color: var(--muted);
@@ -874,7 +869,7 @@ pre {
   display: inline-block;
   padding: 10px 16px;
   border: none;
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--accent);
   color: #0b1020;
   text-decoration: none;
@@ -903,7 +898,8 @@ pre {
   height: 40px;
   flex-shrink: 0;
   border: none;
-  border-radius: 50%;
+  /* Almost square — a small radius, not a circle. */
+  border-radius: 4px;
   background: var(--accent);
   color: #0b1020;
   font-size: 17px;
@@ -979,7 +975,7 @@ button {
   flex-direction: column;
   min-height: 0;
   background: var(--surface);
-  border-radius: 16px 16px 0 0;
+  border-radius: 0;
   overflow: hidden;
 }
 .sheet-body {
@@ -1028,7 +1024,7 @@ button {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 10px;
   font: 16px / 1.4 inherit;
   min-height: 72px;
@@ -1047,7 +1043,7 @@ button {
   margin: 0;
   padding: 10px;
   background: var(--surface-2);
-  border-radius: 8px;
+  border-radius: 0;
   font-size: 12px;
   overflow-x: auto;
 }
@@ -1087,7 +1083,7 @@ button {
   text-align: left;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 10px 12px;
   color: var(--text);
   display: flex;
@@ -1156,18 +1152,19 @@ button {
    real caller of this banner (App.tsx, SettingsTab.tsx, AgentEditor.tsx,
    ApprovalSheet.tsx, ModelPicker.tsx, Sidebar.tsx, AuthPill.tsx) renders it on
    a <p>, so the element qualifier costs nothing there. */
+/* The same flat 2px-left-bar shape as the transcript warning notice and the
+   tool rails, rather than a boxed banner. */
 p.warning {
   background: color-mix(in srgb, var(--warn) 12%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
-  border-radius: 10px;
-  padding: 12px 14px;
+  border-left: 2px solid var(--warn);
+  padding: 10px 14px;
   margin: 8px 12px;
   font-size: 14px;
 }
 p.warning code {
   background: rgba(0, 0, 0, 0.28);
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 /* ── Phone ───────────────────────────────────────────────────────────────── */
@@ -1233,7 +1230,7 @@ p.warning code {
        leave room to grow into, since that cap left almost no headroom on a
        typical laptop screen. */
     max-height: 96vh;
-    border-radius: 14px;
+    border-radius: 0;
     box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
     /* Draggable from the bottom-right corner. `overflow: hidden` (set above,
        for every viewport) already satisfies resize's one requirement —
@@ -1351,7 +1348,7 @@ p.warning code {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 8px 10px;
   font: 16px / 1.3 inherit;
 }
@@ -1447,7 +1444,7 @@ p.warning code {
   max-width: 100%;
   max-height: 60vh;
   margin: 0 auto;
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .row {
@@ -1528,7 +1525,7 @@ p.warning code {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 10px;
   font: 16px / 1.4 inherit;
   text-transform: none;
@@ -1546,7 +1543,7 @@ p.warning code {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 12px;
   font:
     13px / 1.5 ui-monospace,
@@ -1583,7 +1580,7 @@ p.warning code {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 10px;
   font: 16px / 1.4 inherit;
   text-transform: none;
