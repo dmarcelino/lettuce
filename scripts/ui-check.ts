@@ -281,6 +281,21 @@ try {
     check("a path does not open the suggestions", (await popover.count()) === 0);
     await textarea.fill("");
 
+    // An unsent draft survives a tab switch — the composer unmounts when the
+    // Chat tab is left, so the text has to be persisted and restored.
+    await textarea.fill("half a thought, unsent");
+    await page.locator('nav.tabs button:text-is("Files")').click();
+    await page.locator(".composer textarea").waitFor({ state: "detached" });
+    await page.locator('nav.tabs button:text-is("Chat")').click();
+    const restored = page.locator(".composer textarea");
+    await restored.waitFor({ state: "visible" });
+    check(
+      "an unsent draft is restored after switching tabs",
+      (await restored.inputValue()) === "half a thought, unsent",
+      await restored.inputValue(),
+    );
+    await restored.fill("");
+
     await page.close();
   }
 
