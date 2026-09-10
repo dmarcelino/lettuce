@@ -204,13 +204,13 @@ services:
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       CF_ACCESS_ISSUER: ${CF_ACCESS_ISSUER:-}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
-      # The allowlist, two ways. ALLOWED_USERS wins when set and keeps prod
-      # configuration entirely in the environment — which matters for a compose
-      # manager that owns the stack env but not the checkout. USERS_FILE is the
-      # fallback for local dev, where editing a JSON file is nicer than editing
-      # an env var. See bff/src/config.ts readAllowedUsers().
+      # The allowlist, and the only source of it — there is no file. A
+      # comma-separated list of addresses. Required in cloudflared mode, where
+      # it is the check that still stands if the Cloudflare Access policy is
+      # ever misconfigured. In local mode DEV_BYPASS_EMAIL implies its own
+      # entry, so leaving this empty is correct and needs no second setting.
+      # See bff/src/config.ts readAllowedUsers().
       ALLOWED_USERS: ${ALLOWED_USERS:-}
-      USERS_FILE: /app/config/users.json
       DEV_BYPASS_EMAIL: ${DEV_BYPASS_EMAIL:-}
       DEV_BYPASS_ALLOW_REMOTE: ${DEV_BYPASS_ALLOW_REMOTE:-}
       # Push is fully optional — leave all three unset to run without it.
@@ -219,12 +219,6 @@ services:
       PUSH_VAPID_CONTACT_EMAIL: ${PUSH_VAPID_CONTACT_EMAIL:-}
       PUSH_SUBSCRIPTIONS_FILE: /app/data/push-subscriptions.json
     volumes:
-      # The DIRECTORY, not config/users.json itself. A single-file bind of a
-      # gitignored path is a trap: on a fresh clone the file does not exist, so
-      # Docker creates a directory there and the BFF crash-loops on EISDIR. It
-      # also pins an inode, so a host edit that replaces the file (vim, `>`) is
-      # never seen inside the container. config/ is tracked, so it always exists.
-      - ../config:/app/config:ro
       # Push subscriptions: device endpoints the BFF rewrites on every
       # subscribe/unsubscribe. Nothing reads this by hand and losing it only
       # means re-subscribing from Settings → Notifications, so unlike the state
