@@ -119,15 +119,35 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 echo "  now at $(git rev-parse --short HEAD), delta still zero"
 
-# ── 5. Rebuild + typecheck ────────────────────────────────────────────────────
-say "Rebuilding fork"
+# ── 5. Re-pin to the new release ──────────────────────────────────────────────
+# The fork is no longer a build input — the UI consumes @letta-ai/letta-code
+# from npm and the images come from letta/letta on Docker Hub. So there is
+# nothing to rebuild here; what has to move is the version literal.
+VERSION="$(node -p "require('$FORK/package.json').version")"
+say "Re-pinning to $VERSION"
+
+# Both artifacts must actually exist, or the stack pins a version it cannot run.
+npm view "@letta-ai/letta-code@$VERSION" version >/dev/null 2>&1 \
+  || fail "npm has no @letta-ai/letta-code@$VERSION — sync to a published release tag."
+docker manifest inspect "letta/letta:$VERSION" >/dev/null 2>&1 \
+  || fail "Docker Hub has no letta/letta:$VERSION — sync to a published release tag."
+echo "  published on npm and Docker Hub"
+
+cd "$UI_ROOT"
+# Every tracked home of the literal; check-version-pin.ts asserts the result.
+sed -i -E "s|(\"@letta-ai/letta-code\": \")[^\"]+(\")|\1$VERSION\2|" \
+  package.json bff/package.json web/package.json
+sed -i -E "s|(LETTA_CODE_VERSION:-)[^}]+(\})|\1$VERSION\2|g" docker/compose.yml
+sed -i -E "s|(^ARG LETTA_CODE_VERSION=).*|\1$VERSION|" docker/app-server.Dockerfile
+
 bun install
-bun run build
+bun scripts/check-version-pin.ts || fail "Version pins disagree after the bump."
 
 say "Typechecking UI against the new protocol"
-cd "$UI_ROOT"
 if bun run typecheck; then
   say "Sync complete. No typed protocol breakage."
+  echo "  docker/.env is gitignored — update LETTA_CODE_VERSION there by hand if you set it."
+  echo "  A version bump is a full rebuild: docker compose -f docker/compose.yml up -d --build"
 else
   fail "Typecheck failed — the protocol changed under us. Fix the UI, do NOT patch the fork."
 fi

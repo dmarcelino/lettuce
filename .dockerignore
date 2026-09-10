@@ -1,0 +1,24 @@
+# The bff image's build context is this repo's root. Without this file the
+# whole tree — including a ~1400-package node_modules and the git history —
+# is uploaded to the daemon on every build.
+#
+# Note the image installs dependencies itself from package.json + bun.lock
+# (see docker/bff.Dockerfile), so excluding node_modules is required for
+# correctness as well as speed: a host node_modules built for a different
+# platform must never be copied in.
+node_modules/
+**/node_modules/
+dist/
+web/dist/
+.git/
+.ui-check/
+*.log
+
+# Secrets and local state — none of it belongs in an image layer.
+config/users.json
+config/secrets/
+docker/secrets/
+docker/.env
+.env
+.env.local
+bff-data/

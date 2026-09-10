@@ -1,22 +1,31 @@
 # The app-server image, plus the one package letta-code's filesystem sandbox
 # needs and the upstream image does not ship.
 #
-# This is a thin layer over the fork's OWN unmodified Dockerfile output, not a
-# reimplementation of it: duplicating the runtime package list here would drift
-# from upstream on every sync. `scripts/build-images.sh` builds that base first
-# and tags it, because Compose cannot express "build A, then FROM A".
+# The base is upstream's OWN published image. That is not a shortcut around the
+# fork — the fork's docker/Dockerfile never compiles fork source in the first
+# place: it runs `npm install --global @letta-ai/letta-code@${VERSION}` and
+# takes only docker/entrypoint.sh from its build context. Upstream's release CI
+# publishes that same Dockerfile, same context and same build-arg as
+# `letta/letta:<version>`, so pulling it is the identical recipe we used to
+# build locally as `letta-app-server-base:<version>` — minus the two-step dance
+# that existed only because Compose cannot express "build A, then FROM A".
 #
-# Why bubblewrap: `runtime_start.workspace_sandbox` is what confines an agent's
-# shell commands to its own directory, and letta-code's only Linux backend is
-# bwrap (src/sandbox/availability.ts). Without it on PATH the probe returns no
-# backend and runtime_start rejects the whole command.
+# Consequence worth knowing: the whole stack now builds with plain
+# `docker compose build`, and a prod host needs neither `bun` nor a checkout of
+# the fork.
 #
-# Note that installing it is necessary but NOT sufficient: the probe also runs
-# a real `--unshare-user` mount, which Docker's default seccomp profile blocks.
-# See `security_opt` on the app-server service in compose.yml.
+# Why bubblewrap: LETTA_FS_SANDBOX=1 is what confines an agent's shell commands,
+# and letta-code's only Linux backend is bwrap (src/sandbox/availability.ts).
+# Without it on PATH the gate degrades SILENTLY — it logs "sandbox backend
+# unavailable" and runs every command unwrapped — so after any base image change
+# re-verify that it is actually present and engaging, not just that the stack is
+# green.
+#
+# Note that installing it is necessary but NOT sufficient: see `security_opt`
+# and `cap_add` on the app-server service in compose.yml.
 ARG LETTA_CODE_VERSION=0.31.13
 
-FROM letta-app-server-base:${LETTA_CODE_VERSION}
+FROM letta/letta:${LETTA_CODE_VERSION}
 
 RUN set -eux; \
     apt-get update; \

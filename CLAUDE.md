@@ -11,6 +11,12 @@ mobile-first web UI we own end to end. No Letta Cloud, no cloud LLM providers.
   letta-code-ui/   this repo — everything we own
 ```
 
+**The fork is dev tooling, not a build input.** Nothing in `letta-code/` is compiled into any
+image and nothing outside `letta-code-ui/` is in any build context. The app-server and
+channel-gateway run upstream's published `letta/letta:<version>`; the UI consumes
+`@letta-ai/letta-code` from npm. The checkout exists so `sync-upstream.sh` can diff it and so
+you can read the source. A prod host needs only `git` and `docker` — no `bun`, no fork.
+
 This file is the **only** CLAUDE.md. `letta-code/` keeps upstream's own `AGENTS.md`
 (and its `CLAUDE.md -> AGENTS.md` symlink) untouched — that is upstream's file, not ours.
 
@@ -22,7 +28,8 @@ reachable through an existing protocol command — check `letta-code/src/types/p
 first. `scripts/sync-upstream.sh` asserts the delta is empty and will fail the sync if it is not.
 
 Building the fork (`bun install && bun run build`) writes only to gitignored paths
-(`node_modules/`, `dist/`), so it does not create a delta.
+(`node_modules/`, `dist/`), so it does not create a delta — but nothing needs that build any
+more, so there is rarely a reason to run it.
 
 ## Architecture
 
@@ -60,6 +67,29 @@ The same permanent connection is also what boots the cron scheduler and Telegram
 app-server process services start on *first client attach*
 (`listener/lifecycle.ts` → `startConnectedListenerRuntime`), so with no client ever connected,
 crons never fire.
+
+### All durable state lives under one host root
+
+`LETTA_STATE_DIR` (`docker/compose.yml`) anchors every bind mount:
+
+```
+$LETTA_STATE_DIR/
+  letta-home/     -> /root/.letta   settings.json (MCP config lives here), global skills
+  letta-data/     -> /data          conversations + agent memory (memfs git repos)
+  workspaces/     -> /work          agent working directories
+```
+
+It defaults to `../..` relative to the compose file, which reproduces the original layout
+beside the two repos; prod sets an absolute path. **The default is a trap in a worktree** —
+`../..` from `letta-code-ui-worktrees/<feature>/docker/` resolves to the worktrees directory,
+not to the real state. Set `LETTA_STATE_DIR` absolutely in `docker/.env` so a compose command
+run from anywhere hits the same state, and always do container work from the main checkout.
+
+`bff-data` is the only remaining named volume — web-push device endpoints, rebuildable by
+re-subscribing. Everything precious is in that one host directory, so a backup is a single
+`tar`. `scripts/migrate-volumes-to-host.sh` moves an older install off the named volumes; it
+copies and verifies but never deletes, because the memfs git history is the only record of
+what an agent has learned.
 
 ### Channels (Telegram) — why the topology looks like this
 
@@ -112,9 +142,12 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 - **The agent sandbox needs bubblewrap, two relaxed container profiles AND `CAP_SYS_ADMIN`.**
   `LETTA_FS_SANDBOX=1` on the app-server is what confines agent shells, and letta-code's only
   Linux backend is `bwrap` (`src/sandbox/availability.ts`). The package is added by
-  `docker/app-server.Dockerfile`, a thin layer over the fork's own image (built via
-  `bun run build-images`). The channel-gateway deliberately does **not** carry the flag: it is
-  a relay, the app-server runs every turn, and the gateway image has no bwrap.
+  `docker/app-server.Dockerfile`, a thin layer over upstream's published
+  `letta/letta:<version>`. The channel-gateway deliberately does **not** carry the flag: it is
+  a relay, the app-server runs every turn, and its image is that published one unmodified, so
+  it has no bwrap. **Re-verify the sandbox after any base-image change** — the gate degrades
+  silently (`warnSandboxBackendUnavailable`, then run unwrapped), so a missing bwrap looks
+  exactly like a healthy stack.
 
   **Measure against `buildBwrapArgs`, never against the probe — they differ, and only the probe
   is forgiving.** `availability.ts` probes with `bwrap --ro-bind / / --unshare-user`, but the
@@ -138,7 +171,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   load-bearing; `privileged` is still not needed. (An earlier note here said `SYS_ADMIN` was
   not needed. It was measured against the probe's arguments, not the policy's.) Running the
   app-server as a non-root uid drops the capability requirement entirely — bwrap then takes the
-  unprivileged user-namespace path — but it needs the `letta-home` and `letta-data` volumes
+  unprivileged user-namespace path — but it needs the `letta-home` and `letta-data` trees
   chowned, so it is a migration rather than a flag.
 
   **The profile is cross-agent, not per-workspace — and that was a deliberate swap.** With
@@ -334,11 +367,11 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 ## Upstream sync
 
 `bun run sync-upstream` — fetches upstream, reports protocol drift, asserts zero fork delta,
-rebuilds, and typechecks.
+re-pins all six version sites to the new release, and typechecks.
 
 Protocol drift shows up two ways:
-1. **Typed** — `web/` and `bff/` import from `@letta-ai/letta-code` (a `file:../letta-code`
-   dependency), so `bun run typecheck` fails on any breaking protocol change.
+1. **Typed** — `web/` and `bff/` import from `@letta-ai/letta-code` (pinned to the npm release
+   matching the running image), so `bun run typecheck` fails on any breaking protocol change.
 2. **Behavioral** — types will NOT catch these; the sync script flags changes to:
    - `src/websocket/listener/connection-lifecycle.ts` — the turn-cancellation semantics above.
    - `src/channels/gateway-supervisor.ts` and `src/channels/gateway-local.ts` — if the gateway
@@ -347,37 +380,39 @@ Protocol drift shows up two ways:
 ### Version pinning
 
 **Sync to a published release tag, never `upstream/main`:** `bun run sync-upstream v<version>`.
-The script defaults to `upstream/main`, which is the wrong target here. `app-server.Dockerfile`
-builds `FROM letta-app-server-base:$LETTA_CODE_VERSION`, and that base installs
-`@letta-ai/letta-code@$LETTA_CODE_VERSION` **from npm** — so the container can only ever run a
-released version. A fork sitting one commit past a tag has nothing to pin to, and quietly stops
-being the code the app-server runs. Check the tag is published first: `npm view
-@letta-ai/letta-code@<version> version`.
+The script defaults to `upstream/main`, which is the wrong target here. Everything the stack
+runs comes from a **published artifact**: the images are `letta/letta:$LETTA_CODE_VERSION` from
+Docker Hub, and the protocol types are `@letta-ai/letta-code@<v>` from npm. A fork sitting one
+commit past a tag has nothing to pin to, and quietly stops being the code the app-server runs.
+`sync-upstream.sh` now asserts both artifacts exist before re-pinning.
 
-**The version literal lives in four places and they must move together:**
+**The version literal lives in six tracked places and they must move together:**
 
 | File | Form |
 |---|---|
-| `docker/compose.yml` | `LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-<v>}"` — **twice**, `app-server` and `channel-gateway` |
-| `scripts/build-images.sh` | the `${LETTA_CODE_VERSION:-<v>}` default |
+| `docker/compose.yml` | `LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-<v>}"` — app-server build arg |
+| `docker/compose.yml` | `image: letta/letta:${LETTA_CODE_VERSION:-<v>}` — channel-gateway |
 | `docker/app-server.Dockerfile` | `ARG LETTA_CODE_VERSION=<v>` |
+| `package.json` | `"@letta-ai/letta-code": "<v>"` |
+| `bff/package.json` | same |
+| `web/package.json` | same |
 | `docker/.env` | `LETTA_CODE_VERSION=<v>` — gitignored, so it drifts unseen |
 
-Nothing asserts they agree. After bumping, confirm with a single
-`grep -rn LETTA_CODE_VERSION docker/ scripts/`.
+`scripts/check-version-pin.ts` asserts the six agree and runs first in `bun run verify`.
+`docker/.env` is reported but never fatal — it cannot be fixed from a fresh clone.
+`sync-upstream.sh` rewrites all six for you.
 
 **The trap that hides a stale pin:** a shell `LETTA_CODE_VERSION` outranks `docker/.env` in
-Compose's precedence order, and `build-images.sh` exports one. So `bun run build-images` builds
-the *right* version while `docker compose build app-server` on its own silently builds the
-`.env` version. That is exactly how `.env` sat at `0.30.27` through the whole `0.30.29` cycle
-without anyone noticing — every build had gone through `build-images.sh`.
+Compose's precedence order. That is how `.env` sat at `0.30.27` through the whole `0.30.29`
+cycle without anyone noticing. The pin check now prints a warning for exactly this case.
 
-**A version bump is a full rebuild.** `bun run build-images` then
-`docker compose -f docker/compose.yml up -d` — base, app-server, channel-gateway and bff. This
-is the documented exception to "Only `bff` is rebuilt in step 4" under Definition of done; that
-note governs ordinary UI and BFF changes, this one governs version bumps. Recreating
-`app-server` drops the BFF's permanent upstream connection, so any in-flight turn is lost and
-the cron scheduler and Telegram gateway restart on the BFF's reconnect.
+**A version bump is a full rebuild.** `docker compose -f docker/compose.yml up -d --build` —
+app-server, channel-gateway and bff. This is the documented exception to "Only `bff` is rebuilt
+in step 4" under Definition of done; that note governs ordinary UI and BFF changes, this one
+governs version bumps. Recreating `app-server` drops the BFF's permanent upstream connection,
+so any in-flight turn is lost and the cron scheduler and Telegram gateway restart on the BFF's
+reconnect. Afterwards re-check the sandbox (`bwrap --version` in the container) — a base image
+that lost the package would degrade silently.
 
 ## Git workflow
 
@@ -434,8 +469,9 @@ Only `bff` is rebuilt in step 4 — it is the only service carrying our code. Re
 `app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or the fork changes.
 
 **`web/dist` is baked into the bff image, never mounted.** `bff.Dockerfile` builds the SPA
-in its `web-build` stage and copies the result into the runtime image; the only bind mount
-is `config/users.json`. So `docker compose up -d` on its own will happily serve a months-old
+in its `web-build` stage and copies the result into the runtime image; the BFF's only mounts
+are `config/` (read-only), the `bff-data` volume and `/work` (read-only). So `docker compose
+up -d` on its own will happily serve a months-old
 UI, and a local `bun run build` changes nothing the container sees. That is the trap step 5
 catches: it compares the served `assets/index-*.js` name against the local one.
 
@@ -448,7 +484,7 @@ app-server request loop that `use-session.ts` documents).
 
 | Command | What it does |
 |---|---|
-| `bun run verify` | **The gate.** lint → typecheck → test → build, fail-fast |
+| `bun run verify` | **The gate.** version-pin → lint → typecheck → test → build, fail-fast |
 | `bun run deploy-check` | Asserts the running container serves the merged code, and is healthy |
 | `bun run ui-check` | Layout/interaction assertions in a real browser; screenshots to `.ui-check/` |
 | `bun run lint` | Biome check (errors fail, warnings do not) |
@@ -458,8 +494,9 @@ app-server request loop that `use-session.ts` documents).
 | `bun run build` | Builds the SPA into `web/dist` (runs `tsc --noEmit` first) |
 | `bun run dev` | BFF + Vite dev server |
 | `bun run smoke` | Live acceptance suite against a running stack — mutates state |
-| `bun run sync-upstream` | Sync fork from upstream and report drift |
-| `bun run build-images` | Build the app-server base tag, then all compose images — **required** after changing `docker/app-server.Dockerfile` or the fork version |
+| `bun run sync-upstream` | Sync fork from upstream, report drift, re-pin the version |
+| `bun run check-version-pin` | Assert the six letta-code version literals agree (runs inside `verify`) |
+| `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
 | `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway |
 | `git push origin main` | Last step — **ask for confirmation first, every time** |

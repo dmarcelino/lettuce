@@ -1,26 +1,57 @@
 # Running the stack
 
+Everything here builds from **this repo alone**. The sibling `letta-code/` fork
+is dev tooling (drift reporting via `bun run sync-upstream`), not a build input:
+the app-server and channel-gateway images come from upstream's published
+`letta/letta:<version>`, and the UI consumes `@letta-ai/letta-code` from npm. A
+host needs only `git` and `docker`.
+
 ## One-time setup
 
 ```bash
-# 1. Capability token the BFF presents to the app-server.
-mkdir -p docker/secrets
-openssl rand -hex 32 > docker/secrets/ws-token
-chmod 600 docker/secrets/ws-token
-
-# 2. Allowlist.
+# 1. Allowlist. Local dev only — prod uses ALLOWED_USERS instead (see below).
 cp config/users.example.json config/users.json   # edit it
 
-# 3. Environment.
+# 2. Environment.
 cat > docker/.env <<'ENV'
 PUBLIC_ORIGIN=http://localhost:8090
 SESSION_SECRET=<openssl rand -hex 32>
+# Pin the state root explicitly. The default is relative to this file, so
+# running compose from a git worktree would otherwise point the stack at a
+# DIFFERENT state directory than the main checkout does.
+LETTA_STATE_DIR=/absolute/path/to/your/state/dir
 # To actually sign in locally, also set (see Authentication below):
 # DEV_BYPASS_EMAIL=you@example.com
 ENV
+```
 
-# 4. Build the fork so its dist/ (protocol types + client) exists.
-cd ../letta-code && bun install && bun run build
+## Where state lives
+
+`LETTA_STATE_DIR` anchors every durable bind mount. It defaults to `../..`
+relative to `docker/compose.yml`, which reproduces the original layout
+alongside the two repos; prod sets an absolute path.
+
+```
+$LETTA_STATE_DIR/
+  letta-home/     -> /root/.letta   settings.json, MCP config, global skills
+  letta-data/     -> /data          conversations + agent memory (memfs git repos)
+  workspaces/     -> /work          agent working directories
+```
+
+Back up that one directory and you have everything. The only named volume left
+is `bff-data` (web-push device endpoints); losing it just means re-subscribing
+from Settings → Notifications.
+
+Docker creates missing bind sources as root, which is correct here — the
+app-server runs as uid 0 — so a first boot on a clean host needs no `mkdir`.
+
+Migrating an existing install that still uses the old `letta-home` /
+`letta-data` named volumes:
+
+```bash
+docker compose -f docker/compose.yml down
+bun run migrate-state          # copies, verifies, deletes nothing
+docker compose -f docker/compose.yml up -d
 ```
 
 ## Modes: local (default) vs cloudflared
@@ -86,9 +117,9 @@ this repo):
    is the one to register there.
 4. **Access → Applications → Add an application → Self-hosted**, for the
    hostname from step 2. Add a policy with an Include rule listing the same
-   email address(es) as `config/users.json` — **these two lists are not kept
-   in sync automatically**; update both by hand when adding or removing a
-   user.
+   email address(es) as the app's own allowlist (`ALLOWED_USERS`, or
+   `config/users.json`) — **these two lists are not kept in sync
+   automatically**; update both by hand when adding or removing a user.
 5. Copy the Application's **Audience (AUD) tag** into `docker/.env` as
    `CF_ACCESS_AUD`, and the team domain (the `<team>` in
    `<team>.cloudflareaccess.com`) as `CF_ACCESS_TEAM_DOMAIN`.
@@ -110,10 +141,47 @@ outstanding tokens may still carry the old one in `iss`. Set
 during the transition, and remove it once every session has naturally
 re-authenticated.
 
+## Prod deployment (Dockhand or any compose manager)
+
+The host needs `git` + `docker` and a clone of **this repo only** — no `bun`, no
+fork checkout, no pre-built images pushed to a registry. Point the manager at
+`docker/compose.yml` and give it this stack environment:
+
+| Variable | Value |
+|---|---|
+| `COMPOSE_PROFILES` | `cloudflared` |
+| `LETTA_STATE_DIR` | `/srv/letta` (absolute) |
+| `PUBLIC_ORIGIN` | `https://<your-hostname>` |
+| `SESSION_SECRET` | `openssl rand -hex 32` |
+| `ALLOWED_USERS` | `you@example.com` |
+| `CF_ACCESS_TEAM_DOMAIN` | team slug only, e.g. `acme` |
+| `CF_ACCESS_AUD` | Access application Audience tag |
+| `CLOUDFLARE_TUNNEL_TOKEN` | tunnel token from Zero Trust |
+| `LETTA_CODE_VERSION` | must match the tracked pin — `bun run check-version-pin` |
+| `BFF_BIND` | `127.0.0.1` |
+
+Optional: the three `PUSH_VAPID_*` values, `BFF_PORT`, `SESSION_TTL_SECONDS`,
+`FRAME_BUFFER_SIZE`, and `CF_ACCESS_ISSUER` (only during a team rename).
+
+**Leave `DEV_BYPASS_EMAIL` and `DEV_BYPASS_ALLOW_REMOTE` unset.** Either one
+opens a second door that bypasses Cloudflare Access completely.
+
+`ALLOWED_USERS` takes a comma-separated list, or the same JSON array shape as
+`config/users.json` when you want display names:
+
+```
+ALLOWED_USERS=a@example.com, b@example.com
+ALLOWED_USERS=[{"email":"a@example.com","name":"A"}]
+```
+
+It wins over `USERS_FILE`, so prod needs no file on disk at all. Keep it in sync
+with the Cloudflare Access policy by hand — **the two lists are unrelated**, and
+Access is the gate that actually matters.
+
 ## Run
 
 ```bash
-docker compose -f docker/compose.yml up --build
+docker compose -f docker/compose.yml up -d --build
 ```
 
 The BFF serves the built SPA at `PUBLIC_ORIGIN` (default

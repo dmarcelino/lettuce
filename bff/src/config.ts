@@ -90,20 +90,52 @@ function readAppServerToken(): string {
   return token;
 }
 
-function readAllowedUsers(): AllowedUser[] {
-  const path = process.env.USERS_FILE?.trim() ?? "config/users.json";
-  let raw: string;
+/**
+ * Parses an allowlist from either shape, naming `source` in every error so a
+ * misconfiguration says which input to go and fix.
+ *
+ * JSON — the `users.json` shape — is always accepted:
+ *
+ *   [{"email":"a@example.com","name":"A"}]
+ *
+ * `acceptBareEmails` additionally allows a comma-separated list, which is far
+ * nicer to type into an env var:
+ *
+ *   a@example.com, b@example.com
+ *
+ * A leading `[` picks JSON; nothing else could start a bare email. That
+ * shorthand is env-only on purpose — accepting it for a file would silently
+ * read a malformed `users.json` (say, `{}`) as a one-address allowlist instead
+ * of reporting it as broken.
+ */
+export function parseAllowedUsers(
+  raw: string,
+  source: string,
+  acceptBareEmails = false,
+): AllowedUser[] {
+  const trimmed = raw.trim();
+  if (!trimmed) throw new Error(`${source} is empty`);
+
+  if (acceptBareEmails && !trimmed.startsWith("[")) {
+    const emails = trimmed
+      .split(",")
+      .map((email) => email.trim())
+      .filter(Boolean);
+    if (emails.length === 0) throw new Error(`${source} lists no addresses`);
+    return emails.map((email) => ({ email: email.toLowerCase() }));
+  }
+
+  let parsed: unknown;
   try {
-    raw = readFileSync(path, "utf8");
+    parsed = JSON.parse(trimmed);
   } catch (error) {
     throw new Error(
-      `Cannot read allowlist ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      `${source} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
-  const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error(`${path} must be a non-empty array of users`);
+    throw new Error(`${source} must be a non-empty array of users`);
   }
 
   return parsed.map((entry, index) => {
@@ -112,7 +144,7 @@ function readAllowedUsers(): AllowedUser[] {
       typeof entry !== "object" ||
       typeof (entry as { email?: unknown }).email !== "string"
     ) {
-      throw new Error(`${path}[${index}] must have a string "email"`);
+      throw new Error(`${source}[${index}] must have a string "email"`);
     }
     const user = entry as { email: string; name?: unknown };
     return {
@@ -120,6 +152,32 @@ function readAllowedUsers(): AllowedUser[] {
       ...(typeof user.name === "string" ? { name: user.name } : {}),
     };
   });
+}
+
+/**
+ * ALLOWED_USERS wins over USERS_FILE when set, so a prod deployment can keep
+ * its entire configuration in the environment and never place a file on disk.
+ * That also sidesteps the file's sharpest edge: `config/users.json` is
+ * gitignored, so on a fresh clone it does not exist — and a compose single-file
+ * bind of a missing path silently creates a DIRECTORY, which used to surface
+ * only as an unexplained EISDIR crash loop at boot.
+ */
+function readAllowedUsers(): AllowedUser[] {
+  const inline = process.env.ALLOWED_USERS?.trim();
+  if (inline) return parseAllowedUsers(inline, "ALLOWED_USERS", true);
+
+  const path = process.env.USERS_FILE?.trim() ?? "config/users.json";
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Cannot read allowlist ${path}: ${error instanceof Error ? error.message : String(error)}. ` +
+        `Set ALLOWED_USERS instead to configure the allowlist from the environment.`,
+    );
+  }
+
+  return parseAllowedUsers(raw, path);
 }
 
 export function isLoopbackOrigin(publicOrigin: string): boolean {
