@@ -1,14 +1,20 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { collectFileTokens } from "../lib/file-links.ts";
 import type { TranscriptEntry } from "../lib/messages.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
+import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
+import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
 
 interface Props {
   entries: TranscriptEntry[];
   processing: boolean;
+  session: SessionApi;
   /** The runtime's working directory, used to shorten paths in tool summaries. */
   cwd: string | null;
+  /** Open a workspace file the agent linked, in the app's file viewer. */
+  onOpenFile: (path: string) => void;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -39,8 +45,9 @@ function formatArgs(args: string | undefined): string {
   }
 }
 
-export function MessageList({ entries, processing, cwd }: Props) {
+export function MessageList({ entries, processing, session, cwd, onOpenFile }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileLinks = useFileLinks(session, cwd);
   // Auto-scroll only while the reader is at the bottom, so scrolling up to read
   // history is not yanked away by an incoming token.
   const [stuck, setStuck] = useState(true);
@@ -72,7 +79,13 @@ export function MessageList({ entries, processing, cwd }: Props) {
         ) : null}
 
         {entries.map((entry) => (
-          <MessageItem key={entry.id} entry={entry} cwd={cwd} />
+          <MessageItem
+            key={entry.id}
+            entry={entry}
+            cwd={cwd}
+            fileLinks={fileLinks}
+            onOpenFile={onOpenFile}
+          />
         ))}
 
         {processing ? (
@@ -99,9 +112,34 @@ export function MessageList({ entries, processing, cwd }: Props) {
   );
 }
 
-function MessageItem({ entry, cwd }: { entry: TranscriptEntry; cwd: string | null }) {
+function MessageItem({
+  entry,
+  cwd,
+  fileLinks,
+  onOpenFile,
+}: {
+  entry: TranscriptEntry;
+  cwd: string | null;
+  fileLinks: FileLinks;
+  onOpenFile: (path: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const label = KIND_LABEL[entry.kind] ?? entry.kind;
+
+  // Look up every filename this entry mentions so `Markdown` can link the real
+  // ones. Skipped while the bubble is still streaming — a half-typed name would
+  // just fill the miss cache.
+  const { note } = fileLinks;
+  const scan = !entry.streaming ? entry.text : "";
+  useEffect(() => {
+    if (!scan) return;
+    const tokens = collectFileTokens(scan);
+    if (tokens.length > 0) note(tokens);
+  }, [scan, note]);
+
+  const md = (text: string) => (
+    <Markdown text={text} cwd={cwd} resolve={fileLinks.resolve} onOpenFile={onOpenFile} />
+  );
 
   if (entry.kind === "notice") {
     return (
@@ -179,11 +217,7 @@ function MessageItem({ entry, cwd }: { entry: TranscriptEntry; cwd: string | nul
           <span className="tag">{label}</span>
           <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
         </button>
-        {open ? (
-          <div className="bubble thinking">
-            <Markdown text={entry.text} cwd={cwd} />
-          </div>
-        ) : null}
+        {open ? <div className="bubble thinking">{md(entry.text)}</div> : null}
       </div>
     );
   }
@@ -212,11 +246,7 @@ function MessageItem({ entry, cwd }: { entry: TranscriptEntry; cwd: string | nul
             <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
           ) : null}
         </button>
-        {open && hasResult ? (
-          <div className="bubble task-result">
-            <Markdown text={entry.text} cwd={cwd} />
-          </div>
-        ) : null}
+        {open && hasResult ? <div className="bubble task-result">{md(entry.text)}</div> : null}
       </div>
     );
   }
@@ -241,7 +271,7 @@ function MessageItem({ entry, cwd }: { entry: TranscriptEntry; cwd: string | nul
       {/* Arrived from Telegram/Slack rather than typed here — still you. */}
       {entry.channel ? <span className="tag">via {entry.channel}</span> : null}
       <div className={`bubble ${entry.kind}`}>
-        <Markdown text={entry.text} cwd={cwd} />
+        {md(entry.text)}
         {entry.streaming ? <span className="caret" /> : null}
       </div>
     </div>

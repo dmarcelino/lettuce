@@ -3,6 +3,7 @@ import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
 import { AuthPill } from "./components/AuthPill.tsx";
 import { Composer } from "./components/Composer.tsx";
+import { FileViewer } from "./components/FileViewer.tsx";
 import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
@@ -99,6 +100,8 @@ function Workspace({ status }: { status: Status }) {
   /** `null` = closed; `{ id: null }` = create; `{ id }` = edit that agent. */
   const [agentEditor, setAgentEditor] = useState<{ id: string | null } | null>(null);
   const [filters, setFilters] = useState<Set<FilterGroup>>(new Set());
+  /** A workspace file the agent linked in chat, open in the file viewer. */
+  const [openFile, setOpenFile] = useState<string | null>(null);
 
   const scope: RuntimeScope | null =
     agents.agentId && agents.conversationId
@@ -175,7 +178,9 @@ function Workspace({ status }: { status: Status }) {
             <MessageList
               entries={visibleEntries}
               processing={conversation.processing}
+              session={session}
               cwd={conversation.cwd}
+              onOpenFile={setOpenFile}
             />
 
             {conversation.queue.length > 0 ? (
@@ -252,6 +257,15 @@ function Workspace({ status }: { status: Status }) {
           approval={conversation.approvals[0]!}
           onRespond={conversation.respondToApproval}
           onAnswerQuestions={conversation.answerQuestions}
+        />
+      ) : null}
+
+      {openFile ? (
+        <FileViewer
+          session={session}
+          path={openFile}
+          onClose={() => setOpenFile(null)}
+          key={openFile}
         />
       ) : null}
 

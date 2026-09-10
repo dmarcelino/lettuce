@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveMarkdownHref } from "./Markdown.tsx";
+import { fileLinkTarget, resolveMarkdownHref } from "./Markdown.tsx";
 
 describe("resolveMarkdownHref", () => {
   test("rewrites a workspace file link to the download route, opened inline", () => {
@@ -20,5 +20,24 @@ describe("resolveMarkdownHref", () => {
 
   test("passes through an absent href", () => {
     expect(resolveMarkdownHref(undefined)).toBeUndefined();
+  });
+});
+
+describe("fileLinkTarget", () => {
+  test("a PDF opens in a browser tab (its own viewer, served inline)", () => {
+    expect(fileLinkTarget("/work/agent-1/tailored/Dima.pdf")).toBe("browser");
+    expect(fileLinkTarget("/work/agent-1/REPORT.PDF")).toBe("browser");
+  });
+
+  test("everything else opens in the app's file viewer", () => {
+    for (const path of [
+      "/work/agent-1/EVAL.md",
+      "/work/agent-1/notes.txt",
+      "/work/agent-1/data.csv",
+      "/work/agent-1/chart.png",
+      "/work/agent-1/scripts/run.py",
+    ]) {
+      expect(fileLinkTarget(path)).toBe("viewer");
+    }
   });
 });
