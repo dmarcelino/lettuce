@@ -127,6 +127,20 @@ this repo):
 5. Copy the Application's **Audience (AUD) tag** into `docker/.env` as
    `CF_ACCESS_AUD`, and the team domain (the `<team>` in
    `<team>.cloudflareaccess.com`) as `CF_ACCESS_TEAM_DOMAIN`.
+6. **For the PWA to install:** add a second **self-hosted application** for the
+   same hostname whose path is the PWA static files, with a single policy of
+   action **Bypass** / Include **Everyone** — a path-scoped app is matched
+   before the catch-all one. Chrome fetches `manifest.webmanifest` and the
+   manifest icons *without* the Access cookie, so behind Access they come back
+   as the login page and Chrome decides the app is not installable (no install
+   button, only a plain shortcut). The paths, all under `letta.<domain>`:
+   `/manifest.webmanifest`, `/sw.js`, `/sw.js.map`, `/icon-192.png`,
+   `/icon-512.png`, `/icon-maskable-512.png`. They carry nothing private —
+   public metadata, the service-worker script (also shipped in the `/assets`
+   bundle), and three icons. `index.html` already sets
+   `crossorigin="use-credentials"` on the manifest link so a browser that
+   *does* send the cookie still works; the Bypass covers the icons and the
+   browsers that don't.
 
 Also update, in `docker/.env`:
 - `PUBLIC_ORIGIN=https://<your-tunnel-hostname>` — the `https://` is what

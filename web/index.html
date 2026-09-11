@@ -16,7 +16,15 @@
     />
     <!-- iOS ignores a data-URI SVG here for Home Screen icons; needs a real PNG. -->
     <link rel="apple-touch-icon" href="/icon-192.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- `use-credentials` so the manifest (and its icon) fetches carry the
+         Cloudflare Access cookie. Without it Chrome fetches the manifest
+         anonymously, Access answers with its login page, the manifest fails to
+         parse, and the app is not installable. In local mode there is no
+         Access and the attribute is a harmless same-origin credentialed fetch.
+         The static PWA paths should ALSO have an Access "Bypass" policy — see
+         docker/README.md — so the icons load even on browsers that fetch them
+         without credentials. -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <!-- Home Screen install is required for Web Push on iOS — Safari only
          treats the app as "standalone" with these two set. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
