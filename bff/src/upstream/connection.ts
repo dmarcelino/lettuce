@@ -1,6 +1,10 @@
 import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-server-client";
 import { AppServerClient } from "@letta-ai/letta-code/app-server-client";
-import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
+import type {
+  AgentListResponseMessage,
+  ConversationListResponseMessage,
+  WsProtocolMessage,
+} from "@letta-ai/letta-code/app-server-protocol";
 import WebSocket from "ws";
 
 export type UpstreamState = "connecting" | "connected" | "disconnected";
@@ -16,6 +20,13 @@ export interface UpstreamOptions {
 
 const INITIAL_RETRY_MS = 500;
 const MAX_RETRY_MS = 15_000;
+/** Cron itself only ticks every 60s, so a sweep well slower than that still
+ * finds a new conversation quickly without hammering the app-server. */
+const SCOPE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+/** Matches the un-paginated `limit: 100` already used by the browser's own
+ * agent_list/conversation_list calls (use-agents.ts) — plenty at
+ * personal-assistant scale, so there is no cursor-paging logic to get right. */
+const SCOPE_SWEEP_LIST_LIMIT = 100;
 
 /**
  * The single, permanent connection to the app-server.
@@ -39,6 +50,7 @@ export class UpstreamConnection {
   private info: AppServerInfoResponseMessage | null = null;
   private retryMs = INITIAL_RETRY_MS;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
   /** Times the upstream socket has been established. Must stay 1 in a healthy run. */
   private generation = 0;
@@ -70,6 +82,14 @@ export class UpstreamConnection {
   start(): void {
     this.stopped = false;
     this.connect();
+    // Periodic in addition to the post-connect sweep below: a conversation
+    // created after boot (by cron, or a channel gateway) has no other hook
+    // that would ever subscribe this connection to it.
+    if (!this.sweepTimer) {
+      this.sweepTimer = setInterval(() => {
+        if (this.isReady()) void this.subscribeToAllScopes();
+      }, SCOPE_SWEEP_INTERVAL_MS);
+    }
   }
 
   /** Only for process shutdown. Never call this in response to a browser event. */
@@ -77,6 +97,8 @@ export class UpstreamConnection {
     this.stopped = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.sweepTimer = null;
     this.client?.close();
     this.client = null;
     this.setState("disconnected");
@@ -181,6 +203,9 @@ export class UpstreamConnection {
         // Re-subscribe to every scope we owned before the drop, so the
         // app-server routes their events back to us.
         await this.resubscribe();
+        // Then pick up every scope we've never touched at all — see
+        // `subscribeToAllScopes`'s own doc comment for why this exists.
+        void this.subscribeToAllScopes();
       })
       .catch((error) => {
         this.log(`Upstream connect failed: ${errorMessage(error)}`);
@@ -209,6 +234,69 @@ export class UpstreamConnection {
         this.log(
           `Re-subscribe failed for ${scope.agent_id}/${scope.conversation_id}: ${errorMessage(error)}`,
         );
+      }
+    }
+  }
+
+  /**
+   * The app-server only routes a scope's frames to connections already
+   * subscribed to it (`TO_SUBSCRIBERS`, letta-code:
+   * websocket/listener/connection.ts), and subscribing happens only as a
+   * side effect of sending a scoped command. This connection only ever sends
+   * one because a browser session touched that `{agent_id, conversation_id}`
+   * — so a cron-fired or channel-gateway-fired turn on a conversation no
+   * browser has ever opened is otherwise invisible here, and push triggers
+   * (turn-watcher.ts, approval-watcher.ts) never see it.
+   *
+   * There is no wildcard "subscribe to everything" command in the protocol
+   * (`BROADCAST` exists as a routing constant but is never referenced), so
+   * enumeration is the only mechanism available: page through every agent's
+   * conversations and `sync` any scope not already in `knownScopes` — the
+   * same call `resubscribe()` makes per known scope, just for scopes this
+   * connection hasn't seen yet.
+   */
+  private async subscribeToAllScopes(): Promise<void> {
+    let agents: { id: string }[];
+    try {
+      const response = await this.request<AgentListResponseMessage>({
+        type: "agent_list",
+        request_id: `bff-sweep-agents-${Date.now()}`,
+        query: { limit: SCOPE_SWEEP_LIST_LIMIT },
+      });
+      agents = response.success ? response.agents : [];
+    } catch (error) {
+      this.log(`Scope sweep: agent_list failed: ${errorMessage(error)}`);
+      return;
+    }
+
+    for (const agent of agents) {
+      let conversations: { id: string }[];
+      try {
+        const response = await this.request<ConversationListResponseMessage>({
+          type: "conversation_list",
+          request_id: `bff-sweep-conversations-${agent.id}-${Date.now()}`,
+          query: { agent_id: agent.id, limit: SCOPE_SWEEP_LIST_LIMIT },
+        });
+        conversations = response.success ? response.conversations : [];
+      } catch (error) {
+        this.log(`Scope sweep: conversation_list failed for ${agent.id}: ${errorMessage(error)}`);
+        continue;
+      }
+
+      for (const conversation of conversations) {
+        const scopeKey = `${agent.id}::${conversation.id}`;
+        if (this.knownScopes.has(scopeKey)) continue;
+        try {
+          await this.request({
+            type: "sync",
+            request_id: `bff-sweep-sync-${scopeKey}-${Date.now()}`,
+            runtime: { agent_id: agent.id, conversation_id: conversation.id },
+            recover_approvals: true,
+            force_device_status: true,
+          });
+        } catch (error) {
+          this.log(`Scope sweep: sync failed for ${scopeKey}: ${errorMessage(error)}`);
+        }
       }
     }
   }

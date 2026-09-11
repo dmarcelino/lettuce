@@ -70,3 +70,36 @@ export async function unsubscribeFromPush(): Promise<void> {
   });
   await subscription.unsubscribe();
 }
+
+/** Per-device opt-in for each push trigger — mirrors `PushPreferences` in bff/src/push/store.ts. */
+export interface PushPreferences {
+  completed: boolean;
+  failed: boolean;
+  approval: boolean;
+}
+
+/** This device's current preferences, or null when it isn't subscribed. */
+export async function getPushPreferences(): Promise<PushPreferences | null> {
+  const subscription = await currentSubscription();
+  if (!subscription) return null;
+
+  const response = await fetch(
+    `/push/preferences?endpoint=${encodeURIComponent(subscription.endpoint)}`,
+  );
+  if (!response.ok) return null;
+  const { preferences } = (await response.json()) as { preferences: PushPreferences };
+  return preferences;
+}
+
+/** Updates only the keys present in `patch` — the rest are left as they were. */
+export async function updatePushPreferences(patch: Partial<PushPreferences>): Promise<void> {
+  const subscription = await currentSubscription();
+  if (!subscription) throw new Error("Not subscribed to push notifications");
+
+  const response = await fetch("/push/preferences", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint, preferences: patch }),
+  });
+  if (!response.ok) throw new Error("Could not update notification preferences");
+}

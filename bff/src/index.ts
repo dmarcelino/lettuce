@@ -18,9 +18,10 @@ import {
 } from "./auth/session-cookie.ts";
 import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
 import { inlineContentType } from "./files/content-type.ts";
+import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { configureWebPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
-import { TurnCompletionWatcher } from "./push/turn-watcher.ts";
+import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
 import { workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
@@ -33,7 +34,8 @@ const secureCookies = config.publicOrigin.startsWith("https://");
 // without it" pattern this repo already uses for the sandbox backend.
 const pushStore = config.push ? new PushSubscriptionStore(config.push.subscriptionsFile) : null;
 if (config.push) configureWebPush(config.push);
-const turnWatcher = pushStore ? new TurnCompletionWatcher(pushStore, log) : null;
+const turnOutcomeWatcher = pushStore ? new TurnOutcomeWatcher(pushStore, log) : null;
+const approvalWatcher = pushStore ? new ApprovalWatcher(pushStore, log) : null;
 
 function log(message: string): void {
   console.log(`[bff] ${new Date().toISOString()} ${message}`);
@@ -48,7 +50,8 @@ const upstream = new UpstreamConnection({
   authToken: config.appServerToken,
   onFrame: (frame: WsProtocolMessage) => {
     registry.handleUpstreamFrame(frame);
-    turnWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
+    turnOutcomeWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
+    approvalWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
   },
   onStateChange: (state, info) => {
     log(`Upstream state: ${state}`);
@@ -188,8 +191,12 @@ app.post("/push/subscribe", async (c) => {
 
   try {
     const body = await c.req.json();
-    pushStore.add(body, session.email);
-    return c.json({ ok: true });
+    const record = pushStore.add(
+      body,
+      session.email,
+      (body as { preferences?: unknown })?.preferences,
+    );
+    return c.json({ ok: true, preferences: record.preferences });
   } catch (error) {
     return c.text(error instanceof Error ? error.message : "Malformed subscription", 400);
   }
@@ -205,6 +212,37 @@ app.post("/push/unsubscribe", async (c) => {
 
   pushStore.remove(endpoint);
   return c.json({ ok: true });
+});
+
+app.get("/push/preferences", (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
+
+  const endpoint = c.req.query("endpoint");
+  if (!endpoint) return c.text("Missing endpoint", 400);
+
+  const preferences = pushStore.getPreferences(endpoint);
+  if (!preferences) return c.text("Unknown push subscription", 404);
+  return c.json({ preferences });
+});
+
+app.post("/push/preferences", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
+
+  const body = await c.req.json().catch(() => null);
+  const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
+  if (typeof endpoint !== "string" || !endpoint) return c.text("Missing endpoint", 400);
+
+  try {
+    const record = pushStore.updatePreferences(
+      endpoint,
+      (body as { preferences?: unknown }).preferences,
+    );
+    return c.json({ ok: true, preferences: record.preferences });
+  } catch (error) {
+    return c.text(error instanceof Error ? error.message : "Unknown push subscription", 404);
+  }
 });
 
 // A real HTTP URL for a workspace file, so a chat-message link or the Files
