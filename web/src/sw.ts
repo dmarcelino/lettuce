@@ -4,11 +4,14 @@ import { precacheAndRoute } from "workbox-precaching";
 declare const self: ServiceWorkerGlobalScope;
 
 // vite-plugin-pwa's injectManifest strategy replaces this with the actual
-// build manifest. Deliberately no `fetch` listener anywhere in this file:
-// this app sits behind Cloudflare Access, and a top-level navigation is the
-// only kind of request that can complete an Access re-authentication
-// redirect. Precaching only ever serves matched asset requests, never
-// intercepts navigations, so that redirect always reaches the real network.
+// build manifest. `precacheAndRoute` does install a fetch route, and that route
+// maps `/` to a precached `index.html` (its `directoryIndex`) — so `index.html`
+// is kept out of the manifest (vite.config.ts `globIgnores`), which keeps every
+// navigation on the network. This app sits behind Cloudflare Access, where a
+// top-level navigation is the only request that can complete a
+// re-authentication redirect: a cached shell would load, fail its first
+// `/api/status` fetch against an expired session, and sit on "Loading…" with no
+// way out by reloading.
 precacheAndRoute(self.__WB_MANIFEST);
 
 interface PushPayload {

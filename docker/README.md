@@ -143,20 +143,23 @@ this repo):
 5. Copy the Application's **Audience (AUD) tag** into `docker/.env` as
    `CF_ACCESS_AUD`, and the team domain (the `<team>` in
    `<team>.cloudflareaccess.com`) as `CF_ACCESS_TEAM_DOMAIN`.
-6. **For the PWA to install:** add a second **self-hosted application** for the
-   same hostname whose path is the PWA static files, with a single policy of
-   action **Bypass** / Include **Everyone** — a path-scoped app is matched
-   before the catch-all one. Chrome fetches `manifest.webmanifest` and the
-   manifest icons *without* the Access cookie, so behind Access they come back
-   as the login page and Chrome decides the app is not installable (no install
-   button, only a plain shortcut). The paths, all under `letta.<domain>`:
-   `/manifest.webmanifest`, `/sw.js`, `/sw.js.map`, `/icon-192.png`,
-   `/icon-512.png`, `/icon-maskable-512.png`. They carry nothing private —
-   public metadata, the service-worker script (also shipped in the `/assets`
-   bundle), and three icons. `index.html` already sets
-   `crossorigin="use-credentials"` on the manifest link so a browser that
-   *does* send the cookie still works; the Bypass covers the icons and the
-   browsers that don't.
+6. **Optional — only if the PWA will not install:** add a second
+   **self-hosted application** for the same hostname whose path is the PWA
+   static files, with a single policy of action **Bypass** / Include
+   **Everyone** — a path-scoped app is matched before the catch-all one. A
+   browser that fetches `manifest.webmanifest` or the manifest icons *without*
+   the Access cookie gets the login page back and decides the app is not
+   installable (no install button, only a plain shortcut). `index.html` sets
+   `crossorigin="use-credentials"` on the manifest link, and current desktop
+   Chrome installs without this step. The paths, all under `letta.<domain>`:
+   `/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png`,
+   `/icon-maskable-512.png` — public metadata and three icons, nothing private.
+
+   Push notifications do **not** need a Bypass. The service worker registers
+   as a *classic* script (`web/src/lib/register-sw.ts`), whose fetch carries
+   the Access cookie. Registered as a *module* it did not: Chrome sends no
+   cookies with a module worker's script request, Access redirected it, and
+   registration failed with "The script resource is behind a redirect".
 
 Also update, in `docker/.env`:
 - `PUBLIC_ORIGIN=https://<your-tunnel-hostname>` — the `https://` is what
@@ -301,6 +304,12 @@ iOS only delivers Web Push to a PWA actually added to the Home Screen — a
 Safari tab (or Chrome/Firefox on iOS, which can't install a PWA at all) never
 receives it. The Notifications settings section shows an install prompt
 instead of a toggle when it detects this.
+
+If Settings → Notifications says **"Notifications are unavailable: …"**, the
+service worker did not register or install, and the text after the colon is
+the browser's own reason — DevTools → Application → Service Workers shows the
+same. After deploying a UI change, a hard reload picks up the new bundle and
+worker.
 
 ## Local development without Docker
 
