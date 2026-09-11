@@ -1,5 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { EMPTY_SELECTION, readSelection, writeSelection } from "./selection.ts";
+import {
+  EMPTY_SELECTION,
+  readDeepLinkSelection,
+  readSelection,
+  writeSelection,
+} from "./selection.ts";
+
+/** A minimal Location/History stand-in — `bun:test` has no DOM `window`. */
+function fakeLocation(search: string, pathname = "/") {
+  return { pathname, search };
+}
+
+function fakeHistory() {
+  const calls: { data: unknown; unused: string; url?: string | URL | null }[] = [];
+  return {
+    replaceState: (data: unknown, unused: string, url?: string | URL | null) => {
+      calls.push({ data, unused, url });
+    },
+    calls,
+  };
+}
 
 /** A Storage stand-in; `bun:test` has no DOM localStorage to lean on. */
 function fakeStorage(seed: Record<string, string> = {}) {
@@ -76,5 +96,56 @@ describe("selection memory", () => {
   test("absent storage is not an error", () => {
     expect(readSelection(null)).toEqual(EMPTY_SELECTION);
     expect(() => writeSelection({ agentId: "a", conversationId: "c" }, null)).not.toThrow();
+  });
+});
+
+describe("deep-link selection", () => {
+  test("query params win over the persisted selection, and are stripped", () => {
+    const storage = fakeStorage();
+    writeSelection({ agentId: "persisted-agent", conversationId: "persisted-conv" }, storage);
+    const history = fakeHistory();
+
+    const result = readDeepLinkSelection(
+      storage,
+      fakeLocation("?agent=deep-agent&conversation=deep-conv"),
+      history,
+    );
+
+    expect(result).toEqual({ agentId: "deep-agent", conversationId: "deep-conv" });
+    expect(history.calls).toEqual([{ data: null, unused: "", url: "/" }]);
+  });
+
+  test("with no query params, falls back to the persisted selection untouched", () => {
+    const storage = fakeStorage();
+    writeSelection({ agentId: "persisted-agent", conversationId: "persisted-conv" }, storage);
+    const history = fakeHistory();
+
+    const result = readDeepLinkSelection(storage, fakeLocation(""), history);
+
+    expect(result).toEqual({ agentId: "persisted-agent", conversationId: "persisted-conv" });
+    expect(history.calls).toEqual([]);
+  });
+
+  test("an unrelated query param is preserved after stripping agent/conversation", () => {
+    const history = fakeHistory();
+
+    const result = readDeepLinkSelection(
+      fakeStorage(),
+      fakeLocation("?agent=deep-agent&other=1"),
+      history,
+    );
+
+    expect(result).toEqual({ agentId: "deep-agent", conversationId: null });
+    expect(history.calls).toEqual([{ data: null, unused: "", url: "?other=1" }]);
+  });
+
+  test("a history API that throws still returns the parsed deep link", () => {
+    const result = readDeepLinkSelection(fakeStorage(), fakeLocation("?agent=deep-agent"), {
+      replaceState: () => {
+        throw new Error("blocked");
+      },
+    });
+
+    expect(result).toEqual({ agentId: "deep-agent", conversationId: null });
   });
 });

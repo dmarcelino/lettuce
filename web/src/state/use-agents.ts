@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { readSelection, writeSelection } from "../lib/selection.ts";
+import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
 import { readAgentModelHandle } from "./use-models.ts";
 import type { SessionApi } from "./use-session.ts";
@@ -128,10 +128,12 @@ export function useAgents(session: SessionApi): AgentsApi {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   // Seeded from the last visit, so a reload comes back where you were rather
-  // than on whichever agent `agent_list` happens to return first. Read once, on
-  // mount: a stale id here is harmless, because both refreshers below check
-  // their selection against the list they just fetched.
-  const [restored] = useState(readSelection);
+  // than on whichever agent `agent_list` happens to return first — or, if a
+  // push notification's `?agent=&conversation=` deep link is present, from
+  // that instead (see `readDeepLinkSelection`). Read once, on mount: a stale
+  // id here is harmless, because both refreshers below check their selection
+  // against the list they just fetched.
+  const [restored] = useState(readDeepLinkSelection);
   const [agentId, setAgentId] = useState<string | null>(restored.agentId);
   const [conversationId, setConversationId] = useState<string | null>(restored.conversationId);
   const [loading, setLoading] = useState(false);

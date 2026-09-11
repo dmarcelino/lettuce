@@ -4,12 +4,15 @@ import { McpEditor } from "../components/McpEditor.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { handleProvider, isLocalHandle, localProviderKeys } from "../lib/providers.ts";
 import {
+  getPushPreferences,
   isIOS,
   isPushSupported,
   isStandalone,
   isSubscribed,
+  type PushPreferences,
   subscribeToPush,
   unsubscribeFromPush,
+  updatePushPreferences,
 } from "../lib/push.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -552,8 +555,15 @@ function SkillsSection({
   );
 }
 
+const NOTIFICATION_EVENT_TYPES: { key: keyof PushPreferences; label: string }[] = [
+  { key: "completed", label: "Turn completed" },
+  { key: "failed", label: "Turn failed" },
+  { key: "approval", label: "Approval needed" },
+];
+
 function NotificationsSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [preferences, setPreferences] = useState<PushPreferences | null>(null);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
@@ -561,7 +571,10 @@ function NotificationsSection() {
       setEnabled(false);
       return;
     }
-    void isSubscribed().then(setEnabled);
+    void isSubscribed().then(async (subscribed) => {
+      setEnabled(subscribed);
+      if (subscribed) setPreferences(await getPushPreferences());
+    });
   }, []);
 
   const toggle = async () => {
@@ -570,12 +583,26 @@ function NotificationsSection() {
       if (enabled) {
         await unsubscribeFromPush();
         setEnabled(false);
+        setPreferences(null);
       } else {
         await subscribeToPush();
         setEnabled(true);
+        setPreferences(await getPushPreferences());
       }
       setStatus("");
     } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const togglePreference = async (key: keyof PushPreferences, value: boolean) => {
+    const previous = preferences;
+    if (!previous) return;
+    setPreferences({ ...previous, [key]: value });
+    try {
+      await updatePushPreferences({ [key]: value });
+    } catch (cause) {
+      setPreferences(previous);
       setStatus(cause instanceof Error ? cause.message : String(cause));
     }
   };
@@ -600,10 +627,10 @@ function NotificationsSection() {
   return (
     <>
       {status ? <p className="muted small pad">{status}</p> : null}
-      <p className="section-note">Notify when your agent finishes a turn</p>
+      <p className="section-note">Notifications</p>
       <p className="muted small pad">
-        Sends a notification to this device when the agent finishes responding while you're not
-        watching that conversation.
+        Sends a notification to this device when the agent finishes a turn, hits an error, or needs
+        a tool approval — while you're not watching that conversation.
       </p>
       <div className="pad-x">
         <button
@@ -615,6 +642,20 @@ function NotificationsSection() {
           {enabled ? "Disable notifications" : "Enable notifications"}
         </button>
       </div>
+      {enabled && preferences ? (
+        <div className="pad-x">
+          {NOTIFICATION_EVENT_TYPES.map(({ key, label }) => (
+            <label className="checkbox" key={key}>
+              <input
+                type="checkbox"
+                checked={preferences[key]}
+                onChange={(event) => void togglePreference(key, event.target.checked)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      ) : null}
     </>
   );
 }

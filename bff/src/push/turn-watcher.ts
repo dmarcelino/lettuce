@@ -1,26 +1,19 @@
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import { frameScopeKey } from "../session/buffer.ts";
-import { notify as defaultNotify } from "./notify.ts";
+import { notify as defaultNotify, type PushEventType } from "./notify.ts";
 import type { PushSubscriptionStore } from "./store.ts";
 
 /**
- * Fires a push on the ONE decided trigger: an agent turn completes while
- * nobody is watching that conversation. `is_processing` (on
- * `update_device_status`) is derived upstream from the turn lifecycle's
- * `kind === "active"`, and `WAITING_ON_APPROVAL` is one of the *active* loop
- * statuses — so it never edges false merely because a turn is paused on an
- * approval. A true->false transition only happens on genuine completion,
- * stop, or cancellation.
- *
- * A session with an empty `scopes` set (freshly opened, before its first
- * `resume`/scoped command) counts as "watching everything", so a push can be
- * suppressed in the brief window right after a browser reconnects and before
- * it re-subscribes. Acceptable: this can only make the watcher too quiet,
- * never too noisy.
+ * Fires a push when a turn ends — successfully or with an error — while
+ * nobody is watching that conversation. `turn_finished` is emitted only on a
+ * genuine terminal transition (letta-code: `finishListenerTurn`, called from
+ * `turnLifecycle.finish()` reporting a finished transition) — never while a
+ * turn is merely paused on an approval — so, unlike the `is_processing` edge
+ * this watcher used to track, no per-scope state is needed: one frame, one
+ * decision. It already carries a classified `error`, so completed vs failed
+ * falls out directly instead of being inferred.
  */
-export class TurnCompletionWatcher {
-  private readonly lastIsProcessing = new Map<string, boolean>();
-
+export class TurnOutcomeWatcher {
   constructor(
     private readonly store: PushSubscriptionStore,
     private readonly log: (message: string) => void,
@@ -29,25 +22,23 @@ export class TurnCompletionWatcher {
   ) {}
 
   observe(frame: WsProtocolMessage, isWatched: (scopeKey: string) => boolean): void {
-    if (frame.type !== "update_device_status") return;
+    if (frame.type !== "turn_finished") return;
 
     const scopeKey = frameScopeKey(frame);
-    if (!scopeKey) return;
+    if (!scopeKey || isWatched(scopeKey)) return;
 
-    const isProcessing = frame.device_status.is_processing;
-    const previous = this.lastIsProcessing.get(scopeKey);
-    this.lastIsProcessing.set(scopeKey, isProcessing);
+    const [agentId, conversationId] = scopeKey.split("::") as [string, string];
+    const eventType: PushEventType = frame.error ? "failed" : "completed";
 
-    // First observation for this scope just seeds the map — nothing to
-    // compare against yet, so it never spuriously fires.
-    if (previous === undefined) return;
-
-    if (previous && !isProcessing && !isWatched(scopeKey)) {
-      void this.notify(
-        this.store,
-        { title: "Letta", body: "Your agent finished its turn.", url: "/" },
-        this.log,
-      );
-    }
+    void this.notify(
+      this.store,
+      {
+        title: "Letta",
+        body: eventType === "failed" ? "Your agent hit an error." : "Your agent finished its turn.",
+        url: `/?agent=${encodeURIComponent(agentId)}&conversation=${encodeURIComponent(conversationId)}`,
+      },
+      eventType,
+      this.log,
+    );
   }
 }

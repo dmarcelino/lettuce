@@ -37,5 +37,20 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = (event.notification.data as { url?: string } | undefined)?.url ?? "/";
-  event.waitUntil(self.clients.openWindow(url));
+
+  // Focus and navigate an existing tab rather than always opening a new one —
+  // this app has no router, so `navigate()` to a new query string forces a
+  // real reload, which is what makes the deep-link query params below take
+  // effect (see `readDeepLinkSelection` in `lib/selection.ts`).
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then(async (clients) => {
+      const client = clients[0];
+      if (client) {
+        const navigated = await client.navigate(url);
+        await navigated?.focus();
+        return;
+      }
+      await self.clients.openWindow(url);
+    }),
+  );
 });
