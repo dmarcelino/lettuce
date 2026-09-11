@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ConnectionState, RuntimeScope, SequencedFrame } from "../lib/protocol.ts";
+import type {
+  AppServerInfo,
+  ConnectionState,
+  RuntimeScope,
+  SequencedFrame,
+} from "../lib/protocol.ts";
 import { type LinkState, SessionClient } from "../lib/session-client.ts";
 
 export interface SessionApi {
   link: LinkState;
   upstream: ConnectionState;
   ready: boolean;
+  /** Capability-discovery handshake; null until the first hello or after a hard resync loss. */
+  appServerInfo: AppServerInfo | null;
   request: <T = unknown>(type: string, body?: Record<string, unknown>) => Promise<T>;
   send: (command: Record<string, unknown> & { type: string }) => void;
   setScopes: (scopes: RuntimeScope[]) => void;
@@ -26,6 +33,7 @@ export interface SessionApi {
 export function useSession(enabled: boolean): SessionApi {
   const [link, setLink] = useState<LinkState>("connecting");
   const [upstream, setUpstream] = useState<ConnectionState>("connecting");
+  const [appServerInfo, setAppServerInfo] = useState<AppServerInfo | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const clientRef = useRef<SessionClient | null>(null);
@@ -48,6 +56,7 @@ export function useSession(enabled: boolean): SessionApi {
         for (const handler of resyncHandlers.current) handler();
       },
       onHello: (hello) => setUpstream(hello.upstream),
+      onAppServerInfo: (info) => setAppServerInfo(info),
       onError: (error) => setLastError(error.message),
     });
 
@@ -98,6 +107,7 @@ export function useSession(enabled: boolean): SessionApi {
       link,
       upstream,
       ready: link === "live",
+      appServerInfo,
       request,
       send,
       setScopes,
@@ -110,6 +120,7 @@ export function useSession(enabled: boolean): SessionApi {
     [
       link,
       upstream,
+      appServerInfo,
       request,
       send,
       setScopes,

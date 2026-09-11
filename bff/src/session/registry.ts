@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-server-client";
 import type {
   GetTreeResponseMessage,
   WsProtocolMessage,
@@ -264,7 +265,7 @@ export class SessionRegistry {
     }
   }
 
-  broadcastUpstreamState(state: UpstreamState, info: unknown): void {
+  broadcastUpstreamState(state: UpstreamState, info: AppServerInfoResponseMessage | null): void {
     for (const session of this.sessions.values()) {
       this.sendTo(session.socket, {
         type: "__bff_upstream_state",

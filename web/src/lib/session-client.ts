@@ -1,11 +1,13 @@
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import {
+  type AppServerInfo,
   type BffError,
   type BffHello,
   type ConnectionState,
   frameSeq,
   isBffControlFrame,
   type RuntimeScope,
+  readAppServerInfo,
   type SequencedFrame,
 } from "./protocol.ts";
 
@@ -19,6 +21,8 @@ export interface SessionClientEvents {
   /** The buffer could not cover the gap — rebuild from conversation history. */
   onResyncRequired: () => void;
   onHello: (hello: BffHello) => void;
+  /** The app-server's capability-discovery response changed — hello, or a reconnect. */
+  onAppServerInfo: (info: AppServerInfo | null) => void;
   onError: (error: BffError) => void;
 }
 
@@ -264,6 +268,7 @@ export class SessionClient {
         case "__bff_hello":
           this.upstreamState = raw.upstream;
           this.events.onHello(raw);
+          this.events.onAppServerInfo(readAppServerInfo(raw.app_server_info));
           return;
 
         case "__bff_resume_result": {
@@ -281,6 +286,7 @@ export class SessionClient {
         case "__bff_upstream_state":
           this.upstreamState = raw.state;
           this.setLinkState(raw.state === "connected" ? "live" : "offline");
+          this.events.onAppServerInfo(readAppServerInfo(raw.app_server_info));
           return;
 
         case "__bff_error": {

@@ -216,6 +216,13 @@ function ConnectionSection({ session }: { session: SessionApi }) {
     <>
       {status ? <p className="muted small pad">{status}</p> : null}
 
+      {session.appServerInfo ? (
+        <p className="muted small pad">
+          letta-code v{session.appServerInfo.letta_code_version} · {session.appServerInfo.backend}{" "}
+          backend
+        </p>
+      ) : null}
+
       <p className="section-note">
         Local endpoints — no cloud account needed. Point llama.cpp at its own host and port.
       </p>

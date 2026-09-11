@@ -1,3 +1,5 @@
+import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-server-client";
+
 /**
  * The small envelope the BFF adds on top of the app-server protocol for
  * browser sessions. Everything else on the wire is a verbatim app-server frame,
@@ -12,7 +14,7 @@ export interface BffHelloMessage {
   session_id: string;
   user: { email: string };
   upstream: "connecting" | "connected" | "disconnected";
-  app_server_info: unknown;
+  app_server_info: AppServerInfoResponseMessage | null;
   latest_seq: number;
 }
 
@@ -36,7 +38,7 @@ export interface BffResumeResultMessage {
 export interface BffUpstreamStateMessage {
   type: "__bff_upstream_state";
   state: "connecting" | "connected" | "disconnected";
-  app_server_info: unknown;
+  app_server_info: AppServerInfoResponseMessage | null;
 }
 
 export interface BffErrorMessage {

@@ -57,3 +57,44 @@ export function frameSeq(frame: SequencedFrame): number | null {
 export function scopeKey(scope: RuntimeScope): string {
   return `${scope.agent_id}::${scope.conversation_id}`;
 }
+
+/** Capability-discovery handshake, narrowed from the `unknown` wire payload. */
+export interface AppServerInfo {
+  backend: "local" | "api";
+  letta_code_version: string;
+  protocol_version: number;
+  capabilities: {
+    agent_management: boolean;
+    conversation_management: boolean;
+    memory_management: boolean;
+    runtime_start: boolean;
+    runtime_workspace_sandbox: boolean;
+    runtime_external_tools_update: boolean;
+    split_channels: boolean;
+  };
+}
+
+export function readAppServerInfo(raw: unknown): AppServerInfo | null {
+  if (!raw || typeof raw !== "object") return null;
+  const info = raw as Record<string, unknown>;
+  if (info.backend !== "local" && info.backend !== "api") return null;
+  if (typeof info.letta_code_version !== "string") return null;
+  if (typeof info.protocol_version !== "number") return null;
+  const caps = info.capabilities;
+  if (!caps || typeof caps !== "object") return null;
+  const c = caps as Record<string, unknown>;
+  return {
+    backend: info.backend,
+    letta_code_version: info.letta_code_version,
+    protocol_version: info.protocol_version,
+    capabilities: {
+      agent_management: c.agent_management === true,
+      conversation_management: c.conversation_management === true,
+      memory_management: c.memory_management === true,
+      runtime_start: c.runtime_start === true,
+      runtime_workspace_sandbox: c.runtime_workspace_sandbox === true,
+      runtime_external_tools_update: c.runtime_external_tools_update === true,
+      split_channels: c.split_channels === true,
+    },
+  };
+}
