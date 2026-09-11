@@ -565,10 +565,18 @@ function NotificationsSection() {
       setEnabled(false);
       return;
     }
-    void isSubscribed().then(async (subscribed) => {
-      setEnabled(subscribed);
-      if (subscribed) setPreferences(await getPushPreferences());
-    });
+    // Without the catch a failed service worker left `enabled` null forever —
+    // a disabled button with no reason given. Surface the browser's own error;
+    // the button stays usable, and pressing it reports the same failure again.
+    void isSubscribed()
+      .then(async (subscribed) => {
+        setEnabled(subscribed);
+        if (subscribed) setPreferences(await getPushPreferences());
+      })
+      .catch((cause) => {
+        setEnabled(false);
+        setStatus(`Notifications are unavailable: ${errorMessage(cause)}`);
+      });
   }, []);
 
   const toggle = async () => {

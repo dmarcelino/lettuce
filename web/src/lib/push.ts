@@ -1,3 +1,5 @@
+import { getServiceWorkerRegistration } from "./register-sw.ts";
+
 /** True once this app is running as an installed app rather than a browser tab. */
 export function isStandalone(): boolean {
   try {
@@ -28,8 +30,41 @@ function base64UrlToUint8Array(base64Url: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+const ACTIVATION_TIMEOUT_MS = 10_000;
+
+/**
+ * The registration once its worker is active — `pushManager` refuses one with
+ * none. Rejects rather than waiting forever when the worker failed to register
+ * or install, so the caller can say why.
+ */
+async function activeRegistration(): Promise<ServiceWorkerRegistration> {
+  const registration = await getServiceWorkerRegistration();
+  if (registration.active) return registration;
+
+  const worker = registration.installing ?? registration.waiting;
+  if (!worker) throw new Error("Service worker is not active");
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("Service worker did not activate in time"));
+    }, ACTIVATION_TIMEOUT_MS);
+    const check = () => {
+      if (worker.state === "activated") {
+        clearTimeout(timer);
+        resolve();
+      } else if (worker.state === "redundant") {
+        clearTimeout(timer);
+        reject(new Error("Service worker failed to install"));
+      }
+    };
+    worker.addEventListener("statechange", check);
+    check();
+  });
+  return registration;
+}
+
 async function currentSubscription(): Promise<PushSubscription | null> {
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await activeRegistration();
   return registration.pushManager.getSubscription();
 }
 
@@ -47,7 +82,7 @@ export async function subscribeToPush(): Promise<void> {
   if (!keyResponse.ok) throw new Error("Could not load the push public key");
   const { key } = (await keyResponse.json()) as { key: string };
 
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await activeRegistration();
   const subscription = await registration.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: base64UrlToUint8Array(key),

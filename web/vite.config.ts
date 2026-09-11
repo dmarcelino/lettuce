@@ -8,11 +8,8 @@ export default defineConfig({
   plugins: [
     react(),
     // `injectManifest`, not `generateSW`: a generated service worker has no
-    // push/notificationclick listeners at all, and this app sits behind
-    // Cloudflare Access, where a top-level navigation must never be served
-    // from a cache — it's the only request that can complete an Access
-    // re-authentication redirect. sw.ts is hand-written and registers no
-    // `fetch` listener, so navigations are never intercepted by construction.
+    // push/notificationclick listeners at all. This app sits behind
+    // Cloudflare Access, which shapes both options below.
     VitePWA({
       strategies: "injectManifest",
       srcDir: "src",
@@ -21,7 +18,18 @@ export default defineConfig({
       // Registered manually from lib/register-sw.ts, not this plugin's
       // auto-injected script — one registration path, not two.
       injectRegister: false,
-      injectManifest: { injectionPoint: "self.__WB_MANIFEST" },
+      injectManifest: {
+        injectionPoint: "self.__WB_MANIFEST",
+        // An IIFE, so sw.js is valid as a *classic* script: register-sw.ts
+        // registers it classic because a module worker's script fetch carries
+        // no cookies, and Access redirects it to the login page.
+        rollupFormat: "iife",
+        // A top-level navigation must never be served from a cache — it's the
+        // only request that can complete an Access re-authentication redirect.
+        // sw.ts's precache route maps `/` to `index.html`, so keeping the shell
+        // out of the manifest is what keeps navigations on the network.
+        globIgnores: ["**/index.html"],
+      },
       devOptions: { enabled: true, type: "module" },
     }),
   ],
