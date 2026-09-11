@@ -128,6 +128,8 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   "cron_get",
   "cron_runs",
   "cron_trigger",
+  "cron_pause",
+  "cron_resume",
   "cron_update",
   "cron_delete",
   // skills

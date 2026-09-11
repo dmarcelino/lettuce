@@ -206,6 +206,24 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
               >
                 Run now
               </button>
+              {task.status === "active" ? (
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => void act("cron_pause", { task_id: task.id }, "Pausing")}
+                >
+                  Pause
+                </button>
+              ) : null}
+              {task.status === "paused" ? (
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => void act("cron_resume", { task_id: task.id }, "Resuming")}
+                >
+                  Resume
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="link"
