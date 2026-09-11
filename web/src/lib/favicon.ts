@@ -32,7 +32,7 @@ function svg(tint: string): string {
   ].join("");
 }
 
-export function faviconDataUri(state: LinkState): string {
+function faviconDataUri(state: LinkState): string {
   return `data:image/svg+xml,${encodeURIComponent(svg(TINT[state] ?? TINT.offline))}`;
 }
 

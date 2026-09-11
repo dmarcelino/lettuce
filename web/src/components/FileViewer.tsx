@@ -18,6 +18,7 @@ import {
   mimeTypeFor,
   triggerDownload,
 } from "../lib/download.ts";
+import { errorMessage } from "../lib/errors.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Markdown } from "./Markdown.tsx";
 import { Sheet } from "./Sheet.tsx";
@@ -79,7 +80,7 @@ export function FileViewer({
         }
         setStatus("");
       } catch (cause) {
-        if (!cancelled) setStatus(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) setStatus(errorMessage(cause));
       }
     })();
 

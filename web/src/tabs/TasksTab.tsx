@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { errorMessage } from "../lib/errors.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface CronTask {
@@ -56,7 +57,7 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
       setTasks(response?.tasks ?? []);
       setStatus("");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   }, [agentId, session.request]);
 
@@ -89,7 +90,7 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
       await load();
       return true;
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
       return false;
     }
   };

@@ -4,7 +4,6 @@ export const SESSION_COOKIE = "letta_session";
 
 export interface SessionPayload {
   email: string;
-  name: string;
   /** Unix seconds. */
   exp: number;
 }

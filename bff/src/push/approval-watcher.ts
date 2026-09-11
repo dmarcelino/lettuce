@@ -1,6 +1,5 @@
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
-import { frameScopeKey } from "../session/buffer.ts";
-import { notify as defaultNotify } from "./notify.ts";
+import { notify as defaultNotify, unwatchedConversationUrl } from "./notify.ts";
 import type { PushSubscriptionStore } from "./store.ts";
 
 /**
@@ -22,17 +21,15 @@ export class ApprovalWatcher {
   observe(frame: WsProtocolMessage, isWatched: (scopeKey: string) => boolean): void {
     if (frame.type !== "control_request" || frame.request.subtype !== "can_use_tool") return;
 
-    const scopeKey = frameScopeKey(frame);
-    if (!scopeKey || isWatched(scopeKey)) return;
-
-    const [agentId, conversationId] = scopeKey.split("::") as [string, string];
+    const url = unwatchedConversationUrl(frame, isWatched);
+    if (!url) return;
 
     void this.notify(
       this.store,
       {
         title: "Letta",
         body: `Approval needed: run ${frame.request.tool_name}?`,
-        url: `/?agent=${encodeURIComponent(agentId)}&conversation=${encodeURIComponent(conversationId)}`,
+        url,
       },
       "approval",
       this.log,

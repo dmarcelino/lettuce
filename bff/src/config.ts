@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 export interface BffConfig {
   port: number;
   /**
@@ -14,13 +12,6 @@ export interface BffConfig {
   mode: "local" | "cloudflared";
   /** App-server WebSocket base URL, e.g. ws://letta:4500 */
   appServerUrl: string;
-  /**
-   * Capability token presented as `Authorization: Bearer` upstream. Empty when
-   * the app-server listens on loopback without `--ws-auth`, which is the only
-   * configuration in which the channel gateway can also attach (it sends no
-   * token of its own).
-   */
-  appServerToken: string;
   /** Absolute public origin of this BFF. */
   publicOrigin: string;
   /** The `<team>` in `https://<team>.cloudflareaccess.com`. */
@@ -80,18 +71,6 @@ function optionalNumber(name: string, fallback: number): number {
     throw new Error(`${name} must be a positive number`);
   }
   return parsed;
-}
-
-function readAppServerToken(): string {
-  const inline = process.env.LETTA_APP_SERVER_TOKEN?.trim();
-  if (inline) return inline;
-
-  const path = process.env.LETTA_APP_SERVER_TOKEN_FILE?.trim();
-  if (!path) return "";
-
-  const token = readFileSync(path, "utf8").trim();
-  if (!token) throw new Error(`App-server token file ${path} is empty`);
-  return token;
 }
 
 /**
@@ -156,7 +135,7 @@ function readAllowedUsers(accessIsTheGate: boolean, devBypassEmail: string | nul
   return devBypassEmail ? [devBypassEmail.toLowerCase()] : [];
 }
 
-export function isLoopbackOrigin(publicOrigin: string): boolean {
+function isLoopbackOrigin(publicOrigin: string): boolean {
   let host: string;
   try {
     host = new URL(publicOrigin).hostname;
@@ -218,7 +197,6 @@ export function loadConfig(): BffConfig {
     mode,
     port: optionalNumber("PORT", 8080),
     appServerUrl: required("LETTA_APP_SERVER_URL"),
-    appServerToken: readAppServerToken(),
     publicOrigin,
     cfAccessTeamDomain: needsCfAccess
       ? required("CF_ACCESS_TEAM_DOMAIN")

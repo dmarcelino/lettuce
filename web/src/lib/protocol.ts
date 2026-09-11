@@ -13,7 +13,7 @@ export interface RuntimeScope {
 export interface BffHello {
   type: "__bff_hello";
   session_id: string;
-  user: { email: string; name: string };
+  user: { email: string };
   upstream: ConnectionState;
   app_server_info: unknown;
   latest_seq: number;

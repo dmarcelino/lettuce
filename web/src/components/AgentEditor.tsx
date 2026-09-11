@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../lib/errors.ts";
 import {
   AGENT_PRESETS,
   type AgentDraft,
@@ -49,7 +50,7 @@ export function AgentEditor({ session, agents, agentId, onClose }: Props) {
         setDraft({ name: detail.name, system: detail.system, modelHandle: detail.modelHandle });
         setSavedModel(detail.modelHandle);
       } catch (cause) {
-        if (!cancelled) setStatus(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) setStatus(errorMessage(cause));
       } finally {
         if (!cancelled) setBusy(false);
       }
@@ -66,7 +67,7 @@ export function AgentEditor({ session, agents, agentId, onClose }: Props) {
       await action();
       onClose();
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
       setBusy(false);
     }
   };

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { errorMessage } from "../lib/errors.ts";
 import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
 import { readAgentModelHandle } from "./use-models.ts";
@@ -154,7 +155,7 @@ export function useAgents(session: SessionApi): AgentsApi {
         return list[0]?.id ?? null;
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -175,7 +176,7 @@ export function useAgents(session: SessionApi): AgentsApi {
           return active?.id ?? list[0]?.id ?? null;
         });
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(errorMessage(cause));
       }
     },
     [request],
@@ -324,7 +325,7 @@ export function useAgents(session: SessionApi): AgentsApi {
       const appeared = list.find((conversation) => !known.has(conversation.id));
       if (appeared) setConversationId(appeared.id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     }
   }, [agentId, conversations, request]);
 

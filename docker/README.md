@@ -266,9 +266,9 @@ every previously-subscribed device stops receiving pushes until it
 re-subscribes from Settings → Notifications. There is no migration path;
 this is an operational fact to plan around, not a bug.
 
-Subscriptions persist in `bff-data/push-subscriptions.json` on the host (bind
-mounted, gitignored — it holds device push endpoints, not secrets, but isn't
-meant to be committed either).
+Subscriptions persist in `push-subscriptions.json` on the `bff-data` named
+volume, not on the host — losing it only means re-subscribing each device from
+Settings → Notifications.
 
 iOS only delivers Web Push to a PWA actually added to the Home Screen — a
 Safari tab (or Chrome/Firefox on iOS, which can't install a PWA at all) never
@@ -285,7 +285,6 @@ LETTA_LOCAL_BACKEND_EXPERIMENTAL=true letta server --listen ws://127.0.0.1:4500
 # ALLOWED_USERS either — DEV_BYPASS_EMAIL implies its own allowlist entry)
 cd bff && \
   LETTA_APP_SERVER_URL=ws://127.0.0.1:4500 \
-  LETTA_APP_SERVER_TOKEN=unused \
   PUBLIC_ORIGIN=http://localhost:8080 \
   SESSION_SECRET=$(openssl rand -hex 32) \
   DEV_BYPASS_EMAIL=you@example.com \
@@ -295,7 +294,6 @@ cd bff && \
 cd web && bun run dev
 ```
 
-Note: an app-server started without `--ws-auth` ignores the `Authorization`
-header entirely, so the token value is irrelevant there — but the BFF still
-requires one of `LETTA_APP_SERVER_TOKEN` / `LETTA_APP_SERVER_TOKEN_FILE` to be
-set, hence the placeholder.
+The BFF sends no token: the app-server runs on loopback without `--ws-auth` by
+design, because the channel gateway cannot authenticate (see the header comment
+in `docker/compose.yml`).

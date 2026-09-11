@@ -17,6 +17,7 @@ import {
   type SessionPayload,
 } from "./auth/session-cookie.ts";
 import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
+import { errorMessage } from "./errors.ts";
 import { inlineContentType } from "./files/content-type.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { configureWebPush } from "./push/send.ts";
@@ -47,7 +48,6 @@ function log(message: string): void {
 // adapters), which only boot on first client attach.
 const upstream = new UpstreamConnection({
   url: config.appServerUrl,
-  authToken: config.appServerToken,
   onFrame: (frame: WsProtocolMessage) => {
     registry.handleUpstreamFrame(frame);
     turnOutcomeWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
@@ -100,27 +100,15 @@ app.use("*", async (c, next) => {
           issuer: config.cfAccessIssuer,
         });
         if (isAllowedUser(config, email)) {
-          session = {
-            email,
-            name: email,
-            exp: Math.floor(Date.now() / 1000) + config.sessionTtlSeconds,
-          };
-          const token = encodeSession(session, config.sessionSecret);
-          c.header(
-            "set-cookie",
-            buildSessionCookie(token, config.sessionTtlSeconds, secureCookies),
-            {
-              append: true,
-            },
-          );
+          const minted = mintSession(email);
+          session = minted.session;
+          c.header("set-cookie", minted.cookie, { append: true });
           log(`Signed in ${email} via Cloudflare Access`);
         } else {
           log(`Rejected Access sign-in for ${email} (not in allowlist)`);
         }
       } catch (error) {
-        log(
-          `Access JWT verification failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        log(`Access JWT verification failed: ${errorMessage(error)}`);
       }
     }
   }
@@ -138,7 +126,7 @@ app.get("/api/status", (c) => {
       : config.mode === "cloudflared"
         ? "cf-access"
         : "none",
-    user: session ? { email: session.email, name: session.name } : null,
+    user: session ? { email: session.email } : null,
     upstream: {
       state: upstream.getState(),
       info: upstream.getInfo(),
@@ -170,7 +158,8 @@ app.get("/auth/dev-login", (c) => {
   }
 
   log(`Dev login as ${email} (NO AUTHENTICATION — loopback only)`);
-  return issueSession(email, email);
+  const { cookie } = mintSession(email);
+  return new Response(null, { status: 302, headers: { location: "/", "set-cookie": cookie } });
 });
 
 app.post("/auth/logout", (c) => {
@@ -207,8 +196,8 @@ app.post("/push/unsubscribe", async (c) => {
   if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
 
   const body = await c.req.json().catch(() => null);
-  const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
-  if (typeof endpoint !== "string" || !endpoint) return c.text("Missing endpoint", 400);
+  const endpoint = endpointOf(body);
+  if (!endpoint) return c.text("Missing endpoint", 400);
 
   pushStore.remove(endpoint);
   return c.json({ ok: true });
@@ -231,8 +220,8 @@ app.post("/push/preferences", async (c) => {
   if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
 
   const body = await c.req.json().catch(() => null);
-  const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
-  if (typeof endpoint !== "string" || !endpoint) return c.text("Missing endpoint", 400);
+  const endpoint = endpointOf(body);
+  if (!endpoint) return c.text("Missing endpoint", 400);
 
   try {
     const record = pushStore.updatePreferences(
@@ -270,7 +259,7 @@ app.get("/api/files/download", async (c) => {
       encoding: "base64",
     });
   } catch (error) {
-    return c.text(error instanceof Error ? error.message : String(error), 502);
+    return c.text(errorMessage(error), 502);
   }
 
   if (!response.success || typeof response.content !== "string") {
@@ -309,17 +298,20 @@ app.get("*", serveStatic({ root: webDist }));
 // routes survive a reload or a deep link.
 app.get("*", serveStatic({ path: `${webDist}/index.html` }));
 
-function issueSession(name: string, email: string, extraCookies: string[] = []): Response {
-  const payload: SessionPayload = {
+/** A fresh session for `email`, and the `set-cookie` value that carries it. */
+function mintSession(email: string): { session: SessionPayload; cookie: string } {
+  const session: SessionPayload = {
     email,
-    name,
     exp: Math.floor(Date.now() / 1000) + config.sessionTtlSeconds,
   };
-  const token = encodeSession(payload, config.sessionSecret);
-  const headers = new Headers({ location: "/" });
-  headers.append("set-cookie", buildSessionCookie(token, config.sessionTtlSeconds, secureCookies));
-  for (const cookie of extraCookies) headers.append("set-cookie", cookie);
-  return new Response(null, { status: 302, headers });
+  const token = encodeSession(session, config.sessionSecret);
+  return { session, cookie: buildSessionCookie(token, config.sessionTtlSeconds, secureCookies) };
+}
+
+/** The non-empty `endpoint` a push request body names, or null. */
+function endpointOf(body: unknown): string | null {
+  const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
+  return typeof endpoint === "string" && endpoint ? endpoint : null;
 }
 
 function currentSession(request: Request): SessionPayload | null {
@@ -356,7 +348,7 @@ const server = Bun.serve<SocketData>({
       // has to re-derive it from cookies after the upgrade.
       const upgraded = bunServer.upgrade(request, {
         data: {
-          user: { email: session.email, name: session.name },
+          user: { email: session.email },
           sessionId: "",
         } satisfies SocketData,
       });

@@ -2,7 +2,7 @@ import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol
 
 export interface BufferedFrame {
   seq: number;
-  /** `${agent_id}::${conversation_id}`, or null for connection-wide frames. */
+  /** See `scopeKeyOf`; null for connection-wide frames. */
   scopeKey: string | null;
   frame: WsProtocolMessage;
 }
@@ -38,7 +38,7 @@ export class FrameBuffer {
   }
 
   /** Sequence of the oldest still-replayable frame. */
-  get oldestSeq(): number {
+  private get oldestSeq(): number {
     return this.frames[0]?.seq ?? this.nextSeq;
   }
 
@@ -81,19 +81,32 @@ export class FrameBuffer {
   }
 }
 
-/** Extract `${agent_id}::${conversation_id}` from a frame, if it carries a scope. */
+/**
+ * The key one `{agent_id, conversation_id}` scope is tracked under — by this
+ * buffer, the session registry, the upstream connection and the push watchers.
+ */
+export function scopeKeyOf(agentId: string, conversationId: string): string {
+  return `${agentId}::${conversationId}`;
+}
+
+/** Inverse of `scopeKeyOf`. */
+export function parseScopeKey(scopeKey: string): [agentId: string, conversationId: string] {
+  return scopeKey.split("::") as [string, string];
+}
+
+/** The frame's scope key (see `scopeKeyOf`), if it carries a scope. */
 export function frameScopeKey(frame: WsProtocolMessage): string | null {
   const runtime = (frame as { runtime?: unknown }).runtime;
   if (runtime && typeof runtime === "object") {
     const scope = runtime as { agent_id?: unknown; conversation_id?: unknown };
     if (typeof scope.agent_id === "string" && typeof scope.conversation_id === "string") {
-      return `${scope.agent_id}::${scope.conversation_id}`;
+      return scopeKeyOf(scope.agent_id, scope.conversation_id);
     }
   }
   // `control_request` carries its scope as flat fields rather than an envelope.
   const flat = frame as { agent_id?: unknown; conversation_id?: unknown };
   if (typeof flat.agent_id === "string" && typeof flat.conversation_id === "string") {
-    return `${flat.agent_id}::${flat.conversation_id}`;
+    return scopeKeyOf(flat.agent_id, flat.conversation_id);
   }
   return null;
 }

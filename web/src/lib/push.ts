@@ -1,12 +1,17 @@
 /** True once this app is running as an installed app rather than a browser tab. */
 export function isStandalone(): boolean {
-  if (window.matchMedia("(display-mode: standalone)").matches) return true;
-  // iOS's own flag — it never sets the media query above.
-  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  try {
+    if (window.matchMedia("(display-mode: standalone)").matches) return true;
+    // iOS's own flag — it never sets the media query above.
+    return (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  } catch {
+    // An embedding that withholds `matchMedia` is not an installed app.
+    return false;
+  }
 }
 
 export function isIOS(): boolean {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent);
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
 }
 
 export function isPushSupported(): boolean {

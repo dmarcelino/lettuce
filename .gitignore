@@ -3,7 +3,6 @@ dist/
 .env
 .env.local
 docker/secrets/
-bff-data/
 *.log
 .DS_Store
 .ui-check/

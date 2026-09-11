@@ -12,7 +12,7 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { type FilterGroup, filterEntries } from "./lib/messages.ts";
-import type { ConnectionState, RuntimeScope } from "./lib/protocol.ts";
+import type { RuntimeScope } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { useAgents } from "./state/use-agents.ts";
 import { useConversation } from "./state/use-conversation.ts";
@@ -26,8 +26,7 @@ import { TasksTab } from "./tabs/TasksTab.tsx";
 interface Status {
   authenticated: boolean;
   auth_mode: "cf-access" | "dev-bypass" | "none";
-  user: { email: string; name: string } | null;
-  upstream: { state: ConnectionState; info: unknown };
+  user: { email: string } | null;
 }
 
 const TABS = ["Chat", "Files", "Tasks", "Memory", "Settings"] as const;
@@ -180,6 +179,21 @@ function Workspace({ status }: { status: Status }) {
             </button>
           ))}
         </nav>
+
+        {session.lastError ? (
+          <p className="warning small dismissible" role="alert">
+            <span>{session.lastError}</span>
+            <button
+              type="button"
+              className="icon-button flat"
+              onClick={session.clearError}
+              aria-label="Dismiss error"
+              title="Dismiss"
+            >
+              <Icon name="close" />
+            </button>
+          </p>
+        ) : null}
 
         {tab === "Chat" ? (
           <>

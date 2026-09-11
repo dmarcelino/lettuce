@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { errorMessage } from "../lib/errors.ts";
 import { handleProvider } from "../lib/providers.ts";
 import type { SessionApi } from "./use-session.ts";
 
@@ -155,7 +156,7 @@ export function useModels(session: SessionApi): ModelsApi {
         }
         if (response?.error) setError(response.error);
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(errorMessage(cause));
       } finally {
         setLoading(false);
       }
