@@ -51,6 +51,8 @@ export interface SkillSummary {
 export interface QueuedItem {
   id: string;
   content: string;
+  /** Parked by abort_message/Esc; needs resume_queue or a new message to drain. */
+  paused: boolean;
 }
 
 export interface ConversationApi {
@@ -89,6 +91,8 @@ export interface ConversationApi {
     answers: Record<string, string>,
   ) => void;
   removeQueued: (itemId: string) => void;
+  /** Releases items parked by an interrupt so they start the next turn. */
+  resumeQueue: () => void;
   runCommand: (commandId: string, args?: string) => void;
   /** True once a skill was enabled or disabled but no turn has rebuilt the list yet. */
   skillsStale: boolean;
@@ -122,13 +126,14 @@ function readQueue(raw: unknown): QueuedItem[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
-    const entry = item as { id?: unknown; content?: unknown };
+    const entry = item as { id?: unknown; content?: unknown; paused?: unknown };
     if (typeof entry.id !== "string") return [];
     const content = entry.content;
     return [
       {
         id: entry.id,
         content: typeof content === "string" ? content : JSON.stringify(content ?? ""),
+        paused: entry.paused === true,
       },
     ];
   });
@@ -581,6 +586,15 @@ export function useConversation(
     [scope, send],
   );
 
+  const resumeQueue = useCallback(() => {
+    if (!scope) return;
+    send({
+      type: "resume_queue",
+      runtime: scope,
+      request_id: `resume-${Date.now()}`,
+    });
+  }, [scope, send]);
+
   const setPermissionMode = useCallback(
     (mode: PermissionMode) => {
       if (!scope) return;
@@ -625,6 +639,7 @@ export function useConversation(
     respondToApproval,
     answerQuestions,
     removeQueued,
+    resumeQueue,
     runCommand,
     skillsStale,
     permissionMode,

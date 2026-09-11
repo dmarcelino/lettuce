@@ -209,7 +209,20 @@ function Workspace({ status }: { status: Status }) {
 
             {conversation.queue.length > 0 ? (
               <div className="queue">
-                <span className="tag">Queued</span>
+                <span className="tag">
+                  {conversation.queue.some((item) => item.paused) ? "Paused" : "Queued"}
+                </span>
+                {conversation.queue.some((item) => item.paused) ? (
+                  <button
+                    type="button"
+                    className="queued resume-queue"
+                    title="Resume queued messages"
+                    onClick={() => conversation.resumeQueue()}
+                  >
+                    Resume
+                    <Icon name="refresh" />
+                  </button>
+                ) : null}
                 {conversation.queue.map((item) => (
                   <button
                     key={item.id}

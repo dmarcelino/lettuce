@@ -709,6 +709,14 @@ pre {
   padding: 4px 10px;
   white-space: nowrap;
 }
+.resume-queue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
 
 /* The composer frame: a top border and safe-area padding around the slash
    popover and the input box below it. */

@@ -77,6 +77,7 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   "input",
   "abort_message",
   "remove_queue_item",
+  "resume_queue",
   "approval_response",
   // agents + conversations
   "agent_list",
