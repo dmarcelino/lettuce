@@ -55,6 +55,15 @@ export interface ToolsetSummary {
   featured: boolean;
 }
 
+export interface BackgroundProcessSummary {
+  processId: string;
+  kind: "bash" | "agent_task" | "monitor";
+  label: string;
+  status: string;
+  /** Only monitors can be stopped from here — bash jobs and subagent tasks have no client-reachable stop command. */
+  stoppable: boolean;
+}
+
 export interface QueuedItem {
   id: string;
   content: string;
@@ -112,6 +121,10 @@ export interface ConversationApi {
   toolsetPreference: string | null;
   /** Toolsets this runtime can load, from device status. */
   availableToolsets: ToolsetSummary[];
+  /** Bash jobs, subagent tasks and monitors currently running, from device status. */
+  backgroundProcesses: BackgroundProcessSummary[];
+  /** Stops a persistent monitor. No-op for bash/agent_task processes — see BackgroundProcessSummary.stoppable. */
+  stopMonitor: (processId: string) => void;
 }
 
 /**
@@ -167,6 +180,43 @@ function readToolsets(raw: unknown): ToolsetSummary[] {
         label: typeof entry.label === "string" ? entry.label : entry.id,
         description: typeof entry.description === "string" ? entry.description : "",
         featured: entry.is_featured === true,
+      },
+    ];
+  });
+}
+
+function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const entry = item as {
+      process_id?: unknown;
+      kind?: unknown;
+      status?: unknown;
+      command?: unknown;
+      description?: unknown;
+      task_type?: unknown;
+    };
+    if (typeof entry.process_id !== "string") return [];
+    if (entry.kind !== "bash" && entry.kind !== "agent_task" && entry.kind !== "monitor") return [];
+    const status = typeof entry.status === "string" ? entry.status : "unknown";
+    const label =
+      entry.kind === "bash"
+        ? typeof entry.command === "string"
+          ? entry.command
+          : "(command)"
+        : typeof entry.description === "string" && entry.description
+          ? entry.description
+          : typeof entry.task_type === "string"
+            ? entry.task_type
+            : entry.kind;
+    return [
+      {
+        processId: entry.process_id,
+        kind: entry.kind,
+        label,
+        status,
+        stoppable: entry.kind === "monitor" && status === "running",
       },
     ];
   });
@@ -245,6 +295,7 @@ export function useConversation(
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [toolsetPreference, setToolsetPreferenceFromStatus] = useState<string | null>(null);
   const [availableToolsets, setAvailableToolsets] = useState<ToolsetSummary[]>([]);
+  const [backgroundProcesses, setBackgroundProcesses] = useState<BackgroundProcessSummary[]>([]);
   const transcriptRef = useRef<Transcript>(new Map());
   // Alias maps that hold a streamed message together; reset wherever the
   // transcript is, so a stale otid can never bind to a rebuilt transcript.
@@ -397,6 +448,7 @@ export function useConversation(
                 mod_commands?: unknown;
                 current_toolset_preference?: unknown;
                 available_toolsets?: unknown;
+                background_processes?: unknown;
               };
             }
           ).device_status;
@@ -434,6 +486,9 @@ export function useConversation(
           }
           if (Array.isArray(status?.available_toolsets)) {
             setAvailableToolsets(readToolsets(status.available_toolsets));
+          }
+          if (Array.isArray(status?.background_processes)) {
+            setBackgroundProcesses(readBackgroundProcesses(status.background_processes));
           }
           break;
         }
@@ -638,6 +693,19 @@ export function useConversation(
     });
   }, [scope, send]);
 
+  const stopMonitor = useCallback(
+    (processId: string) => {
+      if (!scope) return;
+      send({
+        type: "monitor_stop",
+        runtime: scope,
+        request_id: `monitor-stop-${Date.now()}`,
+        process_id: processId,
+      });
+    },
+    [scope, send],
+  );
+
   const setPermissionMode = useCallback(
     (mode: PermissionMode) => {
       if (!scope) return;
@@ -690,5 +758,7 @@ export function useConversation(
     commands,
     toolsetPreference,
     availableToolsets,
+    backgroundProcesses,
+    stopMonitor,
   };
 }

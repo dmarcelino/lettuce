@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { errorMessage } from "../lib/errors.ts";
+import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface CronTask {
@@ -20,10 +21,18 @@ interface CronTask {
   last_run_error: string | null;
 }
 
+const PROCESS_KIND_LABEL: Record<BackgroundProcessSummary["kind"], string> = {
+  bash: "Shell",
+  agent_task: "Subagent",
+  monitor: "Monitor",
+};
+
 interface Props {
   session: SessionApi;
   agentId: string | null;
   conversationId: string | null;
+  backgroundProcesses: BackgroundProcessSummary[];
+  onStopMonitor: (processId: string) => void;
 }
 
 const BLANK = {
@@ -34,7 +43,13 @@ const BLANK = {
   recurring: true,
 };
 
-export function TasksTab({ session, agentId, conversationId }: Props) {
+export function TasksTab({
+  session,
+  agentId,
+  conversationId,
+  backgroundProcesses,
+  onStopMonitor,
+}: Props) {
   const [tasks, setTasks] = useState<CronTask[]>([]);
   const [status, setStatus] = useState("");
   const [editing, setEditing] = useState<CronTask | null>(null);
@@ -173,6 +188,35 @@ export function TasksTab({ session, agentId, conversationId }: Props) {
       </div>
 
       {status ? <p className="muted small pad">{status}</p> : null}
+
+      {backgroundProcesses.length > 0 ? (
+        <>
+          <p className="section-note">Running now</p>
+          <ul className="list">
+            {backgroundProcesses.map((process) => (
+              <li key={process.processId} className="task">
+                <div className="task-head">
+                  <span className="tag muted">{PROCESS_KIND_LABEL[process.kind]}</span>
+                  <span className="small">{process.label}</span>
+                </div>
+                <div className="muted small">{process.status}</div>
+                {process.stoppable ? (
+                  <div className="task-actions">
+                    <button
+                      type="button"
+                      className="link danger"
+                      onClick={() => onStopMonitor(process.processId)}
+                    >
+                      Stop
+                    </button>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          <p className="section-note">Scheduled</p>
+        </>
+      ) : null}
 
       <ul className="list">
         {tasks.map((task) => (

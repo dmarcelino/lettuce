@@ -138,6 +138,8 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   // working directory
   "get_cwd_map",
   "set_boot_working_directory",
+  // background processes
+  "monitor_stop",
   // NOTE: channel_* commands are deliberately absent. The app-server only
   // dispatches them when a gateway registered `serviceCommandHandler`, which
   // happens over the CLI's stdio pipe to a child gateway process — never over

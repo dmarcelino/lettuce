@@ -270,6 +270,8 @@ function Workspace({ status }: { status: Status }) {
             session={session}
             agentId={agents.agentId}
             conversationId={agents.conversationId}
+            backgroundProcesses={conversation.backgroundProcesses}
+            onStopMonitor={conversation.stopMonitor}
           />
         ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />
