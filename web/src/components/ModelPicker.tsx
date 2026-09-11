@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import type { RuntimeScope } from "../lib/protocol.ts";
+import type { ToolsetSummary } from "../state/use-conversation.ts";
 import { type ModelEntry, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Sheet } from "./Sheet.tsx";
@@ -10,15 +11,27 @@ interface Props {
   scope: RuntimeScope | null;
   /** Lifted to App so the composer button reflects a switch made here. */
   currentModel: { handle: string | null; setHandle: (handle: string | null) => void };
+  /** Live from device status — "auto" or an explicit toolset id. Null until the first status frame. */
+  toolsetPreference: string | null;
+  availableToolsets: ToolsetSummary[];
   onClose: () => void;
 }
 
 /** Applies to the conversation, not the agent, so each thread can differ. */
-export function ModelPicker({ session, scope, currentModel, onClose }: Props) {
+export function ModelPicker({
+  session,
+  scope,
+  currentModel,
+  toolsetPreference,
+  availableToolsets,
+  onClose,
+}: Props) {
   const models = useModels(session);
   const current = currentModel;
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [toolsetStatus, setToolsetStatus] = useState<string | null>(null);
+  const [toolsetBusy, setToolsetBusy] = useState(false);
 
   const choose = async (model: ModelEntry) => {
     if (!scope) {
@@ -52,6 +65,30 @@ export function ModelPicker({ session, scope, currentModel, onClose }: Props) {
       setStatus(errorMessage(cause));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const chooseToolset = async (toolset: ToolsetSummary) => {
+    if (!scope) {
+      setToolsetStatus("Select a conversation first.");
+      return;
+    }
+    setToolsetBusy(true);
+    setToolsetStatus(`Switching to ${toolset.label}…`);
+    try {
+      const response = await session.request<{ success?: boolean; error?: string }>(
+        "update_toolset",
+        { runtime: scope, toolset_preference: toolset.id },
+      );
+      // The picked value reflects back through the next update_device_status
+      // frame, same as permission mode — no optimistic local state needed.
+      setToolsetStatus(
+        response?.success === false ? (response.error ?? "Failed to switch toolset") : null,
+      );
+    } catch (cause) {
+      setToolsetStatus(errorMessage(cause));
+    } finally {
+      setToolsetBusy(false);
     }
   };
 
@@ -115,6 +152,37 @@ export function ModelPicker({ session, scope, currentModel, onClose }: Props) {
           );
         })}
       </ul>
+
+      {availableToolsets.length > 0 ? (
+        <>
+          <p className="section-note">Toolset</p>
+          {toolsetStatus ? <p className="muted small">{toolsetStatus}</p> : null}
+          <ul className="picker">
+            {availableToolsets
+              .filter((toolset) => toolset.featured || toolset.id === toolsetPreference)
+              .map((toolset) => {
+                const active = toolset.id === toolsetPreference;
+                return (
+                  <li key={toolset.id}>
+                    <button
+                      type="button"
+                      disabled={toolsetBusy}
+                      aria-current={active ? "true" : undefined}
+                      className={active ? "active" : ""}
+                      onClick={() => void chooseToolset(toolset)}
+                    >
+                      <strong>
+                        {toolset.label}
+                        {active ? <span className="tag">current</span> : null}
+                      </strong>
+                      <span className="muted small">{toolset.description}</span>
+                    </button>
+                  </li>
+                );
+              })}
+          </ul>
+        </>
+      ) : null}
     </Sheet>
   );
 }

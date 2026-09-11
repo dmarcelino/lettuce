@@ -310,6 +310,8 @@ function Workspace({ status }: { status: Status }) {
           session={session}
           scope={scope}
           currentModel={currentModel}
+          toolsetPreference={conversation.toolsetPreference}
+          availableToolsets={conversation.availableToolsets}
           onClose={() => setShowModels(false)}
         />
       ) : null}

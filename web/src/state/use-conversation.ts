@@ -48,6 +48,13 @@ export interface SkillSummary {
   source: string;
 }
 
+export interface ToolsetSummary {
+  id: string;
+  label: string;
+  description: string;
+  featured: boolean;
+}
+
 export interface QueuedItem {
   id: string;
   content: string;
@@ -101,6 +108,10 @@ export interface ConversationApi {
   setPermissionMode: (mode: PermissionMode) => void;
   /** Slash commands this server advertises, built-ins plus mod-contributed. */
   commands: SlashCommand[];
+  /** Preference driving the active toolset — "auto" or an explicit id. Null until the first status frame. */
+  toolsetPreference: string | null;
+  /** Toolsets this runtime can load, from device status. */
+  availableToolsets: ToolsetSummary[];
 }
 
 /**
@@ -134,6 +145,28 @@ function readQueue(raw: unknown): QueuedItem[] {
         id: entry.id,
         content: typeof content === "string" ? content : JSON.stringify(content ?? ""),
         paused: entry.paused === true,
+      },
+    ];
+  });
+}
+
+function readToolsets(raw: unknown): ToolsetSummary[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const entry = item as {
+      id?: unknown;
+      label?: unknown;
+      description?: unknown;
+      is_featured?: unknown;
+    };
+    if (typeof entry.id !== "string") return [];
+    return [
+      {
+        id: entry.id,
+        label: typeof entry.label === "string" ? entry.label : entry.id,
+        description: typeof entry.description === "string" ? entry.description : "",
+        featured: entry.is_featured === true,
       },
     ];
   });
@@ -210,6 +243,8 @@ export function useConversation(
   const skillIdsRef = useRef("");
   const [permissionMode, setPermissionModeFromStatus] = useState<PermissionMode | null>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [toolsetPreference, setToolsetPreferenceFromStatus] = useState<string | null>(null);
+  const [availableToolsets, setAvailableToolsets] = useState<ToolsetSummary[]>([]);
   const transcriptRef = useRef<Transcript>(new Map());
   // Alias maps that hold a streamed message together; reset wherever the
   // transcript is, so a stale otid can never bind to a rebuilt transcript.
@@ -360,6 +395,8 @@ export function useConversation(
                 current_permission_mode?: unknown;
                 supported_commands?: unknown;
                 mod_commands?: unknown;
+                current_toolset_preference?: unknown;
+                available_toolsets?: unknown;
               };
             }
           ).device_status;
@@ -391,6 +428,12 @@ export function useConversation(
           // The command palette is advertised here, not enumerable on demand.
           if (Array.isArray(status?.supported_commands)) {
             setCommands(readCommands(status.supported_commands, status.mod_commands));
+          }
+          if (typeof status?.current_toolset_preference === "string") {
+            setToolsetPreferenceFromStatus(status.current_toolset_preference);
+          }
+          if (Array.isArray(status?.available_toolsets)) {
+            setAvailableToolsets(readToolsets(status.available_toolsets));
           }
           break;
         }
@@ -645,5 +688,7 @@ export function useConversation(
     permissionMode,
     setPermissionMode,
     commands,
+    toolsetPreference,
+    availableToolsets,
   };
 }
