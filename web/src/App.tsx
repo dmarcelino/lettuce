@@ -5,7 +5,6 @@ import { AuthPill } from "./components/AuthPill.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { Icon } from "./components/Icon.tsx";
-import { InstallButton } from "./components/InstallButton.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
@@ -163,7 +162,6 @@ function Workspace({ status }: { status: Status }) {
           </button>
           <h1 className="title">{title}</h1>
           {bypass ? <AuthPill email={status.user?.email} /> : null}
-          <InstallButton />
           <LinkPill link={session.link} />
         </header>
 
