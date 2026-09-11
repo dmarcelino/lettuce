@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errorMessage } from "../lib/errors.ts";
 import type { RuntimeScope } from "../lib/protocol.ts";
 import { type ModelEntry, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -48,7 +49,7 @@ export function ModelPicker({ session, scope, currentModel, onClose }: Props) {
       current.setHandle(response?.model_handle ?? model.handle);
       onClose();
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     } finally {
       setBusy(false);
     }

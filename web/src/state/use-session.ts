@@ -14,7 +14,13 @@ export interface SessionApi {
   onFrame: (handler: (frame: SequencedFrame) => void) => () => void;
   /** Fires when the BFF buffer could not cover the gap and history must reload. */
   onResync: (handler: () => void) => () => void;
+  /**
+   * The latest BFF error no pending request claimed — a rate limit, a command
+   * the browser allowlist refused, a fire-and-forget send that failed. Nothing
+   * else surfaces these, so it stays set until `clearError`.
+   */
   lastError: string | null;
+  clearError: () => void;
 }
 
 export function useSession(enabled: boolean): SessionApi {
@@ -81,6 +87,8 @@ export function useSession(enabled: boolean): SessionApi {
     return () => resyncHandlers.current.delete(handler);
   }, []);
 
+  const clearError = useCallback(() => setLastError(null), []);
+
   // Must be memoized. Every consumer derives useCallback/useEffect deps from
   // this object, so returning a fresh literal each render makes those effects
   // re-run on every render — which previously produced an unbounded request
@@ -97,7 +105,19 @@ export function useSession(enabled: boolean): SessionApi {
       onFrame,
       onResync,
       lastError,
+      clearError,
     }),
-    [link, upstream, request, send, setScopes, markResynced, onFrame, onResync, lastError],
+    [
+      link,
+      upstream,
+      request,
+      send,
+      setScopes,
+      markResynced,
+      onFrame,
+      onResync,
+      lastError,
+      clearError,
+    ],
   );
 }

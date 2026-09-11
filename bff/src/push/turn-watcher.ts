@@ -1,6 +1,5 @@
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
-import { frameScopeKey } from "../session/buffer.ts";
-import { notify as defaultNotify, type PushEventType } from "./notify.ts";
+import { notify as defaultNotify, type PushEventType, unwatchedConversationUrl } from "./notify.ts";
 import type { PushSubscriptionStore } from "./store.ts";
 
 /**
@@ -24,10 +23,9 @@ export class TurnOutcomeWatcher {
   observe(frame: WsProtocolMessage, isWatched: (scopeKey: string) => boolean): void {
     if (frame.type !== "turn_finished") return;
 
-    const scopeKey = frameScopeKey(frame);
-    if (!scopeKey || isWatched(scopeKey)) return;
+    const url = unwatchedConversationUrl(frame, isWatched);
+    if (!url) return;
 
-    const [agentId, conversationId] = scopeKey.split("::") as [string, string];
     const eventType: PushEventType = frame.error ? "failed" : "completed";
 
     void this.notify(
@@ -35,7 +33,7 @@ export class TurnOutcomeWatcher {
       {
         title: "Letta",
         body: eventType === "failed" ? "Your agent hit an error." : "Your agent finished its turn.",
-        url: `/?agent=${encodeURIComponent(agentId)}&conversation=${encodeURIComponent(conversationId)}`,
+        url,
       },
       eventType,
       this.log,

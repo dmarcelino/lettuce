@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { errorMessage } from "../lib/errors.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 
@@ -63,7 +64,7 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
       setServers(agent?.mcpServers ?? []);
       setStatus("");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   }, [agentId, session.request]);
 
@@ -110,7 +111,7 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
       });
       setStatus("Saved. The agent is reloading its tools.");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 

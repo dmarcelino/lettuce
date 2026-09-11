@@ -144,9 +144,11 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   list, required exactly when Access is the live gate (`mode === "cloudflared" && !devBypassEmail`
   — the same condition that requires `CF_ACCESS_*`). There is no `users.json` and no `config/`
   directory: a gitignored single-file bind meant a fresh clone got a *directory* at that path and
-  the BFF crash-looped on `EISDIR`. In local mode `DEV_BYPASS_EMAIL` implies its own entry, so the
-  two settings can no longer disagree — requiring both used to produce a 403 saying the bypass
-  email was not in the allowlist, which is a self-contradiction rather than a diagnosis.
+  the BFF crash-looped on `EISDIR`. In local mode an unset `ALLOWED_USERS` makes `DEV_BYPASS_EMAIL`
+  its own entry, so the bypass needs no second setting — requiring both used to produce a 403
+  saying the bypass email was not in the allowlist, a self-contradiction rather than a diagnosis.
+  An explicit `ALLOWED_USERS` still wins: set both to different people and `/auth/dev-login`
+  refuses with that 403, which is now a real misconfiguration rather than a contradiction.
   `AllowedUser.name` was deleted with the file: nothing ever rendered it (the UI reads only
   `status.user?.email`).
 - **MCP is not in the protocol.** Servers live in `/root/.letta/settings.json` under

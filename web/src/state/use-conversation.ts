@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { errorMessage } from "../lib/errors.ts";
 import {
   addLocalUserMessage,
   applyStreamDelta,
@@ -12,7 +13,7 @@ import {
   type TranscriptEntry,
   transcriptFromHistory,
 } from "../lib/messages.ts";
-import { frameSeq, type RuntimeScope, type SequencedFrame } from "../lib/protocol.ts";
+import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
 import {
   agentWorkspace,
   isPermissionMode,
@@ -49,7 +50,6 @@ export interface SkillSummary {
 
 export interface QueuedItem {
   id: string;
-  source: string;
   content: string;
 }
 
@@ -69,7 +69,6 @@ export interface ConversationApi {
   skills: SkillSummary[];
   queue: QueuedItem[];
   approvals: PendingApproval[];
-  loadingHistory: boolean;
   error: string | null;
   sendMessage: (text: string) => Promise<void>;
   abort: () => Promise<void>;
@@ -91,7 +90,6 @@ export interface ConversationApi {
   ) => void;
   removeQueued: (itemId: string) => void;
   runCommand: (commandId: string, args?: string) => void;
-  reload: () => Promise<void>;
   /** True once a skill was enabled or disabled but no turn has rebuilt the list yet. */
   skillsStale: boolean;
   /** Live permission mode, from device status. Null until the first status frame. */
@@ -124,13 +122,12 @@ function readQueue(raw: unknown): QueuedItem[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
-    const entry = item as { id?: unknown; source?: unknown; content?: unknown };
+    const entry = item as { id?: unknown; content?: unknown };
     if (typeof entry.id !== "string") return [];
     const content = entry.content;
     return [
       {
         id: entry.id,
-        source: typeof entry.source === "string" ? entry.source : "user",
         content: typeof content === "string" ? content : JSON.stringify(content ?? ""),
       },
     ];
@@ -200,7 +197,6 @@ export function useConversation(
   const [stopping, setStopping] = useState(false);
   const [queue, setQueue] = useState<QueuedItem[]>([]);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -226,7 +222,6 @@ export function useConversation(
   const loadHistory = useCallback(
     async (afterResync = false) => {
       if (!conversationId) return;
-      setLoadingHistory(true);
       setError(null);
       try {
         const response = await request<{ messages?: unknown[] }>("conversation_messages_list", {
@@ -244,9 +239,7 @@ export function useConversation(
         // reload was resync-triggered; an ordinary load has nothing to un-stick.
         if (afterResync) markResynced();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      } finally {
-        setLoadingHistory(false);
+        setError(errorMessage(cause));
       }
     },
     [conversationId, request, flush, markResynced],
@@ -255,7 +248,7 @@ export function useConversation(
   // Start (or resume) the runtime for this conversation, then load its history.
   useEffect(() => {
     if (!ready || !scope) return;
-    const key = `${scope.agent_id}::${scope.conversation_id}`;
+    const key = scopeKey(scope);
     if (startedRef.current === key) return;
     startedRef.current = key;
 
@@ -300,7 +293,7 @@ export function useConversation(
           setError(started.error ?? "Failed to start the runtime");
         }
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(errorMessage(cause));
       }
       await loadHistory();
     })();
@@ -475,7 +468,7 @@ export function useConversation(
         });
       } catch (cause) {
         setProcessing(false);
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(errorMessage(cause));
       }
     },
     [scope, send, flush],
@@ -535,7 +528,7 @@ export function useConversation(
       );
       flush();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     }
   }, [scope, request, flush]);
 
@@ -626,7 +619,6 @@ export function useConversation(
     skills,
     queue,
     approvals,
-    loadingHistory,
     error,
     sendMessage,
     abort,
@@ -635,7 +627,6 @@ export function useConversation(
     removeQueued,
     runCommand,
     skillsStale,
-    reload: loadHistory,
     permissionMode,
     setPermissionMode,
     commands,

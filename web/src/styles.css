@@ -1172,6 +1172,21 @@ p.warning {
   margin: 8px 12px;
   font-size: 14px;
 }
+/* A BFF error no request owned (App.tsx), so nothing else would show it.
+   Dismissible, since nothing clears it on its own. */
+p.warning.dismissible {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+p.warning.dismissible > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+p.warning.dismissible > .icon-button {
+  margin: -6px -8px -6px 0;
+}
 p.warning code {
   background: rgba(0, 0, 0, 0.28);
   padding: 1px 5px;

@@ -6,13 +6,13 @@ import type {
   WsProtocolMessage,
 } from "@letta-ai/letta-code/app-server-protocol";
 import WebSocket from "ws";
+import { errorMessage } from "../errors.ts";
+import { scopeKeyOf } from "../session/buffer.ts";
 
 export type UpstreamState = "connecting" | "connected" | "disconnected";
 
 export interface UpstreamOptions {
   url: string;
-  /** Empty when the app-server runs without `--ws-auth`. */
-  authToken: string;
   onFrame: (frame: WsProtocolMessage) => void;
   onStateChange: (state: UpstreamState, info: AppServerInfoResponseMessage | null) => void;
   log?: (message: string) => void;
@@ -143,7 +143,7 @@ export class UpstreamConnection {
     if (typeof scope.agent_id !== "string" || typeof scope.conversation_id !== "string") {
       return;
     }
-    this.knownScopes.set(`${scope.agent_id}::${scope.conversation_id}`, {
+    this.knownScopes.set(scopeKeyOf(scope.agent_id, scope.conversation_id), {
       agent_id: scope.agent_id,
       conversation_id: scope.conversation_id,
     });
@@ -167,11 +167,12 @@ export class UpstreamConnection {
     try {
       client = new AppServerClient({
         url: this.options.url,
-        // An empty token must be omitted entirely: the client rejects a blank
-        // string, and an unauthenticated app-server wants no header at all.
-        ...(this.options.authToken ? { authToken: this.options.authToken } : {}),
-        // `ws` supports the Authorization header a browser cannot set. This is
-        // the reason the BFF exists at all (see CLAUDE.md).
+        // No `authToken`, deliberately. The app-server listens on loopback
+        // without `--ws-auth`, because `letta channel-gateway` cannot send a
+        // token and would be locked out; nothing outside the shared network
+        // namespace can reach it (docker/compose.yml). An unauthenticated
+        // upgrade carrying `Origin` is rejected outright, which `ws` never
+        // sends unasked — and which is why a browser cannot connect directly.
         WebSocket: WebSocket as never,
       });
     } catch (error) {
@@ -284,7 +285,7 @@ export class UpstreamConnection {
       }
 
       for (const conversation of conversations) {
-        const scopeKey = `${agent.id}::${conversation.id}`;
+        const scopeKey = scopeKeyOf(agent.id, conversation.id);
         if (this.knownScopes.has(scopeKey)) continue;
         try {
           await this.request({
@@ -310,8 +311,4 @@ export class UpstreamConnection {
       this.connect();
     }, delay);
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

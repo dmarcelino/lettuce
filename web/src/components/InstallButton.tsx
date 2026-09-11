@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isIOS, isStandalone } from "../lib/push.ts";
 import { Icon } from "./Icon.tsx";
 import { Sheet } from "./Sheet.tsx";
 
@@ -7,19 +8,6 @@ interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
-
-function runningStandalone(): boolean {
-  try {
-    return (
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (navigator as { standalone?: boolean }).standalone === true
-    );
-  } catch {
-    return false;
-  }
-}
-
-const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 
 /**
  * "Install" pill in the header.
@@ -36,7 +24,7 @@ const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
  */
 export function InstallButton() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installed, setInstalled] = useState(runningStandalone);
+  const [installed, setInstalled] = useState(isStandalone);
   const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
@@ -58,7 +46,7 @@ export function InstallButton() {
   }, []);
 
   if (installed) return null;
-  const iosFallback = isIOS && !deferred;
+  const iosFallback = isIOS() && !deferred;
   if (!deferred && !iosFallback) return null;
 
   const onClick = () => {

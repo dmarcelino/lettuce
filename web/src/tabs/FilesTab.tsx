@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileViewer } from "../components/FileViewer.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { downloadUrl, formatBytes, triggerDownload } from "../lib/download.ts";
+import { errorMessage } from "../lib/errors.ts";
 import { agentWorkspace, WORKSPACE_ROOT } from "../lib/workspace.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -124,7 +125,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         setEntries(response?.entries ?? []);
         setStatus("");
       } catch (cause) {
-        failed(cause instanceof Error ? cause.message : String(cause));
+        failed(errorMessage(cause));
       }
     },
     [session, failed],
@@ -160,7 +161,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
       setMatches(response?.matches ?? []);
       setStatus("");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 

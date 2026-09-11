@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { errorMessage } from "../lib/errors.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface MemoryEntry {
@@ -49,7 +50,7 @@ export function MemoryTab({ session, agentId }: Props) {
       setMemfs(response?.memfs_enabled ?? null);
       setStatus("");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   }, [agentId, session.request]);
 
@@ -81,7 +82,7 @@ export function MemoryTab({ session, agentId }: Props) {
       setOpen(null);
       await load();
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 
@@ -96,7 +97,7 @@ export function MemoryTab({ session, agentId }: Props) {
       setHistory(response?.commits ?? []);
       setStatus("");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 

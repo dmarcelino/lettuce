@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { McpEditor } from "../components/McpEditor.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { errorMessage } from "../lib/errors.ts";
 import { handleProvider, isLocalHandle, localProviderKeys } from "../lib/providers.ts";
 import {
   getPushPreferences,
@@ -14,6 +15,7 @@ import {
   unsubscribeFromPush,
   updatePushPreferences,
 } from "../lib/push.ts";
+import type { SkillSummary } from "../state/use-conversation.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -38,14 +40,6 @@ interface ProviderEntry {
   connected_providers?: unknown[];
   /** Handle prefixes this provider serves, used to group its models. */
   provider_names?: string[];
-}
-
-interface SkillSummary {
-  id: string;
-  name: string;
-  description: string;
-  path: string;
-  source: string;
 }
 
 interface Props {
@@ -141,7 +135,7 @@ function ConnectionSection({ session }: { session: SessionApi }) {
       setProviders(response?.providers ?? []);
       setStatus("");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   }, [session.request]);
 
@@ -183,7 +177,7 @@ function ConnectionSection({ session }: { session: SessionApi }) {
       setStatus(wasConnected ? "Updated." : "Connected.");
       if (response?.models_may_have_changed !== false) void models.refresh();
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 
@@ -197,7 +191,7 @@ function ConnectionSection({ session }: { session: SessionApi }) {
       setProviders(response?.providers ?? providers);
       setStatus("");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 
@@ -448,7 +442,7 @@ function SkillsSection({
       setStatus("Enabled. It appears in the list after the agent's next turn.");
       setPath("");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 
@@ -461,7 +455,7 @@ function SkillsSection({
       );
       setStatus(response?.success === false ? (response.error ?? "Failed") : "");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 
@@ -591,7 +585,7 @@ function NotificationsSection() {
       }
       setStatus("");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 
@@ -603,7 +597,7 @@ function NotificationsSection() {
       await updatePushPreferences({ [key]: value });
     } catch (cause) {
       setPreferences(previous);
-      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatus(errorMessage(cause));
     }
   };
 

@@ -3,8 +3,9 @@ import type {
   GetTreeResponseMessage,
   WsProtocolMessage,
 } from "@letta-ai/letta-code/app-server-protocol";
+import { errorMessage } from "../errors.ts";
 import type { UpstreamConnection, UpstreamState } from "../upstream/connection.ts";
-import { FrameBuffer, frameScopeKey } from "./buffer.ts";
+import { FrameBuffer, frameScopeKey, scopeKeyOf } from "./buffer.ts";
 import { withModifiedTimes } from "./file-stat.ts";
 import {
   ALLOWED_SESSION_COMMANDS,
@@ -21,7 +22,6 @@ export interface SessionSocket {
 
 export interface SessionUser {
   email: string;
-  name: string;
 }
 
 interface Session {
@@ -218,7 +218,7 @@ export class SessionRegistry {
     } catch (error) {
       this.sendTo(session.socket, {
         type: "__bff_error",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
         ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
       });
     }
@@ -280,7 +280,7 @@ export class SessionRegistry {
     scopes: { agent_id: string; conversation_id: string }[] | undefined,
   ): void {
     if (scopes) {
-      session.scopes = new Set(scopes.map((s) => `${s.agent_id}::${s.conversation_id}`));
+      session.scopes = new Set(scopes.map((s) => scopeKeyOf(s.agent_id, s.conversation_id)));
     }
 
     const scopeKeys = session.scopes.size > 0 ? session.scopes : undefined;

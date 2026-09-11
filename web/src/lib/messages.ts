@@ -71,7 +71,7 @@ export interface TranscriptEntry {
   subagentId?: string;
 }
 
-export const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
+const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
   user: "user",
   assistant: "agent",
   reasoning: "agent",
@@ -578,7 +578,7 @@ function applyToolReturns(
 }
 
 /** Merge one Letta message (delta or complete) into the transcript. */
-export function applyMessage(
+function applyMessage(
   transcript: Transcript,
   raw: unknown,
   options: { streaming: boolean; seq: number; subagentId?: string; index?: StreamIndex },
@@ -800,11 +800,7 @@ function liftErrorMessage(payload: unknown): string {
 }
 
 /** Non-message lifecycle deltas: status lines, retries, errors, command output. */
-export function applyNotice(
-  transcript: Transcript,
-  raw: Record<string, unknown>,
-  seq: number,
-): void {
+function applyNotice(transcript: Transcript, raw: Record<string, unknown>, seq: number): void {
   const messageType = typeof raw.message_type === "string" ? raw.message_type : "";
   const id = typeof raw.id === "string" ? raw.id : `${messageType}-${seq}`;
 

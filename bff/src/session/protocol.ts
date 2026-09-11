@@ -10,7 +10,7 @@ export const SEQ_FIELD = "__seq" as const;
 export interface BffHelloMessage {
   type: "__bff_hello";
   session_id: string;
-  user: { email: string; name: string };
+  user: { email: string };
   upstream: "connecting" | "connected" | "disconnected";
   app_server_info: unknown;
   latest_seq: number;
