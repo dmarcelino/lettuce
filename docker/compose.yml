@@ -157,6 +157,32 @@ services:
       # Milliseconds to match the variable name; the parser would also take
       # "30m", but an unparseable value throws rather than falling back.
       LETTA_CODE_LOCAL_PROVIDER_TIMEOUT_MS: "1800000"
+      # Up from letta-code's 60s/5s defaults
+      # (stream-stall-reconciler.ts: DEFAULT_STREAM_STALL_RECONCILE_MS /
+      # DEFAULT_STREAM_STALL_STATUS_TIMEOUT_MS).
+      #
+      # This reconciler is unrelated to the LLM timeout above: it watches the
+      # app-server's OWN relay of a run's stream to the websocket listener (and
+      # so to the BFF/browser) for 60s of total silence, then asks the run's
+      # status endpoint (5s budget) whether the run is still active before
+      # giving up. It only fires "Stream went silent, reconnecting to recover
+      # the missed tail" when that status check itself is inconclusive — a
+      # non-active status, or the lookup missing its own timeout — and aborting
+      # is client-read-only: it does not touch the server-side run.
+      #
+      # A cold llama.cpp cache (first turn after a restart, or any turn against
+      # a brand-new large context) can spend several minutes in prefill before
+      # a single token streams, which both raises the number of 60s silence
+      # windows a long prefill spans and, since that same window is also when
+      # the host is busiest, raises the odds that one status lookup misses its
+      # 5s budget purely from load — a false-positive reconnect on a completely
+      # healthy run. Confirmed against a live llama.cpp log showing continuous
+      # token generation and zero errors at the moment this fired.
+      #
+      # 180s gives a cold multi-minute prefill far fewer silence windows to
+      # trip over; 15s gives the status lookup itself more slack under load.
+      LETTA_STREAM_STALL_RECONCILE_MS: "180000"
+      LETTA_STREAM_STALL_STATUS_TIMEOUT_MS: "15000"
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data
