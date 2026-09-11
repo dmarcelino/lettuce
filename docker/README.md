@@ -20,8 +20,10 @@ SESSION_SECRET=<openssl rand -hex 32>
 # running compose from a git worktree would otherwise point the stack at a
 # DIFFERENT state directory than the main checkout does.
 LETTA_STATE_DIR=/absolute/path/to/your/state/dir
-# To actually sign in locally, also set (see Authentication below):
+# To actually sign in locally, also set all three (see Authentication below):
 # DEV_BYPASS_EMAIL=you@example.com
+# DEV_BYPASS_ALLOW_REMOTE=true   # required under Docker, even for localhost
+# BFF_BIND=127.0.0.1             # keeps the published port off the LAN
 ENV
 ```
 
@@ -91,15 +93,29 @@ machine takes a second, deliberate flag:
 | Configuration | Result |
 |---|---|
 | `DEV_BYPASS_EMAIL` unset | Nobody can sign in (safe default, but unusable until set) |
-| Set, loopback `PUBLIC_ORIGIN` | Bypass active, bound to `127.0.0.1` only |
+| Set, loopback `PUBLIC_ORIGIN` | Bypass active, BFF bound to `127.0.0.1` — **unreachable under Docker**, see below |
 | Set, non-loopback `PUBLIC_ORIGIN` (e.g. a LAN IP) | **Refuses to start** |
-| Set, plus `DEV_BYPASS_ALLOW_REMOTE=true` | Bypass active and reachable on the network, with a startup banner |
+| Set, plus `DEV_BYPASS_ALLOW_REMOTE=true` | Bypass active and bound to all interfaces, with a startup banner |
 
-The last row is the normal local-mode configuration for reaching the UI from
-your phone or another device on the same network — set `PUBLIC_ORIGIN` to
-your machine's LAN IP (e.g. `http://192.168.1.4:8090`) alongside it. It means
-anyone who can reach the port controls the agent — and the agent has your
-Gmail, Calendar and shell — so use it only on a network you trust.
+**Under Docker, `DEV_BYPASS_ALLOW_REMOTE=true` is required even for localhost.**
+The `127.0.0.1` bind in the second row happens *inside* the container, and a
+published port forwards to the container's network interface, never to its
+loopback — so the stack boots, logs "Bound to 127.0.0.1 only", and every
+request to `BFF_PORT` is reset, from the host included. That bind is a real
+boundary only when the BFF runs directly on the host (see Local development
+without Docker). Under Docker the boundary is `BFF_BIND`, which decides where
+the published port listens on the host:
+
+| Goal | Set in `docker/.env` |
+|---|---|
+| This machine only | `DEV_BYPASS_EMAIL`, `DEV_BYPASS_ALLOW_REMOTE=true`, `BFF_BIND=127.0.0.1`, loopback `PUBLIC_ORIGIN` |
+| Phones and other devices on the LAN | `DEV_BYPASS_EMAIL`, `DEV_BYPASS_ALLOW_REMOTE=true`, `PUBLIC_ORIGIN` at the machine's LAN IP (e.g. `http://192.168.1.4:8090`) |
+
+In the first row the startup banner still says the bypass is exposed on the
+network; with `BFF_BIND=127.0.0.1` that network is the container's, not yours.
+The second row means anyone who can reach the port controls the agent — and
+the agent has your Gmail, Calendar and shell — so use it only on a network you
+trust.
 
 ### Remote access via Cloudflare Tunnel (cloudflared mode)
 
@@ -149,9 +165,11 @@ Also update, in `docker/.env`:
   value, so it's a manual pairing. Once Access is the gate, the tunnel
   reaches the BFF over the internal Docker network, not this published port,
   so there's no legitimate reason to leave it reachable on the LAN too.
-- Optionally unset `DEV_BYPASS_EMAIL` — it still works in cloudflared mode
-  exactly as in local mode (it's unrelated to and unaffected by Access), so
-  leaving it set means BOTH doors are open. Decide deliberately.
+- Unset `DEV_BYPASS_EMAIL`. On its own it stops the BFF from starting: an
+  `https://` `PUBLIC_ORIGIN` is not loopback, and the safety check above runs
+  in every mode. Adding `DEV_BYPASS_ALLOW_REMOTE=true` gets past that check and
+  opens BOTH doors — anyone who reaches the BFF, including anyone Access lets
+  through regardless of `ALLOWED_USERS`, can take a session as that user.
 
 If the Zero Trust team is ever renamed, JWKS moves to the new team domain but
 outstanding tokens may still carry the old one in `iss`. Set
@@ -181,8 +199,10 @@ fork checkout, no pre-built images pushed to a registry. Point the manager at
 Optional: the three `PUSH_VAPID_*` values, `BFF_PORT`, `SESSION_TTL_SECONDS`,
 `FRAME_BUFFER_SIZE`, and `CF_ACCESS_ISSUER` (only during a team rename).
 
-**Leave `DEV_BYPASS_EMAIL` and `DEV_BYPASS_ALLOW_REMOTE` unset.** Either one
-opens a second door that bypasses Cloudflare Access completely.
+**Leave `DEV_BYPASS_EMAIL` and `DEV_BYPASS_ALLOW_REMOTE` unset.** Together they
+open a second door that bypasses Cloudflare Access and `ALLOWED_USERS`
+completely. Separately, `DEV_BYPASS_EMAIL` refuses to start on an `https://`
+origin and `DEV_BYPASS_ALLOW_REMOTE` does nothing — neither belongs in prod.
 
 `ALLOWED_USERS` is a comma-separated list of addresses:
 
@@ -247,8 +267,14 @@ $C letta channels status
 ## Push notifications
 
 Fully optional and self-gating — leave the three `PUSH_VAPID_*` variables
-unset and the BFF runs with push disabled, no error. The only trigger today
-is "the agent finished a turn while nobody was watching that conversation".
+unset and the BFF runs with push disabled, no error. **All three are needed:**
+with any one missing, push is off just as silently, so a typo in one name looks
+exactly like "not configured".
+
+A push fires only while no open browser session is watching that conversation,
+for three events: a turn completed, a turn failed, and a tool approval is
+needed. Each device opts in or out of each one under Settings → Notifications;
+all three start on.
 
 Generate a VAPID keypair once:
 
@@ -257,9 +283,10 @@ cd bff && bunx web-push generate-vapid-keys
 ```
 
 Put the public/private pair into `docker/.env` as `PUSH_VAPID_PUBLIC_KEY` /
-`PUSH_VAPID_PRIVATE_KEY`, and set `PUSH_VAPID_CONTACT_EMAIL` to the
-allowlisted email (it becomes the VAPID `sub` claim, as a bare `mailto:`
-address — push services use it to contact you if your server is misbehaving).
+`PUSH_VAPID_PRIVATE_KEY`, and set `PUSH_VAPID_CONTACT_EMAIL` to an address you
+read. It becomes the VAPID `sub` claim, which push services use to contact you
+if your server misbehaves. Give the bare address — the BFF adds `mailto:`
+itself — and it need not be on `ALLOWED_USERS`; nothing checks it against that.
 
 **Rotating these keys silently invalidates every existing subscription** —
 every previously-subscribed device stops receiving pushes until it
