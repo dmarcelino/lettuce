@@ -433,7 +433,9 @@ that lost the package would degrade silently.
 
 ## Git workflow
 
-Worktrees per feature, feature branches, direct merge to `main`, no PRs.
+Worktrees per feature, feature branches, fast-forward merge to `main`
+(`git merge --ff-only`, no merge commits), no PRs. Rebase the feature branch onto `main`
+first if it isn't already a fast-forward.
 
 ## Definition of done
 
@@ -446,7 +448,8 @@ Passing typecheck is not done. Passing tests is not done. **Running in the conta
 
 1. **`bun run verify` green** — lint, typecheck, tests, build. Fails fast; later stages
    do not run once one fails.
-2. **Committed** on a feature branch and merged to `main`.
+2. **Committed** on a feature branch and fast-forwarded into `main`
+   (`git merge --ff-only`).
 3. **Worktree cleaned up** — `git worktree remove <path>`, feature branch deleted.
 4. **Docker rebuilt from `main`** —
    `docker compose -f docker/compose.yml build bff && docker compose -f docker/compose.yml up -d bff`.
