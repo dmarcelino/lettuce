@@ -19,7 +19,9 @@
  * The regex still narrows first, to keep `resolve` off obvious prose:
  *  - only tokens ending in a known extension (`LINKABLE_EXTENSIONS`) — a
  *    prefilter now, not the gate, so it is generous;
- *  - never inside `link` / `linkReference` (no nested links) or fenced `code`;
+ *  - an explicit `[label](path)` the model already wrote gets its href resolved
+ *    the same way, but never split or nested into; `linkReference` and fenced
+ *    `code` are left alone entirely;
  *  - an `inlineCode` span links only when its WHOLE trimmed content is one such
  *    token — `git add EVAL.md` and `cat foo.md` are left as code;
  *  - a token butting up against a word char, `@`, `.` or `-` is mid-word /
@@ -120,6 +122,15 @@ const PATH_RE = /(\/?(?:\.\.?\/)*[\w.-]+(?:\/[\w.-]+)*\.([A-Za-z0-9]+))(?![\w/])
 /** A char that means the match started mid-word / mid-email, not at a boundary. */
 const NOT_A_BOUNDARY = /[\w@.-]/;
 
+/**
+ * An href that already points somewhere real — a scheme (`https:`, `mailto:`,
+ * …), an in-page anchor, or a protocol-relative URL — and so must never be
+ * treated as a workspace path.
+ */
+function isExternalHref(url: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("#") || url.startsWith("//");
+}
+
 /** Resolve a token to an absolute path inside `/work/`, or `null` to leave as text. */
 export function resolveWorkspacePath(token: string, cwd: string | null): string | null {
   let raw: string;
@@ -147,9 +158,16 @@ export function resolveWorkspacePath(token: string, cwd: string | null): string 
   return normalized;
 }
 
-/** An absolute `/work` token is clamped; a relative one is the resolver's call. */
+/**
+ * An absolute `/work` token is clamped; anything else absolute (a stray
+ * leading slash that was never a real `/work/...` path — there is no other
+ * legitimate same-origin absolute route in this app) falls back to the same
+ * lookup a relative token gets. A relative one is the resolver's call.
+ */
 function linkUrl(token: string, cwd: string | null, resolve: Resolver | undefined): string | null {
-  if (token.startsWith("/")) return resolveWorkspacePath(token, cwd);
+  if (token.startsWith("/")) {
+    return resolveWorkspacePath(token, cwd) ?? (resolve ? resolve(token) : null);
+  }
   return resolve ? resolve(token) : null;
 }
 
@@ -200,7 +218,18 @@ function splitText(
 }
 
 function transform(node: MdNode, cwd: string | null, resolve: Resolver | undefined): void {
-  if (!node.children || node.type === "link" || node.type === "linkReference") return;
+  if (node.type === "link") {
+    // The model wrote this link itself — never split or nest into it, but its
+    // href gets the same resolution a bare token would, so `[label](path)`
+    // isn't left dangling just because it already had link syntax. An href
+    // that already points somewhere real is left alone.
+    if (typeof node.url === "string" && !isExternalHref(node.url)) {
+      const resolved = linkUrl(node.url, cwd, resolve);
+      if (resolved) node.url = resolved;
+    }
+    return;
+  }
+  if (!node.children || node.type === "linkReference") return;
 
   const next: MdNode[] = [];
   let changed = false;
@@ -232,19 +261,29 @@ function transform(node: MdNode, cwd: string | null, resolve: Resolver | undefin
 }
 
 /**
- * Every relative path-shaped token in raw text, for feeding a resolver. A
- * superset of what renders as a link — a token inside a fenced block is
- * included and simply never matched during the walk.
+ * Every path-shaped token in raw text worth a resolver lookup, for feeding
+ * `useFileLinks.note()`. A superset of what renders as a link — a token
+ * inside a fenced block or an explicit `[label](path)` href is included, and
+ * simply never matched (or matched and then discarded) during the walk.
+ *
+ * A token already prefixed `/work/` is skipped: `resolveWorkspacePath` clamps
+ * those directly, so a lookup would be wasted. Any other leading-slash token
+ * IS collected — see `linkUrl`'s fallback for why.
  */
 export function collectFileTokens(text: string): string[] {
   PATH_RE.lastIndex = 0;
   const out = new Set<string>();
+  const clampedPrefix = `${WORKSPACE_ROOT}/`;
   let match: RegExpExecArray | null = PATH_RE.exec(text);
   while (match !== null) {
     const token = match[1] ?? "";
     const ext = (match[2] ?? "").toLowerCase();
     const before = match.index === 0 ? "" : text.charAt(match.index - 1);
-    if (!token.startsWith("/") && !NOT_A_BOUNDARY.test(before) && LINKABLE_EXTENSIONS.has(ext)) {
+    if (
+      !token.startsWith(clampedPrefix) &&
+      !NOT_A_BOUNDARY.test(before) &&
+      LINKABLE_EXTENSIONS.has(ext)
+    ) {
       out.add(token);
     }
     match = PATH_RE.exec(text);

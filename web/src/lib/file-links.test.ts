@@ -156,7 +156,7 @@ describe("remarkFilePaths", () => {
     ]);
   });
 
-  test("does not touch an already-parsed link node", () => {
+  test("does not touch an already-parsed link node pointing at a real URL", () => {
     const tree: Node = {
       type: "root",
       children: [
@@ -170,6 +170,89 @@ describe("remarkFilePaths", () => {
     const link = tree.children?.[0]?.children?.[0];
     expect(link?.url).toBe("https://x.test/a.pdf");
     expect(link?.children?.[0]?.value).toBe("a.pdf");
+  });
+
+  test("leaves a mailto: or #anchor link node untouched", () => {
+    for (const url of ["mailto:dima@host.com", "#section"]) {
+      const tree: Node = {
+        type: "root",
+        children: [
+          { type: "paragraph", children: [{ type: "link", url, children: [text("here")] }] },
+        ],
+      };
+      remarkFilePaths({ cwd: CWD, resolve: finds() })(tree);
+      expect(tree.children?.[0]?.children?.[0]?.url).toBe(url);
+    }
+  });
+
+  test("resolves an explicit link's relative href, the same as a bare mention", () => {
+    const tree: Node = {
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [{ type: "link", url: "tailored/report.pdf", children: [text("Download")] }],
+        },
+      ],
+    };
+    remarkFilePaths({ cwd: CWD, resolve: finds("tailored/report.pdf") })(tree);
+    const link = tree.children?.[0]?.children?.[0];
+    expect(link?.url).toBe("/work/agent-abc/tailored/report.pdf");
+    expect(link?.children?.[0]?.value).toBe("Download");
+  });
+
+  test("resolves an explicit link's non-/work absolute href via the search fallback", () => {
+    const tree: Node = {
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [{ type: "link", url: "/tailored/report.pdf", children: [text("Download")] }],
+        },
+      ],
+    };
+    // A real resolver (`useFileLinks`) returns the file's actual absolute
+    // path regardless of what shape the original token was — `finds()`
+    // above assumes a relative token, so this one is built by hand.
+    const resolveTailored = (token: string): string | null =>
+      token === "/tailored/report.pdf" ? "/work/agent-abc/tailored/report.pdf" : null;
+    remarkFilePaths({ cwd: CWD, resolve: resolveTailored })(tree);
+    const link = tree.children?.[0]?.children?.[0];
+    expect(link?.url).toBe("/work/agent-abc/tailored/report.pdf");
+  });
+
+  test("leaves an explicit link's href alone when the resolver can't find it", () => {
+    const tree: Node = {
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [{ type: "link", url: "/tailored/missing.pdf", children: [text("Download")] }],
+        },
+      ],
+    };
+    remarkFilePaths({ cwd: CWD, resolve: finds() })(tree);
+    expect(tree.children?.[0]?.children?.[0]?.url).toBe("/tailored/missing.pdf");
+  });
+
+  test("resolves an explicit link's already-/work absolute href via the clamp, no resolver needed", () => {
+    const tree: Node = {
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [
+            {
+              type: "link",
+              url: "/work/agent-abc/out//final.pdf",
+              children: [text("Download")],
+            },
+          ],
+        },
+      ],
+    };
+    remarkFilePaths({ cwd: CWD, resolve: finds() })(tree);
+    expect(tree.children?.[0]?.children?.[0]?.url).toBe("/work/agent-abc/out/final.pdf");
   });
 
   test("does not touch fenced code", () => {
@@ -228,8 +311,12 @@ describe("collectFileTokens", () => {
     ]);
   });
 
-  test("skips absolute /work tokens and email-embedded paths", () => {
+  test("skips already-clamped /work tokens and email-embedded paths", () => {
     expect(collectFileTokens("see /work/a/b.pdf and dima@host.com/c.pdf")).toEqual([]);
+  });
+
+  test("still collects a leading-slash token that isn't under /work", () => {
+    expect(collectFileTokens("see /tailored/report.pdf")).toEqual(["/tailored/report.pdf"]);
   });
 
   test("still returns a token that appears inside a fence", () => {
