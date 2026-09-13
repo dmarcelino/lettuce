@@ -1,5 +1,32 @@
 import { describe, expect, test } from "bun:test";
-import { WORKSPACE_ROOT, workspaceViolation } from "./protocol.ts";
+import { isBffWatchingCommand, WORKSPACE_ROOT, workspaceViolation } from "./protocol.ts";
+
+/**
+ * This command is the sole input to push suppression, and it arrives from a
+ * browser — a malformed one must never be mistaken for "somebody is watching".
+ */
+describe("__bff_watching", () => {
+  const scope = { agent_id: "agent-1", conversation_id: "conv-1" };
+
+  test("accepts a scope, an explicit null, and an absent one", () => {
+    expect(isBffWatchingCommand({ type: "__bff_watching", visible: true, scope })).toBe(true);
+    expect(isBffWatchingCommand({ type: "__bff_watching", visible: false, scope: null })).toBe(
+      true,
+    );
+    expect(isBffWatchingCommand({ type: "__bff_watching", visible: true })).toBe(true);
+  });
+
+  test("rejects anything else", () => {
+    expect(isBffWatchingCommand({ type: "__bff_resume", from_seq: null })).toBe(false);
+    expect(isBffWatchingCommand({ type: "__bff_watching", scope })).toBe(false);
+    expect(isBffWatchingCommand({ type: "__bff_watching", visible: "yes", scope })).toBe(false);
+    expect(isBffWatchingCommand({ type: "__bff_watching", visible: true, scope: {} })).toBe(false);
+    expect(
+      isBffWatchingCommand({ type: "__bff_watching", visible: true, scope: { agent_id: "a" } }),
+    ).toBe(false);
+    expect(isBffWatchingCommand(null)).toBe(false);
+  });
+});
 
 /**
  * These assert a security boundary, not a preference. The app-server applies no

@@ -12,6 +12,7 @@ import {
   ALLOWED_SESSION_COMMANDS,
   type BffServerMessage,
   isBffResumeCommand,
+  isBffWatchingCommand,
   SEQ_FIELD,
   workspaceViolation,
 } from "./protocol.ts";
@@ -37,6 +38,13 @@ interface Session {
    * handler can resolve entries' absolute paths for a modified/size stat.
    */
   pendingRequests: Map<string, { originalId: string; path?: string }>;
+  /**
+   * What this session has on screen — the only input to push suppression.
+   * Deliberately separate from `scopes` above: that set drives replay and frame
+   * fan-out, only ever grows, and treats "none declared yet" as everything,
+   * none of which answers "is somebody looking at this right now".
+   */
+  watching: { scopeKey: string | null; visible: boolean };
   /** Sliding-window timestamps for rate limiting. */
   recentCommands: number[];
   /** Set once the session is throttled, so we complain only once. */
@@ -77,10 +85,18 @@ export class SessionRegistry {
     return this.sessions.size;
   }
 
-  /** Whether any session is subscribed to this scope (or to everything). */
+  /**
+   * Whether somebody is looking at this conversation right now: a *visible*
+   * session with it on screen. Anything less — a hidden tab, a tab on another
+   * conversation, a tab that has not reported yet — does not suppress a push.
+   *
+   * This used to ask whether any session was merely *subscribed*, which a
+   * backgrounded desktop tab stays for hours because it never drops its
+   * WebSocket. One open tab therefore suppressed every push, on every device.
+   */
   isScopeWatched(scopeKey: string): boolean {
     for (const session of this.sessions.values()) {
-      if (session.scopes.size === 0 || session.scopes.has(scopeKey)) return true;
+      if (session.watching.visible && session.watching.scopeKey === scopeKey) return true;
     }
     return false;
   }
@@ -96,6 +112,9 @@ export class SessionRegistry {
       user,
       socket,
       scopes: new Set(),
+      // Nothing on screen until the client says otherwise, so a session that
+      // never reports suppresses nothing.
+      watching: { scopeKey: null, visible: true },
       pendingRequests: new Map(),
       recentCommands: [],
       throttled: false,
@@ -140,6 +159,16 @@ export class SessionRegistry {
 
     if (isBffResumeCommand(parsed)) {
       this.handleResume(session, parsed.from_seq, parsed.scopes);
+      return;
+    }
+
+    if (isBffWatchingCommand(parsed)) {
+      session.watching = {
+        scopeKey: parsed.scope
+          ? scopeKeyOf(parsed.scope.agent_id, parsed.scope.conversation_id)
+          : null,
+        visible: parsed.visible,
+      };
       return;
     }
 

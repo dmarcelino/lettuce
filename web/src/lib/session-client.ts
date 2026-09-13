@@ -68,6 +68,8 @@ export class SessionClient {
   private requestCounter = 0;
   private readonly pending = new Map<string, PendingRequest>();
   private scopes: RuntimeScope[] = [];
+  /** The conversation on screen, reported to the BFF — see `sendWatching`. */
+  private watchedScope: RuntimeScope | null = null;
 
   constructor(
     private readonly url: string,
@@ -106,6 +108,27 @@ export class SessionClient {
   /** Narrow replay to the conversations currently on screen. */
   setScopes(scopes: RuntimeScope[]): void {
     this.scopes = scopes;
+    this.watchedScope = scopes[0] ?? null;
+    this.sendWatching();
+  }
+
+  /**
+   * Tell the BFF what is on screen and whether this tab is visible.
+   *
+   * This is the sole input to push suppression (`isScopeWatched` in the BFF's
+   * registry.ts), and it cannot be inferred from the socket: a backgrounded
+   * desktop tab keeps its WebSocket open for hours. While that counted as
+   * watching, one open tab suppressed every push on every device.
+   */
+  private sendWatching(): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    this.socket.send(
+      JSON.stringify({
+        type: "__bff_watching",
+        scope: this.watchedScope,
+        visible: document.visibilityState === "visible",
+      }),
+    );
   }
 
   /**
@@ -165,6 +188,11 @@ export class SessionClient {
   }
 
   private handleVisibilityChange = (): void => {
+    // Both directions matter, and going hidden is the one that pushes depend
+    // on: the socket stays open, so this message is the only thing that tells
+    // the BFF nobody is looking any more.
+    this.sendWatching();
+
     // Coming back to the foreground is the single most common moment for the
     // socket to be silently dead. Reconnect immediately rather than waiting for
     // a close event that may never arrive.
@@ -236,6 +264,9 @@ export class SessionClient {
           scopes: this.scopes,
         }),
       );
+      // A fresh session starts out watching nothing, so say what is on screen —
+      // otherwise a reconnect would silently stop suppressing live events.
+      this.sendWatching();
     };
 
     socket.onmessage = (event: MessageEvent<string>) => {

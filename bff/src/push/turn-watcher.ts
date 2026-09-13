@@ -23,7 +23,7 @@ export class TurnOutcomeWatcher {
   observe(frame: WsProtocolMessage, isWatched: (scopeKey: string) => boolean): void {
     if (frame.type !== "turn_finished") return;
 
-    const url = unwatchedConversationUrl(frame, isWatched);
+    const url = unwatchedConversationUrl(frame, isWatched, this.log);
     if (!url) return;
 
     const eventType: PushEventType = frame.error ? "failed" : "completed";

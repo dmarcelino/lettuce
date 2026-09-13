@@ -13,9 +13,16 @@ import type { PushSubscriptionStore } from "./store.ts";
 export function unwatchedConversationUrl(
   frame: WsProtocolMessage,
   isWatched: (scopeKey: string) => boolean,
+  log?: (message: string) => void,
 ): string | null {
   const scopeKey = frameScopeKey(frame);
-  if (!scopeKey || isWatched(scopeKey)) return null;
+  if (!scopeKey) return null;
+  if (isWatched(scopeKey)) {
+    // Logged because a suppressed push and a broken one used to look identical
+    // from outside: silence either way.
+    log?.(`Push for ${frame.type} in ${scopeKey} suppressed: a visible session is watching it`);
+    return null;
+  }
   const [agentId, conversationId] = parseScopeKey(scopeKey);
   return `/?agent=${encodeURIComponent(agentId)}&conversation=${encodeURIComponent(conversationId)}`;
 }
@@ -35,16 +42,25 @@ export async function notify(
   eventType: PushEventType,
   log: (message: string) => void,
 ): Promise<void> {
-  const subscriptions = store.all().filter((record) => record.preferences[eventType]);
+  const registered = store.all();
+  const subscriptions = registered.filter((record) => record.preferences[eventType]);
+  if (subscriptions.length === 0) {
+    log(`Push (${eventType}): no device wants it (${registered.length} registered)`);
+    return;
+  }
+
+  let sent = 0;
   await Promise.all(
     subscriptions.map(async (record) => {
       try {
         const result = await sendPush(record, payload);
         if (result === "gone") store.remove(record.endpoint);
+        else sent += 1;
       } catch (error) {
         // One dead or misbehaving device must never block delivery to others.
         log(`Push to ${record.endpoint} failed: ${errorMessage(error)}`);
       }
     }),
   );
+  log(`Push (${eventType}): sent to ${sent} of ${subscriptions.length} device(s)`);
 }

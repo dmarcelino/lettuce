@@ -21,7 +21,7 @@ export class ApprovalWatcher {
   observe(frame: WsProtocolMessage, isWatched: (scopeKey: string) => boolean): void {
     if (frame.type !== "control_request" || frame.request.subtype !== "can_use_tool") return;
 
-    const url = unwatchedConversationUrl(frame, isWatched);
+    const url = unwatchedConversationUrl(frame, isWatched, this.log);
     if (!url) return;
 
     void this.notify(

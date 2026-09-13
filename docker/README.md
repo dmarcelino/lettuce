@@ -274,10 +274,35 @@ unset and the BFF runs with push disabled, no error. **All three are needed:**
 with any one missing, push is off just as silently, so a typo in one name looks
 exactly like "not configured".
 
-A push fires only while no open browser session is watching that conversation,
-for three events: a turn completed, a turn failed, and a tool approval is
-needed. Each device opts in or out of each one under Settings → Notifications;
-all three start on.
+A push fires only while no **visible** browser session has that conversation on
+screen, for three events: a turn completed, a turn failed, and a tool approval
+is needed. Each device opts in or out of each one under Settings →
+Notifications; all three start on.
+
+"Visible" is literal, and it has to be: a backgrounded desktop tab keeps its
+WebSocket open for hours, so "still connected" was never evidence anyone was
+looking — it suppressed every push, on every device, for as long as one tab
+stayed open. The browser now reports both the conversation on screen and
+`document.visibilityState` (`__bff_watching`), and that is the only input to the
+check (`SessionRegistry.isScopeWatched`).
+
+**Send a test notification** — Settings → Notifications, once subscribed —
+delivers one to that device immediately, skipping both the watching check and
+the per-event preferences. It is the way to tell "delivery is broken" apart from
+"suppressed because you were watching".
+
+The BFF logs one line per decision; `docker compose logs bff | grep Push`:
+
+```
+Push for turn_finished in <agent>::<conversation> suppressed: a visible session is watching it
+Push (completed): sent to 2 of 2 device(s)
+Push (completed): no device wants it (1 registered)
+Push test: sent to https://fcm.googleapis.com/...
+```
+
+An agent cannot notify on demand — no tool does that, and the three events above
+are the only triggers. To schedule a nudge, give it a cron task (Tasks tab): the
+turn it fires finishes with nobody watching, which notifies.
 
 Generate a VAPID keypair once:
 

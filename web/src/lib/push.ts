@@ -111,6 +111,25 @@ export async function unsubscribeFromPush(): Promise<void> {
   await subscription.unsubscribe();
 }
 
+/**
+ * Sends one notification to this device, bypassing the "is anyone watching this
+ * conversation" check every real trigger goes through. The only way to tell a
+ * delivery problem from a suppressed push without staging an unwatched turn.
+ */
+export async function sendTestPush(): Promise<void> {
+  const subscription = await currentSubscription();
+  if (!subscription) throw new Error("Not subscribed to push notifications");
+
+  const response = await fetch("/push/test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+  if (!response.ok) {
+    throw new Error((await response.text()) || "Could not send a test notification");
+  }
+}
+
 /** Per-device opt-in for each push trigger — mirrors `PushPreferences` in bff/src/push/store.ts. */
 export interface PushPreferences {
   completed: boolean;

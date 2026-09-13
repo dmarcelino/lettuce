@@ -11,6 +11,7 @@ import {
   isStandalone,
   isSubscribed,
   type PushPreferences,
+  sendTestPush,
   subscribeToPush,
   unsubscribeFromPush,
   updatePushPreferences,
@@ -616,6 +617,16 @@ function NotificationsSection() {
     }
   };
 
+  const sendTest = async () => {
+    setStatus("Sending a test notification…");
+    try {
+      await sendTestPush();
+      setStatus("Test notification sent. If it doesn't appear, check this device's own settings.");
+    } catch (cause) {
+      setStatus(errorMessage(cause));
+    }
+  };
+
   // Web Push only reaches an iOS PWA actually added to the Home Screen — a
   // Safari tab (or any browser other than Safari, which is the only one that
   // can install a PWA on iOS at all) never receives it, silently.
@@ -651,6 +662,13 @@ function NotificationsSection() {
           {enabled ? "Disable notifications" : "Enable notifications"}
         </button>
       </div>
+      {enabled ? (
+        <div className="pad-x">
+          <button type="button" className="button" onClick={() => void sendTest()}>
+            Send a test notification
+          </button>
+        </div>
+      ) : null}
       {enabled && preferences ? (
         <div className="pad-x">
           {NOTIFICATION_EVENT_TYPES.map(({ key, label }) => (

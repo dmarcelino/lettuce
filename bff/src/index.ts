@@ -20,7 +20,7 @@ import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
 import { errorMessage } from "./errors.ts";
 import { inlineContentType } from "./files/content-type.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
-import { configureWebPush } from "./push/send.ts";
+import { configureWebPush, sendPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
 import { workspaceViolation } from "./session/protocol.ts";
@@ -231,6 +231,41 @@ app.post("/push/preferences", async (c) => {
     return c.json({ ok: true, preferences: record.preferences });
   } catch (error) {
     return c.text(error instanceof Error ? error.message : "Unknown push subscription", 404);
+  }
+});
+
+// Delivery, proven end to end, without staging an unwatched turn. Every real
+// trigger is suppressed while a visible session is on that conversation, so a
+// device that is subscribed but undeliverable is otherwise indistinguishable
+// from one that is simply being watched. This route skips that check and the
+// per-event preferences: it is the user asking for exactly this notification.
+app.post("/push/test", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
+
+  const body = await c.req.json().catch(() => null);
+  const endpoint = endpointOf(body);
+  if (!endpoint) return c.text("Missing endpoint", 400);
+
+  const record = pushStore.all().find((candidate) => candidate.endpoint === endpoint);
+  if (!record) return c.text("Unknown push subscription", 404);
+
+  try {
+    const result = await sendPush(record, {
+      title: "Letta",
+      body: "Test notification — push is working on this device.",
+      url: "/",
+    });
+    if (result === "gone") {
+      pushStore.remove(endpoint);
+      log(`Push test: ${endpoint} is gone; removed`);
+      return c.text("This device's subscription has expired — turn notifications off and on", 410);
+    }
+    log(`Push test: sent to ${endpoint}`);
+    return c.json({ ok: true });
+  } catch (error) {
+    log(`Push test to ${endpoint} failed: ${errorMessage(error)}`);
+    return c.text(errorMessage(error), 502);
   }
 });
 

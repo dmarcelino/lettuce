@@ -26,6 +26,23 @@ export interface BffResumeCommand {
   scopes?: { agent_id: string; conversation_id: string }[];
 }
 
+/**
+ * What this session currently has on screen. Push suppression reads exactly
+ * this and nothing else (`SessionRegistry.isScopeWatched`).
+ *
+ * It cannot be inferred from the socket: a backgrounded desktop tab keeps its
+ * WebSocket open indefinitely, so "connected" said nothing about whether anyone
+ * was looking — and every push was suppressed, on every device, for as long as
+ * a tab stayed open anywhere.
+ */
+export interface BffWatchingCommand {
+  type: "__bff_watching";
+  /** The conversation on screen, or null when none is. */
+  scope: { agent_id: string; conversation_id: string } | null;
+  /** `document.visibilityState === "visible"` at the moment this was sent. */
+  visible: boolean;
+}
+
 export interface BffResumeResultMessage {
   type: "__bff_resume_result";
   from_seq: number | null;
@@ -60,6 +77,17 @@ export function isBffResumeCommand(value: unknown): value is BffResumeCommand {
     candidate.type === "__bff_resume" &&
     (candidate.from_seq === null || typeof candidate.from_seq === "number")
   );
+}
+
+export function isBffWatchingCommand(value: unknown): value is BffWatchingCommand {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { type?: unknown; visible?: unknown; scope?: unknown };
+  if (candidate.type !== "__bff_watching" || typeof candidate.visible !== "boolean") return false;
+  // An absent scope means "nothing on screen", same as an explicit null.
+  if (candidate.scope === null || candidate.scope === undefined) return true;
+  if (typeof candidate.scope !== "object") return false;
+  const scope = candidate.scope as { agent_id?: unknown; conversation_id?: unknown };
+  return typeof scope.agent_id === "string" && typeof scope.conversation_id === "string";
 }
 
 /**

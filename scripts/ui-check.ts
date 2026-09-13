@@ -393,6 +393,13 @@ try {
         .locator('button:has-text("Enable notifications"), p:has-text("not supported")')
         .count()) > 0,
     );
+    // The test-notification button is only useful once a device is subscribed,
+    // and headless Chromium cannot subscribe (no push service), so its absence
+    // here is the assertion: it must not offer a button that could only fail.
+    check(
+      "no test-notification button until this device is subscribed",
+      (await page.locator('button:has-text("Send a test notification")').count()) === 0,
+    );
     const notificationsBox = await overflow(page);
     check(
       "notifications section has nothing clipped",
