@@ -1,7 +1,17 @@
 /// <reference lib="webworker" />
+import { clientsClaim } from "workbox-core";
 import { precacheAndRoute } from "workbox-precaching";
 
 declare const self: ServiceWorkerGlobalScope;
+
+// Push events go to whichever worker is currently *active*, not whichever is
+// newest — and by default a new worker sits in "waiting" until every tab the
+// old one controls has fully closed. On a phone, "fully close the app" is a
+// step almost nobody takes deliberately, so an update to the push handler
+// itself (see below) would otherwise sit unapplied indefinitely. Force new
+// workers to activate immediately and take over any already-open tab.
+self.skipWaiting();
+clientsClaim();
 
 // vite-plugin-pwa's injectManifest strategy replaces this with the actual
 // build manifest. `precacheAndRoute` does install a fetch route, and that route
