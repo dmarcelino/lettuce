@@ -32,6 +32,12 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title ?? "Letta", {
       body: payload.body ?? "",
+      // Without an explicit `icon`/`badge`, Android's status bar falls back to
+      // a generic bell: the small-icon silhouette it needs comes from `badge`
+      // (a white-on-transparent glyph), not from a scaled-down `icon`, and our
+      // app icons are opaque squares with no alpha channel to derive one from.
+      icon: "/icon-512.png",
+      badge: "/badge-192.png",
       data: { url: payload.url ?? "/" },
     }),
   );
