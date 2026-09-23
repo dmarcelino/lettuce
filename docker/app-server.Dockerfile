@@ -23,7 +23,7 @@
 #
 # Note that installing it is necessary but NOT sufficient: see `security_opt`
 # and `cap_add` on the app-server service in compose.yml.
-ARG LETTA_CODE_VERSION=0.32.2
+ARG LETTA_CODE_VERSION=0.32.19
 
 FROM letta/letta:${LETTA_CODE_VERSION}
 

@@ -94,7 +94,6 @@ const COMMAND_DESCRIPTIONS: Record<string, string> = {
   doctor: "Run environment diagnostics",
   init: "Explore the working directory and write a project guide",
   reload: "Reload settings, local mods and agent secrets",
-  remember: "Save something to long-term memory",
 };
 
 /** Build the palette from what device status advertises, built-ins then mods. */

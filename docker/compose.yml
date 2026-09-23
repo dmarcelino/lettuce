@@ -37,7 +37,7 @@ services:
         # against this exact release's protocol types (see CLAUDE.md), so the
         # running app-server must match. `scripts/check-version-pin.ts` asserts
         # every copy of this literal agrees.
-        LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.32.2}"
+        LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-0.32.19}"
     # Deliberate trade, not an oversight — and the argument list matters, so read
     # this before trimming anything from it.
     #
@@ -274,7 +274,7 @@ services:
     # Upstream's published image, used as-is — this service needs no layer of
     # our own (deliberately no bubblewrap; see LETTA_FS_SANDBOX below). Pulling
     # it is what removes the last build-time dependency on a fork checkout.
-    image: letta/letta:${LETTA_CODE_VERSION:-0.32.2}
+    image: letta/letta:${LETTA_CODE_VERSION:-0.32.19}
     depends_on:
       app-server:
         condition: service_healthy
