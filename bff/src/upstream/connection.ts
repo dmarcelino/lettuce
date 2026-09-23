@@ -220,17 +220,38 @@ export class UpstreamConnection {
    * A `sync` command carrying a runtime scope re-subscribes this connection to
    * that scope (letta-code: listener/message-router.ts subscribes on any scoped
    * command) and replays the listener's in-memory state for it.
+   *
+   * `resume_interrupted_turn` marks the sync as coming from the conversation's
+   * execution owner, which this connection always is — it is the only one the
+   * app-server ever sees. After an app-server restart, a turn that died with
+   * only replay-unsafe tool calls pending (Bash, MessageChannel) is then
+   * continued at once with those calls denied, instead of the denials waiting
+   * for a user message that a cron or Telegram conversation may never get
+   * (letta-code: listener/recovery-sync.ts, sync-replay.ts). It is a no-op
+   * when nothing was interrupted or a turn is live. Browser syncs are not
+   * given the flag: they stay observer syncs, as upstream intends.
    */
+  private syncAsOwner(
+    scope: { agent_id: string; conversation_id: string },
+    requestId: string,
+  ): Promise<unknown> {
+    return this.request({
+      type: "sync",
+      request_id: requestId,
+      runtime: scope,
+      recover_approvals: true,
+      resume_interrupted_turn: true,
+      force_device_status: true,
+    });
+  }
+
   private async resubscribe(): Promise<void> {
     for (const scope of this.knownScopes.values()) {
       try {
-        await this.request({
-          type: "sync",
-          request_id: `bff-resync-${scope.agent_id}-${scope.conversation_id}-${Date.now()}`,
-          runtime: scope,
-          recover_approvals: true,
-          force_device_status: true,
-        });
+        await this.syncAsOwner(
+          scope,
+          `bff-resync-${scope.agent_id}-${scope.conversation_id}-${Date.now()}`,
+        );
       } catch (error) {
         this.log(
           `Re-subscribe failed for ${scope.agent_id}/${scope.conversation_id}: ${errorMessage(error)}`,
@@ -288,13 +309,10 @@ export class UpstreamConnection {
         const scopeKey = scopeKeyOf(agent.id, conversation.id);
         if (this.knownScopes.has(scopeKey)) continue;
         try {
-          await this.request({
-            type: "sync",
-            request_id: `bff-sweep-sync-${scopeKey}-${Date.now()}`,
-            runtime: { agent_id: agent.id, conversation_id: conversation.id },
-            recover_approvals: true,
-            force_device_status: true,
-          });
+          await this.syncAsOwner(
+            { agent_id: agent.id, conversation_id: conversation.id },
+            `bff-sweep-sync-${scopeKey}-${Date.now()}`,
+          );
         } catch (error) {
           this.log(`Scope sweep: sync failed for ${scopeKey}: ${errorMessage(error)}`);
         }

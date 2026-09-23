@@ -59,6 +59,11 @@ Corollaries — do not break these:
 - Never open a second upstream connection, and never close the one that exists.
 - Never forward a browser disconnect upstream in any form.
 - The BFF allocates `request_id`s; browser ids are translated, never passed through.
+- The BFF's own syncs (reconnect `resubscribe()` and the scope sweep) carry
+  `resume_interrupted_turn: true`: this connection is every conversation's execution owner, so
+  after an app-server restart a turn left with only replay-unsafe tool calls pending resumes
+  immediately (those calls are denied) instead of waiting for a user message. Browser syncs stay
+  observer syncs and never get the flag.
 - Missed frames are replayed from the BFF's per-conversation ring buffer, keyed by a monotonic
   sequence number. `conversation_messages_list` (cursor `next_before` / `has_more`) is the
   cold-start fallback when a tab was away longer than the buffer.
