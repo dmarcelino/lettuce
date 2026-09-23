@@ -955,8 +955,42 @@ pre {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .icon-button.stop.pending:disabled {
+  .icon-button.stop.pending:disabled,
+  .activity-dot {
     animation: none;
+  }
+}
+
+/* A response in progress in some conversation (session/activity.ts in the
+   BFF). Inline before a conversation name, and as a corner badge on the menu
+   button when the sidebar is a closed drawer. */
+.activity-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+  flex-shrink: 0;
+  animation: activity-pulse 1.4s ease-in-out infinite;
+}
+.topbar .icon-button.ghost {
+  position: relative;
+}
+.activity-dot.badge-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  margin: 0;
+}
+@keyframes activity-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
   }
 }
 .icon-button:disabled {

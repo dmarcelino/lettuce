@@ -81,8 +81,8 @@ describe("formatting", () => {
 
   test("label and description", () => {
     const usage = { promptTokens: 12_000, completionTokens: 456, steps: 2, contextTokens: 18_200 };
-    expect(usageLabel(usage)).toBe("18k ctx · ↓456");
-    expect(usageLabel({ ...usage, contextTokens: undefined })).toBe("↓456");
+    expect(usageLabel(usage)).toBe("18k ctx · 456 out");
+    expect(usageLabel({ ...usage, contextTokens: undefined })).toBe("456 out");
     expect(usageDescription(usage)).toContain("2 steps");
   });
 });

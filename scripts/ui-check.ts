@@ -583,6 +583,82 @@ try {
 
     await page.close();
   }
+
+  // ── Activity indicators ──────────────────────────────────────────────────
+  // A turn cannot be started on demand here, so the BFF's `__bff_activity`
+  // frame is injected into a real session instead. What is asserted is what a
+  // DOM count cannot see: the dot occupies space and is painted. It once
+  // shipped with no CSS at all — present in the DOM, 0x0 on screen.
+  section("Activity indicators");
+  for (const viewport of [DESKTOP, PHONE]) {
+    const page = await browser.newPage({ viewport });
+    let inject: ((frame: string) => void) | null = null;
+    await page.routeWebSocket(/\/ws$/, (ws) => {
+      ws.connectToServer();
+      inject = (frame) => ws.send(frame);
+    });
+    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(1500);
+    const agentId = await page.locator("#agent-select").inputValue();
+    const rows = page.locator(".conversations li:not(.activity-note)");
+    if (!agentId || (await rows.count()) === 0 || !inject) {
+      check(`${viewport.width}px: activity check has an agent and a conversation`, false);
+      await page.close();
+      continue;
+    }
+    const send = inject as (frame: string) => void;
+    // Mark a conversation other than the open one, so the phone badge shows too.
+    const selection = await page.evaluate(() => localStorage.getItem("letta-ui:selection"));
+    const openId = selection ? (JSON.parse(selection).conversationId as string | null) : null;
+    send(
+      JSON.stringify({
+        type: "__bff_activity",
+        active: [
+          { agent_id: agentId, conversation_id: "default" },
+          ...(openId ? [{ agent_id: agentId, conversation_id: openId }] : []),
+        ],
+      }),
+    );
+    await page.waitForTimeout(300);
+
+    const painted = (selector: string) =>
+      page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return { found: false };
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return {
+          found: true,
+          width: rect.width,
+          height: rect.height,
+          background: style.backgroundColor,
+          visible:
+            rect.width >= 6 && rect.height >= 6 && style.backgroundColor !== "rgba(0, 0, 0, 0)",
+        };
+      }, selector);
+
+    if (viewport === DESKTOP) {
+      if (openId) {
+        const dot = await painted(".conversations .conversation-name .activity-dot");
+        check(
+          "desktop: a responding conversation's dot is painted",
+          dot.found && Boolean(dot.visible),
+          dot,
+        );
+      }
+      const note = await painted(".activity-note .activity-dot");
+      check(
+        "desktop: the default-conversation notice is painted",
+        note.found && Boolean(note.visible),
+        note,
+      );
+    } else {
+      const badge = await painted(".topbar .badge-dot");
+      check("phone: the menu badge is painted", badge.found && Boolean(badge.visible), badge);
+    }
+    await shot(page, `activity-${viewport.width}`);
+    await page.close();
+  }
 } finally {
   await browser.close();
 }

@@ -101,9 +101,10 @@ export function Sidebar({
           >
             {agents.agents.length === 0 ? <option value="">No agents</option> : null}
             {agents.agents.map((agent) => (
-              // A native option cannot hold markup, so the marker is text.
+              // A native option cannot hold markup, so the marker is text — and
+              // words rather than a dot glyph, which the UI does not use.
               <option key={agent.id} value={agent.id}>
-                {activeAgentIds.has(agent.id) ? `● ${agent.name} (responding)` : agent.name}
+                {activeAgentIds.has(agent.id) ? `${agent.name} — responding` : agent.name}
               </option>
             ))}
           </select>

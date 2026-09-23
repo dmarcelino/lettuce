@@ -68,9 +68,12 @@ export function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
-/** The short readout for the composer row: output tokens, plus context when known. */
+/**
+ * The short readout for the composer row: output tokens, plus context when
+ * known. Words, not an arrow glyph — the UI keeps no dingbats (see Icon.tsx).
+ */
 export function usageLabel(usage: TurnUsage): string {
-  const out = `↓${formatTokens(usage.completionTokens)}`;
+  const out = `${formatTokens(usage.completionTokens)} out`;
   return usage.contextTokens !== undefined
     ? `${formatTokens(usage.contextTokens)} ctx · ${out}`
     : out;
