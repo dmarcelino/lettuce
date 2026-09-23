@@ -1,3 +1,7 @@
+import type {
+  LaunchSubagentCommand,
+  LaunchSubagentResponse,
+} from "@letta-ai/letta-code/app-server-protocol";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
@@ -35,6 +39,17 @@ interface Props {
   onStopMonitor: (processId: string) => void;
 }
 
+/**
+ * Suggestions only — the field stays free text. The real list is resolved per
+ * cwd (`getAllSubagentConfigs`, which also reads project-defined agents), is
+ * not advertised anywhere in the protocol, and an unknown type comes back as
+ * an error naming every valid one. The other builtins (fork, init,
+ * reflection, memory) are harness internals.
+ */
+const SUBAGENT_TYPES = ["general-purpose", "recall", "history-analyzer"];
+
+const BLANK_SUBAGENT = { type: "general-purpose", description: "", prompt: "" };
+
 const BLANK = {
   name: "",
   description: "",
@@ -55,6 +70,9 @@ export function TasksTab({
   const [editing, setEditing] = useState<CronTask | null>(null);
   const [draft, setDraft] = useState({ ...BLANK });
   const [creating, setCreating] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [subagent, setSubagent] = useState({ ...BLANK_SUBAGENT });
+  const [launchBusy, setLaunchBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!agentId) return;
@@ -152,6 +170,39 @@ export function TasksTab({
     }
   };
 
+  /**
+   * `launch_subagent` runs beside the parent's turn without taking its lease,
+   * so it works mid-turn too. The child shows up under "Running now" via
+   * device status and reports back into this conversation when it finishes.
+   */
+  const launchSubagent = async () => {
+    if (!agentId || !conversationId) return;
+    const args: LaunchSubagentCommand["args"] = {
+      subagent_type: subagent.type.trim() || "general-purpose",
+      description: subagent.description.trim(),
+      prompt: subagent.prompt.trim(),
+    };
+    setLaunchBusy(true);
+    setStatus("Launching subagent…");
+    try {
+      const response = await session.request<LaunchSubagentResponse>("launch_subagent", {
+        runtime: { agent_id: agentId, conversation_id: conversationId },
+        args,
+      });
+      if (!response.success) {
+        setStatus(response.error);
+        return;
+      }
+      setStatus(`Subagent started (${response.task_id}); it reports back to this conversation.`);
+      setLaunching(false);
+      setSubagent({ ...BLANK_SUBAGENT });
+    } catch (cause) {
+      setStatus(errorMessage(cause));
+    } finally {
+      setLaunchBusy(false);
+    }
+  };
+
   if (!agentId) {
     return (
       <div className="pane">
@@ -173,6 +224,18 @@ export function TasksTab({
           }}
         >
           <Icon name="plus" /> New task
+        </button>
+        <button
+          type="button"
+          className="link"
+          disabled={!conversationId}
+          onClick={() => {
+            setSubagent({ ...BLANK_SUBAGENT });
+            setLaunching(true);
+          }}
+          title={conversationId ? "Launch a subagent" : "Open a conversation first"}
+        >
+          <Icon name="plus" /> Subagent
         </button>
         <button
           type="button"
@@ -301,6 +364,63 @@ export function TasksTab({
         ))}
         {tasks.length === 0 && !status ? <li className="muted pad">No scheduled tasks</li> : null}
       </ul>
+
+      {launching ? (
+        <Sheet
+          title="Launch subagent"
+          onClose={() => setLaunching(false)}
+          actions={
+            <>
+              <button type="button" className="button ghost" onClick={() => setLaunching(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={launchBusy || !subagent.description.trim() || !subagent.prompt.trim()}
+                onClick={() => void launchSubagent()}
+              >
+                {launchBusy ? "Launching…" : "Launch"}
+              </button>
+            </>
+          }
+        >
+          <label className="field">
+            Type
+            <input
+              value={subagent.type}
+              list="subagent-types"
+              onChange={(event) => setSubagent({ ...subagent, type: event.target.value })}
+            />
+            <datalist id="subagent-types">
+              {SUBAGENT_TYPES.map((type) => (
+                <option key={type} value={type} />
+              ))}
+            </datalist>
+          </label>
+
+          <label className="field">
+            Description
+            <input
+              value={subagent.description}
+              placeholder="A few words, shown in Running now"
+              onChange={(event) => setSubagent({ ...subagent, description: event.target.value })}
+            />
+          </label>
+
+          <label className="field">
+            Prompt
+            <textarea
+              value={subagent.prompt}
+              rows={5}
+              onChange={(event) => setSubagent({ ...subagent, prompt: event.target.value })}
+            />
+            <span className="muted small">
+              Runs in this conversation's working directory and reports back here when done.
+            </span>
+          </label>
+        </Sheet>
+      ) : null}
 
       {creating || editing ? (
         <Sheet

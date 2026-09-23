@@ -168,6 +168,11 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   "set_boot_working_directory",
   // background processes
   "monitor_stop",
+  // Sideband subagent launch (letta-code 0.32.19). Runs beside the parent's
+  // turn without taking its lease; the child reports back to the parent
+  // conversation when it finishes. Answered within 25s upstream, inside the
+  // browser's 30s request deadline.
+  "launch_subagent",
   // NOTE: channel_* commands are deliberately absent. The app-server only
   // dispatches them when a gateway registered `serviceCommandHandler`, which
   // happens over the CLI's stdio pipe to a child gateway process — never over

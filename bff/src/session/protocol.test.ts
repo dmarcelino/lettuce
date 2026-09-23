@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { isBffWatchingCommand, WORKSPACE_ROOT, workspaceViolation } from "./protocol.ts";
+import {
+  ALLOWED_SESSION_COMMANDS,
+  isBffWatchingCommand,
+  WORKSPACE_ROOT,
+  workspaceViolation,
+} from "./protocol.ts";
 
 /**
  * This command is the sole input to push suppression, and it arrives from a
@@ -106,5 +111,9 @@ describe("workspace clamp", () => {
     allow({ type: "agent_list" });
     allow({ type: "list_models" });
     allow({ type: "execute_command", command_id: "compact" });
+  });
+
+  test("launch_subagent is on the allowlist", () => {
+    expect(ALLOWED_SESSION_COMMANDS.has("launch_subagent")).toBe(true);
   });
 });
