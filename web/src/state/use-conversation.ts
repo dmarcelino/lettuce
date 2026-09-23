@@ -14,6 +14,7 @@ import {
   transcriptFromHistory,
 } from "../lib/messages.ts";
 import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
+import { addUsage, readTurnFinishedUsage, readUsageDelta, type TurnUsage } from "../lib/usage.ts";
 import {
   agentWorkspace,
   isPermissionMode,
@@ -125,6 +126,11 @@ export interface ConversationApi {
   backgroundProcesses: BackgroundProcessSummary[];
   /** Stops a persistent monitor. No-op for bash/agent_task processes — see BackgroundProcessSummary.stoppable. */
   stopMonitor: (processId: string) => void;
+  /**
+   * Tokens spent by the most recent turn seen live in this tab, or null before
+   * one finishes. Not in history, so a reload starts blank. See `lib/usage.ts`.
+   */
+  lastTurnUsage: TurnUsage | null;
 }
 
 /**
@@ -296,6 +302,9 @@ export function useConversation(
   const [toolsetPreference, setToolsetPreferenceFromStatus] = useState<string | null>(null);
   const [availableToolsets, setAvailableToolsets] = useState<ToolsetSummary[]>([]);
   const [backgroundProcesses, setBackgroundProcesses] = useState<BackgroundProcessSummary[]>([]);
+  const [lastTurnUsage, setLastTurnUsage] = useState<TurnUsage | null>(null);
+  /** Steps of the turn in flight, folded until its `turn_finished`. */
+  const turnUsageRef = useRef<TurnUsage | null>(null);
   const transcriptRef = useRef<Transcript>(new Map());
   // Alias maps that hold a streamed message together; reset wherever the
   // transcript is, so a stale otid can never bind to a rebuilt transcript.
@@ -350,6 +359,8 @@ export function useConversation(
     setQueue([]);
     setApprovals([]);
     setStopping(false);
+    turnUsageRef.current = null;
+    setLastTurnUsage(null);
 
     setScopes([scope]);
     void (async () => {
@@ -422,9 +433,15 @@ export function useConversation(
           // browser still subscribed to this one; this end marker carries the
           // scope captured before the runtime was re-pointed.
           if (isClearCompleted(delta)) clearedRef.current?.();
+          const step = readUsageDelta(delta);
+          if (step) turnUsageRef.current = addUsage(turnUsageRef.current, step);
           break;
         }
         case "turn_finished": {
+          // The frame's own total wins when the listener attached one.
+          const usage = readTurnFinishedUsage(frame) ?? turnUsageRef.current;
+          turnUsageRef.current = null;
+          if (usage) setLastTurnUsage(usage);
           settleStreaming(transcriptRef.current);
           setProcessing(false);
           // The turn has genuinely unwound now, whatever the app-server said
@@ -760,5 +777,6 @@ export function useConversation(
     availableToolsets,
     backgroundProcesses,
     stopMonitor,
+    lastTurnUsage,
   };
 }

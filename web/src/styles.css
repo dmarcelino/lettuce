@@ -869,6 +869,16 @@ pre {
   font-size: 12px;
 }
 
+/* Last turn's token count: plain text, not a control, so it reads as metadata
+   beside the buttons. Tabular figures keep it from jittering between turns. */
+.turn-usage {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* The send button must stay reachable however far the chips scroll. */
 .composer-row .icon-button.send,
 .composer-row .icon-button.stop {

@@ -261,6 +261,7 @@ function Workspace({ status }: { status: Status }) {
               onOpenModels={() => setShowModels(true)}
               modelsDisabled={!scope}
               modelLabel={modelLabel}
+              lastTurnUsage={conversation.lastTurnUsage}
             />
           </>
         ) : tab === "Files" ? (

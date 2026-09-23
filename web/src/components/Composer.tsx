@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { clearDraft, readDraft, writeDraft } from "../lib/draft.ts";
 import type { FilterGroup } from "../lib/messages.ts";
+import { type TurnUsage, usageDescription, usageLabel } from "../lib/usage.ts";
 import {
   matchSlashCommands,
   PERMISSION_MODES,
@@ -35,6 +36,8 @@ interface Props {
   modelsDisabled: boolean;
   /** The model in force for this conversation; shown on the button on desktop. */
   modelLabel: string | null;
+  /** Tokens spent by the last finished turn; hidden while one is running. */
+  lastTurnUsage: TurnUsage | null;
 }
 
 type OpenSheet = "filters" | "permissions" | "commands" | null;
@@ -62,6 +65,7 @@ export function Composer({
   onOpenModels,
   modelsDisabled,
   modelLabel,
+  lastTurnUsage,
 }: Props) {
   const [value, setValue] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   const [sheet, setSheet] = useState<OpenSheet>(null);
@@ -274,6 +278,17 @@ export function Composer({
             </button>
 
             <span className="spacer" />
+
+            {lastTurnUsage && !processing ? (
+              <span
+                className="turn-usage"
+                role="note"
+                title={usageDescription(lastTurnUsage)}
+                aria-label={usageDescription(lastTurnUsage)}
+              >
+                {usageLabel(lastTurnUsage)}
+              </span>
+            ) : null}
 
             <button
               type="button"
