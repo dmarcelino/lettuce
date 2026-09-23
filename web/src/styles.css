@@ -1649,3 +1649,11 @@ p.warning code {
   text-transform: none;
   letter-spacing: 0;
 }
+
+/* A response in progress with no row to mark — the agent's unlisted default
+   conversation, or one the list has not caught up with. See lib/activity.ts. */
+.activity-note {
+  display: flex;
+  align-items: center;
+  padding: 6px;
+}
