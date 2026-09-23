@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { clearDraft, readDraft, writeDraft } from "../lib/draft.ts";
+import {
+  AT_DRAFT,
+  caretAllowsHistory,
+  type HistoryCursor,
+  historyDown,
+  historyUp,
+} from "../lib/input-history.ts";
 import type { FilterGroup } from "../lib/messages.ts";
 import { type TurnUsage, usageDescription, usageLabel } from "../lib/usage.ts";
 import {
@@ -38,6 +45,8 @@ interface Props {
   modelLabel: string | null;
   /** Tokens spent by the last finished turn; hidden while one is running. */
   lastTurnUsage: TurnUsage | null;
+  /** This conversation's past user messages, oldest first, for ↑/↓ recall. */
+  history: readonly string[];
 }
 
 type OpenSheet = "filters" | "permissions" | "commands" | null;
@@ -66,6 +75,7 @@ export function Composer({
   modelsDisabled,
   modelLabel,
   lastTurnUsage,
+  history,
 }: Props) {
   const [value, setValue] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   const [sheet, setSheet] = useState<OpenSheet>(null);
@@ -73,6 +83,12 @@ export function Composer({
   /** Escape closes the popover without clearing what was typed. */
   const [dismissed, setDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /**
+   * Position in `history`. A ref: moving through history re-renders through
+   * `value` anyway. The saved draft lives here, not in draft storage, so the
+   * stored draft is always what was typed — never a recalled message.
+   */
+  const cursorRef = useRef<HistoryCursor>(AT_DRAFT);
 
   /** Persist every edit so a tab switch (which unmounts this) does not lose it. */
   const remember = (next: string) => {
@@ -84,6 +100,7 @@ export function Composer({
   // conversation here. (Also runs on mount, harmlessly setting the same value.)
   useEffect(() => {
     setValue(draftKey ? readDraft(draftKey) : "");
+    cursorRef.current = AT_DRAFT;
     setHighlight(0);
     setDismissed(false);
     const textarea = textareaRef.current;
@@ -103,11 +120,30 @@ export function Composer({
 
   const reset = () => {
     setValue("");
+    cursorRef.current = AT_DRAFT;
     if (draftKey) clearDraft(draftKey);
     setHighlight(0);
     setDismissed(false);
     const textarea = textareaRef.current;
     if (textarea) textarea.style.height = "auto";
+  };
+
+  /**
+   * Put a recalled message (or the restored draft) in the box, sized to fit,
+   * with the caret at the end — so a further ↓ continues at once and a further
+   * ↑ first walks up through a multi-line message, as in a shell.
+   */
+  const recall = (next: string) => {
+    setValue(next);
+    // A recalled "/command" must not reopen the popover and steal the arrows.
+    setDismissed(true);
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    requestAnimationFrame(() => {
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+      textarea.setSelectionRange(next.length, next.length);
+    });
   };
 
   /** Fill the box with a command name and leave the caret ready for its args. */
@@ -214,6 +250,8 @@ export function Composer({
             placeholder={disabled ? "Select a conversation" : "Message the agent…"}
             disabled={disabled}
             onChange={(event) => {
+              // Editing a recalled message makes it the draft.
+              cursorRef.current = AT_DRAFT;
               setValue(event.target.value);
               remember(event.target.value);
               setHighlight(0);
@@ -250,6 +288,35 @@ export function Composer({
                   event.preventDefault();
                   choose(active);
                   return;
+                }
+              }
+
+              if (
+                (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+                !event.shiftKey &&
+                !event.altKey &&
+                !event.ctrlKey &&
+                !event.metaKey
+              ) {
+                const target = event.currentTarget;
+                if (
+                  caretAllowsHistory(
+                    event.key,
+                    target.value,
+                    target.selectionStart,
+                    target.selectionEnd,
+                  )
+                ) {
+                  const step =
+                    event.key === "ArrowUp"
+                      ? historyUp(history, cursorRef.current, value)
+                      : historyDown(history, cursorRef.current);
+                  if (step) {
+                    event.preventDefault();
+                    cursorRef.current = step.cursor;
+                    recall(step.value);
+                    return;
+                  }
                 }
               }
 

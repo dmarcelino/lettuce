@@ -10,6 +10,7 @@ import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
+import { userHistory } from "./lib/input-history.ts";
 import { type FilterGroup, filterEntries } from "./lib/messages.ts";
 import { type RuntimeScope, scopeKey } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
@@ -107,6 +108,8 @@ function Workspace({ status }: { status: Status }) {
     agents.agentId && agents.conversationId
       ? { agent_id: agents.agentId, conversation_id: agents.conversationId }
       : null;
+
+  const inputHistory = useMemo(() => userHistory(conversation.entries), [conversation.entries]);
 
   // The open conversation already shows its own state in the composer; the
   // menu badge is for turns running somewhere you are not looking.
@@ -274,6 +277,7 @@ function Workspace({ status }: { status: Status }) {
               modelsDisabled={!scope}
               modelLabel={modelLabel}
               lastTurnUsage={conversation.lastTurnUsage}
+              history={inputHistory}
             />
           </>
         ) : tab === "Files" ? (
