@@ -24,6 +24,8 @@ export interface SessionClientEvents {
   /** The app-server's capability-discovery response changed — hello, or a reconnect. */
   onAppServerInfo: (info: AppServerInfo | null) => void;
   onError: (error: BffError) => void;
+  /** Every conversation with a response in progress, app-server wide — hello, then each change. */
+  onActivity: (active: RuntimeScope[]) => void;
 }
 
 interface PendingRequest {
@@ -300,6 +302,11 @@ export class SessionClient {
           this.upstreamState = raw.upstream;
           this.events.onHello(raw);
           this.events.onAppServerInfo(readAppServerInfo(raw.app_server_info));
+          this.events.onActivity(Array.isArray(raw.active) ? raw.active : []);
+          return;
+
+        case "__bff_activity":
+          this.events.onActivity(Array.isArray(raw.active) ? raw.active : []);
           return;
 
         case "__bff_resume_result": {

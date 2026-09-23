@@ -17,6 +17,8 @@ export interface BffHello {
   upstream: ConnectionState;
   app_server_info: unknown;
   latest_seq: number;
+  /** Conversations with a response in progress when this session opened. */
+  active?: RuntimeScope[];
 }
 
 export interface BffResumeResult {
@@ -33,6 +35,12 @@ export interface BffUpstreamState {
   app_server_info: unknown;
 }
 
+/** Full snapshot of every conversation with a response in progress, app-server wide. */
+export interface BffActivity {
+  type: "__bff_activity";
+  active: RuntimeScope[];
+}
+
 export interface BffError {
   type: "__bff_error";
   message: string;
@@ -41,7 +49,12 @@ export interface BffError {
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 
-export type BffControlFrame = BffHello | BffResumeResult | BffUpstreamState | BffError;
+export type BffControlFrame =
+  | BffHello
+  | BffResumeResult
+  | BffUpstreamState
+  | BffActivity
+  | BffError;
 
 export function isBffControlFrame(frame: unknown): frame is BffControlFrame {
   if (!frame || typeof frame !== "object") return false;

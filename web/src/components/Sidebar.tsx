@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { scopeKey } from "../lib/protocol.ts";
 import type { AgentsApi } from "../state/use-agents.ts";
 import { Icon } from "./Icon.tsx";
 
@@ -8,9 +9,20 @@ interface Props {
   onClose: () => void;
   onNewAgent: () => void;
   onEditAgent: (agentId: string) => void;
+  /** Scope keys of conversations with a response in progress; see `SessionApi.activeScopes`. */
+  activeScopes: ReadonlySet<string>;
+  activeAgentIds: ReadonlySet<string>;
 }
 
-export function Sidebar({ agents, open, onClose, onNewAgent, onEditAgent }: Props) {
+export function Sidebar({
+  agents,
+  open,
+  onClose,
+  onNewAgent,
+  onEditAgent,
+  activeScopes,
+  activeAgentIds,
+}: Props) {
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -66,8 +78,9 @@ export function Sidebar({ agents, open, onClose, onNewAgent, onEditAgent }: Prop
           >
             {agents.agents.length === 0 ? <option value="">No agents</option> : null}
             {agents.agents.map((agent) => (
+              // A native option cannot hold markup, so the marker is text.
               <option key={agent.id} value={agent.id}>
-                {agent.name}
+                {activeAgentIds.has(agent.id) ? `● ${agent.name} (responding)` : agent.name}
               </option>
             ))}
           </select>
@@ -90,6 +103,11 @@ export function Sidebar({ agents, open, onClose, onNewAgent, onEditAgent }: Prop
           <ul className="conversations">
             {visible.map((conversation) => {
               const archived = conversation.archived;
+              const responding =
+                agents.agentId !== null &&
+                activeScopes.has(
+                  scopeKey({ agent_id: agents.agentId, conversation_id: conversation.id }),
+                );
               return (
                 <li
                   key={conversation.id}
@@ -103,6 +121,14 @@ export function Sidebar({ agents, open, onClose, onNewAgent, onEditAgent }: Prop
                       onClose();
                     }}
                   >
+                    {responding ? (
+                      <span
+                        className="activity-dot"
+                        role="img"
+                        aria-label="Responding"
+                        title="Responding…"
+                      />
+                    ) : null}
                     {conversation.summary}
                     {archived ? <span className="tag muted">archived</span> : null}
                   </button>

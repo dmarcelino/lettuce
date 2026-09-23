@@ -6,6 +6,7 @@ import type {
 } from "@letta-ai/letta-code/app-server-protocol";
 import { errorMessage } from "../errors.ts";
 import type { UpstreamConnection, UpstreamState } from "../upstream/connection.ts";
+import { ActivityTracker } from "./activity.ts";
 import { FrameBuffer, frameScopeKey, scopeKeyOf } from "./buffer.ts";
 import { withModifiedTimes } from "./file-stat.ts";
 import {
@@ -71,6 +72,7 @@ const RATE_LIMIT_MAX_COMMANDS = 120;
 export class SessionRegistry {
   private readonly sessions = new Map<string, Session>();
   private readonly buffer: FrameBuffer;
+  private readonly activity = new ActivityTracker();
   private requestCounter = 0;
 
   constructor(
@@ -128,6 +130,7 @@ export class SessionRegistry {
       upstream: this.upstream.getState(),
       app_server_info: this.upstream.getInfo(),
       latest_seq: this.buffer.latestSeq,
+      active: this.activity.snapshot(),
     });
     return id;
   }
@@ -256,6 +259,8 @@ export class SessionRegistry {
 
   /** Handle one frame arriving from the app-server. */
   handleUpstreamFrame(frame: WsProtocolMessage): void {
+    if (this.activity.observe(frame)) this.broadcastActivity();
+
     const requestId = (frame as { request_id?: unknown }).request_id;
 
     // A correlated response belongs to exactly one session.
@@ -294,7 +299,16 @@ export class SessionRegistry {
     }
   }
 
+  /** Every session gets the whole set, whatever conversation it has open. */
+  private broadcastActivity(): void {
+    const message = { type: "__bff_activity" as const, active: this.activity.snapshot() };
+    for (const session of this.sessions.values()) this.sendTo(session.socket, message);
+  }
+
   broadcastUpstreamState(state: UpstreamState, info: AppServerInfoResponseMessage | null): void {
+    // With the upstream gone nothing is known to be running; the reconnect's
+    // forced device-status replay rebuilds the set.
+    if (state !== "connected" && this.activity.clear()) this.broadcastActivity();
     for (const session of this.sessions.values()) {
       this.sendTo(session.socket, {
         type: "__bff_upstream_state",

@@ -16,6 +16,8 @@ export interface BffHelloMessage {
   upstream: "connecting" | "connected" | "disconnected";
   app_server_info: AppServerInfoResponseMessage | null;
   latest_seq: number;
+  /** Conversations with a response in progress right now; see `BffActivityMessage`. */
+  active: { agent_id: string; conversation_id: string }[];
 }
 
 export interface BffResumeCommand {
@@ -58,6 +60,16 @@ export interface BffUpstreamStateMessage {
   app_server_info: AppServerInfoResponseMessage | null;
 }
 
+/**
+ * Every conversation with an agent response in progress, app-server wide.
+ * Sent to every session regardless of its scopes, whenever the set changes
+ * (`session/activity.ts`). A full snapshot, never a delta.
+ */
+export interface BffActivityMessage {
+  type: "__bff_activity";
+  active: { agent_id: string; conversation_id: string }[];
+}
+
 export interface BffErrorMessage {
   type: "__bff_error";
   message: string;
@@ -68,6 +80,7 @@ export type BffServerMessage =
   | BffHelloMessage
   | BffResumeResultMessage
   | BffUpstreamStateMessage
+  | BffActivityMessage
   | BffErrorMessage;
 
 export function isBffResumeCommand(value: unknown): value is BffResumeCommand {

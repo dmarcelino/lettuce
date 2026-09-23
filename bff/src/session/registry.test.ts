@@ -93,3 +93,53 @@ describe("isScopeWatched", () => {
     expect(registry.isScopeWatched(SCOPE)).toBe(false);
   });
 });
+
+/**
+ * Activity must reach every session, not only those subscribed to the busy
+ * conversation — the whole point is to show turns running elsewhere.
+ */
+describe("activity broadcast", () => {
+  function recordingSocket() {
+    const sent: { type: string; active?: unknown }[] = [];
+    const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };
+    return { socket, sent };
+  }
+  const busy = {
+    type: "update_device_status",
+    runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
+    device_status: { is_processing: true },
+  } as never;
+  const active = [{ agent_id: "agent-1", conversation_id: "conv-1" }];
+
+  test("a session subscribed elsewhere still hears about it, and late joiners get it in hello", () => {
+    const registry = new SessionRegistry(fakeUpstream, 100, () => {});
+    const early = recordingSocket();
+    const id = registry.add(early.socket, { email: "someone@example.com" });
+    registry.handleSessionMessage(
+      id,
+      JSON.stringify({
+        type: "__bff_resume",
+        from_seq: null,
+        scopes: [{ agent_id: "agent-1", conversation_id: "conv-2" }],
+      }),
+    );
+
+    registry.handleUpstreamFrame(busy);
+    expect(early.sent.filter((m) => m.type === "__bff_activity").map((m) => m.active)).toEqual([
+      active,
+    ]);
+
+    const late = recordingSocket();
+    registry.add(late.socket, { email: "someone@example.com" });
+    expect(late.sent.find((m) => m.type === "__bff_hello")?.active).toEqual(active);
+  });
+
+  test("an upstream drop clears the set", () => {
+    const registry = new SessionRegistry(fakeUpstream, 100, () => {});
+    const tab = recordingSocket();
+    registry.add(tab.socket, { email: "someone@example.com" });
+    registry.handleUpstreamFrame(busy);
+    registry.broadcastUpstreamState("disconnected", null);
+    expect(tab.sent.filter((m) => m.type === "__bff_activity").at(-1)?.active).toEqual([]);
+  });
+});

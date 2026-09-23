@@ -11,7 +11,7 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { type FilterGroup, filterEntries } from "./lib/messages.ts";
-import type { RuntimeScope } from "./lib/protocol.ts";
+import { type RuntimeScope, scopeKey } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { useAgents } from "./state/use-agents.ts";
 import { useConversation } from "./state/use-conversation.ts";
@@ -108,6 +108,11 @@ function Workspace({ status }: { status: Status }) {
       ? { agent_id: agents.agentId, conversation_id: agents.conversationId }
       : null;
 
+  // The open conversation already shows its own state in the composer; the
+  // menu badge is for turns running somewhere you are not looking.
+  const respondingElsewhere =
+    session.activeScopes.size - (scope && session.activeScopes.has(scopeKey(scope)) ? 1 : 0);
+
   // Lifted so the composer button and the picker share one source of truth —
   // switching model in the picker updates the button without a reload.
   const currentModel = useCurrentModel(session, agents.agentId, agents.conversationId);
@@ -148,6 +153,8 @@ function Workspace({ status }: { status: Status }) {
         onClose={() => setSidebarOpen(false)}
         onNewAgent={() => setAgentEditor({ id: null })}
         onEditAgent={(id) => setAgentEditor({ id })}
+        activeScopes={session.activeScopes}
+        activeAgentIds={session.activeAgentIds}
       />
 
       <div className="main">
@@ -156,9 +163,14 @@ function Workspace({ status }: { status: Status }) {
             type="button"
             className="icon-button ghost"
             onClick={() => setSidebarOpen((v) => !v)}
-            aria-label="Conversations"
+            aria-label={
+              respondingElsewhere > 0
+                ? `Conversations, ${respondingElsewhere} responding`
+                : "Conversations"
+            }
           >
             <Icon name="menu" />
+            {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
           </button>
           <h1 className="title">{title}</h1>
           {bypass ? <AuthPill email={status.user?.email} /> : null}

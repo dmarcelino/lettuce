@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  AppServerInfo,
-  ConnectionState,
-  RuntimeScope,
-  SequencedFrame,
+import {
+  type AppServerInfo,
+  type ConnectionState,
+  type RuntimeScope,
+  type SequencedFrame,
+  scopeKey,
 } from "../lib/protocol.ts";
 import { type LinkState, SessionClient } from "../lib/session-client.ts";
 
@@ -28,13 +29,24 @@ export interface SessionApi {
    */
   lastError: string | null;
   clearError: () => void;
+  /**
+   * Scope keys (`scopeKey`) of every conversation with a response in progress,
+   * across all agents — not just the open one. Tracked by the BFF, which sees
+   * every conversation (`bff/src/session/activity.ts`).
+   */
+  activeScopes: ReadonlySet<string>;
+  /** Agents with at least one conversation in `activeScopes`. */
+  activeAgentIds: ReadonlySet<string>;
 }
+
+const NONE: ReadonlySet<string> = new Set();
 
 export function useSession(enabled: boolean): SessionApi {
   const [link, setLink] = useState<LinkState>("connecting");
   const [upstream, setUpstream] = useState<ConnectionState>("connecting");
   const [appServerInfo, setAppServerInfo] = useState<AppServerInfo | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [active, setActive] = useState<RuntimeScope[]>([]);
 
   const clientRef = useRef<SessionClient | null>(null);
   const frameHandlers = useRef(new Set<(frame: SequencedFrame) => void>());
@@ -58,6 +70,7 @@ export function useSession(enabled: boolean): SessionApi {
       onHello: (hello) => setUpstream(hello.upstream),
       onAppServerInfo: (info) => setAppServerInfo(info),
       onError: (error) => setLastError(error.message),
+      onActivity: (next) => setActive(next),
     });
 
     clientRef.current = client;
@@ -98,6 +111,16 @@ export function useSession(enabled: boolean): SessionApi {
 
   const clearError = useCallback(() => setLastError(null), []);
 
+  // Stable identities while the set is unchanged, so consumers' memo deps hold.
+  const activeScopes = useMemo(
+    () => (active.length === 0 ? NONE : new Set(active.map(scopeKey))),
+    [active],
+  );
+  const activeAgentIds = useMemo(
+    () => (active.length === 0 ? NONE : new Set(active.map((scope) => scope.agent_id))),
+    [active],
+  );
+
   // Must be memoized. Every consumer derives useCallback/useEffect deps from
   // this object, so returning a fresh literal each render makes those effects
   // re-run on every render — which previously produced an unbounded request
@@ -116,6 +139,8 @@ export function useSession(enabled: boolean): SessionApi {
       onResync,
       lastError,
       clearError,
+      activeScopes,
+      activeAgentIds,
     }),
     [
       link,
@@ -129,6 +154,8 @@ export function useSession(enabled: boolean): SessionApi {
       onResync,
       lastError,
       clearError,
+      activeScopes,
+      activeAgentIds,
     ],
   );
 }
