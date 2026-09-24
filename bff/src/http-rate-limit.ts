@@ -19,15 +19,6 @@
  * grow.
  */
 
-export interface RateLimitOptions {
-  /** Burst capacity. */
-  capacity: number;
-  /** Tokens replenished per second. */
-  refillPerSecond: number;
-  /** Injectable clock, so the window arithmetic is testable. */
-  now?: () => number;
-}
-
 interface Bucket {
   tokens: number;
   lastRefillMs: number;
