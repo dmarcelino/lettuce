@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   ALLOWED_SESSION_COMMANDS,
+  executeCommandViolation,
   isBffWatchingCommand,
   WORKSPACE_ROOT,
   workspaceViolation,
@@ -115,5 +116,47 @@ describe("workspace clamp", () => {
 
   test("launch_subagent is on the allowlist", () => {
     expect(ALLOWED_SESSION_COMMANDS.has("launch_subagent")).toBe(true);
+  });
+});
+
+/**
+ * `execute_command` is the one allowlisted command type whose real surface is
+ * chosen by a free-form `command_id`, and the app-server enforces nothing at
+ * the boundary. These pin the refusal of the ids that must never be reachable
+ * from a browser — above all the one that restarts the process.
+ */
+describe("execute_command allowlist", () => {
+  const none = new Set<string>();
+  const allow = (id: string, mods: ReadonlySet<string> = none) =>
+    expect(executeCommandViolation(id, mods)).toBeNull();
+  const refuse = (id: unknown, mods: ReadonlySet<string> = none) =>
+    expect(executeCommandViolation(id, mods)).toBeString();
+
+  test("the commands the UI actually offers are allowed", () => {
+    for (const id of ["clear", "compact", "context-limit", "doctor", "init", "reload"]) {
+      allow(id);
+    }
+  });
+
+  test("upgrade-letta-code is refused", () => {
+    refuse("upgrade-letta-code");
+  });
+
+  test("the no-op and gateway-only ids are refused", () => {
+    refuse("channels");
+    refuse("secret");
+    refuse("toolset");
+  });
+
+  test("an unknown id is refused", () => {
+    refuse("rm-rf");
+    refuse("");
+    refuse(undefined);
+    refuse(42);
+  });
+
+  test("an advertised mod command is allowed, an unadvertised one is not", () => {
+    allow("my-mod", new Set(["my-mod"]));
+    refuse("my-mod");
   });
 });

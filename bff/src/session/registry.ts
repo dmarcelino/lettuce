@@ -12,6 +12,7 @@ import { withModifiedTimes } from "./file-stat.ts";
 import {
   ALLOWED_SESSION_COMMANDS,
   type BffServerMessage,
+  executeCommandViolation,
   isBffResumeCommand,
   isBffWatchingCommand,
   SEQ_FIELD,
@@ -73,6 +74,18 @@ export class SessionRegistry {
   private readonly sessions = new Map<string, Session>();
   private readonly buffer: FrameBuffer;
   private readonly activity = new ActivityTracker();
+  /**
+   * Mod-contributed `execute_command` ids the app-server has advertised, learned
+   * from `update_device_status.mod_commands`.
+   *
+   * The app-server's default case routes an unknown id to a mod lookup, so a
+   * mod command is real only if the server said it exists. Tracking what was
+   * advertised keeps the BFF boundary and the composer palette in step: the
+   * browser can run exactly the mod commands it was shown, and nothing else.
+   * Cleared when the upstream drops, so a stale list can never outlive the
+   * runtime that advertised it; the reconnect forces a fresh device status.
+   */
+  private readonly advertisedMods = new Set<string>();
   private requestCounter = 0;
 
   constructor(
@@ -206,6 +219,18 @@ export class SessionRegistry {
       return;
     }
 
+    if (command.type === "execute_command") {
+      const violation = executeCommandViolation(command.command_id, this.advertisedMods);
+      if (violation) {
+        this.sendTo(session.socket, {
+          type: "__bff_error",
+          message: violation,
+          ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
+        });
+        return;
+      }
+    }
+
     // The app-server imposes no root on file operations, so the workspace
     // boundary is enforced here or nowhere.
     const violation = workspaceViolation(command);
@@ -260,6 +285,7 @@ export class SessionRegistry {
   /** Handle one frame arriving from the app-server. */
   handleUpstreamFrame(frame: WsProtocolMessage): void {
     if (this.activity.observe(frame)) this.broadcastActivity();
+    this.rememberAdvertisedMods(frame);
 
     const requestId = (frame as { request_id?: unknown }).request_id;
 
@@ -306,6 +332,22 @@ export class SessionRegistry {
     }
   }
 
+  /**
+   * Fold the mod command list out of a device-status frame into the allowlist
+   * input. Only string `id`s count; a malformed payload advertises nothing.
+   */
+  private rememberAdvertisedMods(frame: WsProtocolMessage): void {
+    if (frame.type !== "update_device_status") return;
+    const mods = (frame as { device_status?: { mod_commands?: unknown } }).device_status
+      ?.mod_commands;
+    if (!Array.isArray(mods)) return;
+    for (const raw of mods) {
+      if (!raw || typeof raw !== "object") continue;
+      const id = (raw as { id?: unknown }).id;
+      if (typeof id === "string" && id) this.advertisedMods.add(id);
+    }
+  }
+
   /** Every session gets the whole set, whatever conversation it has open. */
   private broadcastActivity(): void {
     const message = { type: "__bff_activity" as const, active: this.activity.snapshot() };
@@ -315,6 +357,7 @@ export class SessionRegistry {
   broadcastUpstreamState(state: UpstreamState, info: AppServerInfoResponseMessage | null): void {
     // With the upstream gone nothing is known to be running; the reconnect's
     // forced device-status replay rebuilds the set.
+    if (state !== "connected") this.advertisedMods.clear();
     if (state !== "connected" && this.activity.clear()) this.broadcastActivity();
     for (const session of this.sessions.values()) {
       this.sendTo(session.socket, {

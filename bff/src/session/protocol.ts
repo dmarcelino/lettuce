@@ -202,6 +202,64 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * `execute_command` ids a browser session may run.
+ *
+ * The app-server does NOT enforce its own `SUPPORTED_REMOTE_COMMANDS` on the
+ * inbound path — `isExecuteCommandCommand` only checks that `command_id` is a
+ * string, and the constant exists to advertise the list in `DeviceStatus`. An
+ * unknown id is answered `success: false`, not refused at the boundary. So
+ * admitting the command type at all means admitting every id the handler knows,
+ * and one of those is not something a browser should ever be able to trigger:
+ *
+ * - `upgrade-letta-code` runs `manualUpdate()` and then
+ *   `scheduleRemoteRestart()`, which spawns a replacement listener and calls
+ *   `process.exit()` (letta-code `listener/commands.ts`). Against this stack
+ *   that swaps the installed global out from under a pinned image, silently
+ *   breaking the invariant `scripts/check-version-pin.ts` exists to hold, and
+ *   restarts the process that owns every conversation's turn.
+ * - `channels` needs a gateway attached over stdio; see CLAUDE.md.
+ * - `secret` and `toolset` have no `execute_command` case at all — the UI's
+ *   toolset picker uses `update_toolset`, and secrets go through
+ *   `secret_list`/`secret_apply`.
+ *
+ * Everything listed here is a conversation-scoped operation the UI actually
+ * offers. Mod-contributed commands are allowed too, but only ones the
+ * app-server has actually advertised (see `advertisedModCommands` in
+ * `registry.ts`), so the palette and the boundary cannot disagree.
+ */
+export const ALLOWED_EXECUTE_COMMAND_IDS: ReadonlySet<string> = new Set([
+  "clear",
+  "clear-messages",
+  "compact",
+  "context-limit",
+  "doctor",
+  "init",
+  "reload",
+  "dream",
+  "reflect",
+  "reflection",
+  "monitor_stop",
+]);
+
+/**
+ * Why `command_id` must be refused, or null when it is allowed.
+ *
+ * Kept separate from `workspaceViolation` because the shape of the answer is
+ * the same (a human-readable refusal) while the input is not: one inspects a
+ * path field, the other an id against a set plus the observed mod list.
+ */
+export function executeCommandViolation(
+  commandId: unknown,
+  advertisedMods: ReadonlySet<string>,
+): string | null {
+  if (typeof commandId !== "string" || commandId === "") {
+    return "execute_command.command_id must be a non-empty string";
+  }
+  if (ALLOWED_EXECUTE_COMMAND_IDS.has(commandId) || advertisedMods.has(commandId)) return null;
+  return `Command "/${commandId}" is not permitted from a browser session`;
+}
+
+/**
  * Root every file operation is confined to.
  *
  * The app-server applies NO root of its own: `read_file` with
