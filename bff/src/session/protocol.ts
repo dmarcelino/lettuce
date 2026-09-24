@@ -305,18 +305,45 @@ export const FILE_PATH_FIELDS: ReadonlyMap<string, "path" | "cwd" | "skill_path"
 ]);
 
 /**
- * Paths outside the workspace that a screen we built genuinely needs.
+ * File commands that only ever read.
+ *
+ * The exception below is granted to these and only these. Which ones qualify is
+ * load-bearing: `write_file` and `edit_file` obviously mutate, and `watch_file`
+ * is refused as well — it writes nothing, but it subscribes a browser to
+ * change notifications for a file holding MCP configuration, and no screen we
+ * built needs that.
+ */
+const READ_ONLY_FILE_COMMANDS: ReadonlySet<string> = new Set([
+  "get_tree",
+  "list_in_directory",
+  "read_file",
+  "search_files",
+  "grep_in_files",
+]);
+
+/**
+ * Paths outside the workspace a browser may READ.
  *
  * MCP servers are not in the protocol — they live in settings.json under the
- * agent's own entry, so the MCP editor reads and merges that exact file (see
- * CLAUDE.md). Allowing the one file keeps that screen working without opening
- * the directory it sits in: `/root/.letta/` also holds transcripts and agent
- * secrets, and none of those have a screen.
+ * agent's own entry, so the MCP editor reads that exact file to show what is
+ * configured (see CLAUDE.md). Allowing the one file keeps that screen working
+ * without opening the directory it sits in: `/root/.letta/` also holds
+ * transcripts and agent secrets, and none of those have a screen.
+ *
+ * READ ONLY, deliberately. The same file is where an MCP server definition
+ * lives, and an MCP entry is an arbitrary command line the app-server will
+ * happily exec as root inside its network namespace. Handing the browser a raw
+ * `write_file` against it is handing it code execution one step from the
+ * settings file. Writes go through `PUT /api/mcp`, which merges the agent's
+ * entry server-side and never exposes the file for writing.
  *
  * Exact paths only, never prefixes — a prefix here would re-open the traversal
  * this clamp exists to close.
  */
-export const PATH_EXCEPTIONS: ReadonlySet<string> = new Set(["/root/.letta/settings.json"]);
+export const READABLE_EXCEPTIONS: ReadonlySet<string> = new Set(["/root/.letta/settings.json"]);
+
+/** The settings file the MCP editor reads and `/api/mcp` writes. */
+export const SETTINGS_PATH = "/root/.letta/settings.json";
 
 /** Normalise a POSIX path, resolving `.` and `..` without touching the disk. */
 function normalizePosixPath(input: string): string {
@@ -358,7 +385,10 @@ export function workspaceViolation(
   }
 
   const resolved = normalizePosixPath(raw);
-  if (PATH_EXCEPTIONS.has(resolved)) return null;
+  if (READABLE_EXCEPTIONS.has(resolved)) {
+    if (READ_ONLY_FILE_COMMANDS.has(command.type)) return null;
+    return `${command.type} may not write ${resolved}; use the MCP settings route`;
+  }
   if (resolved !== WORKSPACE_ROOT && !resolved.startsWith(`${WORKSPACE_ROOT}/`)) {
     return `Path is outside the workspace: ${resolved} is not under ${WORKSPACE_ROOT}`;
   }

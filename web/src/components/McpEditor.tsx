@@ -4,12 +4,13 @@ import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 
 /**
- * MCP servers are absent from the app-server protocol. They live in
- * ~/.letta/settings.json under the agent's own entry, so this edits that file
- * through the file commands and then asks the runtime to reload.
+ * MCP servers are absent from the app-server protocol: they live in
+ * ~/.letta/settings.json under the agent's own entry. The browser may READ
+ * that file but cannot WRITE it — an mcpServers entry is an arbitrary command
+ * line the app-server execs as root — so reads and writes go through the BFF's
+ * /api/mcp routes, which merge the agent's entry server-side and issue the
+ * `reload` that makes the change take effect.
  */
-const SETTINGS_PATH = "/root/.letta/settings.json";
-
 type Transport = "stdio" | "http" | "sse";
 
 interface McpServer {
@@ -22,21 +23,9 @@ interface McpServer {
   headers?: Record<string, string>;
 }
 
-interface AgentSettings {
-  agentId?: string;
-  mcpServers?: McpServer[];
-  [key: string]: unknown;
-}
-
-interface Settings {
-  agents?: AgentSettings[];
-  [key: string]: unknown;
-}
-
 const BLANK: McpServer = { name: "", transport: "stdio", command: "", args: [] };
 
 export function McpEditor({ session, agentId }: { session: SessionApi; agentId: string | null }) {
-  const [settings, setSettings] = useState<Settings | null>(null);
   const [servers, setServers] = useState<McpServer[]>([]);
   const [status, setStatus] = useState("");
   const [draft, setDraft] = useState<McpServer | null>(null);
@@ -47,68 +36,38 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
     if (!agentId) return;
     setStatus("Loading settings…");
     try {
-      const response = await session.request<{
-        content?: string | null;
-        success?: boolean;
-        error?: string;
-      }>("read_file", { path: SETTINGS_PATH, encoding: "utf8" });
-
-      if (response?.success === false || typeof response?.content !== "string") {
-        setStatus(response?.error ?? "Could not read settings.json");
+      const response = await fetch(`/api/mcp?agent_id=${encodeURIComponent(agentId)}`);
+      if (!response.ok) {
+        setStatus((await response.text()) || "Could not read MCP settings");
         return;
       }
-
-      const parsed = JSON.parse(response.content) as Settings;
-      setSettings(parsed);
-      const agent = parsed.agents?.find((entry) => entry.agentId === agentId);
-      setServers(agent?.mcpServers ?? []);
+      const body = (await response.json()) as { servers?: McpServer[] };
+      setServers(Array.isArray(body.servers) ? body.servers : []);
       setStatus("");
     } catch (cause) {
       setStatus(errorMessage(cause));
     }
-  }, [agentId, session.request]);
+  }, [agentId]);
 
   useEffect(() => {
     if (session.ready && agentId) void load();
   }, [session.ready, agentId, load]);
 
   const persist = async (next: McpServer[]) => {
-    if (!settings || !agentId) return;
+    if (!agentId) return;
     setStatus("Saving…");
-
-    // Merge into the agent's entry, leaving every other setting untouched.
-    const agents = [...(settings.agents ?? [])];
-    const index = agents.findIndex((entry) => entry.agentId === agentId);
-    const entry: AgentSettings = index >= 0 ? { ...agents[index] } : { agentId, mcpServers: [] };
-
-    if (next.length > 0) entry.mcpServers = next;
-    else delete entry.mcpServers;
-
-    if (index >= 0) agents[index] = entry;
-    else agents.push(entry);
-
-    const updated: Settings = { ...settings, agents };
-
     try {
-      const response = await session.request<{ success?: boolean; error?: string }>("write_file", {
-        path: SETTINGS_PATH,
-        content: `${JSON.stringify(updated, null, 2)}\n`,
+      const response = await fetch("/api/mcp", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent_id: agentId, servers: next }),
       });
-      if (response?.success === false) {
-        setStatus(response.error ?? "Save failed");
+      if (!response.ok) {
+        setStatus((await response.text()) || "Save failed");
         return;
       }
-      setSettings(updated);
-      setServers(next);
-      setStatus("Saved. Reloading the runtime…");
-
-      // Settings are read at load time, so the runtime must re-read them.
-      session.send({
-        type: "execute_command",
-        command_id: "reload",
-        request_id: `reload-${Date.now()}`,
-        runtime: { agent_id: agentId, conversation_id: "default" },
-      });
+      const body = (await response.json()) as { servers?: McpServer[] };
+      setServers(Array.isArray(body.servers) ? body.servers : next);
       setStatus("Saved. The agent is reloading its tools.");
     } catch (cause) {
       setStatus(errorMessage(cause));

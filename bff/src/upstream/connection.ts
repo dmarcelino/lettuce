@@ -137,6 +137,23 @@ export class UpstreamConnection {
     this.client.sendRaw(command);
   }
 
+  /**
+   * Send a command the BFF issued on its own behalf, not for a browser session.
+   *
+   * Same as `send()` plus internal-id bookkeeping: the response carries the id
+   * back, and without registering it the router would treat that response as an
+   * unsolicited frame and broadcast it. Use this whenever the BFF originates the
+   * request but does not need the answer.
+   */
+  sendInternal(command: Record<string, unknown> & { type: string; request_id: string }): void {
+    if (!this.client || this.state !== "connected") {
+      throw new Error("App-server connection is not ready");
+    }
+    this.rememberScope(command);
+    this.rememberInternalRequest(command.request_id);
+    this.client.sendRaw(command);
+  }
+
   /** A BFF-internal request/response round trip (not on behalf of a session). */
   async request<T extends WsProtocolMessage>(
     command: Record<string, unknown> & { type: string; request_id: string },

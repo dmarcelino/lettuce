@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   ReadFileResponseMessage,
+  WriteFileResponseMessage,
   WsProtocolMessage,
 } from "@letta-ai/letta-code/app-server-protocol";
 import type { ServerWebSocket } from "bun";
@@ -19,11 +20,19 @@ import {
 import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
 import { errorMessage } from "./errors.ts";
 import { inlineContentType } from "./files/content-type.ts";
+import {
+  InvalidMcpServersError,
+  type McpServer,
+  mergeMcpServers,
+  readMcpServers,
+  SettingsUnreadableError,
+  validateMcpServers,
+} from "./mcp/settings.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { configureWebPush, sendPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
-import { workspaceViolation } from "./session/protocol.ts";
+import { SETTINGS_PATH, workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 
@@ -267,6 +276,98 @@ app.post("/push/test", async (c) => {
     log(`Push test to ${endpoint} failed: ${errorMessage(error)}`);
     return c.text(errorMessage(error), 502);
   }
+});
+
+// ── MCP settings ────────────────────────────────────────────────────────────
+// MCP servers are not in the app-server protocol; they live in
+// /root/.letta/settings.json under the agent's own entry. The browser may READ
+// that file (see READABLE_EXCEPTIONS) but must never WRITE it: an mcpServers
+// entry is an arbitrary command line the app-server execs as root. These routes
+// do the merge server-side against the file as it currently stands, so the
+// browser never holds a write handle on it and two editors cannot clobber each
+// other with stale copies.
+
+async function readSettingsFile(): Promise<string> {
+  const response = await upstream.request<ReadFileResponseMessage>({
+    type: "read_file",
+    path: SETTINGS_PATH,
+    request_id: `bff-mcp-read-${randomUUID()}`,
+    encoding: "utf8",
+  });
+  if (!response.success || typeof response.content !== "string") {
+    throw new SettingsUnreadableError(response.error ?? "Could not read settings.json");
+  }
+  return response.content;
+}
+
+app.get("/api/mcp", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const agentId = c.req.query("agent_id");
+  if (!agentId) return c.text("Missing agent_id", 400);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+
+  try {
+    const servers = readMcpServers(await readSettingsFile(), agentId);
+    return c.json({ servers });
+  } catch (error) {
+    if (error instanceof SettingsUnreadableError) return c.text(error.message, 502);
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.put("/api/mcp", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+
+  const body = await c.req.json().catch(() => null);
+  const agentId = (body as { agent_id?: unknown } | null)?.agent_id;
+  if (typeof agentId !== "string" || !agentId) return c.text("Missing agent_id", 400);
+
+  let servers: McpServer[];
+  try {
+    servers = validateMcpServers((body as { servers?: unknown }).servers);
+  } catch (error) {
+    if (error instanceof InvalidMcpServersError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 400);
+  }
+
+  let merged: string;
+  try {
+    merged = mergeMcpServers(await readSettingsFile(), agentId, servers);
+  } catch (error) {
+    if (error instanceof SettingsUnreadableError) return c.text(error.message, 502);
+    return c.text(errorMessage(error), 502);
+  }
+
+  try {
+    const written = await upstream.request<WriteFileResponseMessage>({
+      type: "write_file",
+      path: SETTINGS_PATH,
+      content: merged,
+      request_id: `bff-mcp-write-${randomUUID()}`,
+    });
+    if (written?.success !== true) {
+      return c.text(written?.error ?? "Failed to write settings.json", 502);
+    }
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+
+  // Settings are read at load time, so the runtime must re-read them. Fire and
+  // forget: `reload` has no meaningful response for us beyond the write having
+  // landed, and blocking the request on a runtime restart would be worse.
+  try {
+    upstream.sendInternal({
+      type: "execute_command",
+      command_id: "reload",
+      request_id: `bff-mcp-reload-${randomUUID()}`,
+      runtime: { agent_id: agentId, conversation_id: "default" },
+    });
+  } catch (error) {
+    log(`MCP save: reload failed after a successful write: ${errorMessage(error)}`);
+  }
+
+  return c.json({ ok: true, servers });
 });
 
 // A real HTTP URL for a workspace file, so a chat-message link or the Files
