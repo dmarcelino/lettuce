@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { collectFileTokens } from "../lib/file-links.ts";
 import type { TranscriptEntry } from "../lib/messages.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
@@ -88,19 +88,27 @@ export function MessageList({ entries, processing, session, cwd, onOpenFile }: P
 
   // Index every tool return by its call id, and note which returns get folded
   // into a call so the standalone entry is dropped from the list.
-  const returnByCall = new Map<string, TranscriptEntry>();
-  for (const entry of entries) {
-    if (entry.kind === "tool_return" && entry.toolCallId && !returnByCall.has(entry.toolCallId)) {
-      returnByCall.set(entry.toolCallId, entry);
+  //
+  // Memoised on `entries`: these two passes are O(n) over the whole transcript,
+  // and the list re-renders on every streamed token. Rebuilding them each time
+  // also produced fresh Map/Set identities per render, which would defeat the
+  // memo on the rows below for no reason.
+  const { returnByCall, pairedReturnIds } = useMemo(() => {
+    const byCall = new Map<string, TranscriptEntry>();
+    for (const entry of entries) {
+      if (entry.kind === "tool_return" && entry.toolCallId && !byCall.has(entry.toolCallId)) {
+        byCall.set(entry.toolCallId, entry);
+      }
     }
-  }
-  const pairedReturnIds = new Set<string>();
-  for (const entry of entries) {
-    if ((entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId) {
-      const paired = returnByCall.get(entry.toolCallId);
-      if (paired) pairedReturnIds.add(paired.id);
+    const paired = new Set<string>();
+    for (const entry of entries) {
+      if ((entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId) {
+        const match = byCall.get(entry.toolCallId);
+        if (match) paired.add(match.id);
+      }
     }
-  }
+    return { returnByCall: byCall, pairedReturnIds: paired };
+  }, [entries]);
 
   return (
     <div className="messages-wrap">
@@ -155,7 +163,13 @@ export function MessageList({ entries, processing, session, cwd, onOpenFile }: P
   );
 }
 
-function MessageItem({
+/**
+ * Memoised. A streamed token re-renders the list, and without this every
+ * message in a long conversation would re-parse its markdown per token.
+ * `sortedEntries` shallow-copies the still-streaming entries so the one row
+ * that is actually changing has a new identity and does re-render.
+ */
+const MessageItem = memo(function MessageItem({
   entry,
   retn,
   cwd,
@@ -354,4 +368,4 @@ function MessageItem({
       <div className={`bubble ${entry.kind}`}>{md(entry.text)}</div>
     </div>
   );
-}
+});

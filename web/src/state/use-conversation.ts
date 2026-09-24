@@ -315,9 +315,47 @@ export function useConversation(
   const scope: RuntimeScope | null =
     agentId && conversationId ? { agent_id: agentId, conversation_id: conversationId } : null;
 
+  /**
+   * Re-render from the transcript, at most once per animation frame.
+   *
+   * Every streamed token calls this. Sorting and rebuilding the whole transcript
+   * per token makes the cost grow with conversation length, and a fast stream can
+   * produce more updates than the browser can paint — so the work is coalesced:
+   * many tokens arriving in one frame cause one sort and one render, at the
+   * frame boundary. The transcript itself is updated synchronously, so no data
+   * is ever lost or delayed; only the render is batched.
+   *
+   * `flushSync` is used where the UI must reflect the transcript immediately
+   * rather than a frame later — a turn finishing, or a stop being acknowledged —
+   * because a visible lag there reads as the app having dropped the event.
+   */
+  const flushHandleRef = useRef<number | null>(null);
   const flush = useCallback(() => {
+    if (flushHandleRef.current !== null) return;
+    flushHandleRef.current = requestAnimationFrame(() => {
+      flushHandleRef.current = null;
+      setEntries(sortedEntries(transcriptRef.current));
+    });
+  }, []);
+
+  const flushSync = useCallback(() => {
+    if (flushHandleRef.current !== null) {
+      cancelAnimationFrame(flushHandleRef.current);
+      flushHandleRef.current = null;
+    }
     setEntries(sortedEntries(transcriptRef.current));
   }, []);
+
+  // Do not leave a frame scheduled against an unmounted conversation.
+  useEffect(
+    () => () => {
+      if (flushHandleRef.current !== null) {
+        cancelAnimationFrame(flushHandleRef.current);
+        flushHandleRef.current = null;
+      }
+    },
+    [],
+  );
 
   const loadHistory = useCallback(
     async (afterResync = false) => {
@@ -332,7 +370,7 @@ export function useConversation(
         transcriptRef.current = transcriptFromHistory(messages);
         streamIndexRef.current = createStreamIndex();
         seqRef.current = messages.length;
-        flush();
+        flushSync();
         // A request/response frame like this one never carries the sequence
         // number that would otherwise flip the link back to "live" on its
         // own — see session-client.ts's markResynced. Only relevant when this
@@ -450,7 +488,7 @@ export function useConversation(
           // status line stays as the record.
           setStopping(false);
           clearLocalNotice(transcriptRef.current, STOP_NOTICE_ID);
-          flush();
+          flushSync();
           break;
         }
         case "update_device_status": {
@@ -546,7 +584,7 @@ export function useConversation(
           break;
       }
     });
-  }, [onFrame, scope?.conversation_id, flush]);
+  }, [onFrame, scope?.conversation_id, flush, flushSync]);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -569,7 +607,7 @@ export function useConversation(
         text,
         seqRef.current,
       );
-      flush();
+      flushSync();
 
       try {
         send({
@@ -625,7 +663,7 @@ export function useConversation(
           "info",
           seqRef.current,
         );
-        flush();
+        flushSync();
         return;
       }
 
@@ -646,7 +684,7 @@ export function useConversation(
         "warning",
         seqRef.current,
       );
-      flush();
+      flushSync();
     } catch (cause) {
       setError(errorMessage(cause));
     }

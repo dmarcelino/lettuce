@@ -382,6 +382,17 @@ function nameToolReturns(entries: TranscriptEntry[]): TranscriptEntry[] {
   });
 }
 
+/**
+ * The transcript as a render-ready list, ordered by arrival.
+ *
+ * Entries are mutated in place while streaming (`applyMessage` appends to
+ * `entry.text`), so a settled entry's object identity is stable across flushes
+ * and a streaming one's is not — which is exactly what `React.memo` needs. To
+ * keep that property, every entry that is still streaming is shallow-copied here.
+ * Without the copy a memoised row would never see the new tokens and the bubble
+ * would freeze mid-sentence; with it, only the one or two rows actually
+ * changing re-render, instead of every message in the conversation per token.
+ */
 export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
   return nameToolReturns(
     [...transcript.values()]
@@ -389,7 +400,9 @@ export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
         if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       })
-      // After sorting, so an extracted block keeps its parent's position.
+      .map((entry) => (entry.streaming ? { ...entry } : entry))
+      // After copying, so an extracted block keeps its parent's position and a
+      // settled entry keeps its identity.
       .flatMap(splitInjectedBlocks),
   );
 }
