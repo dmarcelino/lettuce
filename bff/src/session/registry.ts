@@ -182,7 +182,7 @@ export class SessionRegistry {
     }
 
     if (isBffResumeCommand(parsed)) {
-      this.handleResume(session, parsed.from_seq, parsed.scopes);
+      void this.handleResume(session, parsed.from_seq, parsed.scopes);
       return;
     }
 
@@ -406,11 +406,11 @@ export class SessionRegistry {
     }
   }
 
-  private handleResume(
+  private async handleResume(
     session: Session,
     fromSeq: number | null,
     scopes: { agent_id: string; conversation_id: string }[] | undefined,
-  ): void {
+  ): Promise<void> {
     if (scopes) {
       session.scopes = new Set(scopes.map((s) => scopeKeyOf(s.agent_id, s.conversation_id)));
     }
@@ -426,7 +426,17 @@ export class SessionRegistry {
       resync_required: result.resyncRequired,
     });
 
+    // Yield to the event loop between frames. Without this the whole replay is
+    // one synchronous run of JSON.stringify calls, during which no other
+    // session gets serviced — a long replay would freeze everyone else for its
+    // duration. `setImmediate` keeps the replay ordered while letting queued
+    // I/O for other sessions interleave.
     for (const entry of result.frames) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      // The replay now yields, so the session may have gone away mid-way. Its
+      // socket is dead and continuing would only churn; the next reconnect
+      // replays from wherever the client actually got to.
+      if (!this.sessions.has(session.id)) return;
       this.sendTo(session.socket, {
         ...entry.frame,
         [SEQ_FIELD]: entry.seq,

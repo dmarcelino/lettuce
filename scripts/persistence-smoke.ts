@@ -10,6 +10,8 @@
  * Usage: bun scripts/persistence-smoke.ts [bffOrigin]
  */
 
+import { MAX_REPLAY_FRAMES } from "../bff/src/session/buffer.ts";
+
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const WS_ORIGIN = ORIGIN.replace(/^http/, "ws");
 
@@ -185,19 +187,30 @@ const resumed = await c.waitFor((f) => f.type === "__bff_resume_result");
 check("resume from the live head needs no resync", resumed.resync_required === false, resumed);
 check("resume from the live head replays nothing", resumed.replayed === 0, resumed);
 
-// The buffer has not wrapped in this short run, so a cursor at the very
-// beginning must be served by replay rather than forcing a resync.
+// A cursor at the very beginning is served by replay, as long as the whole
+// retained history fits under the per-replay frame cap. On a stack that has
+// been running long enough to buffer more than that, the cap is the correct
+// answer and the client resyncs instead — so assert whichever branch applies
+// rather than assuming the buffer is small.
 c.send({ type: "__bff_resume", from_seq: 0, scopes: [] });
 const stale = await c.waitFor((f) => f.type === "__bff_resume_result" && f.from_seq === 0);
-check(
-  "an unwrapped buffer serves an old cursor without a resync",
-  stale.resync_required === false,
-  stale,
-);
-check("replay covers every buffered frame", stale.replayed === stale.latest_seq, {
-  replayed: stale.replayed,
-  latest_seq: stale.latest_seq,
-});
+if (stale.latest_seq <= MAX_REPLAY_FRAMES) {
+  check(
+    "an unwrapped buffer under the cap serves an old cursor without a resync",
+    stale.resync_required === false,
+    stale,
+  );
+  check("replay covers every buffered frame", stale.replayed === stale.latest_seq, {
+    replayed: stale.replayed,
+    latest_seq: stale.latest_seq,
+  });
+} else {
+  check(
+    `over the ${MAX_REPLAY_FRAMES}-frame replay cap an old cursor resyncs instead`,
+    stale.resync_required === true && stale.replayed === 0,
+    stale,
+  );
+}
 
 const ahead = 999_999;
 c.send({ type: "__bff_resume", from_seq: ahead, scopes: [] });

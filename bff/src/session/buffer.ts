@@ -18,6 +18,19 @@ export interface ReplayResult {
 }
 
 /**
+ * Ceiling on how many frames one replay may return.
+ *
+ * A replay is sent to a single session in one synchronous loop, and every
+ * frame is JSON-stringified on the way out. An unbounded replay after a long
+ * absence therefore blocks every OTHER session for as long as it takes —
+ * thousands of serialises with nothing else able to run. Capping it converts
+ * the worst case into a bounded burst; past the cap the client is told to
+ * resync, which it already has a working path for and which is cheaper than
+ * shipping a huge frame-by-frame catch-up anyway.
+ */
+export const MAX_REPLAY_FRAMES = 1000;
+
+/**
  * A bounded, monotonically sequenced log of unsolicited frames from the
  * app-server, so a browser tab that was backgrounded can replay exactly what it
  * missed instead of refetching history.
@@ -96,6 +109,10 @@ export class FrameBuffer {
       const entry = this.slots[this.indexFor(seq)];
       if (!entry || entry.seq !== seq) continue;
       if (scopeKeys && entry.scopeKey !== null && !scopeKeys.has(entry.scopeKey)) continue;
+      if (frames.length >= MAX_REPLAY_FRAMES) {
+        // Too far behind for a replay to be the right answer.
+        return { frames: [], resyncRequired: true, latestSeq: this.latestSeq };
+      }
       frames.push(entry);
     }
     return { frames, resyncRequired: false, latestSeq: this.latestSeq };

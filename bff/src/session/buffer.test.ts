@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { FrameBuffer, frameScopeKey, parseScopeKey, scopeKeyOf } from "./buffer.ts";
+import {
+  FrameBuffer,
+  frameScopeKey,
+  MAX_REPLAY_FRAMES,
+  parseScopeKey,
+  scopeKeyOf,
+} from "./buffer.ts";
 
 /**
  * The buffer is the resume mechanism: get eviction or the resync boundary wrong
@@ -130,5 +136,21 @@ describe("scope key helpers", () => {
 
   test("an unscoped frame has no key", () => {
     expect(frameScopeKey({ type: "hello" } as never)).toBeNull();
+  });
+});
+
+describe("FrameBuffer replay cap", () => {
+  test("a replay larger than the cap asks for a resync instead", () => {
+    const buffer = fill(MAX_REPLAY_FRAMES + 100, MAX_REPLAY_FRAMES + 50);
+    const result = buffer.replayFrom(0);
+    expect(result.resyncRequired).toBe(true);
+    expect(result.frames).toHaveLength(0);
+  });
+
+  test("a replay just under the cap is served normally", () => {
+    const buffer = fill(MAX_REPLAY_FRAMES + 100, MAX_REPLAY_FRAMES - 1);
+    const result = buffer.replayFrom(0);
+    expect(result.resyncRequired).toBe(false);
+    expect(result.frames).toHaveLength(MAX_REPLAY_FRAMES - 1);
   });
 });
