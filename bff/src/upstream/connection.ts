@@ -28,6 +28,18 @@ const SCOPE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
  * personal-assistant scale, so there is no cursor-paging logic to get right. */
 const SCOPE_SWEEP_LIST_LIMIT = 100;
 /**
+ * How many never-before-seen scopes one sweep will subscribe.
+ *
+ * Without a cap a sweep is O(agents x conversations) — up to 10,000 serial
+ * syncs at 30s timeout each. A large install would spend hours hammering the
+ * one connection the whole app shares, and each new scope is a `sync` that can
+ * resume an interrupted turn, so the work also translates into LLM load. The
+ * cap turns that into a bounded burst per interval; whatever is left over is
+ * picked up by the next sweep, and a scope is never synced twice because
+ * `rememberScope` records it on the way out.
+ */
+const SCOPE_SWEEP_MAX_NEW_SCOPES = 50;
+/**
  * Ceiling on remembered internal request ids. Generous relative to real traffic
  * (a sweep of 100 agents x 100 conversations is ~10k ids) so eviction only
  * ever kicks in on a pathological run, and cheap either way: these are short
@@ -77,6 +89,13 @@ export class UpstreamConnection {
    * FIFO-bounded so a long-lived process cannot grow it without limit.
    */
   private readonly internalRequestIds = new Set<string>();
+  /**
+   * Set while a sweep is running. `setInterval` fires on wall-clock time and
+   * does not care whether the previous callback finished, so without this a
+   * sweep slower than the interval piles up new sweeps without bound, each
+   * enumerating the same agent and conversation lists.
+   */
+  private sweepInFlight = false;
 
   constructor(private readonly options: UpstreamOptions) {}
 
@@ -340,8 +359,35 @@ export class UpstreamConnection {
    * conversations and `sync` any scope not already in `knownScopes` — the
    * same call `resubscribe()` makes per known scope, just for scopes this
    * connection hasn't seen yet.
+   *
+   * The sync is deliberately an OWNER sync (`resume_interrupted_turn`), not an
+   * observer sync. This is the only path by which a cron- or gateway-fired
+   * conversation the browser has never opened gets subscribed at all, so after
+   * an app-server restart it is also the only thing that would resume a turn
+   * left with replay-unsafe calls pending — and those conversations may never
+   * receive a user message to unstick them. Downgrading it to an observer sync
+   * here would hang exactly the cases the flag exists for. The burst that
+   * creates is bounded by `SCOPE_SWEEP_MAX_NEW_SCOPES`, and each scope is
+   * resumed at most once.
    */
   private async subscribeToAllScopes(): Promise<void> {
+    if (this.sweepInFlight) {
+      this.log("Scope sweep: previous sweep still running, skipping this tick");
+      return;
+    }
+    this.sweepInFlight = true;
+    try {
+      await this.sweepOnce();
+    } finally {
+      this.sweepInFlight = false;
+    }
+  }
+
+  private async sweepOnce(): Promise<void> {
+    // Counts ATTEMPTS, not successes: a scope whose sync times out still spent
+    // the full timeout against the shared connection, so bounding only the
+    // successes would still allow a run of failures to consume the sweep.
+    let attempts = 0;
     let agents: { id: string }[];
     try {
       const response = await this.request<AgentListResponseMessage>({
@@ -372,6 +418,14 @@ export class UpstreamConnection {
       for (const conversation of conversations) {
         const scopeKey = scopeKeyOf(agent.id, conversation.id);
         if (this.knownScopes.has(scopeKey)) continue;
+        if (attempts >= SCOPE_SWEEP_MAX_NEW_SCOPES) {
+          this.log(
+            `Scope sweep: hit the ${SCOPE_SWEEP_MAX_NEW_SCOPES}-scope cap; ` +
+              `the rest will be picked up on the next sweep`,
+          );
+          return;
+        }
+        attempts += 1;
         try {
           await this.syncAsOwner(
             { agent_id: agent.id, conversation_id: conversation.id },
