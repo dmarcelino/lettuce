@@ -32,17 +32,61 @@ interface Status {
 const TABS = ["Chat", "Files", "Tasks", "Memory", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
+/**
+ * How many times to retry a failed status fetch before giving up and asking.
+ *
+ * The common cause is transient — the BFF is restarting, the tunnel is
+ * re-establishing, the laptop just woke — and a retry a second later succeeds.
+ * But retrying forever against a genuinely broken server is a request loop, so
+ * after this many attempts the user gets an explicit retry rather than silent
+ * polling.
+ */
+const STATUS_MAX_AUTO_RETRIES = 3;
+const STATUS_RETRY_DELAY_MS = 1500;
+
+type StatusState =
+  | { phase: "loading" }
+  | { phase: "error"; reason: string }
+  | { phase: "ready"; status: Status };
+
 export function App() {
-  const [status, setStatus] = useState<Status | null>(null);
+  const [state, setState] = useState<StatusState>({ phase: "loading" });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    void fetch("/api/status")
-      .then((response) => response.json() as Promise<Status>)
-      .then(setStatus)
-      .catch(() => setStatus(null));
-  }, []);
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    setState({ phase: "loading" });
 
-  if (status === null) {
+    fetch("/api/status")
+      .then((response) => {
+        if (!response.ok) throw new Error(`Status request failed (${response.status})`);
+        return response.json() as Promise<Status>;
+      })
+      .then((status) => {
+        if (!cancelled) setState({ phase: "ready", status });
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setState({
+          phase: "error",
+          reason: cause instanceof Error ? cause.message : "Could not reach the server",
+        });
+        if (attempt < STATUS_MAX_AUTO_RETRIES) {
+          retryTimer = setTimeout(() => setAttempt((n) => n + 1), STATUS_RETRY_DELAY_MS);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      // The retry timer has to be cleared from the effect's own cleanup: a
+      // `return` from inside a `.catch` callback goes nowhere, and the timer
+      // would otherwise fire against an unmounted component.
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [attempt]);
+
+  if (state.phase === "loading") {
     return (
       <main className="shell center">
         <p className="muted">Loading…</p>
@@ -50,6 +94,27 @@ export function App() {
     );
   }
 
+  if (state.phase === "error") {
+    // Previously a failed fetch set the status back to null, which rendered
+    // "Loading…" forever: the app looked stuck on a spinner with no way out and
+    // no indication that the server was unreachable rather than still working.
+    return (
+      <main className="shell center">
+        <h1>Letta</h1>
+        <p className="warning">Could not reach the server: {state.reason}</p>
+        <p className="muted small">
+          {attempt < STATUS_MAX_AUTO_RETRIES
+            ? `Retrying in ${STATUS_RETRY_DELAY_MS / 1000}s…`
+            : "Automatic retries are exhausted."}
+        </p>
+        <button type="button" className="button" onClick={() => setAttempt((n) => n + 1)}>
+          Retry now
+        </button>
+      </main>
+    );
+  }
+
+  const { status } = state;
   if (!status.authenticated) return <SignIn status={status} />;
   return <Workspace status={status} />;
 }
