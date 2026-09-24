@@ -6,7 +6,7 @@ import type {
   WsProtocolMessage,
 } from "@letta-ai/letta-code/app-server-protocol";
 import type { ServerWebSocket } from "bun";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { CF_ACCESS_JWT_HEADER, verifyAccessJwt } from "./auth/cf-access.ts";
 import { checkUpgradeOrigin } from "./auth/origin.ts";
@@ -22,6 +22,11 @@ import {
 import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
 import { errorMessage } from "./errors.ts";
 import { inlineContentType } from "./files/content-type.ts";
+import {
+  DEFAULT_HTTP_CAPACITY,
+  DEFAULT_HTTP_REFILL_PER_SECOND,
+  HttpRateLimiter,
+} from "./http-rate-limit.ts";
 import {
   InvalidMcpServersError,
   type McpServer,
@@ -150,6 +155,31 @@ app.use("*", async (c, next) => {
   c.set("session", session);
   await next();
 });
+
+// Throttle the API and push routes per user. The WS command path has had a
+// limiter since the render loop that OOM'd the app-server; these routes are the
+// more expensive half, because a download makes the app-server read a whole
+// file and the BFF hold it in memory.
+//
+// Registered AFTER the session middleware above on purpose: keying the bucket
+// needs the resolved identity. Registering it earlier would make every signed-in
+// user share the single anonymous bucket, so one person's flood would throttle
+// everyone else. Health probes sit outside these prefixes, so an orchestrator's
+// polling never counts against a user's bucket.
+const httpLimiter = new HttpRateLimiter(DEFAULT_HTTP_CAPACITY, DEFAULT_HTTP_REFILL_PER_SECOND);
+const throttle = async (c: Context, next: () => Promise<void>) => {
+  const session = c.get("session");
+  const retryAfter = httpLimiter.take(session ? session.email : "__anonymous__");
+  if (retryAfter !== null) {
+    return c.text("Too many requests", {
+      status: 429,
+      headers: { "retry-after": String(retryAfter) },
+    });
+  }
+  await next();
+};
+app.use("/api/*", throttle);
+app.use("/push/*", throttle);
 
 // The web client reads exactly three fields: `authenticated`, `auth_mode` and
 // `user.email`. Everything else here is operational detail — the running
@@ -446,12 +476,16 @@ app.get("/api/files/download", async (c) => {
     return c.text(response.error ?? "Failed to read file", 404);
   }
 
+  // A Buffer IS a Uint8Array, so it goes straight to Response. Wrapping it in
+  // `new Uint8Array(bytes)` would copy the whole decoded file again for no
+  // reason — and this route already holds the base64 string from upstream plus
+  // the decoded bytes.
   const bytes = Buffer.from(response.content, "base64");
   const filename = (path.split("/").pop() || "download").replaceAll('"', "");
   // `?inline=1` (chat-message links) asks for a viewable response; only PDFs
   // and raster images actually get one — see `inlineContentType`.
   const inlineType = c.req.query("inline") != null ? inlineContentType(filename) : null;
-  return new Response(new Uint8Array(bytes), {
+  return new Response(bytes, {
     headers: {
       "content-type": inlineType ?? "application/octet-stream",
       "content-disposition": `${inlineType ? "inline" : "attachment"}; filename="${filename}"`,
