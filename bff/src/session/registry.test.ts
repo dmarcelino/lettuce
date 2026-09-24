@@ -16,6 +16,7 @@ const fakeUpstream = {
   getInfo: () => null,
   isReady: () => true,
   send: () => {},
+  isInternalRequest: () => false,
 } as unknown as UpstreamConnection;
 
 function setup() {
@@ -141,5 +142,56 @@ describe("activity broadcast", () => {
     registry.handleUpstreamFrame(busy);
     registry.broadcastUpstreamState("disconnected", null);
     expect(tab.sent.filter((m) => m.type === "__bff_activity").at(-1)?.active).toEqual([]);
+  });
+});
+
+/**
+ * A response to a request the BFF made itself is not a browser's response, and
+ * it is not an unsolicited frame either. Without the internal-id check it fell
+ * through to the broadcast path, so a `bff-download-*` `read_file_response`
+ * carried whole file contents to every connected session — and into the replay
+ * buffer, where a later reconnect replayed them again.
+ */
+describe("internal upstream responses", () => {
+  function fileResponse(requestId: string) {
+    return {
+      type: "read_file_response",
+      request_id: requestId,
+      path: "/work/agent-1/secret.md",
+      content: "TOP SECRET",
+      success: true,
+    } as never;
+  }
+
+  function setup(ids: string[]) {
+    const upstream = {
+      getState: () => "connected",
+      getInfo: () => null,
+      isReady: () => true,
+      send: () => {},
+      isInternalRequest: (id: string) => ids.includes(id),
+    } as unknown as UpstreamConnection;
+    const registry = new SessionRegistry(upstream, 100, () => {});
+    const sent: Record<string, unknown>[] = [];
+    const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };
+    registry.add(socket, { email: "someone@example.com" });
+    return { registry, sent };
+  }
+
+  test("an internal response is neither relayed nor buffered", () => {
+    const { registry, sent } = setup(["bff-download-abc"]);
+    expect(sent.map((m) => m.type)).toEqual(["__bff_hello"]);
+
+    registry.handleUpstreamFrame(fileResponse("bff-download-abc"));
+
+    expect(sent.map((m) => m.type)).toEqual(["__bff_hello"]);
+    expect(registry.latestSeq).toBe(0);
+  });
+
+  test("an orphaned response for a departed session still falls through", () => {
+    const { registry, sent } = setup([]);
+    registry.handleUpstreamFrame(fileResponse("web-1"));
+    expect(sent).toHaveLength(2);
+    expect(registry.latestSeq).toBe(1);
   });
 });

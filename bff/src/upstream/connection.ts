@@ -27,6 +27,13 @@ const SCOPE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
  * agent_list/conversation_list calls (use-agents.ts) — plenty at
  * personal-assistant scale, so there is no cursor-paging logic to get right. */
 const SCOPE_SWEEP_LIST_LIMIT = 100;
+/**
+ * Ceiling on remembered internal request ids. Generous relative to real traffic
+ * (a sweep of 100 agents x 100 conversations is ~10k ids) so eviction only
+ * ever kicks in on a pathological run, and cheap either way: these are short
+ * strings.
+ */
+const MAX_INTERNAL_REQUEST_IDS = 20_000;
 
 /**
  * The single, permanent connection to the app-server.
@@ -56,6 +63,20 @@ export class UpstreamConnection {
   private generation = 0;
   /** Scopes this connection has touched; re-subscribed after a reconnect. */
   private readonly knownScopes = new Map<string, { agent_id: string; conversation_id: string }>();
+  /**
+   * Request ids issued by `request()` — BFF-internal round trips, never made on
+   * behalf of a browser session. Their responses carry the id right back, and
+   * unless the frame router recognises them as internal they fall through to
+   * the unsolicited-frame path and get broadcast to every session and written
+   * into the replay buffer. For `read_file` that means whole file contents
+   * reaching sessions that never asked for them.
+   *
+   * Entries are kept rather than dropped when the request settles: the router
+   * sees the response before the promise resolves, but a late or duplicated
+   * frame with the same id must not become broadcast-worthy either. The set is
+   * FIFO-bounded so a long-lived process cannot grow it without limit.
+   */
+  private readonly internalRequestIds = new Set<string>();
 
   constructor(private readonly options: UpstreamOptions) {}
 
@@ -125,6 +146,7 @@ export class UpstreamConnection {
       throw new Error("App-server connection is not ready");
     }
     this.rememberScope(command);
+    this.rememberInternalRequest(command.request_id);
     return (await this.client.requestRaw(command, {
       timeoutMs,
       predicate: (message): message is never =>
@@ -134,6 +156,31 @@ export class UpstreamConnection {
             (message as { request_id?: unknown }).request_id === command.request_id,
         ),
     })) as unknown as T;
+  }
+
+  /**
+   * Record that this connection issued `requestId` itself, so the frame router
+   * can tell an internal response from an unsolicited frame.
+   *
+   * `Set` iteration order is insertion order, so eviction drops the oldest id —
+   * the one whose response is long past and least likely to turn up again.
+   */
+  private rememberInternalRequest(requestId: string): void {
+    this.internalRequestIds.add(requestId);
+    while (this.internalRequestIds.size > MAX_INTERNAL_REQUEST_IDS) {
+      const oldest = this.internalRequestIds.values().next();
+      if (oldest.done) break;
+      this.internalRequestIds.delete(oldest.value);
+    }
+  }
+
+  /**
+   * Whether `requestId` belongs to a BFF-internal round trip rather than to a
+   * browser session. Such a response must not be relayed, buffered, or
+   * broadcast; see `internalRequestIds`.
+   */
+  isInternalRequest(requestId: string): boolean {
+    return this.internalRequestIds.has(requestId);
   }
 
   private rememberScope(command: Record<string, unknown>): void {

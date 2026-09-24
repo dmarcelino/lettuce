@@ -281,9 +281,16 @@ export class SessionRegistry {
         } as unknown as BffServerMessage);
         return;
       }
-      // Not a session's response (a BFF-internal request, or the session went
-      // away). Fall through: some frames carry a request_id and are still
-      // broadcast-worthy, and an orphaned response is harmless to buffer.
+      // Not a session's response. If we issued the request ourselves, the
+      // response is BFF-internal and must stop here: it is not broadcast-worthy,
+      // and buffering it would replay whole file contents (a `read_file`
+      // response) to sessions that never asked. See
+      // `UpstreamConnection.isInternalRequest`.
+      if (this.upstream.isInternalRequest(requestId)) return;
+
+      // Otherwise the session that asked has gone away. Fall through: some
+      // frames carry a request_id and are still broadcast-worthy, and an
+      // orphaned response is harmless to buffer.
     }
 
     // Unsolicited frame: sequence it, buffer it for resume, fan it out.
