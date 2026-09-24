@@ -9,6 +9,7 @@ import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { CF_ACCESS_JWT_HEADER, verifyAccessJwt } from "./auth/cf-access.ts";
+import { checkUpgradeOrigin } from "./auth/origin.ts";
 import {
   buildSessionCookie,
   clearSessionCookie,
@@ -523,6 +524,20 @@ const server = Bun.serve<SocketData>({
     const url = new URL(request.url);
 
     if (url.pathname === "/ws") {
+      // A WebSocket handshake is not subject to CORS, and SameSite=Lax does not
+      // cover upgrades — so without this check any page the signed-in user
+      // visits could open a socket to this BFF and act as them.
+      const origin = checkUpgradeOrigin(
+        request.headers.get("origin"),
+        config.mode,
+        config.publicOrigin,
+        request.headers.get("host"),
+      );
+      if (!origin.ok) {
+        log(`Refused /ws upgrade: ${origin.reason}`);
+        return new Response("Forbidden origin", { status: 403, headers: hardened });
+      }
+
       const session = currentSession(request);
       if (!session) {
         return new Response("Unauthorized", { status: 401, headers: hardened });
