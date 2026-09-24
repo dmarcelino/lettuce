@@ -141,16 +141,27 @@ app.use("*", async (c, next) => {
   await next();
 });
 
+// The web client reads exactly three fields: `authenticated`, `auth_mode` and
+// `user.email`. Everything else here is operational detail — the running
+// letta-code version, backend kind, protocol version, how many sessions are
+// connected — and this route is UNAUTHENTICATED, so an anonymous visitor could
+// fingerprint the deployment straight from it. The full payload is served only
+// to a signed-in session, where it is useful for debugging; an anonymous
+// caller gets the minimum needed to render a sign-in screen.
 app.get("/api/status", (c) => {
   const session = c.get("session");
+  const auth_mode = config.devBypassEmail
+    ? "dev-bypass"
+    : config.mode === "cloudflared"
+      ? "cf-access"
+      : "none";
+
+  if (!session) return c.json({ authenticated: false, auth_mode });
+
   return c.json({
-    authenticated: session !== null,
-    auth_mode: config.devBypassEmail
-      ? "dev-bypass"
-      : config.mode === "cloudflared"
-        ? "cf-access"
-        : "none",
-    user: session ? { email: session.email } : null,
+    authenticated: true,
+    auth_mode,
+    user: { email: session.email },
     upstream: {
       state: upstream.getState(),
       info: upstream.getInfo(),

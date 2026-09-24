@@ -80,18 +80,16 @@ if (localBundle && servedBundle) {
 section("Stack health");
 
 try {
-  const ready = await (
-    await fetch(`${ORIGIN}/readyz`, { signal: AbortSignal.timeout(5000) })
-  ).text();
-  check("/readyz is ok", ready.trim() === "ok", ready.trim());
-
-  const status = (await (
-    await fetch(`${ORIGIN}/api/status`, { signal: AbortSignal.timeout(5000) })
-  ).json()) as { upstream?: { state?: string } };
+  const response = await fetch(`${ORIGIN}/readyz`, { signal: AbortSignal.timeout(5000) });
+  const ready = (await response.text()).trim();
+  // /readyz is the whole health signal: 200 "ok" when the BFF's permanent
+  // upstream connection is live, 503 "app-server <state>" otherwise. It is
+  // deliberately unauthenticated, unlike /api/status, which no longer reports
+  // upstream state to an anonymous caller.
   check(
     "upstream app-server is connected",
-    status.upstream?.state === "connected",
-    `upstream.state = ${status.upstream?.state}`,
+    response.ok && ready === "ok",
+    `${response.status} ${ready}`,
   );
 } catch (cause) {
   check("stack responds", false, cause instanceof Error ? cause.message : cause);

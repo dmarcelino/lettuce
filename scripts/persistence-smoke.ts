@@ -34,8 +34,10 @@ async function login(): Promise<string> {
   return cookie.split(";")[0]!;
 }
 
-async function status(): Promise<Record<string, any>> {
-  return (await fetch(`${ORIGIN}/api/status`)).json() as Promise<Record<string, any>>;
+async function status(cookie?: string): Promise<Record<string, any>> {
+  return (
+    await fetch(`${ORIGIN}/api/status`, cookie ? { headers: { cookie } } : undefined)
+  ).json() as Promise<Record<string, any>>;
 }
 
 interface Session {
@@ -95,7 +97,7 @@ console.log(`Authenticated: ${cookie.split("=")[0]}`);
 
 // Other clients may be connected (a phone with the UI open). Compare against
 // this baseline rather than assuming the server is idle.
-const baseline = (await status()).sessions;
+const baseline = (await status(cookie)).sessions;
 if (baseline > 0) console.log(`Note: ${baseline} session(s) already connected`);
 
 // ── 1. A session can drive the app-server ────────────────────────────────────
@@ -140,7 +142,7 @@ check(
     !b.frames.some((f) => f.type === "agent_list_response"),
 );
 
-const before = await status();
+const before = await status(cookie);
 check("both sessions registered", before.sessions >= 2, { sessions: before.sessions, baseline });
 
 // ── 3. The command allowlist holds ───────────────────────────────────────────
@@ -160,7 +162,7 @@ a.close();
 b.close();
 await new Promise((r) => setTimeout(r, 600));
 
-const after = await status();
+const after = await status(cookie);
 check("this test's sessions were unregistered", after.sessions === baseline, {
   after: after.sessions,
   baseline,
@@ -605,7 +607,7 @@ const throttled = await h.waitFor(
 check("a command flood is throttled at the BFF", Boolean(throttled), throttled?.message);
 
 // The upstream connection must be unharmed by the flood.
-const afterFlood = await status();
+const afterFlood = await status(cookie);
 check(
   "upstream survived the flood",
   afterFlood.upstream.state === "connected",
@@ -625,6 +627,30 @@ const anon = await fetch(`${ORIGIN}/ws`, {
   headers: { connection: "Upgrade", upgrade: "websocket" },
 });
 check("unauthenticated /ws upgrade is rejected", anon.status === 401, anon.status);
+
+// An anonymous /api/status must not fingerprint the deployment. The signed-in
+// payload carries the running letta-code version, backend kind, protocol
+// version and session count; none of that belongs to an unauthenticated caller.
+const anonStatus = await (await fetch(`${ORIGIN}/api/status`)).json();
+check(
+  "anonymous /api/status reports only what a sign-in screen needs",
+  anonStatus.authenticated === false &&
+    typeof anonStatus.auth_mode === "string" &&
+    anonStatus.upstream === undefined &&
+    anonStatus.sessions === undefined &&
+    anonStatus.latest_seq === undefined &&
+    anonStatus.user === undefined,
+  anonStatus,
+);
+
+const authStatus = await (await fetch(`${ORIGIN}/api/status`, { headers: { cookie } })).json();
+check(
+  "a signed-in /api/status still reports the operational detail",
+  authStatus.authenticated === true &&
+    authStatus.upstream?.state === "connected" &&
+    typeof authStatus.latest_seq === "number",
+  authStatus,
+);
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}`);
 process.exit(failures === 0 ? 0 : 1);
