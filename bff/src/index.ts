@@ -33,6 +33,7 @@ import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { configureWebPush, sendPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
+import { securityHeaders } from "./security-headers.ts";
 import { SETTINGS_PATH, WORKSPACE_ROOT, workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { symlinkViolation } from "./session/symlink-guard.ts";
@@ -94,6 +95,14 @@ interface AppVariables {
 }
 
 const app = new Hono<{ Variables: AppVariables }>();
+
+// Applied before anything else so every response carries the hardening set,
+// including the ones produced by the auth middleware below.
+const hardened = securityHeaders({ publicOrigin: config.publicOrigin });
+app.use("*", async (c, next) => {
+  for (const [name, value] of Object.entries(hardened)) c.header(name, value);
+  await next();
+});
 
 app.get("/healthz", (c) => c.text("ok\n"));
 
@@ -194,7 +203,10 @@ app.get("/auth/dev-login", (c) => {
 
   log(`Dev login as ${email} (NO AUTHENTICATION — loopback only)`);
   const { cookie } = mintSession(email);
-  return new Response(null, { status: 302, headers: { location: "/", "set-cookie": cookie } });
+  return new Response(null, {
+    status: 302,
+    headers: { location: "/", "set-cookie": cookie, ...hardened },
+  });
 });
 
 app.post("/auth/logout", (c) => {
@@ -443,6 +455,10 @@ app.get("/api/files/download", async (c) => {
       "content-type": inlineType ?? "application/octet-stream",
       "content-disposition": `${inlineType ? "inline" : "attachment"}; filename="${filename}"`,
       "content-length": String(bytes.length),
+      // Spread last-but-one: the hardening set must survive, and `nosniff` in
+      // particular matters here because this is the route that hands the
+      // browser agent-authored bytes.
+      ...hardened,
     },
   });
 });
@@ -509,7 +525,7 @@ const server = Bun.serve<SocketData>({
     if (url.pathname === "/ws") {
       const session = currentSession(request);
       if (!session) {
-        return new Response("Unauthorized", { status: 401 });
+        return new Response("Unauthorized", { status: 401, headers: hardened });
       }
       // The authenticated identity rides along in `data`, so the socket never
       // has to re-derive it from cookies after the upgrade.
@@ -520,7 +536,7 @@ const server = Bun.serve<SocketData>({
         } satisfies SocketData,
       });
       if (upgraded) return undefined;
-      return new Response("WebSocket upgrade failed", { status: 400 });
+      return new Response("WebSocket upgrade failed", { status: 400, headers: hardened });
     }
 
     return app.fetch(request);
