@@ -51,7 +51,11 @@ const secureCookies = config.publicOrigin.startsWith("https://");
 // Push is fully optional (see `config.push`'s doc comment) — null when the
 // three VAPID settings aren't configured, same "degrade silently, run
 // without it" pattern this repo already uses for the sandbox backend.
-const pushStore = config.push ? new PushSubscriptionStore(config.push.subscriptionsFile) : null;
+const pushStore = config.push
+  ? new PushSubscriptionStore(config.push.subscriptionsFile, (error) =>
+      log(`Push subscription persist failed: ${errorMessage(error)}`),
+    )
+  : null;
 if (config.push) configureWebPush(config.push);
 const turnOutcomeWatcher = pushStore ? new TurnOutcomeWatcher(pushStore, log) : null;
 const approvalWatcher = pushStore ? new ApprovalWatcher(pushStore, log) : null;

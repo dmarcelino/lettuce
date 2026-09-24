@@ -58,7 +58,18 @@ export class PushSubscriptionStore {
   private readonly records = new Map<string, PushSubscriptionRecord>();
   private writeQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly filePath: string) {
+  constructor(
+    private readonly filePath: string,
+    /** Surfaced rather than swallowed: a store that cannot persist is degraded,
+     * and silently so is worse than a noisy one. */
+    private readonly onWriteError: (error: unknown) => void = (error) => {
+      console.error(
+        `[push] failed to persist subscriptions to ${filePath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    },
+  ) {
     if (existsSync(filePath)) {
       try {
         const parsed: unknown = JSON.parse(readFileSync(filePath, "utf8"));
@@ -85,6 +96,17 @@ export class PushSubscriptionStore {
         // the app.
       }
     }
+  }
+
+  /**
+   * Resolves once every queued write has settled.
+   *
+   * Exposed so a test can await persistence, and so a shutdown path can flush
+   * rather than exit mid-write. Never rejects: a failed write is reported
+   * through `onWriteError`, not through the chain.
+   */
+  drain(): Promise<void> {
+    return this.writeQueue;
   }
 
   all(): PushSubscriptionRecord[] {
@@ -135,10 +157,26 @@ export class PushSubscriptionStore {
     if (this.records.delete(endpoint)) this.persist();
   }
 
+  /**
+   * Serialise a snapshot to disk behind whatever writes are already queued.
+   *
+   * The failure this guards: chaining with a bare `then` means a throwing write
+   * leaves `writeQueue` permanently REJECTED. Every later `persist()` then
+   * attaches to a rejected promise and its callback never runs, so from the
+   * first disk error onwards subscriptions silently stop being saved while the
+   * in-memory map keeps working — invisible until the process restarts and
+   * every device has vanished. The `catch` keeps the chain alive and logs.
+   */
   private persist(): void {
     const snapshot = this.all();
-    this.writeQueue = this.writeQueue.then(() => {
-      writeFileSync(this.filePath, JSON.stringify(snapshot, null, 2));
-    });
+    this.writeQueue = this.writeQueue
+      .catch(() => undefined)
+      .then(() => {
+        try {
+          writeFileSync(this.filePath, JSON.stringify(snapshot, null, 2));
+        } catch (error) {
+          this.onWriteError(error);
+        }
+      });
   }
 }

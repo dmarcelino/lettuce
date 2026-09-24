@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PushSubscriptionStore } from "./store.ts";
@@ -82,5 +82,55 @@ describe("PushSubscriptionStore preferences", () => {
   test("getPreferences returns null for an unknown endpoint", () => {
     const store = new PushSubscriptionStore(tempFile());
     expect(store.getPreferences("https://nope")).toBeNull();
+  });
+});
+
+/**
+ * The bug these guard: `writeQueue` was chained with a bare `then`, so the
+ * first throwing write left it permanently REJECTED. Every later persist then
+ * attached to a rejected promise and its callback never ran — subscriptions
+ * silently stopped being saved while the in-memory map kept working, which is
+ * invisible until the process restarts and every device is gone.
+ */
+describe("PushSubscriptionStore write resilience", () => {
+  test("a failed write does not poison later writes", async () => {
+    // Parent directory does not exist, so the first write throws ENOENT.
+    const dir = mkdtempSync(join(tmpdir(), "push-store-resilience-"));
+    dirs.push(dir);
+    const file = join(dir, "missing", "push-subscriptions.json");
+
+    const errors: unknown[] = [];
+    const store = new PushSubscriptionStore(file, (error) => errors.push(error));
+
+    store.add(subscription, "me@example.com");
+    await store.drain();
+    expect(errors).toHaveLength(1);
+    expect(existsSync(file)).toBe(false);
+
+    // Now make the write possible. The queue must still be alive.
+    mkdirSync(join(dir, "missing"));
+    store.add(
+      { endpoint: "https://push.example/second", keys: { p256dh: "k", auth: "a" } },
+      "me@example.com",
+    );
+    await store.drain();
+
+    expect(existsSync(file)).toBe(true);
+    const saved = JSON.parse(readFileSync(file, "utf8")) as { endpoint: string }[];
+    expect(saved.map((r) => r.endpoint)).toEqual([
+      "https://push.example/abc",
+      "https://push.example/second",
+    ]);
+  });
+
+  test("the error is reported rather than swallowed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "push-store-error-"));
+    dirs.push(dir);
+    const errors: unknown[] = [];
+    const store = new PushSubscriptionStore(join(dir, "nope", "p.json"), (e) => errors.push(e));
+    store.add(subscription, "me@example.com");
+    await store.drain();
+    expect(errors.length).toBe(1);
+    expect((errors[0] as Error).message).toContain("ENOENT");
   });
 });
