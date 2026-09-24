@@ -9,6 +9,19 @@ import type { PushSubscriptionRecord } from "./store.ts";
  */
 const PUSH_TTL_SECONDS = 6 * 60 * 60;
 
+/**
+ * How long to wait for a push endpoint before giving up on it.
+ *
+ * `web-push` sets no timeout of its own, so an endpoint that accepts the TCP
+ * connection and then never responds holds the request open indefinitely. Every
+ * watcher sends through `notify()` with `Promise.all` over all devices, so one
+ * hung push service would stall that fan-out — and the frame-processing loop it
+ * was called from — for as long as the socket lives. A push that has not been
+ * accepted within a few seconds is not going to be, and is not worth blocking
+ * delivery to the other devices for.
+ */
+const PUSH_TIMEOUT_MS = 10_000;
+
 export function configureWebPush(push: PushConfig): void {
   // The VAPID `sub` claim must be exactly `mailto:<email>` or `https://<url>`
   // on its own — no string-building around an already-schemed value (a sibling
@@ -37,11 +50,21 @@ export async function sendPush(
   payload: PushPayload,
 ): Promise<"sent" | "gone"> {
   try {
-    await webpush.sendNotification(
-      { endpoint: record.endpoint, keys: record.keys },
-      JSON.stringify(payload),
-      { TTL: PUSH_TTL_SECONDS },
-    );
+    await Promise.race([
+      webpush.sendNotification(
+        { endpoint: record.endpoint, keys: record.keys },
+        JSON.stringify(payload),
+        { TTL: PUSH_TTL_SECONDS },
+      ),
+      new Promise<never>((_, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error(`Push to ${record.endpoint} timed out`)),
+          PUSH_TIMEOUT_MS,
+        );
+        // Do not hold the process open for a timer whose only job is to give up.
+        timer.unref?.();
+      }),
+    ]);
     return "sent";
   } catch (error) {
     const statusCode = (error as { statusCode?: number }).statusCode;
