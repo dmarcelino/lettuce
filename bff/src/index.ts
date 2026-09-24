@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import type {
   ReadFileResponseMessage,
   WriteFileResponseMessage,
@@ -32,8 +33,9 @@ import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { configureWebPush, sendPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
-import { SETTINGS_PATH, workspaceViolation } from "./session/protocol.ts";
+import { SETTINGS_PATH, WORKSPACE_ROOT, workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
+import { symlinkViolation } from "./session/symlink-guard.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 
 const config: BffConfig = loadConfig();
@@ -70,6 +72,19 @@ const upstream = new UpstreamConnection({
 });
 
 const registry = new SessionRegistry(upstream, config.frameBufferSize, log);
+
+// The symlink guard inspects the workspace through this process's own mount. If
+// that mount is absent — running the BFF outside the container, or a compose
+// file that forgot it — every component stats as ENOENT and the guard passes
+// everything. That is fail-open, so say so loudly rather than leaving it to be
+// discovered by an escape.
+if (!existsSync(WORKSPACE_ROOT)) {
+  log(
+    `! ${WORKSPACE_ROOT} is not mounted in this process: the symlink guard cannot ` +
+      `verify workspace paths and will allow any lexically-in-root path. Mount the ` +
+      `host workspaces directory at ${WORKSPACE_ROOT} (see docker/compose.yml).`,
+  );
+}
 
 upstream.start();
 
@@ -383,6 +398,11 @@ app.get("/api/files/download", async (c) => {
 
   const violation = workspaceViolation({ type: "read_file", path });
   if (violation) return c.text(violation, 400);
+
+  // Same reason as the WS path: a symlink under /work resolves outside it and
+  // the app-server follows it without resolving.
+  const symlink = symlinkViolation(path, WORKSPACE_ROOT);
+  if (symlink) return c.text(symlink, 400);
 
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
 

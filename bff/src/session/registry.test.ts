@@ -195,3 +195,73 @@ describe("internal upstream responses", () => {
     expect(registry.latestSeq).toBe(1);
   });
 });
+
+/**
+ * The lexical clamp says a path is under /work; that says nothing about whether
+ * a component of it is a symlink pointing elsewhere. The app-server resolves
+ * nothing — `read_file` reads straight through — so the BFF has to check the
+ * components itself or the workspace boundary is decorative.
+ */
+describe("symlink escape", () => {
+  test("a planted link inside the workspace cannot be read through", () => {
+    const upstream = {
+      getState: () => "connected",
+      getInfo: () => null,
+      isReady: () => true,
+      send: () => {},
+      isInternalRequest: () => false,
+    } as unknown as UpstreamConnection;
+    const sent: Record<string, unknown>[] = [];
+    const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };
+    const registry = new SessionRegistry(
+      upstream,
+      100,
+      () => {},
+      "/work",
+      (path: string) => ({
+        isSymbolicLink: () => path === "/work/agent-1/link",
+      }),
+    );
+    const id = registry.add(socket, { email: "someone@example.com" });
+
+    registry.handleSessionMessage(
+      id,
+      JSON.stringify({
+        type: "read_file",
+        request_id: "r1",
+        path: "/work/agent-1/link/settings.json",
+      }),
+    );
+    const refusal = sent.find((m) => m.request_id === "r1");
+    expect(refusal?.type).toBe("__bff_error");
+    expect(String(refusal?.message)).toContain("symlink");
+  });
+
+  test("a real path with no links still goes through", () => {
+    const upstream = {
+      getState: () => "connected",
+      getInfo: () => null,
+      isReady: () => true,
+      send: () => {},
+      isInternalRequest: () => false,
+    } as unknown as UpstreamConnection;
+    const sent: Record<string, unknown>[] = [];
+    const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };
+    const registry = new SessionRegistry(
+      upstream,
+      100,
+      () => {},
+      "/work",
+      () => ({
+        isSymbolicLink: () => false,
+      }),
+    );
+    const id = registry.add(socket, { email: "someone@example.com" });
+
+    registry.handleSessionMessage(
+      id,
+      JSON.stringify({ type: "read_file", request_id: "r2", path: "/work/agent-1/notes.md" }),
+    );
+    expect(sent.find((m) => m.type === "__bff_error" && m.request_id === "r2")).toBeUndefined();
+  });
+});

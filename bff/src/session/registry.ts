@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { lstatSync } from "node:fs";
 import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-server-client";
 import type {
   GetTreeResponseMessage,
@@ -13,11 +14,14 @@ import {
   ALLOWED_SESSION_COMMANDS,
   type BffServerMessage,
   executeCommandViolation,
+  FILE_PATH_FIELDS,
   isBffResumeCommand,
   isBffWatchingCommand,
   SEQ_FIELD,
+  WORKSPACE_ROOT,
   workspaceViolation,
 } from "./protocol.ts";
+import { type Lstat, symlinkViolation } from "./symlink-guard.ts";
 
 export interface SessionSocket {
   send(data: string): void;
@@ -92,6 +96,10 @@ export class SessionRegistry {
     private readonly upstream: UpstreamConnection,
     frameBufferSize: number,
     private readonly log: (message: string) => void,
+    /** Where the workspace is mounted in this process; see `symlink-guard.ts`. */
+    private readonly workspaceMount: string = WORKSPACE_ROOT,
+    /** Injectable so the guard is testable without a real symlinked tree. */
+    private readonly lstat: Lstat = lstatSync,
   ) {
     this.buffer = new FrameBuffer(frameBufferSize);
   }
@@ -243,6 +251,19 @@ export class SessionRegistry {
       return;
     }
 
+    // Lexical containment is not enough: a symlink inside /work resolves
+    // outside it while looking perfectly ordinary to the check above, and the
+    // app-server follows links without resolving them.
+    const symlink = this.symlinkEscapeFor(command);
+    if (symlink) {
+      this.sendTo(session.socket, {
+        type: "__bff_error",
+        message: symlink,
+        ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
+      });
+      return;
+    }
+
     if (!this.upstream.isReady()) {
       this.sendTo(session.socket, {
         type: "__bff_error",
@@ -280,6 +301,23 @@ export class SessionRegistry {
         ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
       });
     }
+  }
+
+  /**
+   * The symlink refusal for a path-bearing command, or null.
+   *
+   * Only runs for paths already known to be under the workspace root — a path
+   * outside it was refused above. `workspaceMount` is where the BFF's read-only
+   * bind of the same host directory is mounted; it defaults to the workspace
+   * root itself, which is correct in the container.
+   */
+  private symlinkEscapeFor(command: Record<string, unknown> & { type: string }): string | null {
+    const field = FILE_PATH_FIELDS.get(command.type);
+    if (!field) return null;
+    const raw = command[field];
+    if (typeof raw !== "string" || raw === "") return null;
+    if (raw !== WORKSPACE_ROOT && !raw.startsWith(`${WORKSPACE_ROOT}/`)) return null;
+    return symlinkViolation(raw, this.workspaceMount, this.lstat);
   }
 
   /** Handle one frame arriving from the app-server. */
