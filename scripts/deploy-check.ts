@@ -9,6 +9,8 @@
  * Usage: bun run deploy-check [bffOrigin]
  */
 
+import { readFileSync } from "node:fs";
+
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const ROOT = new URL("..", import.meta.url).pathname;
 
@@ -47,6 +49,46 @@ check("on main", branch === "main", `on "${branch}"`);
 
 const worktrees = git("worktree", "list").split("\n").filter(Boolean);
 check("no leftover feature worktrees", worktrees.length <= 1, worktrees.slice(1).join(" | "));
+
+/**
+ * LETTA_STATE_DIR anchors every bind mount, and compose defaults it to `../..`
+ * relative to the compose file. That default is a trap: from a worktree at
+ * `letta-code-ui-worktrees/<feature>/docker/` it resolves to the worktrees
+ * directory rather than the real state, so the stack comes up healthy against
+ * an empty (or wrong) set of agent memory, conversations and settings.
+ *
+ * Read the same two sources compose would, in the same precedence order.
+ */
+function declaredStateDir(): string | null {
+  if (process.env.LETTA_STATE_DIR?.trim()) return process.env.LETTA_STATE_DIR.trim();
+  let text: string;
+  try {
+    text = readFileSync(`${ROOT}docker/.env`, "utf8");
+  } catch {
+    return null;
+  }
+  for (const line of text.split("\n")) {
+    const match = line.match(/^\s*(?:export\s+)?LETTA_STATE_DIR\s*=\s*(.*)$/);
+    if (!match) continue;
+    const value = match[1]
+      .trim()
+      .replace(/^"(.*)"$/, "$1")
+      .replace(/^'(.*)'$/, "$1");
+    if (value) return value;
+  }
+  return null;
+}
+
+const stateDir = declaredStateDir();
+const stateDirIsAbsolute = stateDir?.startsWith("/") ?? false;
+check(
+  "LETTA_STATE_DIR is set to an absolute path",
+  stateDirIsAbsolute,
+  stateDir === null
+    ? "unset — compose will default to `../..` relative to docker/, which resolves " +
+        "into the wrong directory from a worktree. Set it absolutely in docker/.env."
+    : `relative: ${stateDir}`,
+);
 
 // ── 2. The running image matches the built bundle ──────────────────────────
 section("Deployed bundle");
