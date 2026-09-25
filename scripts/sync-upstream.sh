@@ -138,7 +138,6 @@ cd "$UI_ROOT"
 sed -i -E "s|(\"@letta-ai/letta-code\": \")[^\"]+(\")|\1$VERSION\2|" \
   package.json bff/package.json web/package.json
 sed -i -E "s|(LETTA_CODE_VERSION:-)[^}]+(\})|\1$VERSION\2|g" docker/compose.yml
-sed -i -E "s|(^ARG LETTA_CODE_VERSION=).*|\1$VERSION|" docker/app-server.Dockerfile
 
 bun install
 bun scripts/check-version-pin.ts || fail "Version pins disagree after the bump."

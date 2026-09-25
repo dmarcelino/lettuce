@@ -198,81 +198,32 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   agent entry, write it back, and then `execute_command {command_id:"reload"}` — which
   replies "Reloaded settings, local mods, and agent secrets". Merge rather than replace:
   the file holds ~18 unrelated top-level settings including `deviceId`.
-- **The agent sandbox needs bubblewrap, two relaxed container profiles AND `CAP_SYS_ADMIN`.**
-  `LETTA_FS_SANDBOX=1` on the app-server is what confines agent shells, and letta-code's only
-  Linux backend is `bwrap` (`src/sandbox/availability.ts`). The package is added by
-  `docker/app-server.Dockerfile`, a thin layer over upstream's published
-  `letta/letta:<version>`. The channel-gateway deliberately does **not** carry the flag: it is
-  a relay, the app-server runs every turn, and its image is that published one unmodified, so
-  it has no bwrap. **Re-verify the sandbox after any base-image change** — the gate degrades
-  silently (`warnSandboxBackendUnavailable`, then run unwrapped), so a missing bwrap looks
-  exactly like a healthy stack.
+- **letta-code's filesystem sandbox is OFF, deliberately, and the image carries no bubblewrap.**
+  The app-server runs upstream's `letta/letta:<version>` unmodified, with Docker's default
+  seccomp, AppArmor and capabilities, and `LETTA_FS_SANDBOX: "0"`. The explicit `"0"` is
+  load-bearing: unset is not off — memory subagents are sandboxed by default whenever a bwrap
+  backend exists (`src/sandbox/availability.ts` `isFsSandboxEnabled`).
 
-  **Measure against `buildBwrapArgs`, never against the probe — they differ, and only the probe
-  is forgiving.** `availability.ts` probes with `bwrap --ro-bind / / --unshare-user`, but the
-  policy actually run (`src/sandbox/bwrap.ts` `buildBwrapArgs`) never passes `--unshare-user`.
-  bubblewrap running as real root then takes its *privileged* path — no user namespace — and
-  calls `unshare(CLONE_NEWNS)` directly, which needs `CAP_SYS_ADMIN`. So the probe passes, the
-  gate reports a backend, and every wrapped shell command
-  dies with `bwrap: Creating new namespace failed: Operation not permitted`. That is exactly how
-  the sandbox sat broken-but-green until 2026-08-25. Re-measured against the real arg list:
+  It was on until 2026-09-25 (bubblewrap layered onto the image, `LETTA_FS_SANDBOX=1`, the
+  cross-agent profile) and was removed after measuring what it bought, in the running container:
+  - **It did not hold against a hostile agent.** bwrap as root takes its privileged path, and
+    `buildBwrapArgs` passes no `--cap-drop`, so wrapped shells kept the container's full
+    capability set including `CAP_SYS_ADMIN` — one `umount` removed the tmpfs mask over other
+    agents' memfs. Other agents' **conversations** (`/data/local-backend/conversations`) were
+    never masked at all, and `/root/.letta/settings.json` stayed writable: an `mcpServers`
+    entry there is a command the app-server itself runs, unwrapped, on reload.
+  - **Its price was the boundary that matters.** Making root bwrap work at all needed
+    `cap_add: SYS_ADMIN` plus `seccomp:unconfined` and `apparmor:unconfined`, weakening the
+    container → host wall for every agent shell.
 
-  | container config | result |
-  |---|---|
-  | default caps | fails |
-  | `cap_drop: ALL` | fails — uid 0 stays on the privileged path |
-  | `SYS_ADMIN` alone (default seccomp + AppArmor) | fails |
-  | `SYS_ADMIN` + one profile unconfined | fails |
-  | `SYS_ADMIN` + `seccomp:unconfined` + `apparmor:unconfined` | **works** |
-  | non-root uid + both profiles unconfined, no added caps | works |
-
-  All three of `seccomp:unconfined`, `apparmor:unconfined` and `cap_add: SYS_ADMIN` are
-  load-bearing; `privileged` is still not needed. (An earlier note here said `SYS_ADMIN` was
-  not needed. It was measured against the probe's arguments, not the policy's.) Running the
-  app-server as a non-root uid drops the capability requirement entirely — bwrap then takes the
-  unprivileged user-namespace path — but it needs the `letta-home` and `letta-data` trees
-  chowned, so it is a migration rather than a flag.
-
-  **The profile is cross-agent, not per-workspace — and that was a deliberate swap.** With
-  `LETTA_FS_SANDBOX=1`, `applyShellSandbox` builds `buildCrossAgentSandboxPolicy`: `--bind / /`
-  (writes allowed by default), both agents trees (`~/.letta/agents` and
-  `<local-backend>/memfs`) masked with an empty tmpfs, and the current agent's own memory roots
-  bound back read-write. Measured in the container: own memfs memory dir **writable**, `/tmp`
-  **writable**, `/root/.letta` **writable**, other agents' memfs **masked** (`ls` shows only
-  this agent), `/work/<other agent>` **writable**.
-
-  The UI used to request `runtime_start.workspace_sandbox {root: /work/<agent-id>,
-  isolation_root: /work}` instead. Do not put it back. Three measured reasons:
-
-  1. It is a **write-scoped** profile with exactly ONE writable root
-     (`buildWorkspaceSandboxPolicy` → `restrictWrites: true`). Rooted at the agent workspace it
-     left the agent's own memory (`/data/local-backend/memfs/<id>/memory`), `/tmp` and
-     `/root/.letta` **read-only** — so an agent could not record anything it learned, and
-     anything reaching for a temp file failed (a `curl -o /tmp/...` exits 23). `policy.ts` has
-     a `baseWritableRoots` field that would express "workspace plus `/tmp` plus memory"
-     exactly, but no protocol field reaches it, so it is unobtainable without a fork delta.
-  2. Its isolation root was `/work`, so it masked peer **workspaces** while leaving every
-     agent's **memory** world-readable. The cross-agent profile inverts that, and memory is the
-     part worth hiding.
-  3. Coverage was not uniform. `workspaceSandbox` lives on the per-conversation runtime, so
-     cron (`cron/scheduler.ts` → `getOrCreateConversationRuntime`) and channel-fired turns got
-     no sandbox at all, and a cron-*created* conversation also gets `cwd = /work` rather than
-     `/work/<agent-id>`. Worse, a BFF upstream reconnect re-syncs known scopes
-     (`bff/src/upstream/connection.ts` `resubscribe()` → `sync {runtime}`), which subscribes the
-     connection and creates an unsandboxed runtime; the browser's next `runtime_start` then
-     trips `assertRuntimeWorkspaceSandboxChangeAllowed` and `use-conversation.ts` fell back to
-     no sandbox **for the life of that conversation**. Two conversations of the same agent an
-     hour apart could differ. `LETTA_FS_SANDBOX` is process env, so it covers every shell in
-     every conversation — browser, cron, Telegram and subagents alike.
-
-  Scope, so it is not oversold: it confines **spawned shell commands**, cross-agent only.
-  Agents are *not* confined to `/work/<agent-id>` — one can still write another's workspace
-  files. Reads outside the agents trees are **not** restricted — `policy.ts` says so outright —
-  and the network is untouched. In-process file tools are covered separately and
-  unconditionally by `evaluateCrossAgentGuard`, which does not depend on this flag. The gate
-  degrades silently when no backend is available (`warnSandboxBackendUnavailable`, then run
-  unwrapped), so the capability check above belongs in `docker/compose.yml` and nothing in the
-  UI reports sandbox state any more.
+  All agents here belong to one person, so the container boundary is the one kept. What
+  remains agent-to-agent is letta-code's in-process `evaluateCrossAgentGuard`
+  (`permissions/cross-agent-guard.ts`), which covers the file tools (Read/Edit/Write) and does
+  not depend on the flag; shells are unconfined within the container. Real agent-to-agent
+  isolation would mean one app-server container per agent — not re-enabling the flag. (Nor
+  `runtime_start.workspace_sandbox`, which the UI once requested: a write-scoped profile with
+  one writable root that left the agent's own memory, `/tmp` and `/root/.letta` read-only, and
+  that cron- and channel-fired runtimes never got.)
 - **Skills have four scopes, and none of them is per-conversation.** Discovery
   (`src/agent/skills.ts`, `src/agent/client-skills.ts`) reads, lowest priority first: bundled
   (in the package), global `/root/.letta/skills/`, agent `~/.letta/agents/<id>/memory/skills/`,
@@ -287,11 +238,9 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     (`listener/commands/skills-agents.ts`). `skill_disable` only unlinks from there, so on a
     project- or agent-scoped skill it answers "Skill not found" — which is why the Skills tab
     offers Disable only for `source === "global"`.
-  - **An agent can install into any scope except another agent's.** Under the cross-agent
-    sandbox its shell can write `/root/.letta/skills` (global) and its own agent memory dir, so
-    `skill_enable` from a shell works. Only peer agents' trees are masked. (This was not true
-    under the old workspace sandbox, which confined the shell to `/work/<agent-id>` and left
-    project scope as the only writable option.)
+  - **An agent can install into any scope.** Shells are unconfined within the container (the
+    sandbox is off), so an agent's shell can write `/root/.letta/skills` (global) and its own
+    agent memory dir, and `skill_enable` from a shell works.
   - **The advertised list is rebuilt in `turn-setup.ts` and nowhere else.** It starts empty and
     is recomputed at the start of each turn, and no protocol command asks for a fresh one — so
     Settings→Skills is blank until the agent has taken a turn, and after an enable/disable the
@@ -344,8 +293,8 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   env) — never under `/work/<agent-id>`. Agents reach it two ways: the in-process `memory` tool
   (`memory {command:"str_replace", file_path:"system/human.md", reason:…}`, present in
   `ANTHROPIC_DEFAULT_TOOLS`), which writes with node `fs` and commits with `execFile("git")`,
-  neither of them sandboxed; or plain `Edit`/`Write`/`Bash` on `$MEMORY_DIR`, which works
-  because the cross-agent profile binds the agent's own memory roots read-write. Prefer the
+  neither of them sandboxed; or plain `Edit`/`Write`/`Bash` on `$MEMORY_DIR` (the file tools
+  pass the cross-agent guard for the agent's own memory; shells are unconfined). Prefer the
   `memory` tool: the repo carries `pre-commit`/`post-commit` hooks that validate frontmatter,
   and the tool commits for you. `letta memory` (the CLI) has status/diff/backup/export/pull but
   **no write verb** — its own help says "use git commands" — so an agent that goes looking
@@ -426,7 +375,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 ## Upstream sync
 
 `bun run sync-upstream` — fetches upstream, reports protocol drift, asserts zero fork delta,
-re-pins all six version sites to the new release, and typechecks.
+re-pins all five version sites to the new release, and typechecks.
 
 Protocol drift shows up two ways:
 1. **Typed** — `web/` and `bff/` import from `@letta-ai/letta-code` (pinned to the npm release
@@ -445,33 +394,31 @@ Docker Hub, and the protocol types are `@letta-ai/letta-code@<v>` from npm. A fo
 commit past a tag has nothing to pin to, and quietly stops being the code the app-server runs.
 `sync-upstream.sh` now asserts both artifacts exist before re-pinning.
 
-**The version literal lives in six tracked places and they must move together:**
+**The version literal lives in five tracked places and they must move together:**
 
 | File | Form |
 |---|---|
-| `docker/compose.yml` | `LETTA_CODE_VERSION: "${LETTA_CODE_VERSION:-<v>}"` — app-server build arg |
+| `docker/compose.yml` | `image: letta/letta:${LETTA_CODE_VERSION:-<v>}` — app-server |
 | `docker/compose.yml` | `image: letta/letta:${LETTA_CODE_VERSION:-<v>}` — channel-gateway |
-| `docker/app-server.Dockerfile` | `ARG LETTA_CODE_VERSION=<v>` |
 | `package.json` | `"@letta-ai/letta-code": "<v>"` |
 | `bff/package.json` | same |
 | `web/package.json` | same |
 | `docker/.env` | `LETTA_CODE_VERSION=<v>` — gitignored, so it drifts unseen |
 
-`scripts/check-version-pin.ts` asserts the six agree and runs first in `bun run verify`.
+`scripts/check-version-pin.ts` asserts the five agree and runs first in `bun run verify`.
 `docker/.env` is reported but never fatal — it cannot be fixed from a fresh clone.
-`sync-upstream.sh` rewrites all six for you.
+`sync-upstream.sh` rewrites all five for you.
 
 **The trap that hides a stale pin:** a shell `LETTA_CODE_VERSION` outranks `docker/.env` in
 Compose's precedence order. That is how `.env` sat at `0.30.27` through the whole `0.30.29`
 cycle without anyone noticing. The pin check now prints a warning for exactly this case.
 
-**A version bump is a full rebuild.** `docker compose -f docker/compose.yml up -d --build` —
-app-server, channel-gateway and bff. This is the documented exception to "Only `bff` is rebuilt
+**A version bump is a full redeploy.** `docker compose -f docker/compose.yml up -d --build` —
+pulls the new app-server and channel-gateway images and rebuilds bff. This is the documented exception to "Only `bff` is rebuilt
 in step 4" under Definition of done; that note governs ordinary UI and BFF changes, this one
 governs version bumps. Recreating `app-server` drops the BFF's permanent upstream connection,
 so any in-flight turn is lost and the cron scheduler and Telegram gateway restart on the BFF's
-reconnect. Afterwards re-check the sandbox (`bwrap --version` in the container) — a base image
-that lost the package would degrade silently.
+reconnect.
 
 ## Git workflow
 
@@ -527,8 +474,8 @@ is no `main` upstream to track on a fresh clone — the first push of a branch n
 tracked, and no secret values are in history. Re-check that before pushing anything new that
 touches configuration.
 
-Only `bff` is rebuilt in step 4 — it is the only service carrying our code. Rebuild
-`app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or the fork changes.
+Only `bff` is rebuilt in step 4 — it is the only service carrying our code. Recreate
+`app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or their compose config changes.
 
 **`web/dist` is baked into the bff image, never mounted.** `bff.Dockerfile` builds the SPA
 in its `web-build` stage and copies the result into the runtime image; the BFF's only mounts
@@ -557,7 +504,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run dev` | BFF + Vite dev server |
 | `bun run smoke` | Live acceptance suite against a running stack — mutates state |
 | `bun run sync-upstream` | Sync fork from upstream, report drift, re-pin the version |
-| `bun run check-version-pin` | Assert the six letta-code version literals agree (runs inside `verify`) |
+| `bun run check-version-pin` | Assert the five letta-code version literals agree (runs inside `verify`) |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
 | `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway |

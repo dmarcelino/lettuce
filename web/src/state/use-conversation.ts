@@ -444,14 +444,13 @@ export function useConversation(
           content: "",
         }).catch(() => undefined);
 
-        // No `workspace_sandbox`. Agent shells are confined by the app-server's
-        // LETTA_FS_SANDBOX cross-agent profile instead — see the long note in
-        // docker/compose.yml for why. Briefly: workspace_sandbox is
-        // write-scoped to a SINGLE root, which left the agent's own memfs
-        // memory, /tmp and /root/.letta read-only, and it rode on the
-        // per-conversation runtime, so cron- and Telegram-fired turns escaped
-        // it entirely. `cwd` still points each runtime at its own directory —
-        // that is now a convention, not a kernel boundary.
+        // No `workspace_sandbox`: it is write-scoped to a SINGLE root, which
+        // left the agent's own memfs memory, /tmp and /root/.letta read-only,
+        // and it rode on the per-conversation runtime, so cron- and
+        // Telegram-fired turns escaped it entirely. letta-code's filesystem
+        // sandbox is off too (see LETTA_FS_SANDBOX in docker/compose.yml).
+        // `cwd` points each runtime at its own directory — a convention, not a
+        // kernel boundary.
         const started = await request<{ success?: boolean; error?: string }>("runtime_start", {
           agent_id: scope.agent_id,
           conversation_id: scope.conversation_id,

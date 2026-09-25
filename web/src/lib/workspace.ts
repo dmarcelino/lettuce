@@ -8,10 +8,10 @@
  * recreate.
  *
  * Each agent gets `/work/<agent-id>`, which `use-conversation.ts` passes as the
- * runtime `cwd`. That is a CONVENTION, not a kernel boundary: the app-server's
- * sandbox (LETTA_FS_SANDBOX, see docker/compose.yml) confines agent shells
- * cross-agent — no agent can reach another's memory — but leaves `/work`
- * writable, so an agent can still reach a peer's workspace files.
+ * runtime `cwd`. That is a CONVENTION, not a kernel boundary: letta-code's
+ * filesystem sandbox is off (LETTA_FS_SANDBOX=0, see docker/compose.yml), so
+ * an agent's shell can reach anything in the container, peers' workspaces
+ * included.
  *
  * The one hard boundary here is the BROWSER's. Keep in sync with
  * `WORKSPACE_ROOT` in bff/src/session/protocol.ts, which clamps every file

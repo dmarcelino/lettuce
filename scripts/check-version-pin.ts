@@ -3,8 +3,8 @@
  *
  * The app-server image, the channel-gateway image and the protocol types the UI
  * compiles against must all be the SAME release, or the UI is typechecked
- * against one protocol and talks to another. The literal is repeated in six
- * tracked files and nothing used to check them — CLAUDE.md said so outright
+ * against one protocol and talks to another. The literal is repeated in five
+ * tracked places and nothing used to check them — CLAUDE.md said so outright
  * ("Nothing asserts they agree").
  *
  * `docker/.env` is reported but never fails the run: it is gitignored, so it
@@ -29,18 +29,15 @@ interface Site {
 const SITES: Site[] = [
   {
     file: "docker/compose.yml",
-    label: "compose app-server build arg",
-    pattern: /LETTA_CODE_VERSION:\s*"\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}"/,
+    label: "compose app-server image",
+    pattern:
+      /^ {2}app-server:[\s\S]*?image:\s*letta\/letta:\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/m,
   },
   {
     file: "docker/compose.yml",
     label: "compose channel-gateway image",
-    pattern: /image:\s*letta\/letta:\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/,
-  },
-  {
-    file: "docker/app-server.Dockerfile",
-    label: "app-server ARG default",
-    pattern: /^ARG LETTA_CODE_VERSION=(.+)$/m,
+    pattern:
+      /^ {2}channel-gateway:[\s\S]*?image:\s*letta\/letta:\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/m,
   },
   {
     file: "package.json",
