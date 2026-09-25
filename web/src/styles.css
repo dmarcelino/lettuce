@@ -282,6 +282,11 @@ pre {
   margin: auto;
 }
 
+/* The timestamp toggle under the filter groups in the filter sheet. */
+.picker + .checkbox {
+  margin-top: 14px;
+}
+
 /* Transcript timestamp: a quiet line above the entry, shown only where the
    minute changes (MessageList), pulled toward its entry past the list gap. */
 .entry-time {
