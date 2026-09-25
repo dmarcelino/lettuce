@@ -337,19 +337,43 @@ try {
     await shot(page, "desktop-filters");
     await page.keyboard.press("Escape");
 
-    // Settings: Channels is gone, the other three remain.
+    // Settings: Channels is gone; the rest of the chips are the ones we built.
     await page.locator('nav.tabs button:text-is("Settings")').click();
     await page.waitForTimeout(500);
     check(
       "Channels section is gone",
       (await page.locator('.pane-bar button:text-is("Channels")').count()) === 0,
     );
+    const expectedChips = [
+      "Connection",
+      "MCP",
+      "Skills",
+      "Secrets",
+      "Reflection",
+      "Notifications",
+    ];
+    const chipLabels = (await page.locator(".pane-bar button").allInnerTexts()).map((t) =>
+      t.trim(),
+    );
     check(
-      "Connection / MCP / Skills / Notifications remain",
-      (await page.locator(".pane-bar button").count()) === 4,
+      `chips are ${expectedChips.join(" / ")}`,
+      JSON.stringify(chipLabels) === JSON.stringify(expectedChips),
+      chipLabels,
     );
     const settingsBox = await overflow(page);
     check("settings has nothing clipped", settingsBox.clipped.length === 0, settingsBox);
+
+    // The two sections added from upstream must lay out like the existing ones,
+    // not just exist. Secrets needs an agent selected; Reflection needs a
+    // conversation, and renders an empty-state notice when it has none.
+    for (const chip of ["Secrets", "Reflection"]) {
+      await page.locator(`.pane-bar button:text-is("${chip}")`).click();
+      await page.waitForTimeout(400);
+      const box = await overflow(page);
+      check(`${chip.toLowerCase()} section has nothing clipped`, box.clipped.length === 0, box);
+    }
+    await page.locator('.pane-bar button:text-is("Connection")').click();
+    await page.waitForTimeout(300);
 
     // Models served: count in the heading, provider per row.
     const servedHeading = await page.locator('.section-note:has-text("Models served")').innerText();
