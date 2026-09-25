@@ -52,6 +52,9 @@ interface Props {
   filters: ReadonlySet<FilterGroup>;
   onToggleFilter: (group: FilterGroup) => void;
   onClearFilters: () => void;
+  /** Transcript timestamps; the toggle lives in the filter sheet. */
+  showTimestamps: boolean;
+  onShowTimestamps: (show: boolean) => void;
   permissionMode: PermissionMode | null;
   onPermissionMode: (mode: PermissionMode) => void;
   commands: SlashCommand[];
@@ -84,6 +87,8 @@ export function Composer({
   filters,
   onToggleFilter,
   onClearFilters,
+  showTimestamps,
+  onShowTimestamps,
   permissionMode,
   onPermissionMode,
   commands,
@@ -477,6 +482,8 @@ export function Composer({
           active={filters}
           onToggle={onToggleFilter}
           onClear={onClearFilters}
+          showTimestamps={showTimestamps}
+          onShowTimestamps={onShowTimestamps}
           onClose={() => setSheet(null)}
         />
       ) : null}

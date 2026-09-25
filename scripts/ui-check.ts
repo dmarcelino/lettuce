@@ -224,6 +224,23 @@ try {
       groups.length === 5 && groups.some((g) => g.includes("Tasks")),
       groups,
     );
+    // Timestamps: on by default, and the filter-sheet toggle hides them.
+    const timestampToggle = page.locator(".sheet-panel label.checkbox", {
+      hasText: "Show timestamps",
+    });
+    const toggleInput = timestampToggle.locator("input");
+    check("timestamp toggle is in the filter sheet", (await timestampToggle.count()) === 1);
+    check("timestamps are on by default", await toggleInput.isChecked());
+    const hasEntries = (await page.locator(".messages .entry").count()) > 0;
+    if (hasEntries) {
+      check("entries carry a timestamp", (await page.locator(".entry-time").count()) > 0);
+    }
+    await toggleInput.uncheck();
+    check("turning timestamps off hides them", (await page.locator(".entry-time").count()) === 0);
+    await toggleInput.check();
+    if (hasEntries) {
+      check("turning them back on restores them", (await page.locator(".entry-time").count()) > 0);
+    }
     await shot(page, "phone-filters");
     check(
       "sheet is a bottom sheet on a phone",

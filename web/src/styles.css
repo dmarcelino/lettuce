@@ -282,6 +282,16 @@ pre {
   margin: auto;
 }
 
+/* Transcript timestamp: a quiet line above the entry, shown only where the
+   minute changes (MessageList), pulled toward its entry past the list gap. */
+.entry-time {
+  align-self: flex-start;
+  margin-bottom: -6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
 .entry {
   display: flex;
   flex-direction: column;

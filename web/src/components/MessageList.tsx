@@ -1,6 +1,7 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { collectFileTokens } from "../lib/file-links.ts";
 import type { TranscriptEntry } from "../lib/messages.ts";
+import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -15,6 +16,8 @@ interface Props {
   cwd: string | null;
   /** Open a workspace file the agent linked, in the app's file viewer. */
   onOpenFile: (path: string) => void;
+  /** Label entries with their time; toggled in the filter sheet. */
+  showTimestamps: boolean;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -60,7 +63,14 @@ function clip(text: string, n: number): string {
   return text.length > n ? `${text.slice(0, n)}…` : text;
 }
 
-export function MessageList({ entries, processing, session, cwd, onOpenFile }: Props) {
+export function MessageList({
+  entries,
+  processing,
+  session,
+  cwd,
+  onOpenFile,
+  showTimestamps,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fileLinks = useFileLinks(session, cwd);
   // Auto-scroll only while the reader is at the bottom, so scrolling up to read
@@ -110,6 +120,8 @@ export function MessageList({ entries, processing, session, cwd, onOpenFile }: P
     return { returnByCall: byCall, pairedReturnIds: paired };
   }, [entries]);
 
+  let lastTime = "";
+
   return (
     <div className="messages-wrap">
       <div className="messages" ref={containerRef}>
@@ -127,15 +139,30 @@ export function MessageList({ entries, processing, session, cwd, onOpenFile }: P
             (entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId
               ? (returnByCall.get(entry.toolCallId) ?? null)
               : null;
+          // A time line only where the label changes: a burst of tool calls in
+          // one minute would otherwise repeat the same "14:31" down the page.
+          const time = showTimestamps ? formatEntryTime(entry.date) : "";
+          const showTime = time !== "" && time !== lastTime;
+          if (time) lastTime = time;
           return (
-            <MessageItem
-              key={entry.id}
-              entry={entry}
-              retn={retn}
-              cwd={cwd}
-              fileLinks={fileLinks}
-              onOpenFile={onOpenFile}
-            />
+            <Fragment key={entry.id}>
+              {showTime ? (
+                <time
+                  className="entry-time"
+                  dateTime={entry.date}
+                  title={formatEntryTimeFull(entry.date)}
+                >
+                  {time}
+                </time>
+              ) : null}
+              <MessageItem
+                entry={entry}
+                retn={retn}
+                cwd={cwd}
+                fileLinks={fileLinks}
+                onOpenFile={onOpenFile}
+              />
+            </Fragment>
           );
         })}
 

@@ -9,11 +9,15 @@ export function FilterSheet({
   active,
   onToggle,
   onClear,
+  showTimestamps,
+  onShowTimestamps,
   onClose,
 }: {
   active: ReadonlySet<FilterGroup>;
   onToggle: (group: FilterGroup) => void;
   onClear: () => void;
+  showTimestamps: boolean;
+  onShowTimestamps: (show: boolean) => void;
   onClose: () => void;
 }) {
   return (
@@ -60,6 +64,15 @@ export function FilterSheet({
           );
         })}
       </ul>
+
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={showTimestamps}
+          onChange={(event) => onShowTimestamps(event.target.checked)}
+        />
+        Show timestamps
+      </label>
     </Sheet>
   );
 }

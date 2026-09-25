@@ -19,6 +19,7 @@ import {
   type StructuredOutputPreference,
   writeStructuredOutput,
 } from "./lib/structured-output.ts";
+import { readShowTimestamps, writeShowTimestamps } from "./lib/timestamps.ts";
 import { useAgents } from "./state/use-agents.ts";
 import { useConversation } from "./state/use-conversation.ts";
 import { useCurrentModel } from "./state/use-models.ts";
@@ -171,6 +172,11 @@ function Workspace({ status }: { status: Status }) {
   /** `null` = closed; `{ id: null }` = create; `{ id }` = edit that agent. */
   const [agentEditor, setAgentEditor] = useState<{ id: string | null } | null>(null);
   const [filters, setFilters] = useState<Set<FilterGroup>>(new Set());
+  const [showTimestamps, setShowTimestamps] = useState(() => readShowTimestamps());
+  const onShowTimestamps = useCallback((show: boolean) => {
+    writeShowTimestamps(show);
+    setShowTimestamps(show);
+  }, []);
   /** A workspace file the agent linked in chat, open in the file viewer. */
   const [openFile, setOpenFile] = useState<string | null>(null);
 
@@ -314,6 +320,7 @@ function Workspace({ status }: { status: Status }) {
               session={session}
               cwd={conversation.cwd}
               onOpenFile={setOpenFile}
+              showTimestamps={showTimestamps}
             />
 
             {conversation.queue.length > 0 ? (
@@ -369,6 +376,8 @@ function Workspace({ status }: { status: Status }) {
               filters={filters}
               onToggleFilter={toggleFilter}
               onClearFilters={() => setFilters(new Set())}
+              showTimestamps={showTimestamps}
+              onShowTimestamps={onShowTimestamps}
               permissionMode={conversation.permissionMode}
               onPermissionMode={conversation.setPermissionMode}
               commands={conversation.commands}
