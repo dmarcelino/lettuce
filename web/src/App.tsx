@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
 import { AuthPill } from "./components/AuthPill.tsx";
@@ -14,6 +14,11 @@ import { userHistory } from "./lib/input-history.ts";
 import { type FilterGroup, filterEntries } from "./lib/messages.ts";
 import { type RuntimeScope, scopeKey } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
+import {
+  readStructuredOutput,
+  type StructuredOutputPreference,
+  writeStructuredOutput,
+} from "./lib/structured-output.ts";
 import { useAgents } from "./state/use-agents.ts";
 import { useConversation } from "./state/use-conversation.ts";
 import { useCurrentModel } from "./state/use-models.ts";
@@ -176,6 +181,32 @@ function Workspace({ status }: { status: Status }) {
 
   const inputHistory = useMemo(() => userHistory(conversation.entries), [conversation.entries]);
 
+  /**
+   * Structured-output state lives here, not in the Composer: the composer
+   * unmounts on every tab switch, and a half-written schema would be lost with
+   * it. Keyed per conversation exactly like the draft, and remembered so a
+   * reload brings the same schema back.
+   */
+  const structuredKey = draftKey(agents.agentId, agents.conversationId);
+  const [structured, setStructured] = useState<StructuredOutputPreference>(() =>
+    readStructuredOutput(structuredKey),
+  );
+
+  // Switching conversation without leaving the Chat tab keeps this mounted, so
+  // the lazy initialiser never re-runs — reload for the new conversation here.
+  useEffect(() => {
+    setStructured(readStructuredOutput(structuredKey));
+  }, [structuredKey]);
+
+  const onStructuredChange = useCallback(
+    (text: string, enabled: boolean) => {
+      const next: StructuredOutputPreference = { text, enabled };
+      writeStructuredOutput(structuredKey, next);
+      setStructured(next);
+    },
+    [structuredKey],
+  );
+
   // The open conversation already shows its own state in the composer; the
   // menu badge is for turns running somewhere you are not looking.
   const respondingElsewhere =
@@ -321,8 +352,12 @@ function Workspace({ status }: { status: Status }) {
               disabled={!scope || !session.ready}
               processing={conversation.processing}
               draftKey={draftKey(agents.agentId, agents.conversationId)}
-              onSend={(text) => {
-                void conversation.sendMessage(text);
+              structuredText={structured.text}
+              structuredEnabled={structured.enabled}
+              structuredSupported={session.appServerInfo?.capabilities.structured_outputs ?? false}
+              onStructuredChange={onStructuredChange}
+              onSend={(text, responseFormat) => {
+                void conversation.sendMessage(text, responseFormat);
                 // Name the conversation after the first thing said in it. No-op
                 // once it has a title, so a manual rename always wins.
                 if (agents.conversationId) {
@@ -354,6 +389,7 @@ function Workspace({ status }: { status: Status }) {
             conversationId={agents.conversationId}
             backgroundProcesses={conversation.backgroundProcesses}
             onStopMonitor={conversation.stopMonitor}
+            conversations={agents.conversations}
           />
         ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />
@@ -361,6 +397,7 @@ function Workspace({ status }: { status: Status }) {
           <SettingsTab
             session={session}
             agentId={agents.agentId}
+            conversationId={agents.conversationId}
             skills={conversation.skills}
             skillsStale={conversation.skillsStale}
           />

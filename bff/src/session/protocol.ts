@@ -176,6 +176,20 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   // skills
   "skill_enable",
   "skill_disable",
+  // agent secrets. Dedicated commands, not `execute_command "/secret"`: the
+  // slash id has no handler case (see ALLOWED_EXECUTE_COMMAND_IDS below).
+  // `secret_list` deliberately returns plaintext values — the modal needs them
+  // to populate the form; the CLI's names-only path is a different code path.
+  "secret_list",
+  "secret_apply",
+  // reflection configuration. `/dream` and `/reflect` fire through
+  // execute_command; these read and write the settings behind them.
+  "get_reflection_settings",
+  "set_reflection_settings",
+  // git branches. Both carry an optional `cwd`, registered in
+  // FILE_PATH_FIELDS so the workspace clamp covers it.
+  "search_branches",
+  "checkout_branch",
   // working directory
   "get_cwd_map",
   "set_boot_working_directory",
@@ -219,8 +233,9 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
  *   restarts the process that owns every conversation's turn.
  * - `channels` needs a gateway attached over stdio; see CLAUDE.md.
  * - `secret` and `toolset` have no `execute_command` case at all — the UI's
- *   toolset picker uses `update_toolset`, and secrets go through
- *   `secret_list`/`secret_apply`.
+ *   toolset picker uses `update_toolset`, and the Secrets screen uses the
+ *   dedicated `secret_list`/`secret_apply` commands above. Neither slash id is
+ *   reachable here, and neither needs to be.
  *
  * Everything listed here is a conversation-scoped operation the UI actually
  * offers. Mod-contributed commands are allowed too, but only ones the
@@ -302,6 +317,12 @@ export const FILE_PATH_FIELDS: ReadonlyMap<string, "path" | "cwd" | "skill_path"
   ["search_files", "cwd"],
   ["grep_in_files", "cwd"],
   ["skill_enable", "skill_path"],
+  // Both branch commands take an optional `cwd` that the app-server otherwise
+  // resolves against its own process cwd. Unguarded, a browser could point git
+  // at any path on the host. An absent `cwd` still passes through untouched —
+  // compose anchors the server cwd inside the workspace.
+  ["search_branches", "cwd"],
+  ["checkout_branch", "cwd"],
 ]);
 
 /**

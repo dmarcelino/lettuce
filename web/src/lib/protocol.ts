@@ -81,8 +81,12 @@ export interface AppServerInfo {
     conversation_management: boolean;
     memory_management: boolean;
     runtime_start: boolean;
+    /** letta-code >= 0.32.19. Gates the Tasks tab subagent launcher. */
+    launch_subagent: boolean;
     runtime_workspace_sandbox: boolean;
     runtime_external_tools_update: boolean;
+    /** Gates the composer's per-turn JSON-schema control. */
+    structured_outputs: boolean;
     split_channels: boolean;
   };
 }
@@ -105,8 +109,10 @@ export function readAppServerInfo(raw: unknown): AppServerInfo | null {
       conversation_management: c.conversation_management === true,
       memory_management: c.memory_management === true,
       runtime_start: c.runtime_start === true,
+      launch_subagent: c.launch_subagent === true,
       runtime_workspace_sandbox: c.runtime_workspace_sandbox === true,
       runtime_external_tools_update: c.runtime_external_tools_update === true,
+      structured_outputs: c.structured_outputs === true,
       split_channels: c.split_channels === true,
     },
   };

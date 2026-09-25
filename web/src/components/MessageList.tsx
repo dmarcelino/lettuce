@@ -365,6 +365,9 @@ const MessageItem = memo(function MessageItem({
       {entry.kind !== "user" ? <span className="tag">{label}</span> : null}
       {/* Arrived from Telegram/Slack rather than typed here — still you. */}
       {entry.channel ? <span className="tag">via {entry.channel}</span> : null}
+      {/* Sent with a JSON-schema constraint on the reply. Client-side only: the
+          wire never carries it back, so it is absent on reloaded history. */}
+      {entry.structured ? <span className="tag">structured</span> : null}
       <div className={`bubble ${entry.kind}`}>{md(entry.text)}</div>
     </div>
   );

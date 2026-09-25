@@ -14,6 +14,7 @@ import {
   transcriptFromHistory,
 } from "../lib/messages.ts";
 import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
+import { type ResponseFormat, validateResponseFormat } from "../lib/structured-output.ts";
 import { addUsage, readTurnFinishedUsage, readUsageDelta, type TurnUsage } from "../lib/usage.ts";
 import {
   agentWorkspace,
@@ -58,7 +59,15 @@ export interface ToolsetSummary {
 
 export interface BackgroundProcessSummary {
   processId: string;
-  kind: "bash" | "agent_task" | "monitor";
+  /**
+   * `workflow` is not a wire kind. The app-server's snapshot builder
+   * (`background-process-snapshot.ts`) filters only `kind !== "monitor"` and
+   * maps everything else to `kind: "bash"`, so a Workflow-tool run arrives
+   * labelled as a shell job. We re-detect it from the process id, which
+   * upstream mints as `workflow_N` (`getNextWorkflowId()`), and keep the
+   * distinction so the Tasks tab can say "Workflow" instead of "Shell".
+   */
+  kind: "bash" | "agent_task" | "monitor" | "workflow";
   label: string;
   status: string;
   /** Only monitors can be stopped from here — bash jobs and subagent tasks have no client-reachable stop command. */
@@ -89,7 +98,12 @@ export interface ConversationApi {
   queue: QueuedItem[];
   approvals: PendingApproval[];
   error: string | null;
-  sendMessage: (text: string) => Promise<void>;
+  /**
+   * Send one turn. `responseFormat` constrains the reply to a JSON schema and
+   * must already pass `validateResponseFormat`; an invalid value is reported
+   * through `error` rather than silently dropped.
+   */
+  sendMessage: (text: string, responseFormat?: ResponseFormat | null) => Promise<void>;
   abort: () => Promise<void>;
   respondToApproval: (requestId: string, approve: boolean, reason?: string) => void;
   /**
@@ -124,7 +138,12 @@ export interface ConversationApi {
   availableToolsets: ToolsetSummary[];
   /** Bash jobs, subagent tasks and monitors currently running, from device status. */
   backgroundProcesses: BackgroundProcessSummary[];
-  /** Stops a persistent monitor. No-op for bash/agent_task processes — see BackgroundProcessSummary.stoppable. */
+  /**
+   * Stops a persistent monitor. No-op for bash, agent_task and workflow
+   * processes — `stopMonitor` upstream refuses anything whose
+   * `process.kind !== "monitor"` with "Monitor not found", so a stop button
+   * for those would always fail.
+   */
   stopMonitor: (processId: string) => void;
   /**
    * Tokens spent by the most recent turn seen live in this tab, or null before
@@ -191,7 +210,7 @@ function readToolsets(raw: unknown): ToolsetSummary[] {
   });
 }
 
-function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[] {
+export function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
@@ -206,6 +225,13 @@ function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[] {
     if (typeof entry.process_id !== "string") return [];
     if (entry.kind !== "bash" && entry.kind !== "agent_task" && entry.kind !== "monitor") return [];
     const status = typeof entry.status === "string" ? entry.status : "unknown";
+    // A Workflow-tool run arrives as kind "bash" with command
+    // `workflow <name>`. Match on the id, which upstream mints as
+    // `workflow_N` and no other id generator produces — matching the command
+    // instead would also catch a real shell command that happens to start
+    // with "workflow ".
+    const isWorkflow = entry.kind === "bash" && entry.process_id.startsWith("workflow_");
+    const kind: BackgroundProcessSummary["kind"] = isWorkflow ? "workflow" : entry.kind;
     const label =
       entry.kind === "bash"
         ? typeof entry.command === "string"
@@ -219,7 +245,7 @@ function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[] {
     return [
       {
         processId: entry.process_id,
-        kind: entry.kind,
+        kind,
         label,
         status,
         stoppable: entry.kind === "monitor" && status === "running",
@@ -587,8 +613,19 @@ export function useConversation(
   }, [onFrame, scope?.conversation_id, flush, flushSync]);
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, responseFormat?: ResponseFormat | null) => {
       if (!scope || !text.trim()) return;
+
+      // Validate before anything is rendered or sent: a schema the listener
+      // would reject should never look like a turn that went through.
+      if (responseFormat) {
+        const invalid = validateResponseFormat(responseFormat);
+        if (invalid) {
+          setError(invalid);
+          return;
+        }
+      }
+
       setProcessing(true);
       setStopping(false);
       clearLocalNotice(transcriptRef.current, STOP_NOTICE_ID);
@@ -606,6 +643,7 @@ export function useConversation(
         clientMessageId,
         text,
         seqRef.current,
+        Boolean(responseFormat),
       );
       flushSync();
 
@@ -622,6 +660,7 @@ export function useConversation(
                 client_message_id: clientMessageId,
               },
             ],
+            ...(responseFormat ? { response_format: responseFormat } : {}),
           },
         });
       } catch (cause) {

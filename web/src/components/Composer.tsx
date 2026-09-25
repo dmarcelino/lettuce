@@ -8,6 +8,7 @@ import {
   historyUp,
 } from "../lib/input-history.ts";
 import type { FilterGroup } from "../lib/messages.ts";
+import { parseResponseFormat, type ResponseFormat } from "../lib/structured-output.ts";
 import { type TurnUsage, usageDescription, usageLabel } from "../lib/usage.ts";
 import {
   matchSlashCommands,
@@ -16,7 +17,12 @@ import {
   parseSlashCommand,
   type SlashCommand,
 } from "../lib/workspace.ts";
-import { CommandSheet, FilterSheet, PermissionSheet } from "./ComposerSheets.tsx";
+import {
+  CommandSheet,
+  FilterSheet,
+  PermissionSheet,
+  StructuredOutputSheet,
+} from "./ComposerSheets.tsx";
 import { Icon } from "./Icon.tsx";
 
 interface Props {
@@ -28,7 +34,18 @@ interface Props {
    * under this key and restored on the way back. See `lib/draft.ts`.
    */
   draftKey: string | null;
-  onSend: (text: string) => void;
+  onSend: (text: string, responseFormat: ResponseFormat | null) => void;
+  /**
+   * Structured-output state, owned by the caller so it survives this component
+   * unmounting on a tab switch. `structuredText` is the schema as typed;
+   * `structuredEnabled` decides whether the next send carries it.
+   * `structuredSupported` is the `structured_outputs` capability — the
+   * control is hidden without it.
+   */
+  structuredText: string;
+  structuredEnabled: boolean;
+  structuredSupported: boolean;
+  onStructuredChange: (text: string, enabled: boolean) => void;
   onAbort: () => void;
   /** A stop was accepted but the turn has not ended yet. */
   stopping: boolean;
@@ -49,7 +66,7 @@ interface Props {
   history: readonly string[];
 }
 
-type OpenSheet = "filters" | "permissions" | "commands" | null;
+type OpenSheet = "filters" | "permissions" | "commands" | "structured" | null;
 
 /**
  * The single control surface for a turn: the textarea plus one row of controls
@@ -76,6 +93,10 @@ export function Composer({
   modelLabel,
   lastTurnUsage,
   history,
+  structuredText,
+  structuredEnabled,
+  structuredSupported,
+  onStructuredChange,
 }: Props) {
   const [value, setValue] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   const [sheet, setSheet] = useState<OpenSheet>(null);
@@ -196,7 +217,10 @@ export function Composer({
       return;
     }
 
-    onSend(text);
+    // A schema that stopped parsing between toggling and sending must not
+    // silently ride along; drop it and let the turn go unstructured.
+    const parsed = structuredEnabled ? parseResponseFormat(structuredText) : null;
+    onSend(text, parsed?.value ?? null);
     reset();
   };
 
@@ -387,6 +411,26 @@ export function Composer({
               <Icon name="shield" />
             </button>
 
+            {structuredSupported ? (
+              <button
+                type="button"
+                className={`icon-button flat${structuredEnabled ? " on" : ""}`}
+                onClick={() => setSheet("structured")}
+                title={
+                  structuredEnabled
+                    ? "JSON output is required for the next message"
+                    : "Require JSON output"
+                }
+                aria-label={
+                  structuredEnabled
+                    ? "JSON output required for the next message"
+                    : "Require JSON output"
+                }
+              >
+                <Icon name="braces" />
+              </button>
+            ) : null}
+
             <button
               type="button"
               className="icon-button flat model-btn"
@@ -447,6 +491,16 @@ export function Composer({
 
       {sheet === "commands" ? (
         <CommandSheet commands={commands} onRun={onRunCommand} onClose={() => setSheet(null)} />
+      ) : null}
+
+      {sheet === "structured" ? (
+        <StructuredOutputSheet
+          text={structuredText}
+          enabled={structuredEnabled}
+          onText={(next) => onStructuredChange(next, structuredEnabled)}
+          onEnabled={(next) => onStructuredChange(structuredText, next)}
+          onClose={() => setSheet(null)}
+        />
       ) : null}
     </>
   );

@@ -128,6 +128,76 @@ describe("workspace clamp", () => {
   test("launch_subagent is on the allowlist", () => {
     expect(ALLOWED_SESSION_COMMANDS.has("launch_subagent")).toBe(true);
   });
+
+  test("branch commands are clamped on cwd, like grep", () => {
+    // Both take an optional cwd that the app-server otherwise resolves against
+    // its own process cwd. Registered in FILE_PATH_FIELDS so the clamp covers
+    // them; without that entry a browser could point git at any host path.
+    refuse({ type: "search_branches", query: "", cwd: "/root/.letta" });
+    refuse({ type: "checkout_branch", branch: "main", cwd: "/etc" });
+    refuse({ type: "checkout_branch", branch: "main", cwd: `${WORKSPACE_ROOT}/../etc` });
+    allow({ type: "search_branches", query: "feat", cwd: `${WORKSPACE_ROOT}/agent-1` });
+    allow({ type: "checkout_branch", branch: "feat/x", cwd: `${WORKSPACE_ROOT}/agent-1` });
+    // Absent cwd still passes through as "the server's cwd", anchored in /work.
+    allow({ type: "search_branches", query: "feat" });
+    allow({ type: "checkout_branch", branch: "feat/x" });
+  });
+
+  test("secrets and reflection commands carry no path and are unconstrained by the clamp", () => {
+    // They are scoped by agent_id / runtime, not by a filesystem path, so the
+    // workspace clamp has nothing to say about them.
+    allow({ type: "secret_list", agent_id: "agent-1" });
+    allow({ type: "secret_apply", agent_id: "agent-1", set: { K: "v" }, unset: [] });
+    allow({
+      type: "get_reflection_settings",
+      runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
+    });
+    allow({
+      type: "set_reflection_settings",
+      runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
+      settings: { trigger: "step-count", step_count: 10 },
+    });
+  });
+});
+
+/**
+ * The command-type allowlist is the boundary; these pin which types a browser
+ * may send at all. Anything absent here is refused before it reaches the
+ * app-server, regardless of how well-formed its body is.
+ */
+describe("session command allowlist", () => {
+  const newlyAdded = [
+    "secret_list",
+    "secret_apply",
+    "get_reflection_settings",
+    "set_reflection_settings",
+    "search_branches",
+    "checkout_branch",
+  ];
+
+  test("the newly surfaced capabilities are admitted", () => {
+    for (const type of newlyAdded) {
+      expect(ALLOWED_SESSION_COMMANDS.has(type)).toBe(true);
+    }
+  });
+
+  test("the process-level surface stays off the allowlist", () => {
+    // Terminals, arbitrary shell, and the raw settings write path. None of
+    // these have a screen, so none of them are reachable.
+    for (const type of [
+      "terminal_spawn",
+      "terminal_input",
+      "terminal_kill",
+      "file_ops",
+      "upgrade_letta_code",
+      "channel_start",
+      "channel_stop",
+      "get_experiments",
+      "set_experiment",
+    ]) {
+      expect(ALLOWED_SESSION_COMMANDS.has(type)).toBe(false);
+    }
+  });
 });
 
 /**

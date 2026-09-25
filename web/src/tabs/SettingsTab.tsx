@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { McpEditor } from "../components/McpEditor.tsx";
+import { ReflectionSection } from "../components/ReflectionSection.tsx";
+import { SecretsSection } from "../components/SecretsSection.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { errorMessage } from "../lib/errors.ts";
 import { handleProvider, isLocalHandle, localProviderKeys } from "../lib/providers.ts";
@@ -46,13 +48,24 @@ interface ProviderEntry {
 interface Props {
   session: SessionApi;
   agentId: string | null;
+  /** Reflection settings resolve against the conversation's working directory. */
+  conversationId: string | null;
   /** Skills advertised on the latest device status snapshot. */
   skills: SkillSummary[];
   /** True once a skill was enabled or disabled but no turn has rebuilt the list. */
   skillsStale: boolean;
 }
 
-type Section = "connection" | "mcp" | "skills" | "notifications";
+type Section = "connection" | "mcp" | "skills" | "secrets" | "reflection" | "notifications";
+
+const SECTION_LABELS: Record<Section, string> = {
+  connection: "Connection",
+  mcp: "MCP",
+  skills: "Skills",
+  secrets: "Secrets",
+  reflection: "Reflection",
+  notifications: "Notifications",
+};
 
 function isConnected(provider: ProviderEntry): boolean {
   if (typeof provider.connected === "boolean") return provider.connected;
@@ -76,26 +89,26 @@ function currentValues(provider: ProviderEntry): Record<string, string> {
   return state?.base_url ? { baseUrl: state.base_url } : {};
 }
 
-export function SettingsTab({ session, agentId, skills, skillsStale }: Props) {
+export function SettingsTab({ session, agentId, conversationId, skills, skillsStale }: Props) {
   const [section, setSection] = useState<Section>("connection");
+
+  // Secrets are agent-scoped, so the chip is pointless with no agent selected.
+  const agentManagement = session.appServerInfo?.capabilities.agent_management ?? false;
+  const visibleSections: Section[] = (
+    ["connection", "mcp", "skills", "secrets", "reflection", "notifications"] as Section[]
+  ).filter((name) => name !== "secrets" || agentManagement);
 
   return (
     <div className="pane">
       <div className="pane-bar">
-        {(["connection", "mcp", "skills", "notifications"] as const).map((name) => (
+        {visibleSections.map((name) => (
           <button
             key={name}
             type="button"
             className={`chip${section === name ? " on" : ""}`}
             onClick={() => setSection(name)}
           >
-            {name === "mcp"
-              ? "MCP"
-              : name === "connection"
-                ? "Connection"
-                : name === "skills"
-                  ? "Skills"
-                  : "Notifications"}
+            {SECTION_LABELS[name]}
           </button>
         ))}
       </div>
@@ -104,6 +117,10 @@ export function SettingsTab({ session, agentId, skills, skillsStale }: Props) {
       {section === "mcp" ? <McpEditor session={session} agentId={agentId} /> : null}
       {section === "skills" ? (
         <SkillsSection session={session} skills={skills} stale={skillsStale} />
+      ) : null}
+      {section === "secrets" ? <SecretsSection session={session} agentId={agentId} /> : null}
+      {section === "reflection" ? (
+        <ReflectionSection session={session} agentId={agentId} conversationId={conversationId} />
       ) : null}
       {section === "notifications" ? <NotificationsSection /> : null}
     </div>

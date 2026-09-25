@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { BranchSheet } from "../components/BranchSheet.tsx";
 import { FileViewer } from "../components/FileViewer.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { downloadUrl, formatBytes, triggerDownload } from "../lib/download.ts";
@@ -66,6 +67,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [status, setStatus] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [branchesOpen, setBranchesOpen] = useState(false);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -187,6 +189,15 @@ export function FilesTab({ session, cwd, agentId }: Props) {
           <Icon name="up" /> Up
         </button>
         <code className="path">{root}</code>
+        <span className="spacer" />
+        <button
+          type="button"
+          className="link"
+          onClick={() => setBranchesOpen(true)}
+          title="Switch git branch"
+        >
+          <Icon name="branch" /> Branch
+        </button>
       </div>
 
       <div className="pane-bar">
@@ -309,6 +320,10 @@ export function FilesTab({ session, cwd, agentId }: Props) {
           onClose={() => setSelected(null)}
           key={selected}
         />
+      ) : null}
+
+      {branchesOpen ? (
+        <BranchSheet session={session} cwd={root} onClose={() => setBranchesOpen(false)} />
       ) : null}
     </div>
   );

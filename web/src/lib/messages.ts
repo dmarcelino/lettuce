@@ -60,6 +60,13 @@ export interface TranscriptEntry {
   /** user: arrived over a channel (telegram, slack) rather than being typed. */
   channel?: string;
   /**
+   * user: sent with a `response_format` JSON schema, so the reply was
+   * constrained. Only the client knows this — nothing on the wire carries it
+   * back — so it is set where the local echo is made and never survives a
+   * reload from history.
+   */
+  structured?: boolean;
+  /**
    * Rendered by us on send, before any server frame. The app-server only echoes
    * a user message when it was queued, so without this your own message never
    * appears until a reload.
@@ -347,6 +354,7 @@ export function addLocalUserMessage(
   clientMessageId: string,
   text: string,
   seq: number,
+  structured = false,
 ): void {
   index.byOtid.set(clientMessageId, clientMessageId);
   transcript.set(clientMessageId, {
@@ -357,6 +365,7 @@ export function addLocalUserMessage(
     text,
     local: true,
     streaming: false,
+    ...(structured ? { structured: true } : {}),
   });
 }
 

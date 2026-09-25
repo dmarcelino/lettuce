@@ -6,11 +6,20 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { errorMessage } from "../lib/errors.ts";
+import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
+import type { ConversationSummary } from "../state/use-agents.ts";
 import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
 interface CronTask {
   id: string;
+  /**
+   * The conversation this task fires into. Upstream always returns one
+   * (`schedule-protocol.ts` `CronTask`); the UI used to discard it, which
+   * meant a task could be aimed at a conversation with no way to see or
+   * change which. `cron_update` honours it, so it is editable too.
+   */
+  conversation_id: string;
   name: string;
   description: string;
   cron: string;
@@ -29,6 +38,9 @@ const PROCESS_KIND_LABEL: Record<BackgroundProcessSummary["kind"], string> = {
   bash: "Shell",
   agent_task: "Subagent",
   monitor: "Monitor",
+  // Arrives on the wire as kind "bash"; re-detected from the process id in
+  // use-conversation. Not stoppable from here — see stopMonitor's doc.
+  workflow: "Workflow",
 };
 
 interface Props {
@@ -37,6 +49,8 @@ interface Props {
   conversationId: string | null;
   backgroundProcesses: BackgroundProcessSummary[];
   onStopMonitor: (processId: string) => void;
+  /** Every conversation for this agent, used to name each task's target. */
+  conversations: ConversationSummary[];
 }
 
 /**
@@ -50,12 +64,17 @@ const SUBAGENT_TYPES = ["general-purpose", "recall", "history-analyzer"];
 
 const BLANK_SUBAGENT = { type: "general-purpose", description: "", prompt: "" };
 
+/**
+ * A new task defaults to a fresh conversation per run; the editor overrides
+ * `conversationId` with whatever conversation the user picks.
+ */
 const BLANK = {
   name: "",
   description: "",
   cron: "0 9 * * *",
   prompt: "",
   recurring: true,
+  conversationId: NEW_CONVERSATION,
 };
 
 export function TasksTab({
@@ -64,6 +83,7 @@ export function TasksTab({
   conversationId,
   backgroundProcesses,
   onStopMonitor,
+  conversations,
 }: Props) {
   const [tasks, setTasks] = useState<CronTask[]>([]);
   const [status, setStatus] = useState("");
@@ -136,6 +156,7 @@ export function TasksTab({
 
   const submit = async () => {
     if (!agentId) return;
+    const target = draft.conversationId.trim() || NEW_CONVERSATION;
     const ok = editing
       ? await act(
           "cron_update",
@@ -143,6 +164,7 @@ export function TasksTab({
             task_id: editing.id,
             name: draft.name,
             description: draft.description,
+            conversation_id: target,
             cron: draft.cron,
             prompt: draft.prompt,
             recurring: draft.recurring,
@@ -153,7 +175,7 @@ export function TasksTab({
           "cron_add",
           {
             agent_id: agentId,
-            ...(conversationId ? { conversation_id: conversationId } : {}),
+            conversation_id: target,
             name: draft.name,
             description: draft.description || draft.name,
             cron: draft.cron,
@@ -218,7 +240,7 @@ export function TasksTab({
           type="button"
           className="link"
           onClick={() => {
-            setDraft({ ...BLANK });
+            setDraft({ ...BLANK, conversationId: conversationId ?? NEW_CONVERSATION });
             setEditing(null);
             setCreating(true);
           }}
@@ -294,6 +316,9 @@ export function TasksTab({
               <code>{task.cron}</code> · {task.timezone} ·{" "}
               {task.recurring ? "repeating" : "one-shot"}
             </div>
+            <div className="muted small">
+              Runs in: {conversationTargetLabel(task.conversation_id, conversations)}
+            </div>
             {task.description ? <div className="small">{task.description}</div> : null}
             <div className="muted small">
               {task.last_fired_at
@@ -343,6 +368,7 @@ export function TasksTab({
                     cron: task.cron,
                     prompt: task.prompt,
                     recurring: task.recurring,
+                    conversationId: task.conversation_id || NEW_CONVERSATION,
                   });
                 }}
               >
@@ -486,6 +512,35 @@ export function TasksTab({
               onChange={(event) => setDraft({ ...draft, recurring: event.target.checked })}
             />
             Repeating
+          </label>
+
+          <label className="field">
+            Conversation it runs in
+            <select
+              value={draft.conversationId}
+              onChange={(event) => setDraft({ ...draft, conversationId: event.target.value })}
+            >
+              <option value={NEW_CONVERSATION}>New conversation each run</option>
+              {/* A target outside this agent's listed conversations — "default",
+                  or one the list does not carry — still needs an option, or the
+                  select would silently display the first entry instead. */}
+              {draft.conversationId !== NEW_CONVERSATION &&
+              !conversations.some((c) => c.id === draft.conversationId) ? (
+                <option value={draft.conversationId}>
+                  {conversationTargetLabel(draft.conversationId, conversations)}
+                </option>
+              ) : null}
+              {conversations.map((conversation) => (
+                <option key={conversation.id} value={conversation.id}>
+                  {conversation.summary}
+                  {conversation.archived ? " (archived)" : ""}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">
+              The prompt is delivered there each time the schedule matches. Picking the conversation
+              you are in now keeps its context.
+            </span>
           </label>
         </Sheet>
       ) : null}

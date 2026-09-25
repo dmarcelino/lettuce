@@ -35,7 +35,9 @@ export type IconName =
   | "memory"
   | "settings"
   | "plus"
-  | "task";
+  | "task"
+  | "braces"
+  | "branch";
 
 /** Path data on a 24×24 grid; stroked, never filled. */
 const PATHS: Record<IconName, string> = {
@@ -69,6 +71,12 @@ const PATHS: Record<IconName, string> = {
   plus: "M12 5v14M5 12h14",
   // Clipboard with a tick: background work that reported back.
   task: "M9 4h6v3H9zM8 5H6a1 1 0 00-1 1v13a1 1 0 001 1h12a1 1 0 001-1V6a1 1 0 00-1-1h-2M9 13l2 2 4-4",
+  // Curly braces: a JSON-schema-constrained reply.
+  braces:
+    "M8 4c-2 0-2 2-2 4s0 4-2 4c2 0 2 2 2 4s0 4 2 4M16 4c2 0 2 2 2 4s0 4 2 4c-2 0-2 2-2 4s0 4-2 4",
+  // Git branch: two nodes on a line with a diverging one.
+  branch:
+    "M7 5v10M7 19a2 2 0 100-4 2 2 0 000 4zM7 7a2 2 0 100-4 2 2 0 000 4zM17 9a2 2 0 100-4 2 2 0 000 4zM17 9c0 4-4 4-4 8",
 };
 
 interface Props {
