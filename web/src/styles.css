@@ -6,6 +6,8 @@
   --text: #e7eaf0;
   --muted: #939cad;
   --accent: #7aa2f7;
+  /* The agent's answer rail and name; the user's are --accent. */
+  --agent: #9ece6a;
   --ok: #4ade80;
   --warn: #fbbf24;
   --bad: #f87171;
@@ -272,10 +274,10 @@ pre {
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 12px 4px;
+  padding: 16px 14px 8px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   -webkit-overflow-scrolling: touch;
 }
 .empty {
@@ -287,24 +289,14 @@ pre {
   margin-top: 14px;
 }
 
-/* Transcript timestamp: a quiet line above the entry, shown only where the
-   minute changes (MessageList), pulled toward its entry past the list gap. */
-.entry-time {
-  align-self: flex-start;
-  margin-bottom: -6px;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-
 .entry {
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: flex-start;
 }
-/* No bubbles: user and agent text run full width. User messages get a subtle
-   bordered box (below) as their only affordance; the agent's is its tag. */
+/* Bubble = the text body. The panel around a message is the entry itself
+   (`.entry.user` / `.entry.assistant` below). */
 .bubble {
   max-width: 100%;
   padding: 0;
@@ -336,18 +328,18 @@ pre {
 .md h5,
 .md h6 {
   /* A chat bubble is not a document: keep headings close to body size. */
-  margin: 14px 0 6px;
+  margin: 12px 0 4px;
   line-height: 1.3;
   font-weight: 600;
 }
 .md h1 {
-  font-size: 1.25em;
+  font-size: 1.1em;
 }
 .md h2 {
-  font-size: 1.15em;
+  font-size: 1.05em;
 }
 .md h3 {
-  font-size: 1.05em;
+  font-size: 1em;
 }
 .md h4,
 .md h5,
@@ -434,24 +426,113 @@ pre {
 .md input[type="checkbox"] {
   margin-right: 6px;
 }
-/* A full-width panel with a faint accent tint and a 2px accent rail down the
-   left — the same rail idiom the tool IN/OUT blocks and the thinking body use. */
-.bubble.user {
+/* ── Conversation messages ───────────────────────────────────────────────
+   You and the agent share one panel; side and rail colour tell them apart.
+   You: shrink-to-fit on the right, rail on the right edge. The agent: full
+   width on the left, rail on the left edge. */
+.entry.user,
+.entry.assistant:not(.subagent) {
+  gap: 6px;
+  padding: 10px 14px;
+}
+.entry.user {
+  align-self: flex-end;
+  align-items: flex-end;
+  max-width: min(85%, 640px);
+  margin-left: 15%;
+  border-right: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+.entry.user .bubble {
+  text-align: left;
+}
+.entry.assistant:not(.subagent) {
   align-self: stretch;
-  margin-left: 1px;
-  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
-  border-left: 2px solid var(--accent);
-  padding: 8px 12px;
+  border-left: 2px solid var(--agent);
+  background: var(--surface);
 }
-/* Collapsed, the reasoning row is just a muted "Thinking" line (MessageList). */
-.entry.reasoning .tool-head {
-  font-style: italic;
+
+/* "You · 15:08" / "Agent · 15:10": who in the role colour, time muted. */
+.role {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
 }
-/* No panel: the expanded reasoning body is just indented italic text on the
+.entry.user .role .who {
+  color: var(--accent);
+}
+.entry.assistant:not(.subagent) .role .who {
+  color: var(--agent);
+}
+.role time {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.role-tag {
+  font-weight: 400;
+}
+
+/* ── Steps: the agent's work between messages, folded to one line ─────────
+   Every step row inside shares one size and weight: 13px sans, the name in
+   the text colour, everything else muted. No italics, no uppercase. */
+.steps {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 2px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--border);
+}
+.steps-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.steps-count {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.steps-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.steps-head time {
+  margin-left: auto;
+  padding-left: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.step-name {
+  font-size: 13px;
+  color: var(--muted);
+}
+.steps .entry .role {
+  font-size: 13px;
+}
+.steps .entry .bubble {
+  font-size: 14px;
+}
+/* No panel: the expanded reasoning body is just indented muted text on the
    same left rail the tool IN/OUT blocks use. */
 .bubble.thinking {
   color: var(--muted);
-  font-style: italic;
+  font-size: 14px;
   margin-left: 1px;
   padding-left: 12px;
   border-left: 2px solid var(--border);
@@ -501,9 +582,6 @@ pre {
   align-items: flex-start;
   width: 100%;
 }
-.entry.system.reminder .tag {
-  color: var(--muted);
-}
 .entry.system.reminder pre {
   opacity: 0.85;
 }
@@ -537,7 +615,8 @@ pre {
 }
 .tool-head code {
   color: var(--text);
-  font-weight: 650;
+  font-family: inherit;
+  font-weight: 600;
 }
 /* The bold tool name plus the IN/OUT rail identify a tool row, so the uppercase
    kind tag is redundant on it. The red "error" tag stays. */
@@ -576,9 +655,8 @@ pre {
   gap: 3px;
 }
 .rail-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--muted);
 }
 /* A second and later rail-label (the OUT after the IN) needs air above it. */
@@ -641,22 +719,32 @@ pre {
   padding: 2px 4px;
 }
 
-.entry.notice pre {
+/* Notices read as status lines in the body font; only their detail is mono. */
+.entry.notice {
+  align-self: stretch;
+}
+.entry.notice > pre:not(.tool-args) {
   margin: 0;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-radius: 0;
+  border-left: 2px solid var(--border);
   background: var(--surface-2);
-  font-size: 12.5px;
+  font:
+    13px / 1.45 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-width: 100%;
 }
 /* Same 2px left bar the tool rails use, coloured by level. */
-.entry.notice.warning pre {
-  border-left: 2px solid var(--warn);
+.entry.notice.warning > pre:not(.tool-args) {
+  border-left-color: var(--warn);
 }
-.entry.notice.error pre {
-  border-left: 2px solid var(--bad);
+.entry.notice.error > pre:not(.tool-args) {
+  border-left-color: var(--bad);
+  color: color-mix(in srgb, var(--bad) 70%, var(--text));
 }
 .entry.notice.dim pre {
   opacity: 0.6;

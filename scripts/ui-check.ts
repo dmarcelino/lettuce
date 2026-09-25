@@ -233,13 +233,60 @@ try {
     check("timestamps are on by default", await toggleInput.isChecked());
     const hasEntries = (await page.locator(".messages .entry").count()) > 0;
     if (hasEntries) {
-      check("entries carry a timestamp", (await page.locator(".entry-time").count()) > 0);
+      check("entries carry a timestamp", (await page.locator(".messages time").count()) > 0);
     }
     await toggleInput.uncheck();
-    check("turning timestamps off hides them", (await page.locator(".entry-time").count()) === 0);
+    check(
+      "turning timestamps off hides them",
+      (await page.locator(".messages time").count()) === 0,
+    );
     await toggleInput.check();
     if (hasEntries) {
-      check("turning them back on restores them", (await page.locator(".entry-time").count()) > 0);
+      check(
+        "turning them back on restores them",
+        (await page.locator(".messages time").count()) > 0,
+      );
+    }
+    if (hasEntries) {
+      // One message system: you on the right, the agent full width on the
+      // left, different rail colours; steps folded; no uppercase labels.
+      const style = await page.evaluate(() => {
+        const user = document.querySelector<HTMLElement>(".messages .entry.user");
+        const agent = document.querySelector<HTMLElement>(
+          ".messages .entry.assistant:not(.subagent)",
+        );
+        const list = document.querySelector<HTMLElement>(".messages");
+        const uppercase = [...document.querySelectorAll<HTMLElement>(".messages *")].filter(
+          (el) => getComputedStyle(el).textTransform === "uppercase" && el.textContent?.trim(),
+        ).length;
+        return {
+          userRail: user ? getComputedStyle(user).borderRightColor : null,
+          agentRail: agent ? getComputedStyle(agent).borderLeftColor : null,
+          userRight:
+            user && list
+              ? list.getBoundingClientRect().right - user.getBoundingClientRect().right < 30
+              : null,
+          uppercase,
+          overflow: list ? list.scrollWidth > list.clientWidth + 1 : false,
+        };
+      });
+      if (style.userRail && style.agentRail) {
+        check(
+          "you and the agent have different rail colours",
+          style.userRail !== style.agentRail,
+          style,
+        );
+      }
+      if (style.userRight !== null) check("your messages sit on the right", style.userRight, style);
+      check("no uppercase labels in the transcript", style.uppercase === 0, style);
+      check("the transcript does not scroll sideways", !style.overflow, style);
+      const steps = page.locator(".messages .steps-head").first();
+      if ((await steps.count()) > 0) {
+        check("steps start collapsed", (await steps.getAttribute("aria-expanded")) === "false");
+        await steps.click();
+        check("a tap opens the steps", (await steps.getAttribute("aria-expanded")) === "true");
+        await steps.click();
+      }
     }
     await shot(page, "phone-filters");
     check(

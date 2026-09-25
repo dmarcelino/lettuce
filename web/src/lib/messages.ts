@@ -424,6 +424,91 @@ export function filterEntries(
   return entries.filter((entry) => active.has(FILTER_GROUPS[entry.kind]));
 }
 
+/** One row of the rendered transcript: a message, a notice, or a run of steps. */
+export type TranscriptItem =
+  | { kind: "message"; entry: TranscriptEntry }
+  | { kind: "notice"; entry: TranscriptEntry }
+  | {
+      kind: "steps";
+      /** The first step's id — stable while the run grows at its tail. */
+      id: string;
+      entries: TranscriptEntry[];
+      /** Step count per label, in first-seen order ("Thinking" → 6, "Bash" → 5). */
+      counts: [label: string, count: number][];
+      /** When the run began. */
+      date: string;
+    };
+
+/** The conversation proper: what you said and what the agent answered. */
+function isConversationMessage(entry: TranscriptEntry): boolean {
+  if (entry.reminder) return false;
+  if (entry.kind === "user") return true;
+  return entry.kind === "assistant" && !entry.subagentId;
+}
+
+/** How a step is counted in its group's summary line. */
+export function stepLabel(entry: TranscriptEntry): string {
+  if (entry.reminder) return "Reminder";
+  switch (entry.kind) {
+    case "reasoning":
+      return "Thinking";
+    case "tool_call":
+    case "approval_request":
+      return entry.toolName ?? "Tool";
+    case "tool_return":
+      return entry.toolName ?? "Result";
+    case "task":
+      return "Task";
+    case "assistant":
+      return "Subagent";
+    case "approval_response":
+      return "Approval";
+    case "event":
+      return "Event";
+    default:
+      return "System";
+  }
+}
+
+/**
+ * Fold the agent's work between messages into runs.
+ *
+ * The transcript used to render every thinking block, tool call and reminder at
+ * the same weight as the question and the answer, so a ten-step turn buried the
+ * reply. Each run of consecutive steps becomes one collapsible item; messages
+ * and notices stay standalone — a notice is often the error that ended the
+ * turn, and must never be hidden inside a fold. The caller removes tool returns
+ * it renders folded into their call before grouping, so they are not counted.
+ */
+export function groupTranscript(entries: readonly TranscriptEntry[]): TranscriptItem[] {
+  const items: TranscriptItem[] = [];
+  let run: Extract<TranscriptItem, { kind: "steps" }> | null = null;
+  let counts = new Map<string, number>();
+
+  for (const entry of entries) {
+    if (entry.kind === "notice") {
+      items.push({ kind: "notice", entry });
+      run = null;
+      continue;
+    }
+    if (isConversationMessage(entry)) {
+      items.push({ kind: "message", entry });
+      run = null;
+      continue;
+    }
+    if (!run) {
+      counts = new Map();
+      run = { kind: "steps", id: entry.id, entries: [], counts: [], date: entry.date };
+      items.push(run);
+    }
+    run.entries.push(entry);
+    const label = stepLabel(entry);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+    run.counts = [...counts];
+  }
+  return items;
+}
+
 /** Letta content fields are either a plain string or an array of content parts. */
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content;

@@ -5,12 +5,14 @@ import {
   createStreamIndex,
   type FilterGroup,
   filterEntries,
+  groupTranscript,
   mergeTurnErrors,
   settleStreaming,
   sortedEntries,
   splitErrorDetail,
   stripInjectedBlocks,
   type Transcript,
+  type TranscriptEntry,
   transcriptFromHistory,
 } from "./messages.ts";
 
@@ -941,5 +943,73 @@ describe("mergeTurnErrors", () => {
     const texts = sortedEntries(transcript).map((e) => e.text);
     expect(texts[0]).toBe("early");
     expect(texts).not.toContain("nope");
+  });
+});
+
+describe("groupTranscript", () => {
+  let n = 0;
+  const e = (
+    kind: TranscriptEntry["kind"],
+    extra: Partial<TranscriptEntry> = {},
+  ): TranscriptEntry => ({
+    id: `e${++n}`,
+    kind,
+    date: "2026-09-25T15:08:00Z",
+    seenAt: n,
+    text: "x",
+    ...extra,
+  });
+
+  test("steps between messages fold into one run with per-label counts", () => {
+    const items = groupTranscript([
+      e("user"),
+      e("reasoning"),
+      e("approval_request", { toolName: "Bash" }),
+      e("reasoning"),
+      e("approval_request", { toolName: "Bash" }),
+      e("tool_call", { toolName: "Read" }),
+      e("assistant"),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["message", "steps", "message"]);
+    const steps = items[1];
+    if (steps?.kind !== "steps") throw new Error("expected steps");
+    expect(steps.entries).toHaveLength(5);
+    expect(steps.counts).toEqual([
+      ["Thinking", 2],
+      ["Bash", 2],
+      ["Read", 1],
+    ]);
+  });
+
+  test("a notice stands alone and splits the run around it", () => {
+    const items = groupTranscript([
+      e("reasoning"),
+      e("notice", { level: "error" }),
+      e("reasoning"),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["steps", "notice", "steps"]);
+  });
+
+  test("reminders and subagent replies are steps, not messages", () => {
+    const items = groupTranscript([
+      e("system", { reminder: true }),
+      e("assistant", { subagentId: "sub-1" }),
+      e("user"),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["steps", "message"]);
+    const steps = items[0];
+    if (steps?.kind !== "steps") throw new Error("expected steps");
+    expect(steps.counts).toEqual([
+      ["Reminder", 1],
+      ["Subagent", 1],
+    ]);
+  });
+
+  test("a run keeps its id and start date as it grows at the tail", () => {
+    const first = e("reasoning", { date: "2026-09-25T15:08:00Z" });
+    const before = groupTranscript([first]);
+    const after = groupTranscript([first, e("tool_call", { date: "2026-09-25T15:09:00Z" })]);
+    expect(before[0]).toMatchObject({ kind: "steps", id: first.id, date: first.date });
+    expect(after[0]).toMatchObject({ kind: "steps", id: first.id, date: first.date });
   });
 });

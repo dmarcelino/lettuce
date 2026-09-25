@@ -1,6 +1,6 @@
-import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { collectFileTokens } from "../lib/file-links.ts";
-import type { TranscriptEntry } from "../lib/messages.ts";
+import { groupTranscript, type TranscriptEntry, type TranscriptItem } from "../lib/messages.ts";
 import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
@@ -120,7 +120,42 @@ export function MessageList({
     return { returnByCall: byCall, pairedReturnIds: paired };
   }, [entries]);
 
-  let lastTime = "";
+  // Paired returns render inside their call, so they leave the list before
+  // grouping — otherwise a Bash call would count as two steps.
+  const items = useMemo(
+    () =>
+      groupTranscript(
+        entries.filter(
+          (entry) =>
+            !(entry.kind === "tool_return" && entry.toolCallId && pairedReturnIds.has(entry.id)),
+        ),
+      ),
+    [entries, pairedReturnIds],
+  );
+
+  // Steps fold once the turn is done. Only an explicit tap is remembered, so a
+  // run that was open while live closes by itself when the answer lands.
+  const [openSteps, setOpenSteps] = useState<ReadonlyMap<string, boolean>>(new Map());
+  const lastItem = items.at(-1);
+  const liveStepsId = processing && lastItem?.kind === "steps" ? lastItem.id : null;
+  const toggleSteps = (id: string, open: boolean) =>
+    setOpenSteps((current) => new Map(current).set(id, !open));
+
+  const renderEntry = (entry: TranscriptEntry) => (
+    <MessageItem
+      key={entry.id}
+      entry={entry}
+      retn={
+        (entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId
+          ? (returnByCall.get(entry.toolCallId) ?? null)
+          : null
+      }
+      cwd={cwd}
+      fileLinks={fileLinks}
+      onOpenFile={onOpenFile}
+      showTimestamps={showTimestamps}
+    />
+  );
 
   return (
     <div className="messages-wrap">
@@ -129,40 +164,19 @@ export function MessageList({
           <p className="muted empty">No messages yet. Say something below.</p>
         ) : null}
 
-        {entries.map((entry) => {
-          // A tool call and its result render as one block: skip the standalone
-          // return when it has a matching call, and hand the call its return.
-          if (entry.kind === "tool_return" && entry.toolCallId && pairedReturnIds.has(entry.id)) {
-            return null;
-          }
-          const retn =
-            (entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId
-              ? (returnByCall.get(entry.toolCallId) ?? null)
-              : null;
-          // A time line only where the label changes: a burst of tool calls in
-          // one minute would otherwise repeat the same "14:31" down the page.
-          const time = showTimestamps ? formatEntryTime(entry.date) : "";
-          const showTime = time !== "" && time !== lastTime;
-          if (time) lastTime = time;
+        {items.map((item) => {
+          if (item.kind !== "steps") return renderEntry(item.entry);
+          const open = openSteps.get(item.id) ?? item.id === liveStepsId;
           return (
-            <Fragment key={entry.id}>
-              {showTime ? (
-                <time
-                  className="entry-time"
-                  dateTime={entry.date}
-                  title={formatEntryTimeFull(entry.date)}
-                >
-                  {time}
-                </time>
-              ) : null}
-              <MessageItem
-                entry={entry}
-                retn={retn}
-                cwd={cwd}
-                fileLinks={fileLinks}
-                onOpenFile={onOpenFile}
-              />
-            </Fragment>
+            <StepsGroup
+              key={`steps:${item.id}`}
+              item={item}
+              open={open}
+              onToggle={() => toggleSteps(item.id, open)}
+              showTimestamps={showTimestamps}
+            >
+              {open ? item.entries.map(renderEntry) : null}
+            </StepsGroup>
           );
         })}
 
@@ -202,6 +216,7 @@ const MessageItem = memo(function MessageItem({
   cwd,
   fileLinks,
   onOpenFile,
+  showTimestamps,
 }: {
   entry: TranscriptEntry;
   /** For a tool call: its matching return, folded into the same block. */
@@ -209,6 +224,7 @@ const MessageItem = memo(function MessageItem({
   cwd: string | null;
   fileLinks: FileLinks;
   onOpenFile: (path: string) => void;
+  showTimestamps: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const label = KIND_LABEL[entry.kind] ?? entry.kind;
@@ -282,16 +298,16 @@ const MessageItem = memo(function MessageItem({
         {summary?.subtitle ? <p className="tool-subtitle">{summary.subtitle}</p> : null}
         {open ? (
           <div className="rail">
-            {args ? <span className="rail-label">IN</span> : null}
+            {args ? <span className="rail-label">In</span> : null}
             {args ? <pre className="tool-args">{args}</pre> : null}
-            {outText || showStderr ? <span className="rail-label">OUT</span> : null}
+            {outText || showStderr ? <span className="rail-label">Out</span> : null}
             {outText ? <pre className="tool-args">{outText}</pre> : null}
             {showStderr ? <pre className="tool-args stderr">{stderr}</pre> : null}
             {!retn ? <span className="tool-peek">Running…</span> : null}
           </div>
         ) : outPreview ? (
           <div className="rail peek">
-            <span className="rail-label">OUT</span>
+            <span className="rail-label">Out</span>
             <span className="tool-peek">{clip(outPreview, 200)}</span>
           </div>
         ) : !retn ? (
@@ -323,7 +339,7 @@ const MessageItem = memo(function MessageItem({
         </button>
         {shown || showStderr ? (
           <div className="rail">
-            <span className="rail-label">OUT</span>
+            <span className="rail-label">Out</span>
             {shown ? <pre className="tool-args">{shown}</pre> : null}
             {showStderr ? <pre className="tool-args stderr">{stderr}</pre> : null}
           </div>
@@ -336,7 +352,7 @@ const MessageItem = memo(function MessageItem({
     return (
       <div className="entry reasoning">
         <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
-          <span className="muted small">Thinking</span>
+          <span className="step-name">Thinking</span>
           <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
         </button>
         {open ? <div className="bubble thinking">{md(entry.text)}</div> : null}
@@ -379,7 +395,7 @@ const MessageItem = memo(function MessageItem({
     return (
       <div className="entry system reminder">
         <button type="button" className="tool-head" onClick={() => setOpen((v) => !v)}>
-          <span className="tag">System reminder</span>
+          <span className="step-name">System reminder</span>
           <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
         </button>
         {open ? <pre className="tool-args">{entry.text}</pre> : null}
@@ -387,15 +403,67 @@ const MessageItem = memo(function MessageItem({
     );
   }
 
+  // A subagent's reply is a step, not the answer; it keeps the plain label.
+  const who = entry.kind === "user" ? "You" : entry.subagentId ? "Subagent" : label;
   return (
-    <div className={`entry ${entry.kind}`}>
-      {entry.kind !== "user" ? <span className="tag">{label}</span> : null}
-      {/* Arrived from Telegram/Slack rather than typed here — still you. */}
-      {entry.channel ? <span className="tag">via {entry.channel}</span> : null}
-      {/* Sent with a JSON-schema constraint on the reply. Client-side only: the
-          wire never carries it back, so it is absent on reloaded history. */}
-      {entry.structured ? <span className="tag">structured</span> : null}
+    <div className={`entry ${entry.kind}${entry.subagentId ? " subagent" : ""}`}>
+      <div className="role">
+        <span className="who">{who}</span>
+        {/* Arrived from Telegram/Slack rather than typed here — still you. */}
+        {entry.channel ? <span className="role-tag">via {entry.channel}</span> : null}
+        {/* Sent with a JSON-schema constraint on the reply. Client-side only: the
+            wire never carries it back, so it is absent on reloaded history. */}
+        {entry.structured ? <span className="role-tag">structured</span> : null}
+        {showTimestamps ? <EntryTime date={entry.date} /> : null}
+      </div>
       <div className={`bubble ${entry.kind}`}>{md(entry.text)}</div>
     </div>
   );
 });
+
+/** A message's time: short in the header, the full date and time on hover. */
+function EntryTime({ date }: { date: string }) {
+  const short = formatEntryTime(date);
+  if (!short) return null;
+  return (
+    <time dateTime={date} title={formatEntryTimeFull(date)}>
+      {short}
+    </time>
+  );
+}
+
+/**
+ * A run of the agent's work between two messages, folded to one line:
+ * "▸ 11 steps · Thinking ×6 · Bash ×5". Open, it shows every step as before.
+ */
+function StepsGroup({
+  item,
+  open,
+  onToggle,
+  showTimestamps,
+  children,
+}: {
+  item: Extract<TranscriptItem, { kind: "steps" }>;
+  open: boolean;
+  onToggle: () => void;
+  showTimestamps: boolean;
+  children: ReactNode;
+}) {
+  const total = item.entries.length;
+  const summary = item.counts
+    .map(([label, count]) => (count > 1 ? `${label} ×${count}` : label))
+    .join(" · ");
+  return (
+    <div className={`steps${open ? " open" : ""}`}>
+      <button type="button" className="steps-head" aria-expanded={open} onClick={onToggle}>
+        <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
+        <span className="steps-count">
+          {total} step{total === 1 ? "" : "s"}
+        </span>
+        <span className="steps-summary">· {summary}</span>
+        {showTimestamps ? <EntryTime date={item.date} /> : null}
+      </button>
+      {children}
+    </div>
+  );
+}
