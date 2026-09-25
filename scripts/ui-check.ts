@@ -344,14 +344,7 @@ try {
       "Channels section is gone",
       (await page.locator('.pane-bar button:text-is("Channels")').count()) === 0,
     );
-    const expectedChips = [
-      "Connection",
-      "MCP",
-      "Skills",
-      "Secrets",
-      "Reflection",
-      "Notifications",
-    ];
+    const expectedChips = ["Connection", "MCP", "Skills", "Secrets", "Reflection", "Notifications"];
     const chipLabels = (await page.locator(".pane-bar button").allInnerTexts()).map((t) =>
       t.trim(),
     );

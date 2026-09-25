@@ -5,12 +5,14 @@ import {
   applyStreamDelta,
   clearLocalNotice,
   createStreamIndex,
+  mergeTurnErrors,
   type StreamIndex,
   setLocalNotice,
   settleStreaming,
   sortedEntries,
   type Transcript,
   type TranscriptEntry,
+  type TurnErrorRecord,
   transcriptFromHistory,
 } from "../lib/messages.ts";
 import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
@@ -387,6 +389,8 @@ export function useConversation(
     async (afterResync = false) => {
       if (!conversationId) return;
       setError(null);
+      // In parallel with the history request; see `mergeTurnErrors`.
+      const turnErrors = agentId ? fetchTurnErrors(agentId, conversationId) : Promise.resolve([]);
       try {
         const response = await request<{ messages?: unknown[] }>("conversation_messages_list", {
           conversation_id: conversationId,
@@ -394,6 +398,7 @@ export function useConversation(
         });
         const messages = Array.isArray(response?.messages) ? response.messages : [];
         transcriptRef.current = transcriptFromHistory(messages);
+        mergeTurnErrors(transcriptRef.current, await turnErrors);
         streamIndexRef.current = createStreamIndex();
         seqRef.current = messages.length;
         flushSync();
@@ -406,7 +411,7 @@ export function useConversation(
         setError(errorMessage(cause));
       }
     },
-    [conversationId, request, flush, markResynced],
+    [agentId, conversationId, request, flush, markResynced],
   );
 
   // Start (or resume) the runtime for this conversation, then load its history.
@@ -856,4 +861,23 @@ export function useConversation(
     stopMonitor,
     lastTurnUsage,
   };
+}
+
+/**
+ * Failed turns the BFF remembers for this conversation. Best effort: history
+ * must still load when this cannot, so every failure is an empty list.
+ */
+async function fetchTurnErrors(
+  agentId: string,
+  conversationId: string,
+): Promise<TurnErrorRecord[]> {
+  try {
+    const params = new URLSearchParams({ agent_id: agentId, conversation_id: conversationId });
+    const response = await fetch(`/api/turn-errors?${params}`);
+    if (!response.ok) return [];
+    const body = (await response.json()) as { errors?: unknown };
+    return Array.isArray(body.errors) ? (body.errors as TurnErrorRecord[]) : [];
+  } catch {
+    return [];
+  }
 }

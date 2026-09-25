@@ -35,6 +35,12 @@ export interface BffConfig {
   allowedUsers: string[];
   /** Total frames retained for session resume across all conversations. */
   frameBufferSize: number;
+  /**
+   * How long SIGTERM waits for in-flight turns before closing the upstream
+   * connection (see `shutdown.ts`). Must stay below the container's
+   * `stop_grace_period`, or Docker's SIGKILL ends the drain first.
+   */
+  shutdownDrainTimeoutMs: number;
   /** Set for local development: skips Cloudflare Access and signs in as this email. */
   devBypassEmail: string | null;
   /** Explicit opt-in to serving the bypass beyond the local machine. */
@@ -207,6 +213,7 @@ export function loadConfig(): BffConfig {
     sessionTtlSeconds: optionalNumber("SESSION_TTL_SECONDS", 60 * 60 * 24 * 30),
     allowedUsers: readAllowedUsers(needsCfAccess, devBypassEmail),
     frameBufferSize: optionalNumber("FRAME_BUFFER_SIZE", 5000),
+    shutdownDrainTimeoutMs: optionalNumber("SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 15 * 60) * 1000,
     devBypassEmail,
     devBypassAllowRemote,
     push: readPushConfig(),

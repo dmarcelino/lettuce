@@ -40,9 +40,12 @@ import { configureWebPush, sendPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
 import { securityHeaders } from "./security-headers.ts";
+import { scopeKeyOf } from "./session/buffer.ts";
 import { SETTINGS_PATH, WORKSPACE_ROOT, workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { symlinkViolation } from "./session/symlink-guard.ts";
+import { TurnErrorLog } from "./session/turn-errors.ts";
+import { drainActiveTurns } from "./shutdown.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 
 const config: BffConfig = loadConfig();
@@ -59,6 +62,7 @@ const pushStore = config.push
 if (config.push) configureWebPush(config.push);
 const turnOutcomeWatcher = pushStore ? new TurnOutcomeWatcher(pushStore, log) : null;
 const approvalWatcher = pushStore ? new ApprovalWatcher(pushStore, log) : null;
+const turnErrors = new TurnErrorLog();
 
 function log(message: string): void {
   console.log(`[bff] ${new Date().toISOString()} ${message}`);
@@ -72,6 +76,7 @@ const upstream = new UpstreamConnection({
   url: config.appServerUrl,
   onFrame: (frame: WsProtocolMessage) => {
     registry.handleUpstreamFrame(frame);
+    turnErrors.observe(frame);
     turnOutcomeWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
     approvalWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
   },
@@ -443,6 +448,16 @@ app.put("/api/mcp", async (c) => {
   return c.json({ ok: true, servers });
 });
 
+// Failed turns for one conversation, which the transcript cannot reload on its
+// own: the app-server never stores them. See `session/turn-errors.ts`.
+app.get("/api/turn-errors", (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const agentId = c.req.query("agent_id");
+  const conversationId = c.req.query("conversation_id");
+  if (!agentId || !conversationId) return c.text("Missing agent_id or conversation_id", 400);
+  return c.json({ errors: turnErrors.list(scopeKeyOf(agentId, conversationId)) });
+});
+
 // A real HTTP URL for a workspace file, so a chat-message link or the Files
 // tab can hand the browser a plain download instead of driving the read_file
 // WS command itself. Goes through the app-server exactly like every other
@@ -637,10 +652,37 @@ if (config.devBypassEmail) {
   log("!".repeat(72));
 }
 
+// Closing the upstream connection cancels every turn in flight (it is the only
+// subscriber of every scope), so shutdown first drains: browsers keep being
+// served and the connection stays open until no turn is running, bounded by
+// SHUTDOWN_DRAIN_TIMEOUT_SECONDS. A second signal skips the wait.
+let shuttingDown = false;
+let secondSignal: () => void = () => {};
+const interrupted = new Promise<void>((resolve) => {
+  secondSignal = resolve;
+});
+
+async function shutdown(signal: string): Promise<void> {
+  log(`Received ${signal}, shutting down`);
+  await drainActiveTurns({
+    activeScopes: () => (upstream.isReady() ? registry.activeScopes() : []),
+    timeoutMs: config.shutdownDrainTimeoutMs,
+    log,
+    interrupted,
+  });
+  upstream.stop();
+  await server.stop(true);
+  process.exit(0);
+}
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    log(`Received ${signal}, shutting down`);
-    upstream.stop();
-    void server.stop(true).then(() => process.exit(0));
+    if (shuttingDown) {
+      log(`Received ${signal} again, not waiting any longer`);
+      secondSignal();
+      return;
+    }
+    shuttingDown = true;
+    void shutdown(signal);
   });
 }

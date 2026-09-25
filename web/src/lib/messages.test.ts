@@ -5,6 +5,7 @@ import {
   createStreamIndex,
   type FilterGroup,
   filterEntries,
+  mergeTurnErrors,
   settleStreaming,
   sortedEntries,
   splitErrorDetail,
@@ -873,5 +874,72 @@ describe("provider error notices", () => {
     expect(notice?.text).toBe("context window exceeded");
     expect(notice?.detail).toBe('{"error":{"message":"context window exceeded"}}');
     expect(notice?.level).toBe("error");
+  });
+});
+
+describe("mergeTurnErrors", () => {
+  // Newest first, as conversation_messages_list returns them.
+  const history = () =>
+    transcriptFromHistory([
+      {
+        id: "a2",
+        date: "2026-09-25T16:39:05Z",
+        message_type: "assistant_message",
+        content: "Done",
+      },
+      {
+        id: "a1",
+        date: "2026-09-25T14:40:00Z",
+        message_type: "assistant_message",
+        content: "Scanning",
+      },
+      { id: "u1", date: "2026-09-25T14:31:18Z", message_type: "user_message", content: "Run it" },
+    ]);
+
+  test("a failed turn lands between the entries it happened between", () => {
+    const transcript = history();
+    mergeTurnErrors(transcript, [
+      {
+        turn_id: "t1",
+        run_id: "run-1",
+        error: "Conversation is still busy",
+        at: "2026-09-25T16:38:42.803Z",
+      },
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries.map((e) => e.text)).toEqual([
+      "Run it",
+      "Scanning",
+      "Conversation is still busy",
+      "Done",
+    ]);
+    expect(entries[2]?.level).toBe("error");
+    expect(entries[2]?.kind).toBe("notice");
+  });
+
+  test("a provider body is demoted to the detail", () => {
+    const transcript = history();
+    mergeTurnErrors(transcript, [
+      {
+        turn_id: "t1",
+        run_id: null,
+        error: 'Boom\n{"error":{"message":"device lost"}}',
+        at: "2026-09-25T17:00:00Z",
+      },
+    ]);
+    const last = sortedEntries(transcript).at(-1);
+    expect(last?.text).toBe("device lost");
+    expect(last?.detail).toContain("device lost");
+  });
+
+  test("an error older than all history goes first; a bad date is skipped", () => {
+    const transcript = history();
+    mergeTurnErrors(transcript, [
+      { turn_id: "old", run_id: null, error: "early", at: "2026-09-24T00:00:00Z" },
+      { turn_id: "bad", run_id: null, error: "nope", at: "not a date" },
+    ]);
+    const texts = sortedEntries(transcript).map((e) => e.text);
+    expect(texts[0]).toBe("early");
+    expect(texts).not.toContain("nope");
   });
 });

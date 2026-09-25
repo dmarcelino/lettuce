@@ -7,7 +7,7 @@ import type {
 } from "@letta-ai/letta-code/app-server-protocol";
 import { errorMessage } from "../errors.ts";
 import type { UpstreamConnection, UpstreamState } from "../upstream/connection.ts";
-import { ActivityTracker } from "./activity.ts";
+import { type ActiveScope, ActivityTracker } from "./activity.ts";
 import { FrameBuffer, frameScopeKey, scopeKeyOf } from "./buffer.ts";
 import { withModifiedTimes } from "./file-stat.ts";
 import {
@@ -166,6 +166,11 @@ export class SessionRegistry {
     if (!session) return;
     this.sessions.delete(sessionId);
     this.log(`Session ${sessionId} closed (${this.sessions.size} active)`);
+  }
+
+  /** Conversations with a turn in progress, across the whole app-server. */
+  activeScopes(): ActiveScope[] {
+    return this.activity.snapshot();
   }
 
   /** Handle one raw text message from a browser session. */

@@ -217,8 +217,16 @@ services:
         condition: service_healthy
     # Share the app-server's loopback; see the note at the top of this file.
     network_mode: "service:app-server"
+    # Stopping the BFF closes the one upstream connection, which cancels every
+    # turn in flight — so on SIGTERM it first waits for running turns to end
+    # (bff/src/shutdown.ts), up to SHUTDOWN_DRAIN_TIMEOUT_SECONDS (default 15m).
+    # Docker's default 10s grace would SIGKILL that drain, so this must stay
+    # longer than the drain timeout. A redeploy while a turn runs therefore
+    # takes up to this long to stop the old container.
+    stop_grace_period: 16m
     environment:
       PORT: "8080"
+      SHUTDOWN_DRAIN_TIMEOUT_SECONDS: ${SHUTDOWN_DRAIN_TIMEOUT_SECONDS:-}
       LETTA_APP_SERVER_URL: ws://127.0.0.1:4500
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8090}
       # Pass-through of the exact same value that decides, at the Compose

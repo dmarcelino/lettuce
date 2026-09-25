@@ -32,11 +32,30 @@ export class TurnOutcomeWatcher {
       this.store,
       {
         title: "Letta",
-        body: eventType === "failed" ? "Your agent hit an error." : "Your agent finished its turn.",
+        body: frame.error ? failureBody(frame.error) : "Your agent finished its turn.",
         url,
       },
       eventType,
       this.log,
     );
   }
+}
+
+/** Longest error excerpt a push carries; notification UIs clip long bodies anyway. */
+export const PUSH_ERROR_EXCERPT_CHARS = 120;
+
+/**
+ * The failure push names the failure. The error is reported nowhere the
+ * transcript reloads from (see `session/turn-errors.ts`), so a bare "hit an
+ * error" left the notification as the only trace, with nothing in it. Only the
+ * first line: a provider error continues with its raw HTTP body.
+ */
+export function failureBody(error: string): string {
+  const firstLine = error.trim().split("\n", 1)[0]?.trim() ?? "";
+  if (!firstLine) return "Your agent hit an error.";
+  const excerpt =
+    firstLine.length > PUSH_ERROR_EXCERPT_CHARS
+      ? `${firstLine.slice(0, PUSH_ERROR_EXCERPT_CHARS - 1)}…`
+      : firstLine;
+  return `Your agent hit an error: ${excerpt}`;
 }

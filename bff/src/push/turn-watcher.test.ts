@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
-import { TurnOutcomeWatcher } from "./turn-watcher.ts";
+import { failureBody, PUSH_ERROR_EXCERPT_CHARS, TurnOutcomeWatcher } from "./turn-watcher.ts";
 
 function turnFinishedFrame(scopeKey: string, error?: string): WsProtocolMessage {
   const [agentId, conversationId] = scopeKey.split("::");
@@ -43,6 +43,26 @@ describe("TurnOutcomeWatcher", () => {
 
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0]?.[2]).toBe("failed");
+  });
+
+  test("the failure push names the error", () => {
+    const notify = fakeNotify();
+    const watcher = new TurnOutcomeWatcher(fakeStore, () => {}, notify);
+
+    watcher.observe(
+      turnFinishedFrame(scope, 'Conversation is still busy\n{"body":"raw"}'),
+      () => false,
+    );
+
+    const payload = notify.mock.calls[0]?.[1] as { body?: string };
+    expect(payload.body).toBe("Your agent hit an error: Conversation is still busy");
+  });
+
+  test("failureBody clips a long error and falls back when empty", () => {
+    const long = failureBody("x".repeat(500));
+    expect(long.length).toBe("Your agent hit an error: ".length + PUSH_ERROR_EXCERPT_CHARS);
+    expect(long.endsWith("…")).toBe(true);
+    expect(failureBody("  \n ")).toBe("Your agent hit an error.");
   });
 
   test("does not fire when a session is watching the scope", () => {

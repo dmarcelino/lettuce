@@ -68,6 +68,28 @@ Corollaries — do not break these:
   sequence number. `conversation_messages_list` (cursor `next_before` / `has_more`) is the
   cold-start fallback when a tab was away longer than the buffer.
 
+**A `bff` redeploy is the one time the connection does close — so shutdown drains first.**
+Stopping the BFF closes that socket, which cancels every in-flight turn exactly as above. Worse,
+the cancel cannot reach llama.cpp (see "Stop cannot actually cancel"), so the backend run keeps
+going; the new BFF's owner sync then re-sends the interrupted tool calls into a conversation
+that is still busy, `send.ts` `maybeWaitForBlockingRun` waits out `BUSY_RUN_WAIT_TIMEOUT_MS`
+(5 min) and the turn ends with `Conversation is still busy because run … remained active after
+300000ms`. **Signature: an error push exactly five minutes after a BFF restart, then a
+"completed" push shortly after, and nothing in the transcript** (seen on prod 2026-09-25 with a
+two-hour cron turn). `bff/src/shutdown.ts` therefore holds SIGTERM until `ActivityTracker`
+reports no turn in progress, up to `SHUTDOWN_DRAIN_TIMEOUT_SECONDS` (default 15 min), while
+still serving browsers; a second signal skips the wait. `stop_grace_period: 16m` in
+`docker/compose.yml` is what lets it — Docker's default 10 s SIGKILLs the drain — and it must
+stay above the drain timeout. So a `bff` deploy during a turn now takes until that turn ends
+to stop the old container. A turn longer than the cap still dies.
+
+**Turn errors are live-only upstream, so the BFF keeps them.** A failed turn reaches clients
+as a `loop_error` delta and `turn_finished.error`; neither is written to the message store, so
+`conversation_messages_list` cannot show it and a failure nobody watched vanished on reload.
+`bff/src/session/turn-errors.ts` records the last few per scope (in memory), served at
+`GET /api/turn-errors`, and `mergeTurnErrors` (`web/src/lib/messages.ts`) slots them back into
+the rebuilt transcript by date. The failure push also carries the error's first line.
+
 The same permanent connection is also what boots the cron scheduler and Telegram adapters:
 app-server process services start on *first client attach*
 (`listener/lifecycle.ts` → `startConnectedListenerRuntime`), so with no client ever connected,

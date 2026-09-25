@@ -962,6 +962,51 @@ export function transcriptFromHistory(messages: readonly unknown[]): Transcript 
   return transcript;
 }
 
+/** A failed turn as the BFF remembers it — `GET /api/turn-errors`. */
+export interface TurnErrorRecord {
+  turn_id: string;
+  run_id: string | null;
+  error: string;
+  /** ISO time the BFF saw the turn end. */
+  at: string;
+}
+
+/**
+ * Put failed turns back into a transcript rebuilt from history.
+ *
+ * The app-server never stores a turn's terminal error — it only sends it live
+ * as a `loop_error` — so `transcriptFromHistory` cannot show one, and a turn
+ * that failed while nobody watched (a cron run) vanished on reload. The BFF
+ * keeps them (`bff/src/session/turn-errors.ts`); this slots each one in after
+ * the last history entry dated at or before it. Only called on a history
+ * rebuild, where no live `loop_error` entry can exist to duplicate.
+ */
+export function mergeTurnErrors(transcript: Transcript, errors: readonly TurnErrorRecord[]): void {
+  const byOrder = [...transcript.values()].sort((a, b) => a.seenAt - b.seenAt);
+  for (const record of errors) {
+    const at = Date.parse(record.at);
+    if (!record.error || Number.isNaN(at)) continue;
+    let seenAt = -0.5;
+    for (const entry of byOrder) {
+      const date = Date.parse(entry.date);
+      if (Number.isNaN(date) || date > at) break;
+      seenAt = entry.seenAt + 0.5;
+    }
+    const split = splitErrorDetail(record.error);
+    const id = `turn-error:${record.turn_id}`;
+    transcript.set(id, {
+      id,
+      kind: "notice",
+      date: record.at,
+      seenAt,
+      text: split.headline,
+      level: "error",
+      ...(split.detail ? { detail: split.detail } : {}),
+      ...(record.run_id ? { runId: record.run_id } : {}),
+    });
+  }
+}
+
 /** Mark every streaming entry complete (turn finished or aborted). */
 export function settleStreaming(transcript: Transcript): void {
   for (const entry of transcript.values()) {
