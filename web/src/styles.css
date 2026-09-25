@@ -437,14 +437,14 @@ pre {
 }
 .entry.user {
   align-self: flex-end;
-  align-items: flex-end;
+  align-items: stretch;
   max-width: min(85%, 640px);
   margin-left: 15%;
   border-right: 2px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 9%, var(--surface));
 }
-.entry.user .bubble {
-  text-align: left;
+.entry.user .role {
+  justify-content: flex-end;
 }
 .entry.assistant:not(.subagent) {
   align-self: stretch;
@@ -517,6 +517,13 @@ pre {
   padding-left: 8px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* On a phone the summary needs the room more; the messages either side of
+   the run already carry their times. */
+@media (max-width: 520px) {
+  .steps-head time {
+    display: none;
+  }
 }
 .step-name {
   font-size: 13px;
