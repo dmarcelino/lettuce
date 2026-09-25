@@ -1,4 +1,5 @@
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
+import { type AuthProbe, probeAuth } from "./auth-probe.ts";
 import {
   type AppServerInfo,
   type BffError,
@@ -11,7 +12,14 @@ import {
   type SequencedFrame,
 } from "./protocol.ts";
 
-export type LinkState = "connecting" | "live" | "reconnecting" | "resyncing" | "offline";
+export type LinkState =
+  | "connecting"
+  | "live"
+  | "reconnecting"
+  | "resyncing"
+  | "offline"
+  /** The login expired (Cloudflare Access or ours); retrying cannot fix it. */
+  | "signed-out";
 
 export interface SessionClientEvents {
   /** An app-server frame, already de-duplicated and in sequence order. */
@@ -26,6 +34,12 @@ export interface SessionClientEvents {
   onError: (error: BffError) => void;
   /** Every conversation with a response in progress, app-server wide — hello, then each change. */
   onActivity: (active: RuntimeScope[]) => void;
+  /**
+   * The login expired: only a page load can sign back in (Cloudflare Access's
+   * login needs a top-level navigation). Fired on each failed attempt while
+   * signed out, so the caller can reload once the page is visible.
+   */
+  onAuthExpired: () => void;
 }
 
 interface PendingRequest {
@@ -52,6 +66,20 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 8_000;
 
 /**
+ * The BFF's "signed out" close code (bff/src/index.ts). A refused upgrade is a
+ * bare 1006 to the browser, the same as offline; this one is readable.
+ */
+const AUTH_REQUIRED_CLOSE_CODE = 4401;
+
+/**
+ * Consecutive attempts that never opened before asking `/api/status` why.
+ * Cloudflare Access blocks an expired login before the BFF sees it, so no
+ * close code can report that — only an ordinary fetch can. One failure is
+ * routine (a phone waking up); two in a row is worth one request to find out.
+ */
+const PROBE_AFTER_FAILED_OPENS = 2;
+
+/**
  * Browser-side connection to the BFF.
  *
  * Designed around the fact that a mobile browser drops its WebSocket whenever
@@ -72,10 +100,15 @@ export class SessionClient {
   private scopes: RuntimeScope[] = [];
   /** The conversation on screen, reported to the BFF — see `sendWatching`. */
   private watchedScope: RuntimeScope | null = null;
+  /** Attempts in a row that closed without ever opening. */
+  private failedOpens = 0;
+  private probing = false;
 
   constructor(
     private readonly url: string,
     private readonly events: SessionClientEvents,
+    /** Injectable for tests. */
+    private readonly probe: () => Promise<AuthProbe> = probeAuth,
   ) {}
 
   start(): void {
@@ -255,9 +288,12 @@ export class SessionClient {
       socket.close();
     }, CONNECT_TIMEOUT_MS);
 
+    let opened = false;
     socket.onopen = () => {
+      opened = true;
       clearTimeout(connectTimeout);
       this.reconnectMs = RECONNECT_BASE_MS;
+      this.failedOpens = 0;
       // Ask for everything we missed while the tab was away.
       socket.send(
         JSON.stringify({
@@ -281,12 +317,21 @@ export class SessionClient {
       this.handleFrame(parsed);
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event: CloseEvent) => {
       clearTimeout(connectTimeout);
       if (this.socket === socket) this.socket = null;
       this.rejectAllPending("Connection lost");
       if (this.closed) return;
+      if (event.code === AUTH_REQUIRED_CLOSE_CODE) {
+        this.signOut();
+        return;
+      }
+      if (!opened) this.failedOpens += 1;
       this.setLinkState("reconnecting");
+      if (this.failedOpens >= PROBE_AFTER_FAILED_OPENS) {
+        void this.probeThenReconnect();
+        return;
+      }
       this.scheduleReconnect();
     };
 
@@ -342,6 +387,9 @@ export class SessionClient {
           return;
         }
       }
+      // Any other BFF control frame (e.g. `__bff_auth_required`, which the
+      // 4401 close right behind it already reports) is not an app frame.
+      return;
     }
 
     const frame = raw as SequencedFrame;
@@ -374,6 +422,34 @@ export class SessionClient {
       this.pending.delete(id);
       pending.reject(new Error(reason));
     }
+  }
+
+  /**
+   * Find out why the socket will not open. Signed out stops the retry loop —
+   * retrying cannot sign anyone in — and hands over to the caller; anything
+   * else goes back to the ordinary backoff.
+   */
+  private async probeThenReconnect(): Promise<void> {
+    if (this.probing) return;
+    this.probing = true;
+    const result = await this.probe();
+    this.probing = false;
+    if (this.closed) return;
+    this.failedOpens = 0;
+    if (result === "expired") {
+      this.signOut();
+      return;
+    }
+    this.scheduleReconnect();
+  }
+
+  /** Stop retrying; focus, visibility or the network coming back tries again. */
+  private signOut(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.failedOpens = 0;
+    this.setLinkState("signed-out");
+    this.events.onAuthExpired();
   }
 
   private scheduleReconnect(): void {

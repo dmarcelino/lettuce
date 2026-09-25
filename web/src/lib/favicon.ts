@@ -19,6 +19,7 @@ const TINT: Record<LinkState, string> = {
   reconnecting: "#fbbf24",
   resyncing: "#fbbf24",
   offline: "#f87171", // --bad
+  "signed-out": "#f87171",
 };
 
 function svg(tint: string): string {

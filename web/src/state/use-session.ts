@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { claimAutoReload } from "../lib/auth-probe.ts";
 import {
   type AppServerInfo,
   type ConnectionState,
@@ -71,6 +72,16 @@ export function useSession(enabled: boolean): SessionApi {
       onAppServerInfo: (info) => setAppServerInfo(info),
       onError: (error) => setLastError(error.message),
       onActivity: (next) => setActive(next),
+      // The reload is what takes the page through Cloudflare Access's login —
+      // the manual refresh that used to be the only way out. Only while
+      // visible (a hidden tab retries on return), and at most once per
+      // interval so a login that keeps failing cannot loop: after that the
+      // pill offers "Sign in again".
+      onAuthExpired: () => {
+        if (document.visibilityState === "visible" && claimAutoReload(sessionStore())) {
+          location.reload();
+        }
+      },
     });
 
     clientRef.current = client;
@@ -158,4 +169,13 @@ export function useSession(enabled: boolean): SessionApi {
       activeAgentIds,
     ],
   );
+}
+
+/** Per-tab storage for the reload guard: it must survive the reload it guards. */
+function sessionStore(): Pick<Storage, "getItem" | "setItem"> | null {
+  try {
+    return globalThis.sessionStorage ?? null;
+  } catch {
+    return null;
+  }
 }

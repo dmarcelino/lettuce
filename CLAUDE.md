@@ -90,6 +90,21 @@ as a `loop_error` delta and `turn_finished.error`; neither is written to the mes
 `GET /api/turn-errors`, and `mergeTurnErrors` (`web/src/lib/messages.ts`) slots them back into
 the rebuilt transcript by date. The failure push also carries the error's first line.
 
+**An expired login must not look like "offline".** A refused WebSocket upgrade reaches the
+browser as close code 1006 with no HTTP status, identical to a dropped network, so the PWA used
+to sit on "Reconnecting…" until a manual reload. Two rules follow:
+- `/ws` resolves the session exactly like HTTP (`bff/src/auth/resolve-session.ts`: cookie, else
+  the Access JWT, minting a cookie onto the 101). A signed-out upgrade is **accepted and closed
+  with 4401** after a `__bff_auth_required` frame — never refused — because a close code is the
+  one signal the browser can read.
+- An expired **Cloudflare Access** login is blocked at the edge before the BFF sees it, so no
+  close code can report it. After two consecutive failed opens `SessionClient` probes
+  `/api/status` with `redirect: "manual"` (`web/src/lib/auth-probe.ts`): an `opaqueredirect`,
+  401/403 or `authenticated: false` means signed out → link state `signed-out`, and
+  `use-session.ts` reloads the page once (top-level navigation is the only way through Access's
+  login), at most every 5 minutes; after that the pill is a "Sign in again" button. A network
+  error keeps the ordinary backoff.
+
 The same permanent connection is also what boots the cron scheduler and Telegram adapters:
 app-server process services start on *first client attach*
 (`listener/lifecycle.ts` → `startConnectedListenerRuntime`), so with no client ever connected,

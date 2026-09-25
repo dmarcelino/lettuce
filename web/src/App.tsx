@@ -465,7 +465,18 @@ function LinkPill({ link }: { link: LinkState }) {
     reconnecting: { label: "Reconnecting…", tone: "warn" },
     resyncing: { label: "Resyncing…", tone: "warn" },
     offline: { label: "Offline", tone: "bad" },
+    "signed-out": { label: "Sign in again", tone: "bad" },
   };
   const { label, tone } = map[link];
+  // Signed out is the one state a tap can fix: a reload goes through the
+  // login. Reached when the automatic reload already ran recently, or the
+  // page was hidden when the login expired.
+  if (link === "signed-out") {
+    return (
+      <button type="button" className={`pill as-button ${tone}`} onClick={() => location.reload()}>
+        {label}
+      </button>
+    );
+  }
   return <span className={`pill ${tone}`}>{label}</span>;
 }

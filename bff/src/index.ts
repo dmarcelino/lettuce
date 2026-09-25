@@ -8,15 +8,12 @@ import type {
 import type { ServerWebSocket } from "bun";
 import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { CF_ACCESS_JWT_HEADER, verifyAccessJwt } from "./auth/cf-access.ts";
 import { checkUpgradeOrigin } from "./auth/origin.ts";
+import { resolveSession } from "./auth/resolve-session.ts";
 import {
   buildSessionCookie,
   clearSessionCookie,
-  decodeSession,
   encodeSession,
-  readCookie,
-  SESSION_COOKIE,
   type SessionPayload,
 } from "./auth/session-cookie.ts";
 import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
@@ -128,40 +125,15 @@ app.get("/readyz", (c) =>
 // Resolves the session for every other route, minting one transparently from
 // a Cloudflare Access JWT the first time it sees one with no cookie yet.
 // After that first hit, every request (including this one) uses the cheap
-// cookie check below — no per-request JWKS/JWT verification. Applied as
-// middleware (rather than one dedicated login route) so it also covers plain
-// XHRs like `/api/status`, not just top-level navigations.
+// cookie check — no per-request JWKS/JWT verification. Applied as middleware
+// (rather than one dedicated login route) so it also covers plain XHRs like
+// `/api/status`, not just top-level navigations. The `/ws` upgrade, which runs
+// before Hono, resolves through the same function.
+const sessionDeps = { config, mint: mintSession, log };
 app.use("*", async (c, next) => {
-  let session = currentSession(c.req.raw);
-
-  // Local mode never looks at this header at all, even if one shows up (e.g.
-  // a curious client hitting the LAN port directly) — there is no team
-  // domain/audience configured to verify it against, and not even trying is
-  // clearer than an incidental failure inside verifyAccessJwt.
-  if (!session && config.mode === "cloudflared") {
-    const jwt = c.req.header(CF_ACCESS_JWT_HEADER);
-    if (jwt) {
-      try {
-        const { email } = await verifyAccessJwt(jwt, {
-          teamDomain: config.cfAccessTeamDomain,
-          audience: config.cfAccessAud,
-          issuer: config.cfAccessIssuer,
-        });
-        if (isAllowedUser(config, email)) {
-          const minted = mintSession(email);
-          session = minted.session;
-          c.header("set-cookie", minted.cookie, { append: true });
-          log(`Signed in ${email} via Cloudflare Access`);
-        } else {
-          log(`Rejected Access sign-in for ${email} (not in allowlist)`);
-        }
-      } catch (error) {
-        log(`Access JWT verification failed: ${errorMessage(error)}`);
-      }
-    }
-  }
-
-  c.set("session", session);
+  const resolved = await resolveSession(c.req.raw, sessionDeps);
+  if (resolved?.setCookie) c.header("set-cookie", resolved.setCookie, { append: true });
+  c.set("session", resolved?.session ?? null);
   await next();
 });
 
@@ -551,17 +523,19 @@ function endpointOf(body: unknown): string | null {
   return typeof endpoint === "string" && endpoint ? endpoint : null;
 }
 
-function currentSession(request: Request): SessionPayload | null {
-  const token = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
-  if (!token) return null;
-  return decodeSession(token, config.sessionSecret);
-}
-
 // ── WebSocket ────────────────────────────────────────────────────────────────
 interface SocketData {
-  user: SessionUser;
+  /** Null for an upgrade accepted only to be told it is signed out; see `/ws`. */
+  user: SessionUser | null;
   sessionId: string;
 }
+
+/**
+ * Close code for "signed out". A refused upgrade (401) reaches the browser as
+ * a bare 1006, indistinguishable from being offline, so the client retried
+ * forever; a close code after the handshake is the one signal it can read.
+ */
+const AUTH_REQUIRED_CLOSE_CODE = 4401;
 
 // PUBLIC_ORIGIN is only a declaration of intent; the bind address is the
 // enforcement. The bypass stays on loopback unless DEV_BYPASS_ALLOW_REMOTE
@@ -573,7 +547,7 @@ const server = Bun.serve<SocketData>({
   port: config.port,
   hostname: bindHostname,
 
-  fetch(request, bunServer) {
+  async fetch(request, bunServer) {
     const url = new URL(request.url);
 
     if (url.pathname === "/ws") {
@@ -591,15 +565,16 @@ const server = Bun.serve<SocketData>({
         return new Response("Forbidden origin", { status: 403, headers: hardened });
       }
 
-      const session = currentSession(request);
-      if (!session) {
-        return new Response("Unauthorized", { status: 401, headers: hardened });
-      }
+      // Signed out is accepted and then closed with AUTH_REQUIRED_CLOSE_CODE
+      // (see `open` below), so the client can tell it apart from offline. A
+      // session minted from the Access JWT rides back on the 101's cookie.
+      const resolved = await resolveSession(request, sessionDeps);
       // The authenticated identity rides along in `data`, so the socket never
       // has to re-derive it from cookies after the upgrade.
       const upgraded = bunServer.upgrade(request, {
+        ...(resolved?.setCookie ? { headers: { "set-cookie": resolved.setCookie } } : {}),
         data: {
-          user: { email: session.email },
+          user: resolved ? { email: resolved.session.email } : null,
           sessionId: "",
         } satisfies SocketData,
       });
@@ -612,6 +587,11 @@ const server = Bun.serve<SocketData>({
 
   websocket: {
     open(ws: ServerWebSocket<SocketData>) {
+      if (!ws.data.user) {
+        ws.send(JSON.stringify({ type: "__bff_auth_required" }));
+        ws.close(AUTH_REQUIRED_CLOSE_CODE, "Authentication required");
+        return;
+      }
       ws.data.sessionId = registry.add(
         {
           send: (data) => ws.send(data),
@@ -622,6 +602,7 @@ const server = Bun.serve<SocketData>({
     },
 
     message(ws: ServerWebSocket<SocketData>, message: string | Buffer) {
+      if (!ws.data.sessionId) return;
       registry.handleSessionMessage(
         ws.data.sessionId,
         typeof message === "string" ? message : message.toString("utf8"),

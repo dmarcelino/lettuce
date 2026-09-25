@@ -636,10 +636,24 @@ h.close();
 
 // ── 10. Unauthenticated access is refused ────────────────────────────────────
 section("10. Authentication");
-const anon = await fetch(`${ORIGIN}/ws`, {
-  headers: { connection: "Upgrade", upgrade: "websocket" },
+// Signed out is accepted and then closed with 4401, not refused: a refused
+// upgrade reaches a browser as a bare 1006, indistinguishable from offline, and
+// the app sat on "Reconnecting…" forever. The socket never joins the registry.
+const anon = await new Promise<{ code: number; first: string | null }>((resolve) => {
+  const socket = new WebSocket(`${ORIGIN.replace(/^http/, "ws")}/ws`);
+  let first: string | null = null;
+  socket.onmessage = (event) => {
+    first ??= String(event.data);
+  };
+  socket.onclose = (event) => resolve({ code: event.code, first });
+  setTimeout(() => resolve({ code: -1, first }), 5000);
 });
-check("unauthenticated /ws upgrade is rejected", anon.status === 401, anon.status);
+check("unauthenticated /ws is closed with 4401", anon.code === 4401, anon);
+check(
+  "and told why before the close",
+  anon.first !== null && JSON.parse(anon.first).type === "__bff_auth_required",
+  anon.first,
+);
 
 // An anonymous /api/status must not fingerprint the deployment. The signed-in
 // payload carries the running letta-code version, backend kind, protocol
