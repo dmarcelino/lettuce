@@ -214,10 +214,14 @@ An agent that builds a web app runs it inside the app-server container. Only por
 | `AGENT_APPS_BIND` | optional; `0.0.0.0` (default) publishes on every interface. Use the LAN IP to keep it off other interfaces, or `127.0.0.1` to close it. |
 
 Agents learn the rules from a global skill shipped in this repo,
-[`agent-skills/serving-web-apps`](agent-skills/serving-web-apps/SKILL.md), mounted
-read-only into `/root/.letta/skills/`: its description in every agent's skill list says to
-load it before starting a server, and it says to bind `0.0.0.0`, pick a port in the range,
-run detached with a log, and hand out `http://$AGENT_APP_HOST:<port>`.
+[`agent-skills/serving-web-apps`](agent-skills/serving-web-apps/SKILL.md). It travels in
+the bff image and the BFF writes it into `/root/.letta/skills/` on every connect to the
+app-server (so a `bff` deploy is enough to update it). Its description in every agent's
+skill list says to load it before starting a server, and it says to bind `0.0.0.0`, pick a
+port in the range, run detached with a log, and hand out `http://$AGENT_APP_HOST:<port>`.
+It is not a bind mount on purpose: under Dockhand, compose runs inside Dockhand's own
+container, so a relative mount source does not exist on the host and Docker silently
+mounts an empty directory instead.
 
 These apps have **no authentication** and **do not survive an app-server restart** — the
 processes live in that container. Changing the range or `AGENT_APPS_BIND` recreates

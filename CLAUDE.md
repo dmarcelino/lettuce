@@ -367,10 +367,15 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 - **Agent web apps: ports 3000-3099, taught by a skill.** A server an agent starts runs inside
   the app-server container, reachable from the LAN only on the published range 3000-3099
   (`AGENT_APPS_BIND`, default `0.0.0.0`). Agents learn it from the global skill
-  `docker/agent-skills/serving-web-apps`, bind-mounted read-only into `/root/.letta/skills/` —
-  a skill because letta-code lists every skill's name and description in context each turn,
-  so the rule reaches every agent, cron and channel turns included, without touching anyone's
-  memory. `AGENT_APP_PORTS` and `AGENT_APP_HOST` (the address to put in URLs, from
+  `docker/agent-skills/serving-web-apps` — a skill because letta-code lists every skill's name
+  and description in context each turn, so the rule reaches every agent, cron and channel
+  turns included, without touching anyone's memory. It ships in the **bff image** and
+  `bff/src/agent-skills.ts` writes it into `/root/.letta/skills/` over the upstream connection
+  on every connect (`write_file` creates the directories), overwriting any agent edit.
+  **Never bind-mount repo files into a service:** Dockhand runs compose inside its own
+  container, so a relative bind source (`./…`) names a path that does not exist on the host
+  and the daemon mounts an empty directory — silently. Builds are fine (the context is
+  streamed); anything from the repo must travel in an image. `AGENT_APP_PORTS` and `AGENT_APP_HOST` (the address to put in URLs, from
   `docker/.env`) are in the app-server env for it. No auth in front of those ports, and the
   processes die with the container. The skill's frontmatter `name` must match its directory.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.

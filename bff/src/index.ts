@@ -9,6 +9,7 @@ import type {
 import type { ServerWebSocket } from "bun";
 import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import { installAgentSkills, readSkillTree } from "./agent-skills.ts";
 import { checkUpgradeOrigin } from "./auth/origin.ts";
 import { resolveSession } from "./auth/resolve-session.ts";
 import {
@@ -91,11 +92,34 @@ const upstream = new UpstreamConnection({
   onStateChange: (state, info) => {
     log(`Upstream state: ${state}`);
     registry.broadcastUpstreamState(state, info);
+    if (state === "connected") void installShippedSkills();
   },
   log,
 });
 
 const registry = new SessionRegistry(upstream, config.frameBufferSize, log);
+
+// Skills this repo ships to every agent (docker/agent-skills), installed into
+// the app-server's global skills directory on each connect — see
+// `agent-skills.ts` for why this is not a bind mount. The files travel in the
+// bff image at the same relative path as in the repo, so dev works unchanged.
+const agentSkillsDir =
+  process.env.AGENT_SKILLS_DIR ?? new URL("../../docker/agent-skills", import.meta.url).pathname;
+async function installShippedSkills(): Promise<void> {
+  await installAgentSkills(
+    readSkillTree(agentSkillsDir),
+    async (path, content) => {
+      const response = await upstream.request<WriteFileResponseMessage>({
+        type: "write_file",
+        path,
+        content,
+        request_id: `bff-skill-${randomUUID()}`,
+      });
+      if (response?.success !== true) throw new Error(response?.error ?? "write_file failed");
+    },
+    log,
+  );
+}
 
 // The symlink guard inspects the workspace through this process's own mount. If
 // that mount is absent — running the BFF outside the container, or a compose

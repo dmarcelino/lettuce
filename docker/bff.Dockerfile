@@ -37,6 +37,10 @@ FROM deps AS runtime
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY bff/src            ./bff/src
 COPY bff/tsconfig.json  ./bff/tsconfig.json
+# Skills the BFF installs into every agent's global skill directory on connect
+# (bff/src/agent-skills.ts). In the image, not a bind mount: under Dockhand a
+# relative mount source resolves inside Dockhand's container, not on the host.
+COPY docker/agent-skills ./docker/agent-skills
 
 # The BFF serves this build at / (see the static routes in bff/src/index.ts).
 COPY --from=web-build /app/web/dist ./web/dist
