@@ -476,17 +476,12 @@ pre {
   font-weight: 400;
 }
 
-/* Copy / Edit on a message: small, quiet, at the far end of the header. On
-   your (right-hand) messages they sit on the left, away from your name. */
+/* Copy / Edit on a message: small, quiet, at the right end of the header on
+   both your messages and the agent's. */
 .msg-actions {
   display: inline-flex;
   gap: 2px;
   margin-left: auto;
-}
-.entry.user .msg-actions {
-  order: -1;
-  margin-left: 0;
-  margin-right: auto;
 }
 .msg-action {
   display: inline-grid;
