@@ -417,6 +417,15 @@ pre {
   border: 1px solid var(--border);
   padding: 5px 9px;
   text-align: left;
+  /* Whole words, never letters. The containers around Markdown (chat bubbles,
+     the file preview's .tool-args) set overflow-wrap: anywhere, which makes a
+     cell's minimum width a single character — a table then squeezed every
+     column to "D / at / e". Here the table keeps readable columns and its
+     wrapper scrolls sideways; the width cap lets a long URL still wrap. */
+  overflow-wrap: break-word;
+  white-space: normal;
+  max-width: 28ch;
+  vertical-align: top;
 }
 .md th {
   background: var(--surface-2);
