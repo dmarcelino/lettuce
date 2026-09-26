@@ -740,6 +740,27 @@ try {
     await shot(page, `activity-${viewport.width}`);
     await page.close();
   }
+
+  // ── Enter on a phone ─────────────────────────────────────────────────────
+  // A real touch device: coarse pointer, no hover. There Enter must add a new
+  // line and never send — an accidental send cannot be taken back. A plain
+  // phone-sized viewport does not emulate the pointer, hence the context.
+  section("Enter on a touch device");
+  {
+    const context = await browser.newContext({ viewport: PHONE, isMobile: true, hasTouch: true });
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    const textarea = page.locator(".composer textarea");
+    await textarea.waitFor();
+    await textarea.fill("first line");
+    await textarea.press("End");
+    await textarea.press("Enter");
+    await textarea.pressSequentially("second line");
+    const value = await textarea.inputValue();
+    check("Enter adds a new line instead of sending", value === "first line\nsecond line", value);
+    await textarea.fill("");
+    await context.close();
+  }
 } finally {
   await browser.close();
 }

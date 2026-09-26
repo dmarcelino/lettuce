@@ -7,6 +7,7 @@ import {
   historyDown,
   historyUp,
 } from "../lib/input-history.ts";
+import { enterSends } from "../lib/input-mode.ts";
 import type { FilterGroup } from "../lib/messages.ts";
 import { parseResponseFormat, type ResponseFormat } from "../lib/structured-output.ts";
 import { type TurnUsage, usageDescription, usageLabel } from "../lib/usage.ts";
@@ -67,6 +68,13 @@ interface Props {
   lastTurnUsage: TurnUsage | null;
   /** This conversation's past user messages, oldest first, for ↑/↓ recall. */
   history: readonly string[];
+  /**
+   * Text to put in the box — "Edit" on your last message. Applied once, then
+   * `onPrefillApplied` clears it: the composer unmounts on a tab switch, and a
+   * request still standing would overwrite the draft on every remount.
+   */
+  prefill: string | null;
+  onPrefillApplied: () => void;
 }
 
 type OpenSheet = "filters" | "permissions" | "commands" | "structured" | null;
@@ -98,6 +106,8 @@ export function Composer({
   modelLabel,
   lastTurnUsage,
   history,
+  prefill,
+  onPrefillApplied,
   structuredText,
   structuredEnabled,
   structuredSupported,
@@ -139,6 +149,26 @@ export function Composer({
     });
     return () => cancelAnimationFrame(frame);
   }, [draftKey]);
+
+  // "Edit" on your last message: the text replaces what is in the box, ready to
+  // change and send as a new message (a sent message cannot be rewritten).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs per request, not per render.
+  useEffect(() => {
+    if (prefill === null) return;
+    setValue(prefill);
+    remember(prefill);
+    cursorRef.current = AT_DRAFT;
+    setDismissed(true);
+    onPrefillApplied();
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    requestAnimationFrame(() => {
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+      textarea.setSelectionRange(prefill.length, prefill.length);
+    });
+  }, [prefill]);
 
   const suggestions = disabled || dismissed ? [] : matchSlashCommands(value, commands);
   const highlighted = suggestions.length > 0 ? Math.min(highlight, suggestions.length - 1) : -1;
@@ -311,7 +341,7 @@ export function Composer({
                   setDismissed(true);
                   return;
                 }
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (event.key === "Enter" && !event.shiftKey && enterSends()) {
                   // The popover is open, so Enter takes the highlighted command
                   // rather than sending a half-typed name to the agent.
                   event.preventDefault();
@@ -349,9 +379,9 @@ export function Composer({
                 }
               }
 
-              // Enter sends; Shift+Enter is a newline. On touch keyboards Enter is
-              // usually a newline key, so the send button carries the same action.
-              if (event.key === "Enter" && !event.shiftKey) {
+              // Enter sends; Shift+Enter is a newline. On a phone Enter is always a
+              // newline and only the send button sends (see `enterSends`).
+              if (event.key === "Enter" && !event.shiftKey && enterSends()) {
                 event.preventDefault();
                 submit();
               }

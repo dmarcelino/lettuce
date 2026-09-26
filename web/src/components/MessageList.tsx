@@ -1,4 +1,5 @@
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { copyText } from "../lib/clipboard.ts";
 import { collectFileTokens } from "../lib/file-links.ts";
 import { groupTranscript, type TranscriptEntry, type TranscriptItem } from "../lib/messages.ts";
 import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
@@ -18,6 +19,8 @@ interface Props {
   onOpenFile: (path: string) => void;
   /** Label entries with their time; toggled in the filter sheet. */
   showTimestamps: boolean;
+  /** "Edit" on your last message: put its text back in the composer. Stable. */
+  onEditMessage: (text: string) => void;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -70,6 +73,7 @@ export function MessageList({
   cwd,
   onOpenFile,
   showTimestamps,
+  onEditMessage,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fileLinks = useFileLinks(session, cwd);
@@ -141,6 +145,16 @@ export function MessageList({
   const toggleSteps = (id: string, open: boolean) =>
     setOpenSteps((current) => new Map(current).set(id, !open));
 
+  // Only your latest message offers Edit: it is the one a resend replaces in
+  // spirit, and an Edit on something older would read as rewriting history.
+  const lastUserId = useMemo(() => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      if (entry?.kind === "user" && !entry.reminder) return entry.id;
+    }
+    return null;
+  }, [entries]);
+
   const renderEntry = (entry: TranscriptEntry) => (
     <MessageItem
       key={entry.id}
@@ -154,6 +168,7 @@ export function MessageList({
       fileLinks={fileLinks}
       onOpenFile={onOpenFile}
       showTimestamps={showTimestamps}
+      onEdit={entry.id === lastUserId ? onEditMessage : undefined}
     />
   );
 
@@ -217,6 +232,7 @@ const MessageItem = memo(function MessageItem({
   fileLinks,
   onOpenFile,
   showTimestamps,
+  onEdit,
 }: {
   entry: TranscriptEntry;
   /** For a tool call: its matching return, folded into the same block. */
@@ -225,6 +241,8 @@ const MessageItem = memo(function MessageItem({
   fileLinks: FileLinks;
   onOpenFile: (path: string) => void;
   showTimestamps: boolean;
+  /** Set only on your latest message. */
+  onEdit?: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const label = KIND_LABEL[entry.kind] ?? entry.kind;
@@ -415,6 +433,20 @@ const MessageItem = memo(function MessageItem({
             wire never carries it back, so it is absent on reloaded history. */}
         {entry.structured ? <span className="role-tag">structured</span> : null}
         {showTimestamps ? <EntryTime date={entry.date} /> : null}
+        <span className="msg-actions">
+          <CopyButton text={entry.text} />
+          {onEdit ? (
+            <button
+              type="button"
+              className="msg-action"
+              onClick={() => onEdit(entry.text)}
+              title="Edit and send again"
+              aria-label="Edit and send again"
+            >
+              <Icon name="edit" />
+            </button>
+          ) : null}
+        </span>
       </div>
       <div className={`bubble ${entry.kind}`}>{md(entry.text)}</div>
     </div>
@@ -465,5 +497,27 @@ function StepsGroup({
       </button>
       {children}
     </div>
+  );
+}
+
+/** Copies a message's raw text; the icon turns into a tick for a moment. */
+function CopyButton({ text }: { text: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => {
+    if (state === "idle") return;
+    const timer = setTimeout(() => setState("idle"), 1500);
+    return () => clearTimeout(timer);
+  }, [state]);
+  const label = state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : "Copy";
+  return (
+    <button
+      type="button"
+      className={`msg-action${state === "copied" ? " ok" : state === "failed" ? " bad" : ""}`}
+      onClick={() => void copyText(text).then((ok) => setState(ok ? "copied" : "failed"))}
+      title={label}
+      aria-label={label}
+    >
+      <Icon name={state === "copied" ? "check" : "copy"} />
+    </button>
   );
 }

@@ -37,7 +37,9 @@ export type IconName =
   | "plus"
   | "task"
   | "braces"
-  | "branch";
+  | "branch"
+  | "copy"
+  | "check";
 
 /** Path data on a 24×24 grid; stroked, never filled. */
 const PATHS: Record<IconName, string> = {
@@ -77,6 +79,9 @@ const PATHS: Record<IconName, string> = {
   // Git branch: two nodes on a line with a diverging one.
   branch:
     "M7 5v10M7 19a2 2 0 100-4 2 2 0 000 4zM7 7a2 2 0 100-4 2 2 0 000 4zM17 9a2 2 0 100-4 2 2 0 000 4zM17 9c0 4-4 4-4 8",
+  // Two overlapping sheets: copy to the clipboard.
+  copy: "M9 9h10v10H9zM15 9V5H5v10h4",
+  check: "M5 12l5 5 9-10",
 };
 
 interface Props {

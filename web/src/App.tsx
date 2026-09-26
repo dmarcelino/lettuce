@@ -173,6 +173,9 @@ function Workspace({ status }: { status: Status }) {
   const [agentEditor, setAgentEditor] = useState<{ id: string | null } | null>(null);
   const [filters, setFilters] = useState<Set<FilterGroup>>(new Set());
   const [showTimestamps, setShowTimestamps] = useState(() => readShowTimestamps());
+  /** Text an "Edit" put on its way to the composer; cleared once it lands. */
+  const [prefill, setPrefill] = useState<string | null>(null);
+  const clearPrefill = useCallback(() => setPrefill(null), []);
   const onShowTimestamps = useCallback((show: boolean) => {
     writeShowTimestamps(show);
     setShowTimestamps(show);
@@ -321,6 +324,7 @@ function Workspace({ status }: { status: Status }) {
               cwd={conversation.cwd}
               onOpenFile={setOpenFile}
               showTimestamps={showTimestamps}
+              onEditMessage={setPrefill}
             />
 
             {conversation.queue.length > 0 ? (
@@ -387,6 +391,8 @@ function Workspace({ status }: { status: Status }) {
               modelLabel={modelLabel}
               lastTurnUsage={conversation.lastTurnUsage}
               history={inputHistory}
+              prefill={prefill}
+              onPrefillApplied={clearPrefill}
             />
           </>
         ) : tab === "Files" ? (
