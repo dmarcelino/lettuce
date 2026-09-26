@@ -477,7 +477,12 @@ pre {
 }
 
 /* Copy / Edit on a message: small, quiet, at the right end of the header on
-   both your messages and the agent's. */
+   both your messages and the agent's. The header spans the panel so there is a
+   right end to push them to — the agent's entry otherwise shrink-wraps it. */
+.entry.user > .role,
+.entry.assistant > .role {
+  align-self: stretch;
+}
 .msg-actions {
   display: inline-flex;
   gap: 2px;
