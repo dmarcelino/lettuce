@@ -180,7 +180,9 @@ try {
     // the switcher sits on the left, and the row fits without a sideways scroll.
     const controls = await page.evaluate(() => {
       const row = document.querySelector(".composer-row") as HTMLElement;
-      const mid = row.getBoundingClientRect().left + row.getBoundingClientRect().width / 2;
+      // "Left" means before the spacer, the gap that splits the row, not left of
+      // centre: six 44px buttons fill most of a phone row.
+      const gap = (row.querySelector(".spacer") as HTMLElement).getBoundingClientRect().left;
       const buttons = [...row.querySelectorAll("button")].filter((b) => b.offsetParent !== null);
       return {
         small: buttons
@@ -191,7 +193,7 @@ try {
           .filter((b) => b.width < 44 || b.height < 44)
           .map((b) => `${b.name} ${Math.round(b.width)}x${Math.round(b.height)}`),
         left: buttons
-          .filter((b) => b.getBoundingClientRect().right < mid)
+          .filter((b) => b.getBoundingClientRect().right <= gap)
           .map((b) => b.getAttribute("aria-label")),
         scrolls: row.scrollWidth > row.clientWidth + 1,
       };
