@@ -1509,47 +1509,63 @@ p.warning code {
     min-width: 130px;
   }
 
-  /* `fill` is about the CONTENT, not the size: a body that is one document to
-     read or edit, rather than a form or a list. It swaps the height cap for a
-     definite height and hands that height to the document, so the content
-     scrolls once — in the element that holds it — instead of a small pane
-     scrolling inside a scrolling sheet. */
+  /* A document sheet's definite height on a desktop; the rules that hand it
+     to the document are shared with the phone, below. */
   .sheet-panel.fill {
     height: min(88vh, 940px);
   }
-  .sheet-panel.fill .sheet-body {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    overflow: hidden;
-  }
-  /* The one scroll region. `min-height: 0` is load-bearing: without it a flex
-     item refuses to shrink below its content and the overflow moves back up to
-     the body, restoring the nesting this is meant to remove. */
-  .sheet-panel.fill .memory-editor,
-  .sheet-panel.fill .tool-args {
-    flex: 1;
-    min-height: 0;
-    max-height: none;
-    overflow: auto;
-    resize: none;
-  }
-  /* A flex column stretches its children, which turns an inline link into a
-     full-width button with centred text. Keep it the size of its label. */
-  .sheet-panel.fill .sheet-body > .link {
-    align-self: flex-start;
-  }
-  /* Anything after the primary content keeps its natural size and gets its own
-     bounded scroll rather than pushing the editor out of the panel. */
-  .sheet-panel.fill .list.compact {
-    flex-shrink: 0;
-    max-height: 26vh;
-    overflow-y: auto;
-  }
-  .sheet-panel.fill .file-preview {
-    max-height: none;
-    min-height: 0;
-    object-fit: contain;
+}
+
+/* `fill` is about the CONTENT, not the size: a body that is one document to
+   read or edit, rather than a form or a list. It swaps the height cap for a
+   definite height and hands that height to the document, so the content
+   scrolls once — in the element that holds it — instead of a small pane
+   scrolling inside a scrolling sheet. */
+.sheet-panel.fill .sheet-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+/* The one scroll region. `min-height: 0` is load-bearing: without it a flex
+   item refuses to shrink below its content and the overflow moves back up to
+   the body, restoring the nesting this is meant to remove. */
+.sheet-panel.fill .memory-editor,
+.sheet-panel.fill .tool-args {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  resize: none;
+}
+/* A flex column stretches its children, which turns an inline link into a
+   full-width button with centred text. Keep it the size of its label. */
+.sheet-panel.fill .sheet-body > .link {
+  align-self: flex-start;
+}
+/* Anything after the primary content keeps its natural size and gets its own
+   bounded scroll rather than pushing the editor out of the panel. */
+.sheet-panel.fill .list.compact {
+  flex-shrink: 0;
+  max-height: 26vh;
+  overflow-y: auto;
+}
+.sheet-panel.fill .file-preview {
+  max-height: none;
+  min-height: 0;
+  object-fit: contain;
+}
+
+/* On a phone a document sheet is the whole screen: the file preview and the
+   memory editor used to open as a bottom sheet capped at 72vh, with the
+   document itself in a 320px box inside it. */
+@media (max-width: 899px) {
+  .sheet-panel.fill {
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
   }
 }
 
