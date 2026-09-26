@@ -133,14 +133,48 @@ try {
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
     check("all five tabs are reachable", (await page.locator("nav.tabs button").count()) === 5);
-    check("hamburger is shown", await page.locator(".topbar .icon-button.ghost").isVisible());
     check(
-      "sidebar is off-canvas",
-      await page.evaluate(() => {
-        const el = document.querySelector(".sidebar");
-        return el ? el.getBoundingClientRect().right <= 1 : false;
+      "the top bar names the agent",
+      (await page.locator(".topbar .where-agent").innerText()).trim() !== "",
+    );
+    check("no drawer on a phone", !(await page.locator(".sidebar").isVisible()));
+
+    // The switcher: agents and conversations in one full-screen menu, opened
+    // from the composer. Each list starts with its own "new" card, in one
+    // shared style, and the agents sit at the bottom, in thumb reach.
+    const switcherButton = page.locator(
+      '.composer-row button[aria-label="Agents and conversations"]',
+    );
+    check("composer has the switcher button", await switcherButton.isVisible());
+    await switcherButton.click();
+    const switcher = page.locator(".switcher");
+    check("switcher opens", await switcher.isVisible());
+    const news = switcher.locator(".switcher-new");
+    const newLabels = await news.allInnerTexts();
+    check(
+      "New conversation and New agent are both there",
+      newLabels.some((t) => t.startsWith("New conversation")) &&
+        newLabels.some((t) => t === "New agent"),
+      newLabels,
+    );
+    const newStyles = await news.evaluateAll((els) =>
+      els.map((el) => {
+        const cs = getComputedStyle(el);
+        return [cs.borderStyle, cs.borderColor, cs.color, cs.fontWeight, cs.height].join("|");
       }),
     );
+    check('both "new" cards share one style', new Set(newStyles).size === 1, newStyles);
+    const agentsBox = await switcher.locator(".switcher-agents").boundingBox();
+    check(
+      "agents sit at the bottom",
+      agentsBox !== null && Math.abs(agentsBox.y + agentsBox.height - PHONE.height) < 2,
+      agentsBox,
+    );
+    const switcherBox = await overflow(page);
+    check("switcher has nothing clipped", switcherBox.clipped.length === 0, switcherBox);
+    await shot(page, "phone-switcher");
+    await switcher.locator(".switcher-back").click();
+    check("back closes the switcher", (await page.locator(".switcher").count()) === 0);
 
     // The composer is the single control surface; each control must exist and
     // be an icon button with an accessible name.
@@ -377,7 +411,12 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    check("hamburger is hidden", !(await page.locator(".topbar .icon-button.ghost").isVisible()));
+    check(
+      "no switcher button in the composer on desktop",
+      !(await page
+        .locator('.composer-row button[aria-label="Agents and conversations"]')
+        .isVisible()),
+    );
     check(
       "sidebar is pinned on screen",
       await page.evaluate(() => {

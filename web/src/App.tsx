@@ -8,6 +8,7 @@ import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
+import { Switcher } from "./components/Switcher.tsx";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { userHistory } from "./lib/input-history.ts";
@@ -167,7 +168,9 @@ function Workspace({ status }: { status: Status }) {
   });
 
   const [tab, setTab] = useState<Tab>("Chat");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  /** The agents-and-conversations menu (phone); see `Switcher`. */
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
   const [showModels, setShowModels] = useState(false);
   /** `null` = closed; `{ id: null }` = create; `{ id }` = edit that agent. */
   const [agentEditor, setAgentEditor] = useState<{ id: string | null } | null>(null);
@@ -235,6 +238,7 @@ function Workspace({ status }: { status: Status }) {
 
   const title =
     agents.conversations.find((c) => c.id === agents.conversationId)?.summary ?? "Letta";
+  const agentName = agents.agents.find((a) => a.id === agents.agentId)?.name ?? null;
 
   const toggleFilter = (group: FilterGroup) => {
     setFilters((current) => {
@@ -257,8 +261,8 @@ function Workspace({ status }: { status: Status }) {
     <div className="app">
       <Sidebar
         agents={agents}
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
+        open={false}
+        onClose={() => {}}
         onNewAgent={() => setAgentEditor({ id: null })}
         onEditAgent={(id) => setAgentEditor({ id })}
         activeScopes={session.activeScopes}
@@ -267,20 +271,24 @@ function Workspace({ status }: { status: Status }) {
 
       <div className="main">
         <header className="topbar">
+          {/* Where you are: the agent over the conversation. On a phone it is
+              also a way into the switcher from every tab, not just Chat. */}
           <button
             type="button"
-            className="icon-button ghost"
-            onClick={() => setSidebarOpen((v) => !v)}
+            className="where"
+            onClick={openSwitcher}
             aria-label={
               respondingElsewhere > 0
-                ? `Conversations, ${respondingElsewhere} responding`
-                : "Conversations"
+                ? `${agentName ?? "Agent"}: ${title}. Switch — ${respondingElsewhere} responding elsewhere`
+                : `${agentName ?? "Agent"}: ${title}. Switch agent or conversation`
             }
           >
-            <Icon name="menu" />
-            {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
+            <span className="where-agent">
+              {agentName ?? "No agent"}
+              {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
+            </span>
+            <h1 className="title">{title}</h1>
           </button>
-          <h1 className="title">{title}</h1>
           {bypass ? <AuthPill email={status.user?.email} /> : null}
           <LinkPill link={session.link} />
         </header>
@@ -392,6 +400,7 @@ function Workspace({ status }: { status: Status }) {
               lastTurnUsage={conversation.lastTurnUsage}
               history={inputHistory}
               prefill={prefill}
+              onOpenSwitcher={openSwitcher}
               onPrefillApplied={clearPrefill}
             />
           </>
@@ -452,6 +461,22 @@ function Workspace({ status }: { status: Status }) {
         />
       ) : null}
 
+      {switcherOpen ? (
+        <Switcher
+          agents={agents}
+          session={session}
+          onClose={() => setSwitcherOpen(false)}
+          onNewAgent={() => {
+            setSwitcherOpen(false);
+            setAgentEditor({ id: null });
+          }}
+          onEditAgent={(id) => {
+            setSwitcherOpen(false);
+            setAgentEditor({ id });
+          }}
+        />
+      ) : null}
+
       {agentEditor ? (
         <AgentEditor
           session={session}
@@ -464,6 +489,13 @@ function Workspace({ status }: { status: Status }) {
   );
 }
 
+/**
+ * The link state as a dot: green live, amber spinner while connecting or
+ * reconnecting, red offline — the label is the tooltip and the accessible
+ * name. It used to be a text pill, which cost the top bar the room it now
+ * uses to say which agent and conversation you are in. Signed out stays
+ * words and a button: it is the one state that needs you to act.
+ */
 function LinkPill({ link }: { link: LinkState }) {
   const map: Record<LinkState, { label: string; tone: string }> = {
     live: { label: "Live", tone: "ok" },
@@ -484,5 +516,12 @@ function LinkPill({ link }: { link: LinkState }) {
       </button>
     );
   }
-  return <span className={`pill ${tone}`}>{label}</span>;
+  return (
+    <span
+      className={`link-dot ${tone}${tone === "warn" ? " spinning" : ""}`}
+      role="img"
+      aria-label={label}
+      title={label}
+    />
+  );
 }

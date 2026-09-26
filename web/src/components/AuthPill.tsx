@@ -18,13 +18,15 @@ export function AuthPill({ email }: Props) {
 
   return (
     <>
+      {/* An icon, not a pill: the top bar's room goes to where you are. */}
       <button
         type="button"
-        className="pill warn as-button"
+        className="auth-warning"
         onClick={() => setOpen(true)}
         title="Authentication is disabled"
+        aria-label="Unauthenticated (dev bypass)"
       >
-        <Icon name="warning" /> Unauth
+        <Icon name="warning" />
       </button>
 
       {open ? (

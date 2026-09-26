@@ -1127,14 +1127,10 @@ pre {
   flex-shrink: 0;
   animation: activity-pulse 1.4s ease-in-out infinite;
 }
-.topbar .icon-button.ghost {
-  position: relative;
-}
+/* On the agent name in the top bar: something is responding in a conversation
+   you are not looking at. */
 .activity-dot.badge-dot {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  margin: 0;
+  margin: 0 0 0 6px;
 }
 @keyframes activity-pulse {
   0%,
@@ -1419,26 +1415,11 @@ p.warning code {
     font-size: 15px;
   }
 
+  /* No drawer on a phone: agents and conversations live in the switcher,
+     opened from the composer or the top bar. The sidebar stays mounted (it
+     refetches when a busy conversation is unlisted) but is not shown. */
   .sidebar {
-    position: fixed;
-    inset: 0 auto 0 0;
-    z-index: 30;
-    transform: translateX(-100%);
-    transition: transform 0.18s ease;
-    padding-top: calc(14px + env(safe-area-inset-top));
-    box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
-  }
-  .sidebar.open {
-    transform: none;
-  }
-
-  .scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 29;
-    background: rgba(6, 8, 12, 0.6);
-    border: none;
+    display: none;
   }
 
   .bubble {
@@ -1449,9 +1430,9 @@ p.warning code {
 /* ── Desktop ─────────────────────────────────────────────────────────────── */
 
 @media (min-width: 900px) {
-  /* The sidebar is a pinned column here (the drawer rules stop at 899px), so
-     the control that opens it has nothing to do. */
-  .topbar .icon-button.ghost {
+  /* The sidebar is a pinned column here, so the composer's switcher button
+     has nothing to add; the top bar still opens the switcher. */
+  .composer-row .switcher-button {
     display: none;
   }
 
@@ -1842,4 +1823,334 @@ p.warning code {
   display: flex;
   align-items: center;
   padding: 6px;
+}
+
+/* ── Top bar: where you are ──────────────────────────────────────────────── */
+
+.topbar .where {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.where-agent {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--agent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar .where .title {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The link state as a dot; its label is the tooltip and accessible name. */
+.link-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin: 0 8px;
+  border-radius: 50%;
+}
+.link-dot.ok {
+  background: var(--ok);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.link-dot.bad {
+  background: var(--bad);
+}
+.link-dot.warn {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--warn);
+  border-right-color: transparent;
+}
+.link-dot.spinning {
+  animation: link-spin 0.9s linear infinite;
+}
+@keyframes link-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .link-dot.spinning {
+    animation: none;
+  }
+}
+
+.auth-warning {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--warn);
+  cursor: pointer;
+}
+
+/* ── Switcher: agents and conversations ──────────────────────────────────── */
+
+.switcher {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--bg);
+  display: flex;
+  justify-content: center;
+}
+.switcher-panel {
+  flex: 1;
+  max-width: 640px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+}
+.switcher-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.switcher-bar h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 17px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.switcher-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 72px;
+  padding: 8px 4px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 15px;
+  cursor: pointer;
+}
+.switcher-bar-spacer {
+  min-width: 72px;
+}
+.switcher-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 14px 2px;
+  padding: 0 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.switcher-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+}
+.switcher-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+.switcher-group {
+  margin: 14px 14px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.switcher-hint {
+  margin: 10px 14px 0;
+  font-size: 12.5px;
+  color: var(--agent);
+}
+.switcher-empty {
+  margin: 14px;
+}
+.switcher-list .activity-note {
+  margin: 10px 14px 0;
+}
+
+/* "New conversation" and "New agent": one style, the first card of each list. */
+.switcher-new {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 28px);
+  margin: 10px 14px 0;
+  padding: 13px 14px;
+  background: none;
+  border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.switcher-new:disabled {
+  opacity: 0.5;
+}
+
+.switcher-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  margin: 8px 14px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.switcher-card.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+.switcher-card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 6px 12px 14px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.switcher-card.agent .switcher-card-main {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 6px 10px 12px;
+}
+.switcher-card-title {
+  font-weight: 600;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.switcher-card-meta {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.switcher-card-meta .responding {
+  color: var(--agent);
+}
+.switcher-more {
+  flex: none;
+  width: 44px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.switcher-menu {
+  position: absolute;
+  right: 6px;
+  top: calc(100% - 6px);
+  z-index: 2;
+  min-width: 170px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.switcher-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.switcher-menu button + button {
+  border-top: 1px solid var(--border);
+}
+.switcher-archived {
+  display: block;
+  margin: 14px auto 0;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Your agents, pinned to the bottom within thumb reach. Tall lists scroll. */
+.switcher-agents {
+  flex: none;
+  max-height: 42vh;
+  overflow-y: auto;
+  padding: 0 0 calc(14px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.switcher-agents .switcher-card {
+  background: var(--bg);
+}
+.switcher-agents .switcher-card.selected {
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+}
+.switcher-avatar {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: #0b1020;
+  font-weight: 700;
+  font-size: 16px;
+}
+.switcher-agent-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.switcher-check {
+  flex: none;
+  color: var(--accent);
 }

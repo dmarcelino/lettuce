@@ -39,7 +39,11 @@ export type IconName =
   | "braces"
   | "branch"
   | "copy"
-  | "check";
+  | "check"
+  | "chats"
+  | "back"
+  | "more"
+  | "search";
 
 /** Path data on a 24×24 grid; stroked, never filled. */
 const PATHS: Record<IconName, string> = {
@@ -82,6 +86,12 @@ const PATHS: Record<IconName, string> = {
   // Two overlapping sheets: copy to the clipboard.
   copy: "M9 9h10v10H9zM15 9V5H5v10h4",
   check: "M5 12l5 5 9-10",
+  // Two speech bubbles: switch conversation (or agent).
+  chats: "M4 5h13v9H9l-5 4zM8 17v1h8l4 3V9h-3",
+  back: "M15 5l-7 7 7 7",
+  // Three dots in a row: a row's menu (rename, archive, edit).
+  more: "M6 12h.01M12 12h.01M18 12h.01",
+  search: "M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4",
 };
 
 interface Props {

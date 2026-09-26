@@ -75,6 +75,8 @@ interface Props {
    */
   prefill: string | null;
   onPrefillApplied: () => void;
+  /** Open the agents-and-conversations switcher (phone only; see styles). */
+  onOpenSwitcher: () => void;
 }
 
 type OpenSheet = "filters" | "permissions" | "commands" | "structured" | null;
@@ -108,6 +110,7 @@ export function Composer({
   history,
   prefill,
   onPrefillApplied,
+  onOpenSwitcher,
   structuredText,
   structuredEnabled,
   structuredSupported,
@@ -391,7 +394,18 @@ export function Composer({
           />
 
           <div className="composer-row">
-            {/* Command on the left; everything else clusters by the send button. */}
+            {/* Switcher and command on the left; everything else clusters by the
+                send button. The switcher button is phone-only — the desktop has
+                the pinned sidebar. */}
+            <button
+              type="button"
+              className="icon-button flat switcher-button"
+              onClick={onOpenSwitcher}
+              title="Agents and conversations"
+              aria-label="Agents and conversations"
+            >
+              <Icon name="chats" />
+            </button>
             <button
               type="button"
               className="icon-button flat"
