@@ -176,6 +176,34 @@ try {
     await switcher.locator(".switcher-back").click();
     check("back closes the switcher", (await page.locator(".switcher").count()) === 0);
 
+    // Fingertip-sized: every composer control is at least 44px on a phone, only
+    // the switcher sits on the left, and the row fits without a sideways scroll.
+    const controls = await page.evaluate(() => {
+      const row = document.querySelector(".composer-row") as HTMLElement;
+      const mid = row.getBoundingClientRect().left + row.getBoundingClientRect().width / 2;
+      const buttons = [...row.querySelectorAll("button")].filter((b) => b.offsetParent !== null);
+      return {
+        small: buttons
+          .map((b) => ({
+            name: b.getAttribute("aria-label"),
+            ...b.getBoundingClientRect().toJSON(),
+          }))
+          .filter((b) => b.width < 44 || b.height < 44)
+          .map((b) => `${b.name} ${Math.round(b.width)}x${Math.round(b.height)}`),
+        left: buttons
+          .filter((b) => b.getBoundingClientRect().right < mid)
+          .map((b) => b.getAttribute("aria-label")),
+        scrolls: row.scrollWidth > row.clientWidth + 1,
+      };
+    });
+    check("composer buttons are at least 44px", controls.small.length === 0, controls.small);
+    check(
+      "only the switcher is on the left",
+      controls.left.length === 1 && controls.left[0] === "Agents and conversations",
+      controls.left,
+    );
+    check("composer row fits without scrolling", !controls.scrolls);
+
     // The composer is the single control surface; each control must exist and
     // be an icon button with an accessible name.
     for (const label of ["Filter the transcript", "Run a command"]) {

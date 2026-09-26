@@ -1421,18 +1421,34 @@ p.warning code {
     display: none;
   }
 
-  /* Slightly larger touch targets than the desktop 28px — a mouse pointer
-     doesn't need the margin a fingertip does. */
+  /* Fingertip-sized targets: 44px, the common minimum for touch (desktop keeps
+     28px — a mouse pointer doesn't need the margin a fingertip does). The
+     tighter gap is what lets six of them share a 390px row. */
+  .composer-row {
+    gap: 4px;
+  }
   .composer-row .icon-button.flat {
-    min-width: 32px;
-    height: 32px;
-    font-size: 14px;
+    min-width: 44px;
+    height: 44px;
+    font-size: 16px;
   }
   .composer-row .icon-button.send,
   .composer-row .icon-button.stop {
-    width: 34px;
-    height: 34px;
-    font-size: 15px;
+    width: 52px;
+    height: 44px;
+    font-size: 17px;
+  }
+  .composer-row .icon-button .icon {
+    width: 22px;
+    height: 22px;
+  }
+  /* The token count gives way before any button does: it shrinks to an
+     ellipsis rather than pushing the row into a sideways scroll. */
+  .composer-row .turn-usage {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* No drawer on a phone: agents and conversations live in the switcher,

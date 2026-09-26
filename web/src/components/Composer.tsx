@@ -394,9 +394,9 @@ export function Composer({
           />
 
           <div className="composer-row">
-            {/* Switcher and command on the left; everything else clusters by the
-                send button. The switcher button is phone-only — the desktop has
-                the pinned sidebar. */}
+            {/* Only the switcher on the left; every other control clusters by the
+                send button, under the thumb. The switcher button is phone-only —
+                the desktop has the pinned sidebar. */}
             <button
               type="button"
               className="icon-button flat switcher-button"
@@ -405,16 +405,6 @@ export function Composer({
               aria-label="Agents and conversations"
             >
               <Icon name="chats" />
-            </button>
-            <button
-              type="button"
-              className="icon-button flat"
-              disabled={disabled}
-              onClick={() => setSheet("commands")}
-              title="Run a command"
-              aria-label="Run a command"
-            >
-              <Icon name="slash" />
             </button>
 
             <span className="spacer" />
@@ -429,6 +419,17 @@ export function Composer({
                 {usageLabel(lastTurnUsage)}
               </span>
             ) : null}
+
+            <button
+              type="button"
+              className="icon-button flat"
+              disabled={disabled}
+              onClick={() => setSheet("commands")}
+              title="Run a command"
+              aria-label="Run a command"
+            >
+              <Icon name="slash" />
+            </button>
 
             <button
               type="button"
