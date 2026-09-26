@@ -4,6 +4,8 @@ import type { RuntimeScope } from "../lib/protocol.ts";
 import type { ToolsetSummary } from "../state/use-conversation.ts";
 import { type ModelEntry, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { Icon } from "./Icon.tsx";
+import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
 
 interface Props {
@@ -101,23 +103,20 @@ export function ModelPicker({
 
   return (
     <Sheet
-      title="Model for this conversation"
+      title="Model"
       onClose={onClose}
       status={status ?? models.error}
-      actions={
-        <>
-          <button
-            type="button"
-            className="button ghost"
-            disabled={models.loading}
-            onClick={() => void models.refresh()}
-          >
-            Refresh
-          </button>
-          <button type="button" className="button ghost" onClick={onClose}>
-            Close
-          </button>
-        </>
+      headerAction={
+        <button
+          type="button"
+          className="sheet-head-icon"
+          disabled={models.loading}
+          onClick={() => void models.refresh()}
+          aria-label="Refresh the model list"
+          title="Refresh"
+        >
+          <Icon name="refresh" />
+        </button>
       }
     >
       {notice ? <p className="warning small">{notice}</p> : null}
@@ -130,56 +129,38 @@ export function ModelPicker({
         </p>
       ) : null}
 
-      <ul className="picker">
-        {models.models.map((model) => {
-          const active = model.handle === current.handle;
-          return (
-            <li key={model.id}>
-              <button
-                type="button"
-                disabled={busy}
-                aria-current={active ? "true" : undefined}
-                className={active ? "active" : ""}
-                onClick={() => void choose(model)}
-              >
-                <strong>
-                  {model.label}
-                  {active ? <span className="tag">current</span> : null}
-                </strong>
-                <code>{model.handle}</code>
-              </button>
-            </li>
-          );
-        })}
+      <ul className="menu-list">
+        {models.models.map((model) => (
+          <MenuRow
+            key={model.id}
+            title={model.label}
+            description={model.handle}
+            mark="check"
+            selected={model.handle === current.handle}
+            disabled={busy}
+            onClick={() => void choose(model)}
+          />
+        ))}
       </ul>
 
       {availableToolsets.length > 0 ? (
         <>
-          <p className="section-note">Toolset</p>
-          {toolsetStatus ? <p className="muted small">{toolsetStatus}</p> : null}
-          <ul className="picker">
+          <p className="menu-section">Toolset</p>
+          {toolsetStatus ? <p className="menu-intro">{toolsetStatus}</p> : null}
+          <ul className="menu-list">
             {availableToolsets
               .filter((toolset) => toolset.featured || toolset.id === toolsetPreference)
-              .map((toolset) => {
-                const active = toolset.id === toolsetPreference;
-                return (
-                  <li key={toolset.id}>
-                    <button
-                      type="button"
-                      disabled={toolsetBusy}
-                      aria-current={active ? "true" : undefined}
-                      className={active ? "active" : ""}
-                      onClick={() => void chooseToolset(toolset)}
-                    >
-                      <strong>
-                        {toolset.label}
-                        {active ? <span className="tag">current</span> : null}
-                      </strong>
-                      <span className="muted small">{toolset.description}</span>
-                    </button>
-                  </li>
-                );
-              })}
+              .map((toolset) => (
+                <MenuRow
+                  key={toolset.id}
+                  title={toolset.label}
+                  description={toolset.description}
+                  mark="check"
+                  selected={toolset.id === toolsetPreference}
+                  disabled={toolsetBusy}
+                  onClick={() => void chooseToolset(toolset)}
+                />
+              ))}
           </ul>
         </>
       ) : null}

@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect } from "react";
 import { useBackToClose } from "../state/use-back-to-close.ts";
+import { Icon } from "./Icon.tsx";
 
 interface Props {
   title: string;
@@ -21,7 +22,15 @@ interface Props {
    * "standard" — a picker list or an ordinary form — which is most callers.
    */
   size?: "compact" | "spacious";
-  actions: ReactNode;
+  /**
+   * The bottom button row, for a FORM (Save / Cancel). Omit it for a MENU —
+   * a list you pick from, where choices apply at once: the sheet then has a
+   * header with the title, `headerAction` and a ✕, and no footer. Every
+   * composer menu is one; see `MenuRow` for their rows.
+   */
+  actions?: ReactNode;
+  /** A menu's own extra action, beside the ✕ ("Show all", refresh). */
+  headerAction?: ReactNode;
   children: ReactNode;
 }
 
@@ -32,7 +41,17 @@ interface Props {
  * Not used by ApprovalSheet, which is deliberately undismissable — an approval
  * has to be answered, not escaped.
  */
-export function Sheet({ title, onClose, status, fill = false, size, actions, children }: Props) {
+export function Sheet({
+  title,
+  onClose,
+  status,
+  fill = false,
+  size,
+  actions,
+  headerAction,
+  children,
+}: Props) {
+  const menu = actions === undefined;
   // The phone's Back closes this sheet, not the app — every sheet in the app
   // goes through here.
   useBackToClose(onClose);
@@ -56,12 +75,21 @@ export function Sheet({ title, onClose, status, fill = false, size, actions, chi
         aria-modal="true"
         aria-label={title}
       >
+        {menu ? (
+          <header className="sheet-head">
+            <h2>{title}</h2>
+            {headerAction}
+            <button type="button" className="sheet-close" onClick={onClose} aria-label="Close">
+              <Icon name="close" />
+            </button>
+          </header>
+        ) : null}
         <div className="sheet-body">
-          <h2>{title}</h2>
+          {menu ? null : <h2>{title}</h2>}
           {children}
         </div>
         {status ? <p className="sheet-status">{status}</p> : null}
-        <div className="sheet-actions">{actions}</div>
+        {menu ? null : <div className="sheet-actions">{actions}</div>}
       </div>
     </div>
   );

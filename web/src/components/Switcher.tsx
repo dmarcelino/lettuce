@@ -102,12 +102,12 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
   return (
     <div className="switcher" role="dialog" aria-modal="true" aria-label="Agents and conversations">
       <div className="switcher-panel">
+        {/* The same header as every menu sheet: title left, ✕ right. */}
         <header className="switcher-bar">
-          <button type="button" className="switcher-back" onClick={onClose}>
-            <Icon name="back" /> Chat
-          </button>
           <h2>{current?.name ?? "Conversations"}</h2>
-          <span className="switcher-bar-spacer" />
+          <button type="button" className="sheet-close" onClick={onClose} aria-label="Close">
+            <Icon name="close" />
+          </button>
         </header>
 
         <label className="switcher-search">
@@ -172,11 +172,12 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
                       <span className="switcher-card-title">{conversation.summary}</span>
                       <span className="switcher-card-meta">
                         {listDate(conversation.updatedAt)}
-                        {open ? " · open now" : ""}
                         {conversation.archived ? " · archived" : ""}
                         {responding ? <span className="responding"> · responding…</span> : null}
                       </span>
                     </button>
+                    {/* The current conversation, marked like any pick-one choice. */}
+                    {open ? <Icon name="check" className="switcher-check" /> : null}
                     <button
                       type="button"
                       className="switcher-more"

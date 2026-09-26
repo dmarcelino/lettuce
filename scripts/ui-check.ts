@@ -173,7 +173,7 @@ try {
     const switcherBox = await overflow(page);
     check("switcher has nothing clipped", switcherBox.clipped.length === 0, switcherBox);
     await shot(page, "phone-switcher");
-    await switcher.locator(".switcher-back").click();
+    await switcher.locator(".switcher-bar .sheet-close").click();
     check("back closes the switcher", (await page.locator(".switcher").count()) === 0);
 
     // The phone's Back button closes the top modal, never the app.
@@ -324,17 +324,27 @@ try {
     // Sheets open, and Escape closes them.
     await page.locator('.composer-row button[aria-label^="Filter"]').click();
     check("filters sheet opens", await page.locator(".sheet-panel").isVisible());
-    const groups = await page.locator(".sheet-panel .picker li strong").allInnerTexts();
+    const groups = await page
+      .locator(".sheet-panel .menu-list")
+      .first()
+      .locator(".menu-row-title")
+      .allInnerTexts();
     check(
       "five filter groups incl. Tasks",
       groups.length === 5 && groups.some((g) => g.includes("Tasks")),
       groups,
     );
     // Timestamps: on by default, and the filter-sheet toggle hides them.
-    const timestampToggle = page.locator(".sheet-panel label.checkbox", {
-      hasText: "Show timestamps",
-    });
-    const toggleInput = timestampToggle.locator("input");
+    const timestampToggle = page.locator(".sheet-panel .menu-row", { hasText: "Timestamps" });
+    const toggleInput = {
+      isChecked: async () => (await timestampToggle.getAttribute("aria-pressed")) === "true",
+      uncheck: async () => {
+        if (await toggleInput.isChecked()) await timestampToggle.click();
+      },
+      check: async () => {
+        if (!(await toggleInput.isChecked())) await timestampToggle.click();
+      },
+    };
     check("timestamp toggle is in the filter sheet", (await timestampToggle.count()) === 1);
     check("timestamps are on by default", await toggleInput.isChecked());
     const hasEntries = (await page.locator(".messages .entry").count()) > 0;
@@ -414,15 +424,35 @@ try {
 
     await page.locator('.composer-row button[aria-label="Run a command"]').click();
     check("commands sheet opens", await page.locator(".sheet-panel").isVisible());
-    const commandCount = await page.locator(".sheet-panel .picker li").count();
+    const commandCount = await page.locator(".sheet-panel .menu-list li").count();
     check("commands sheet lists commands", commandCount > 0, { commandCount });
     check(
       "undispatchable commands are hidden",
-      (await page.locator('.sheet-panel .picker li:has-text("/secret")').count()) === 0 &&
-        (await page.locator('.sheet-panel .picker li:has-text("/channels")').count()) === 0,
+      (await page.locator('.sheet-panel .menu-list li:has-text("/secret")').count()) === 0 &&
+        (await page.locator('.sheet-panel .menu-list li:has-text("/channels")').count()) === 0,
     );
     await shot(page, "phone-commands");
     await page.keyboard.press("Escape");
+
+    // Every composer menu follows one set of rules: a header with a ✕, no
+    // footer, and the shared row.
+    for (const label of ["Run a command", "Filter", "Permission mode", "Model"]) {
+      await page.locator(`.composer-row button[aria-label^="${label}"]`).first().click();
+      await page.waitForTimeout(600);
+      const shape = await page.evaluate(() => ({
+        close: document.querySelectorAll(".sheet-panel .sheet-head .sheet-close").length,
+        footer: document.querySelectorAll(".sheet-panel .sheet-actions").length,
+        oldRows: document.querySelectorAll(".sheet-panel .picker").length,
+        rows: document.querySelectorAll(".sheet-panel .menu-row").length,
+      }));
+      check(
+        `"${label}" menu: header ✕, no footer, shared rows`,
+        shape.close === 1 && shape.footer === 0 && shape.oldRows === 0 && shape.rows > 0,
+        shape,
+      );
+      await page.locator(".sheet-panel .sheet-close").click();
+      await page.waitForTimeout(300);
+    }
 
     // Typed slash commands. The popover has to be reachable without the sheet,
     // and it must not be the thing that pushes the composer off-screen — it

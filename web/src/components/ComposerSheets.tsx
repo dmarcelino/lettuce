@@ -1,7 +1,15 @@
 import { FILTER_LABELS, type FilterGroup } from "../lib/messages.ts";
 import { parseResponseFormat } from "../lib/structured-output.ts";
 import { PERMISSION_MODES, type PermissionMode, type SlashCommand } from "../lib/workspace.ts";
+import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
+
+/*
+ * The composer's menus. One set of rules for all of them (and the model
+ * picker): a header with the title, any extra action and a ✕; no footer —
+ * choices apply at once; `MenuRow` rows with the selection marked on the right,
+ * a tick for pick-one and a checkbox for pick-several.
+ */
 
 const FILTER_ORDER: FilterGroup[] = ["user", "agent", "tools", "tasks", "system"];
 
@@ -22,57 +30,44 @@ export function FilterSheet({
 }) {
   return (
     <Sheet
-      title="Show in transcript"
+      title="Filter"
       onClose={onClose}
-      actions={
-        <>
-          <button
-            type="button"
-            className="button ghost"
-            disabled={active.size === 0}
-            onClick={onClear}
-          >
-            Show all
-          </button>
-          <button type="button" className="button" onClick={onClose}>
-            Done
-          </button>
-        </>
+      headerAction={
+        <button
+          type="button"
+          className="sheet-head-text"
+          disabled={active.size === 0}
+          onClick={onClear}
+        >
+          Show all
+        </button>
       }
     >
-      <p className="muted small">
-        With nothing selected every message is shown. Selecting groups narrows the transcript to
-        those groups.
+      <p className="menu-intro">
+        Show only the kinds of messages you pick. With none picked, everything is shown.
       </p>
-      <ul className="picker">
-        {FILTER_ORDER.map((group) => {
-          const on = active.has(group);
-          return (
-            <li key={group}>
-              <button
-                type="button"
-                className={on ? "active" : ""}
-                aria-pressed={on}
-                onClick={() => onToggle(group)}
-              >
-                <strong>
-                  {FILTER_LABELS[group]}
-                  {on ? <span className="tag">shown</span> : null}
-                </strong>
-              </button>
-            </li>
-          );
-        })}
+      <ul className="menu-list">
+        {FILTER_ORDER.map((group) => (
+          <MenuRow
+            key={group}
+            title={FILTER_LABELS[group]}
+            mark="checkbox"
+            selected={active.has(group)}
+            onClick={() => onToggle(group)}
+          />
+        ))}
       </ul>
 
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={showTimestamps}
-          onChange={(event) => onShowTimestamps(event.target.checked)}
+      <p className="menu-section">Display</p>
+      <ul className="menu-list">
+        <MenuRow
+          title="Timestamps"
+          description="The time on each message"
+          mark="checkbox"
+          selected={showTimestamps}
+          onClick={() => onShowTimestamps(!showTimestamps)}
         />
-        Show timestamps
-      </label>
+      </ul>
     </Sheet>
   );
 }
@@ -91,35 +86,21 @@ export function PermissionSheet({
       title="Permission mode"
       onClose={onClose}
       status={current === null ? "Waiting for the agent to report its current mode…" : null}
-      actions={
-        <button type="button" className="button ghost" onClick={onClose}>
-          Close
-        </button>
-      }
     >
-      <ul className="picker">
-        {PERMISSION_MODES.map((mode) => {
-          const active = mode.id === current;
-          return (
-            <li key={mode.id}>
-              <button
-                type="button"
-                className={active ? "active" : ""}
-                aria-current={active ? "true" : undefined}
-                onClick={() => {
-                  onPick(mode.id);
-                  onClose();
-                }}
-              >
-                <strong>
-                  {mode.label}
-                  {active ? <span className="tag">current</span> : null}
-                </strong>
-                <code>{mode.description}</code>
-              </button>
-            </li>
-          );
-        })}
+      <ul className="menu-list">
+        {PERMISSION_MODES.map((mode) => (
+          <MenuRow
+            key={mode.id}
+            title={mode.label}
+            description={mode.description}
+            mark="check"
+            selected={mode.id === current}
+            onClick={() => {
+              onPick(mode.id);
+              onClose();
+            }}
+          />
+        ))}
       </ul>
     </Sheet>
   );
@@ -135,38 +116,24 @@ export function CommandSheet({
   onClose: () => void;
 }) {
   return (
-    <Sheet
-      title="Commands"
-      onClose={onClose}
-      actions={
-        <button type="button" className="button ghost" onClick={onClose}>
-          Close
-        </button>
-      }
-    >
+    <Sheet title="Commands" onClose={onClose}>
       {commands.length === 0 ? (
-        <p className="muted small">
+        <p className="menu-intro">
           The agent has not reported its command list yet. It arrives with the first device status
           after the runtime starts.
         </p>
       ) : null}
-      <ul className="picker">
+      <ul className="menu-list">
         {commands.map((command) => (
-          <li key={command.id}>
-            <button
-              type="button"
-              onClick={() => {
-                onRun(command.id);
-                onClose();
-              }}
-            >
-              <strong>
-                /{command.id}
-                {command.args ? <span className="tag">{command.args}</span> : null}
-              </strong>
-              {command.description ? <code>{command.description}</code> : null}
-            </button>
-          </li>
+          <MenuRow
+            key={command.id}
+            title={command.args ? `/${command.id} ${command.args}` : `/${command.id}`}
+            description={command.description}
+            onClick={() => {
+              onRun(command.id);
+              onClose();
+            }}
+          />
         ))}
       </ul>
     </Sheet>
@@ -197,16 +164,8 @@ export function StructuredOutputSheet({
   const canEnable = value !== null;
 
   return (
-    <Sheet
-      title="JSON output"
-      onClose={onClose}
-      actions={
-        <button type="button" className="button ghost" onClick={onClose}>
-          Done
-        </button>
-      }
-    >
-      <p className="muted small">
+    <Sheet title="JSON output" onClose={onClose}>
+      <p className="menu-intro">
         Constrain the agent&apos;s reply to a JSON Schema. Kept for this conversation, so it
         survives a tab switch or a reload; turn it off when you want plain prose back.
       </p>
@@ -226,21 +185,20 @@ export function StructuredOutputSheet({
 
       {error ? <p className="small bad">{error}</p> : null}
 
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={enabled}
-          disabled={!canEnable}
-          onChange={(event) => onEnabled(event.target.checked)}
+      <ul className="menu-list">
+        <MenuRow
+          title="Require JSON"
+          description={
+            canEnable
+              ? "For every message in this conversation"
+              : "Fix the schema above to enable this"
+          }
+          mark="checkbox"
+          selected={enabled}
+          disabled={!canEnable && !enabled}
+          onClick={() => onEnabled(!enabled)}
         />
-        Require JSON for this conversation
-      </label>
-
-      {!canEnable && text.trim() ? (
-        <p className="muted small">
-          Fix the schema above to enable this. Turning it off sends messages normally.
-        </p>
-      ) : null}
+      </ul>
     </Sheet>
   );
 }
