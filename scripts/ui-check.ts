@@ -444,10 +444,18 @@ try {
         footer: document.querySelectorAll(".sheet-panel .sheet-actions").length,
         oldRows: document.querySelectorAll(".sheet-panel .picker").length,
         rows: document.querySelectorAll(".sheet-panel .menu-row").length,
+        // Compact, but never below a fingertip target.
+        shortRows: [...document.querySelectorAll(".sheet-panel .menu-row")].filter(
+          (row) => row.getBoundingClientRect().height < 44,
+        ).length,
       }));
       check(
-        `"${label}" menu: header ✕, no footer, shared rows`,
-        shape.close === 1 && shape.footer === 0 && shape.oldRows === 0 && shape.rows > 0,
+        `"${label}" menu: header ✕, no footer, shared rows ≥44px`,
+        shape.close === 1 &&
+          shape.footer === 0 &&
+          shape.oldRows === 0 &&
+          shape.rows > 0 &&
+          shape.shortRows === 0,
         shape,
       );
       await page.locator(".sheet-panel .sheet-close").click();
