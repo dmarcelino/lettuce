@@ -90,6 +90,17 @@ as a `loop_error` delta and `turn_finished.error`; neither is written to the mes
 `GET /api/turn-errors`, and `mergeTurnErrors` (`web/src/lib/messages.ts`) slots them back into
 the rebuilt transcript by date. The failure push also carries the error's first line.
 
+**A turn push waits for the agent to be done, not for `turn_finished`.** One request often spans
+several turns — a queued message runs next, a background subagent reports back later as a task
+notification with a turn of its own — and `turn_finished` fires for each, so pushing on it said
+"finished" mid-work and then again. `bff/src/push/turn-watcher.ts` holds a finished turn until
+the scope has had nothing processing (`update_device_status`), nothing queued that will run
+(`update_queue`, paused items excluded) and no pending/running subagent (`update_subagent_state`)
+for `SETTLE_MS` (5 s), then pushes the **last** turn's outcome, capped at `MAX_HOLD_MS` (30 min)
+so a stuck subagent cannot swallow it. Whether a session is watching is decided when the push is
+due. Titles name the agent (`agent_retrieve` via the permanent connection, cached 10 min in
+`push/agent-names.ts`, "Letta" if the lookup fails).
+
 **An expired login must not look like "offline".** A refused WebSocket upgrade reaches the
 browser as close code 1006 with no HTTP status, identical to a dropped network, so the PWA used
 to sit on "Reconnecting…" until a manual reload. Two rules follow:

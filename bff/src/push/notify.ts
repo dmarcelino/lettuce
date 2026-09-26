@@ -23,6 +23,11 @@ export function unwatchedConversationUrl(
     log?.(`Push for ${frame.type} in ${scopeKey} suppressed: a visible session is watching it`);
     return null;
   }
+  return conversationUrl(scopeKey);
+}
+
+/** The deep link a push about this conversation opens; see `readDeepLinkSelection`. */
+export function conversationUrl(scopeKey: string): string {
   const [agentId, conversationId] = parseScopeKey(scopeKey);
   return `/?agent=${encodeURIComponent(agentId)}&conversation=${encodeURIComponent(conversationId)}`;
 }

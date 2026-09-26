@@ -29,14 +29,19 @@ function fakeNotify() {
   return mock(async (_store: unknown, _payload: unknown, _eventType: unknown, _log: unknown) => {});
 }
 
+/** The push waits on the agent-name lookup; let it land. */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe("ApprovalWatcher", () => {
   const scope = "agent-1::conv-1";
 
-  test("fires on a can_use_tool control_request when nobody is watching", () => {
+  test("fires on a can_use_tool control_request when nobody is watching", async () => {
     const notify = fakeNotify();
-    const watcher = new ApprovalWatcher(fakeStore, () => {}, notify);
+    const watcher = new ApprovalWatcher(fakeStore, () => {}, null, notify);
 
     watcher.observe(controlRequestFrame(scope, "Bash"), () => false);
+
+    await flush();
 
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0]?.[2]).toBe("approval");
@@ -45,27 +50,31 @@ describe("ApprovalWatcher", () => {
     expect(payload.url).toBe("/?agent=agent-1&conversation=conv-1");
   });
 
-  test("does not fire when a session is watching the scope", () => {
+  test("does not fire when a session is watching the scope", async () => {
     const notify = fakeNotify();
-    const watcher = new ApprovalWatcher(fakeStore, () => {}, notify);
+    const watcher = new ApprovalWatcher(fakeStore, () => {}, null, notify);
 
     watcher.observe(controlRequestFrame(scope), () => true);
 
+    await flush();
+
     expect(notify).not.toHaveBeenCalled();
   });
 
-  test("ignores frames that are not control_request", () => {
+  test("ignores frames that are not control_request", async () => {
     const notify = fakeNotify();
-    const watcher = new ApprovalWatcher(fakeStore, () => {}, notify);
+    const watcher = new ApprovalWatcher(fakeStore, () => {}, null, notify);
 
     watcher.observe({ type: "turn_finished" } as unknown as WsProtocolMessage, () => false);
 
+    await flush();
+
     expect(notify).not.toHaveBeenCalled();
   });
 
-  test("ignores control_request subtypes other than can_use_tool", () => {
+  test("ignores control_request subtypes other than can_use_tool", async () => {
     const notify = fakeNotify();
-    const watcher = new ApprovalWatcher(fakeStore, () => {}, notify);
+    const watcher = new ApprovalWatcher(fakeStore, () => {}, null, notify);
 
     watcher.observe(
       {
@@ -78,12 +87,14 @@ describe("ApprovalWatcher", () => {
       () => false,
     );
 
+    await flush();
+
     expect(notify).not.toHaveBeenCalled();
   });
 
-  test("does not fire without a resolvable scope", () => {
+  test("does not fire without a resolvable scope", async () => {
     const notify = fakeNotify();
-    const watcher = new ApprovalWatcher(fakeStore, () => {}, notify);
+    const watcher = new ApprovalWatcher(fakeStore, () => {}, null, notify);
 
     watcher.observe(
       {
@@ -94,6 +105,25 @@ describe("ApprovalWatcher", () => {
       () => false,
     );
 
+    await flush();
+
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+describe("ApprovalWatcher agent name", () => {
+  test("the title names the agent", async () => {
+    const notify = mock(async (_s: unknown, _p: unknown, _e: unknown, _l: unknown) => {});
+    const watcher = new ApprovalWatcher(
+      fakeStore,
+      () => {},
+      { name: async () => "resume-creator" },
+      notify,
+    );
+    watcher.observe(controlRequestFrame("agent-1::conv-1", "Bash"), () => false);
+    await flush();
+    expect((notify.mock.calls[0]?.[1] as { title?: string } | undefined)?.title).toBe(
+      "resume-creator",
+    );
   });
 });

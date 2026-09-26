@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import type {
+  AgentRetrieveResponseMessage,
   ReadFileResponseMessage,
   WriteFileResponseMessage,
   WsProtocolMessage,
@@ -32,6 +33,7 @@ import {
   SettingsUnreadableError,
   validateMcpServers,
 } from "./mcp/settings.ts";
+import { AgentNames } from "./push/agent-names.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { configureWebPush, sendPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
@@ -57,8 +59,17 @@ const pushStore = config.push
     )
   : null;
 if (config.push) configureWebPush(config.push);
-const turnOutcomeWatcher = pushStore ? new TurnOutcomeWatcher(pushStore, log) : null;
-const approvalWatcher = pushStore ? new ApprovalWatcher(pushStore, log) : null;
+// Push titles name the agent. Looked up through the permanent connection and
+// cached; a failed lookup falls back to "Letta" rather than delaying the push.
+const agentNames = new AgentNames(async (agentId) => {
+  const response = await upstream.request<AgentRetrieveResponseMessage>(
+    { type: "agent_retrieve", request_id: `bff-agent-name-${randomUUID()}`, agent_id: agentId },
+    10_000,
+  );
+  return response.success ? (response.agent?.name ?? null) : null;
+});
+const turnOutcomeWatcher = pushStore ? new TurnOutcomeWatcher(pushStore, log, agentNames) : null;
+const approvalWatcher = pushStore ? new ApprovalWatcher(pushStore, log, agentNames) : null;
 const turnErrors = new TurnErrorLog();
 
 function log(message: string): void {
