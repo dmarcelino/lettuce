@@ -58,6 +58,7 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
 
   const needle = query.trim().toLowerCase();
   const archivedCount = agents.conversations.filter((c) => c.archived).length;
+  const liveCount = agents.conversations.length - archivedCount;
   const groups = useMemo(
     () =>
       groupByDate(
@@ -111,7 +112,7 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Search ${agents.conversations.length} conversations`}
+            placeholder={`Search ${liveCount} conversations`}
             aria-label="Search conversations"
           />
         </label>

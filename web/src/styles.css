@@ -2080,6 +2080,17 @@ p.warning code {
   color: var(--muted);
   cursor: pointer;
 }
+/* The ⋯ glyph is three zero-length strokes; at the default weight they read
+   as specks, so give them real dots. */
+.switcher-more .icon {
+  width: 22px;
+  height: 22px;
+  stroke-width: 3.2;
+}
+.switcher-more:hover,
+.switcher-more:focus-visible {
+  color: var(--text);
+}
 .switcher-menu {
   position: absolute;
   right: 6px;
