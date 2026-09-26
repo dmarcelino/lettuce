@@ -115,7 +115,11 @@ export function FileViewer({
       {image !== null ? (
         <img className="file-preview" src={image} alt={name} />
       ) : content !== null && isMarkdownFile(name) ? (
-        <div className="tool-args">
+        // Not `.tool-args`: that is the monospace box for tool output, with
+        // `white-space: pre-wrap`, and react-markdown puts a newline text node
+        // between every block — pre-wrap drew each one as a blank line, an
+        // extra line after every paragraph and bullet.
+        <div className="md-document">
           <Markdown text={content} />
         </div>
       ) : content !== null ? (

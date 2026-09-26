@@ -686,6 +686,17 @@ pre {
   color: var(--muted);
 }
 
+/* A rendered Markdown document (the file preview). Normal whitespace: the
+   renderer's newline text nodes between blocks must collapse, not print. */
+.md-document {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  overflow-wrap: break-word;
+  max-height: 72vh;
+  overflow: auto;
+}
+
 .tool-args {
   margin: 0;
   padding: 10px 12px;
@@ -1543,7 +1554,8 @@ p.warning code {
    item refuses to shrink below its content and the overflow moves back up to
    the body, restoring the nesting this is meant to remove. */
 .sheet-panel.fill .memory-editor,
-.sheet-panel.fill .tool-args {
+.sheet-panel.fill .tool-args,
+.sheet-panel.fill .md-document {
   flex: 1;
   min-height: 0;
   max-height: none;
