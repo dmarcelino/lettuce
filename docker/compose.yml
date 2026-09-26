@@ -118,10 +118,21 @@ services:
       # trip over; 15s gives the status lookup itself more slack under load.
       LETTA_STREAM_STALL_RECONCILE_MS: "180000"
       LETTA_STREAM_STALL_STATUS_TIMEOUT_MS: "15000"
+      # Web apps an agent serves to the user: the published range below, and the
+      # host address the user's browser reaches it on (set AGENT_APP_HOST in
+      # docker/.env, e.g. the server's LAN IP). Read by the serving-web-apps
+      # skill, which is how agents learn about both.
+      AGENT_APP_PORTS: "3000-3099"
+      AGENT_APP_HOST: ${AGENT_APP_HOST:-}
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work
+      # A global skill shipped with this repo, read-only: every agent sees it in
+      # its skill list each turn, and its description tells the agent to load it
+      # before starting anything the user should open in a browser. Mounted over
+      # a subdirectory of letta-home, so it is versioned here, not in state.
+      - ./agent-skills/serving-web-apps:/root/.letta/skills/serving-web-apps:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # The UI port is published here because the BFF shares this namespace.
@@ -133,6 +144,14 @@ services:
     # default from another's value, so this is a manual pairing, not automatic.
     ports:
       - "${BFF_BIND:-0.0.0.0}:${BFF_PORT:-8090}:8080"
+      # Agent web apps. A server an agent starts inside this container is only
+      # reachable from the network on these ports (the serving-web-apps skill
+      # tells agents so). No authentication in front of them — anyone who can
+      # reach AGENT_APPS_BIND can open them; set it to the LAN address (or
+      # 127.0.0.1 to close the door) if 0.0.0.0 is broader than you want.
+      # Changing this recreates app-server: always `docker compose up -d`
+      # unscoped.
+      - "${AGENT_APPS_BIND:-0.0.0.0}:3000-3099:3000-3099"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4500/healthz"]

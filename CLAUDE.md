@@ -364,6 +364,15 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   carries that detail — so a llama.cpp fault arrives as a sentence followed by its raw HTTP body.
   `splitErrorDetail` in `web/src/lib/messages.ts` lifts the payload's own `message` for the
   headline and keeps the body behind a disclosure.
+- **Agent web apps: ports 3000-3099, taught by a skill.** A server an agent starts runs inside
+  the app-server container, reachable from the LAN only on the published range 3000-3099
+  (`AGENT_APPS_BIND`, default `0.0.0.0`). Agents learn it from the global skill
+  `docker/agent-skills/serving-web-apps`, bind-mounted read-only into `/root/.letta/skills/` —
+  a skill because letta-code lists every skill's name and description in context each turn,
+  so the rule reaches every agent, cron and channel turns included, without touching anyone's
+  memory. `AGENT_APP_PORTS` and `AGENT_APP_HOST` (the address to put in URLs, from
+  `docker/.env`) are in the app-server env for it. No auth in front of those ports, and the
+  processes die with the container. The skill's frontmatter `name` must match its directory.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.

@@ -202,6 +202,27 @@ fork checkout, no pre-built images pushed to a registry. Point the manager at
 Optional: the three `PUSH_VAPID_*` values, `BFF_PORT`, `SESSION_TTL_SECONDS`,
 `FRAME_BUFFER_SIZE`, and `CF_ACCESS_ISSUER` (only during a team rename).
 
+## Web apps agents serve
+
+An agent that builds a web app runs it inside the app-server container. Only ports
+**3000-3099** are published from there, on `AGENT_APPS_BIND` (default `0.0.0.0`), so
+`http://<server>:3000` from another machine reaches whatever an agent serves on port 3000.
+
+| Variable | Set it to |
+|---|---|
+| `AGENT_APP_HOST` | the address people open apps on — e.g. the server's LAN IP `172.31.0.102`. Agents put it in the URLs they give you; unset, they ask you to fill it in. |
+| `AGENT_APPS_BIND` | optional; `0.0.0.0` (default) publishes on every interface. Use the LAN IP to keep it off other interfaces, or `127.0.0.1` to close it. |
+
+Agents learn the rules from a global skill shipped in this repo,
+[`agent-skills/serving-web-apps`](agent-skills/serving-web-apps/SKILL.md), mounted
+read-only into `/root/.letta/skills/`: its description in every agent's skill list says to
+load it before starting a server, and it says to bind `0.0.0.0`, pick a port in the range,
+run detached with a log, and hand out `http://$AGENT_APP_HOST:<port>`.
+
+These apps have **no authentication** and **do not survive an app-server restart** — the
+processes live in that container. Changing the range or `AGENT_APPS_BIND` recreates
+`app-server`: run `docker compose -f docker/compose.yml up -d` unscoped.
+
 **Leave `DEV_BYPASS_EMAIL` and `DEV_BYPASS_ALLOW_REMOTE` unset.** Together they
 open a second door that bypasses Cloudflare Access and `ALLOWED_USERS`
 completely. Separately, `DEV_BYPASS_EMAIL` refuses to start on an `https://`
