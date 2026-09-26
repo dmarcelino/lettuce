@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { PendingApproval } from "../state/use-conversation.ts";
 
 interface Props {
@@ -174,6 +175,9 @@ export function ApprovalSheet({ approval, onRespond, onAnswerQuestions }: Props)
   const [reason, setReason] = useState("");
   const [selections, setSelections] = useState<Set<string>[]>([]);
   const [customText, setCustomText] = useState<string[]>([]);
+  // Undismissable by design — an approval has to be answered. Back is
+  // swallowed so it neither hides the prompt nor exits the app beneath it.
+  useBackToClose(() => false);
 
   const questions = approval.toolName === "AskUserQuestion" ? parseQuestions(approval.input) : [];
 

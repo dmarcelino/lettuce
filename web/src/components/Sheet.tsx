@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect } from "react";
+import { useBackToClose } from "../state/use-back-to-close.ts";
 
 interface Props {
   title: string;
@@ -32,6 +33,9 @@ interface Props {
  * has to be answered, not escaped.
  */
 export function Sheet({ title, onClose, status, fill = false, size, actions, children }: Props) {
+  // The phone's Back closes this sheet, not the app — every sheet in the app
+  // goes through here.
+  useBackToClose(onClose);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();

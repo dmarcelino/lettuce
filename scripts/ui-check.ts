@@ -176,6 +176,48 @@ try {
     await switcher.locator(".switcher-back").click();
     check("back closes the switcher", (await page.locator(".switcher").count()) === 0);
 
+    // The phone's Back button closes the top modal, never the app.
+    const url = page.url();
+    const pressBack = async () => {
+      await page.evaluate(() => history.back());
+      await page.waitForTimeout(400);
+    };
+    const onOverlayEntry = () =>
+      page.evaluate(
+        () => (history.state as { lettaOverlay?: boolean } | null)?.lettaOverlay === true,
+      );
+    check("closing on screen leaves no stale Back entry", !(await onOverlayEntry()));
+
+    await switcherButton.click();
+    await pressBack();
+    check(
+      "Back closes the switcher and stays in the app",
+      (await page.locator(".switcher").count()) === 0 &&
+        page.url() === url &&
+        (await page.locator(".composer textarea").isVisible()),
+    );
+
+    await switcherButton.click();
+    const more = page.locator(".switcher-list .switcher-more").first();
+    if ((await more.count()) > 0) {
+      await more.click();
+      await pressBack();
+      check(
+        "Back closes the ⋯ menu first, keeping the switcher",
+        (await page.locator(".switcher-menu").count()) === 0 &&
+          (await page.locator(".switcher").count()) === 1,
+      );
+    }
+    await pressBack();
+    check("then Back closes the switcher", (await page.locator(".switcher").count()) === 0);
+
+    await page.locator('.composer-row button[aria-label^="Filter"]').click();
+    await pressBack();
+    check(
+      "Back closes a sheet and stays in the app",
+      (await page.locator(".sheet-panel").count()) === 0 && page.url() === url,
+    );
+
     // Fingertip-sized: every composer control is at least 44px on a phone, only
     // the switcher sits on the left, and the row fits without a sideways scroll.
     const controls = await page.evaluate(() => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
+import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 
@@ -31,6 +32,11 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
   const [draft, setDraft] = useState<McpServer | null>(null);
   const [draftIndex, setDraftIndex] = useState<number | null>(null);
   const [argsText, setArgsText] = useState("");
+  // Back cancels the add/edit dialog rather than leaving the app.
+  useBackToClose(() => {
+    setDraft(null);
+    setDraftIndex(null);
+  }, draft !== null);
 
   const load = useCallback(async () => {
     if (!agentId) return;

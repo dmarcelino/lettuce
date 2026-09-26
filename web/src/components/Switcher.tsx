@@ -3,6 +3,7 @@ import { agentActivity } from "../lib/activity.ts";
 import { groupByDate, listDate } from "../lib/conversation-groups.ts";
 import { statsOf, useAgentStats } from "../state/use-agent-stats.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
+import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 
@@ -36,6 +37,9 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
   const [showArchived, setShowArchived] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Back closes an open ⋯ menu first, then the switcher — never the app.
+  useBackToClose(onClose);
+  useBackToClose(() => setMenuFor(null), menuFor !== null);
   const [switchedTo, setSwitchedTo] = useState<string | null>(null);
 
   const stats = useAgentStats(session.request, agents.agents, true);
