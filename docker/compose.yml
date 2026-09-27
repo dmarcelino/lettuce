@@ -46,9 +46,9 @@ services:
     build:
       context: codex
       args:
-        LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.33.2}
+        LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.33.3}
         CODEX_VERSION: ${CODEX_VERSION:-0.157.1}
-    image: letta-app-server:${LETTA_CODE_VERSION:-0.33.2}-codex${CODEX_VERSION:-0.157.1}
+    image: letta-app-server:${LETTA_CODE_VERSION:-0.33.3}-codex${CODEX_VERSION:-0.157.1}
     command:
       - letta
       - server
@@ -251,7 +251,7 @@ services:
   # service every channel command returns silence.
   channel-gateway:
     # Upstream's published image, used as-is — same image as the app-server.
-    image: letta/letta:${LETTA_CODE_VERSION:-0.33.2}
+    image: letta/letta:${LETTA_CODE_VERSION:-0.33.3}
     depends_on:
       app-server:
         condition: service_healthy

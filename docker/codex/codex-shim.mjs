@@ -12,7 +12,7 @@
  * nothing else. No fork delta: letta-code finds `codex` on PATH.
  *
  * It is also the on/off switch: with workers disabled in Settings → Codex,
- * every invocation — including letta-code's `codex login status` preflight —
+ * every invocation — including letta-code's `codex --version` preflight —
  * fails with a message saying so, and the task reports it.
  */
 

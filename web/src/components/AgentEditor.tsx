@@ -228,8 +228,9 @@ export function AgentEditor({ session, agents, agentId, onClose }: Props) {
               </label>
               <p className="muted small">
                 This is not where an agent's own instructions live. What it writes about itself —
-                and what you should edit to shape its behaviour — is the{" "}
-                <code>system/persona.md</code> block in the <strong>Memory</strong> tab.
+                and what you should edit to shape its behaviour — is the persona block in the{" "}
+                <strong>Memory</strong> tab (<code>system/persona.md</code>, or{" "}
+                <code>persona.md</code> for agents created on letta-code 0.33.3 or later).
               </p>
             </>
           )}

@@ -200,9 +200,10 @@ export function renderCodexConfigToml(settings: CodexSettings): string {
 }
 
 /**
- * letta-code's preflight for a Codex worker is `codex login status`, which
- * exits non-zero until *some* login exists (tools/impl/external-coding-agent.ts).
- * This placeholder satisfies it. It is an OpenAI-provider credential, and no
+ * letta-code before 0.33.3 preflighted a Codex worker with `codex login status`,
+ * which exits non-zero until *some* login exists; this placeholder satisfied it.
+ * Since 0.33.3 the preflight is `codex --version`, so it is vestigial but
+ * harmless. It is an OpenAI-provider credential, and no
  * worker uses that provider: `letta-ui` above authenticates with its own
  * `experimental_bearer_token`, or not at all.
  */

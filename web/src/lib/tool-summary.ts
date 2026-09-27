@@ -178,6 +178,11 @@ export function summarizeToolCall(
       };
     }
 
+    case "WatchPR": {
+      const url = str(args, "url");
+      return url ? { headline: url, mono: true } : null;
+    }
+
     case "Wake": {
       const action = str(args, "action");
       if (!action) return null;

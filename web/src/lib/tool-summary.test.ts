@@ -113,6 +113,13 @@ describe("summarizeToolCall", () => {
     expect(summarize("Wake", '{"action":"list"}')).toEqual({ headline: "list" });
   });
 
+  test("a WatchPR call shows the pull request it watches", () => {
+    expect(summarize("WatchPR", '{"url":"https://github.com/o/r/pull/7"}')).toEqual({
+      headline: "https://github.com/o/r/pull/7",
+      mono: true,
+    });
+  });
+
   test("an unknown tool falls through so the raw JSON still speaks for it", () => {
     expect(summarize("SomeFutureTool", '{"whatever":1}')).toBeNull();
   });

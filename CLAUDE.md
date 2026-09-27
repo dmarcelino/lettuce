@@ -303,7 +303,9 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   future refresh. No agent tool writes this field.
 
   What an agent rewrites when asked to change its own instructions is
-  `memory/system/persona.md` in its memfs (`/data/local-backend/memfs/<agent-id>/memory/`, a git
+  `memory/system/persona.md` in its memfs (agents created on 0.33.3+ get the flat "root MemFS"
+  layout instead: `persona.md` at the repo root plus a `MEMORY.md` index; the format is detected
+  by that index, so older agents keep `system/`) (`/data/local-backend/memfs/<agent-id>/memory/`, a git
   repo — `git log` there is the provenance). That block is composed into context every turn when
   `memfs: true`, and the UI surfaces it in the **Memory** tab, not the agent editor. Expect
   "I asked it to update its system prompt and the UI shows the old one" — both statements are
@@ -407,9 +409,12 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     same reach as an agent shell: the whole container, other agents' memory included. Under
     `externalSandbox` Codex enforces nothing, network included, so the UI offers no network
     toggle (it would only be a hint to the model).
-  - **The preflight is `codex login status`, not `--version`,** and a custom provider is never
-    "logged in". The BFF writes an API-key `auth.json` with a placeholder key; it is an
-    OpenAI-provider credential no worker uses.
+  - **The preflight is `codex --version`** (since 0.33.3; it was `codex login status`, which a
+    custom provider never passes). The first real turn is now what proves the provider answers.
+    The BFF still writes an API-key `auth.json` with a placeholder key — no longer needed by the
+    preflight, harmless, and an OpenAI-provider credential no worker uses. With workers disabled
+    the shim fails the preflight, so the task reports "Codex executable is not ready: <our
+    disabled message>".
   - **Configuration is Settings → Codex, owned by the BFF** (`bff/src/codex/`). It stores
     `letta-ui.json` in `CODEX_HOME=/root/.letta/codex` (persisted, so threads survive recreates
     and `SendAgentMessage` follow-ups can resume them) and renders `config.toml` (provider
@@ -470,6 +475,9 @@ Protocol drift shows up two ways:
      `MultiEdit`, `TodoWrite` and the Codex shell aliases, and added `Wake` (durable timed
      follow-ups stored in the local cron scheduler — so they fire only because the BFF's
      permanent connection keeps the scheduler running, and they appear in `cron_list`).
+     0.33.3 added `WatchPR` (a `monitor` background process with `source:
+     "github_pull_request"`). It shells out to `gh`, which the app-server image does not
+     carry, so it fails here until `gh` is installed and authenticated in the container.
 
 ### Version pinning
 

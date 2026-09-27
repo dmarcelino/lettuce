@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@letta-ai/letta-code": "0.33.2",
+    "@letta-ai/letta-code": "0.33.3",
     "hono": "^4.6.0",
     "jose": "^6.2.12",
     "web-push": "^3.6.7",
