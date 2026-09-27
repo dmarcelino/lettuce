@@ -294,9 +294,17 @@ try {
     check("no unnamed icon-only buttons", unnamed.length === 0, unnamed);
 
     // The glyph census this replaced: emoji and dingbats rendered per-platform.
+    // UI chrome only: transcript entries hold what agents and people wrote,
+    // and an agent's "→" there is content, not a glyph button — counting it
+    // made the check fail on whatever conversation happened to be newest.
     const glyphs = await page.evaluate(() => {
       const found = new Set<string>();
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) =>
+          node.parentElement?.closest(".entry")
+            ? NodeFilter.FILTER_REJECT
+            : NodeFilter.FILTER_ACCEPT,
+      });
       // Emoji, dingbats, arrows and geometric shapes. The variation selector is
       // an alternation branch, not a class member: it combines with the glyph
       // before it, so a class cannot express it.
@@ -559,7 +567,15 @@ try {
       "Channels section is gone",
       (await page.locator('.pane-bar button:text-is("Channels")').count()) === 0,
     );
-    const expectedChips = ["Connection", "MCP", "Skills", "Secrets", "Reflection", "Notifications"];
+    const expectedChips = [
+      "Connection",
+      "MCP",
+      "Skills",
+      "Codex",
+      "Secrets",
+      "Reflection",
+      "Notifications",
+    ];
     const chipLabels = (await page.locator(".pane-bar button").allInnerTexts()).map((t) =>
       t.trim(),
     );
@@ -580,6 +596,18 @@ try {
       const box = await overflow(page);
       check(`${chip.toLowerCase()} section has nothing clipped`, box.clipped.length === 0, box);
     }
+    // Codex loads its settings from the BFF (GET /api/codex/settings); a form
+    // means the route answered, not just that the chip exists.
+    await page.locator('.pane-bar button:text-is("Codex")').click();
+    await page.waitForTimeout(800);
+    check(
+      "codex section loads its settings",
+      (await page.locator('label:has-text("Allow Codex workers")').count()) === 1,
+      await page.locator(".pane").innerText(),
+    );
+    const codexBox = await overflow(page);
+    check("codex section has nothing clipped", codexBox.clipped.length === 0, codexBox);
+
     await page.locator('.pane-bar button:text-is("Connection")').click();
     await page.waitForTimeout(300);
 

@@ -443,7 +443,8 @@ export function TasksTab({
           {subagent.type.trim() === CODEX_SUBAGENT_TYPE ? (
             <>
               <p className="muted small">
-                A Codex worker, set up in Settings → Codex. Its full run appears under Codex runs.
+                A Codex worker, set up in the Codex section of Settings. Its full run appears under
+                Codex runs.
               </p>
               <label className="checkbox">
                 <input
