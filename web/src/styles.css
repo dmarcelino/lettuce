@@ -1036,16 +1036,6 @@ pre {
   font-size: 12px;
 }
 
-/* Last turn's token count: plain text, not a control, so it reads as metadata
-   beside the buttons. Tabular figures keep it from jittering between turns. */
-.turn-usage {
-  color: var(--muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
 /* The send button must stay reachable however far the chips scroll. */
 .composer-row .icon-button.send,
 .composer-row .icon-button.stop {
@@ -1437,15 +1427,6 @@ p.warning code {
     width: 22px;
     height: 22px;
   }
-  /* The token count gives way before any button does: it shrinks to an
-     ellipsis rather than pushing the row into a sideways scroll. */
-  .composer-row .turn-usage {
-    flex-shrink: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
   /* No drawer on a phone: agents and conversations live in the switcher,
      opened from the composer or the top bar. The sidebar stays mounted (it
      refetches when a busy conversation is unlisted) but is not shown. */
@@ -2360,4 +2341,169 @@ p.warning code {
 .menu-list + .field,
 .field + .menu-list {
   margin-top: 12px;
+}
+
+/* ── Context gauge: top bar, and its details sheet ───────────────────────── */
+
+.ctx-gauge {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 4px 6px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ctx-gauge.warn {
+  color: var(--warn);
+}
+.ctx-bar {
+  display: block;
+  width: 64px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.ctx-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.ctx-gauge.warn .ctx-bar > i,
+.ctx-bar.warn > i {
+  background: var(--warn);
+}
+.ctx-bar.big {
+  width: auto;
+  height: 6px;
+  margin: 6px 2px 10px;
+  border-radius: 3px;
+}
+.ctx-big {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 2px 0;
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ctx-big b {
+  font-size: 20px;
+  color: var(--text);
+}
+.ctx-big .warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.kv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.kv-list > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.kv-list > li + li {
+  border-top: 1px solid var(--border);
+}
+.kv-list > li > span:first-child {
+  color: var(--muted);
+}
+.kv-list small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.kv-list > li:has(> .kv-tap) {
+  padding: 0;
+}
+.kv-tap {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 8px 6px 12px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.kv-tap > span:last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+.ctx-hint,
+.ctx-message {
+  margin: 6px 2px 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.limit-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.limit-edit > input {
+  width: 100%;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.limit-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.limit-preset {
+  min-height: 36px;
+  padding: 4px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.limit-preset.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+}
+.limit-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 12.5px;
+}
+.limit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

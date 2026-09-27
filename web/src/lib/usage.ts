@@ -1,3 +1,5 @@
+import { defaultStorage, type MaybeStorage } from "./storage.ts";
+
 /**
  * Token usage for one agent turn.
  *
@@ -13,8 +15,13 @@
  * honoured when present, as the authoritative total.
  */
 export interface TurnUsage {
+  /** Prompt tokens summed over every step — the input the model processed. */
   promptTokens: number;
+  /** The latest step's prompt alone: how big one call to the model was. */
+  lastPromptTokens: number;
   completionTokens: number;
+  /** Of `completionTokens`, the thinking part, when the model reports it. */
+  reasoningTokens: number;
   /** Model calls in the turn; each tool round-trip is another step. */
   steps: number;
   /** Context window occupancy after the latest step, when the backend reports it. */
@@ -32,7 +39,9 @@ export function readUsageDelta(delta: unknown): TurnUsage | null {
   if (raw.message_type !== "usage_statistics") return null;
   const usage: TurnUsage = {
     promptTokens: count(raw.prompt_tokens),
+    lastPromptTokens: count(raw.prompt_tokens),
     completionTokens: count(raw.completion_tokens),
+    reasoningTokens: count(raw.reasoning_tokens),
     // One chunk is one step unless it says otherwise.
     steps: typeof raw.step_count === "number" ? count(raw.step_count) : 1,
   };
@@ -53,7 +62,9 @@ export function addUsage(total: TurnUsage | null, step: TurnUsage): TurnUsage {
   if (!total) return { ...step };
   const next: TurnUsage = {
     promptTokens: total.promptTokens + step.promptTokens,
+    lastPromptTokens: step.lastPromptTokens,
     completionTokens: total.completionTokens + step.completionTokens,
+    reasoningTokens: total.reasoningTokens + step.reasoningTokens,
     steps: total.steps + step.steps,
   };
   const context = step.contextTokens ?? total.contextTokens;
@@ -68,26 +79,71 @@ export function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
-/**
- * The short readout for the composer row: output tokens, plus context when
- * known. Words, not an arrow glyph — the UI keeps no dingbats (see Icon.tsx).
- */
-export function usageLabel(usage: TurnUsage): string {
-  const out = `${formatTokens(usage.completionTokens)} out`;
-  return usage.contextTokens !== undefined
-    ? `${formatTokens(usage.contextTokens)} ctx · ${out}`
-    : out;
+/** Above this share of the limit the gauge turns amber: compaction is near. */
+export const CONTEXT_WARN_RATIO = 0.8;
+
+export interface ContextGauge {
+  /** "25k / 128k". */
+  label: string;
+  /** 0-100, clamped. */
+  percent: number;
+  warn: boolean;
 }
 
-/** The full breakdown, for the tooltip and accessible name. */
-export function usageDescription(usage: TurnUsage): string {
-  const parts = [
-    `Last turn: ${usage.promptTokens.toLocaleString()} prompt tokens`,
-    `${usage.completionTokens.toLocaleString()} generated`,
-    `${usage.steps} ${usage.steps === 1 ? "step" : "steps"}`,
-  ];
-  if (usage.contextTokens !== undefined) {
-    parts.push(`${usage.contextTokens.toLocaleString()} tokens in context`);
+/** How full the context is, for the header gauge and the details panel. */
+export function contextGauge(used: number, limit: number): ContextGauge {
+  const ratio = limit > 0 ? used / limit : 0;
+  return {
+    label: `${formatTokens(used)} / ${formatTokens(limit)}`,
+    percent: Math.max(0, Math.min(100, Math.round(ratio * 100))),
+    warn: ratio >= CONTEXT_WARN_RATIO,
+  };
+}
+
+const USAGE_KEY = "letta-ui:usage";
+
+/**
+ * The last usage seen per conversation, kept per browser. The app-server does
+ * not store usage with the history, so without this the gauge vanished on
+ * every reload until the next turn finished.
+ */
+export function readStoredUsage(
+  conversationKey: string,
+  storage: MaybeStorage = defaultStorage(),
+): TurnUsage | null {
+  try {
+    const all = JSON.parse(storage?.getItem(USAGE_KEY) ?? "{}") as Record<string, unknown>;
+    const u = all[conversationKey] as Partial<TurnUsage> | undefined;
+    if (!u || typeof u.promptTokens !== "number" || typeof u.completionTokens !== "number") {
+      return null;
+    }
+    return {
+      promptTokens: u.promptTokens,
+      lastPromptTokens:
+        typeof u.lastPromptTokens === "number" ? u.lastPromptTokens : u.promptTokens,
+      completionTokens: u.completionTokens,
+      reasoningTokens: typeof u.reasoningTokens === "number" ? u.reasoningTokens : 0,
+      steps: typeof u.steps === "number" ? u.steps : 1,
+      ...(typeof u.contextTokens === "number" ? { contextTokens: u.contextTokens } : {}),
+    };
+  } catch {
+    return null;
   }
-  return parts.join(", ");
+}
+
+export function writeStoredUsage(
+  conversationKey: string,
+  usage: TurnUsage,
+  storage: MaybeStorage = defaultStorage(),
+): void {
+  try {
+    const all = JSON.parse(storage?.getItem(USAGE_KEY) ?? "{}") as Record<string, unknown>;
+    all[conversationKey] = usage;
+    // Bounded: the most recent 50 conversations.
+    const keys = Object.keys(all);
+    for (const key of keys.slice(0, Math.max(0, keys.length - 50))) delete all[key];
+    storage?.setItem(USAGE_KEY, JSON.stringify(all));
+  } catch {
+    // No memory is fine: the gauge reappears after the next turn.
+  }
 }

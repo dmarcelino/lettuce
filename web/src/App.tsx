@@ -3,6 +3,7 @@ import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
 import { AuthPill } from "./components/AuthPill.tsx";
 import { Composer } from "./components/Composer.tsx";
+import { ContextGauge, ContextSheet } from "./components/ContextGauge.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
@@ -22,6 +23,7 @@ import {
 } from "./lib/structured-output.ts";
 import { readShowTimestamps, writeShowTimestamps } from "./lib/timestamps.ts";
 import { useAgents } from "./state/use-agents.ts";
+import { useContextLimit } from "./state/use-context-limit.ts";
 import { useConversation } from "./state/use-conversation.ts";
 import { useCurrentModel } from "./state/use-models.ts";
 import { useSession } from "./state/use-session.ts";
@@ -167,6 +169,10 @@ function Workspace({ status }: { status: Status }) {
     void agents.adoptNewConversation();
   });
 
+  const contextLimit = useContextLimit(session.request, agents.agentId, agents.conversationId);
+  /** The context gauge's details: usage, and the limit to change. */
+  const [contextOpen, setContextOpen] = useState(false);
+
   const [tab, setTab] = useState<Tab>("Chat");
   /** The agents-and-conversations menu (phone); see `Switcher`. */
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -289,6 +295,14 @@ function Workspace({ status }: { status: Status }) {
             </span>
             <h1 className="title">{title}</h1>
           </button>
+          <ContextGauge
+            usage={conversation.turnUsage}
+            limit={contextLimit.limit}
+            onOpen={() => {
+              setContextOpen(true);
+              void contextLimit.refresh();
+            }}
+          />
           {bypass ? <AuthPill email={status.user?.email} /> : null}
           <LinkPill link={session.link} />
         </header>
@@ -397,7 +411,6 @@ function Workspace({ status }: { status: Status }) {
               onOpenModels={() => setShowModels(true)}
               modelsDisabled={!scope}
               modelLabel={modelLabel}
-              lastTurnUsage={conversation.lastTurnUsage}
               history={inputHistory}
               prefill={prefill}
               onOpenSwitcher={openSwitcher}
@@ -458,6 +471,17 @@ function Workspace({ status }: { status: Status }) {
           toolsetPreference={conversation.toolsetPreference}
           availableToolsets={conversation.availableToolsets}
           onClose={() => setShowModels(false)}
+        />
+      ) : null}
+
+      {contextOpen ? (
+        <ContextSheet
+          usage={conversation.turnUsage}
+          limit={contextLimit.limit}
+          agentName={agentName}
+          processing={conversation.processing}
+          onApply={contextLimit.apply}
+          onClose={() => setContextOpen(false)}
         />
       ) : null}
 

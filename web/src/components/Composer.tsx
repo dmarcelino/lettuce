@@ -10,7 +10,6 @@ import {
 import { enterSends } from "../lib/input-mode.ts";
 import type { FilterGroup } from "../lib/messages.ts";
 import { parseResponseFormat, type ResponseFormat } from "../lib/structured-output.ts";
-import { type TurnUsage, usageDescription, usageLabel } from "../lib/usage.ts";
 import {
   matchSlashCommands,
   PERMISSION_MODES,
@@ -64,8 +63,6 @@ interface Props {
   modelsDisabled: boolean;
   /** The model in force for this conversation; shown on the button on desktop. */
   modelLabel: string | null;
-  /** Tokens spent by the last finished turn; hidden while one is running. */
-  lastTurnUsage: TurnUsage | null;
   /** This conversation's past user messages, oldest first, for ↑/↓ recall. */
   history: readonly string[];
   /**
@@ -106,7 +103,6 @@ export function Composer({
   onOpenModels,
   modelsDisabled,
   modelLabel,
-  lastTurnUsage,
   history,
   prefill,
   onPrefillApplied,
@@ -408,17 +404,6 @@ export function Composer({
             </button>
 
             <span className="spacer" />
-
-            {lastTurnUsage && !processing ? (
-              <span
-                className="turn-usage"
-                role="note"
-                title={usageDescription(lastTurnUsage)}
-                aria-label={usageDescription(lastTurnUsage)}
-              >
-                {usageLabel(lastTurnUsage)}
-              </span>
-            ) : null}
 
             <button
               type="button"
