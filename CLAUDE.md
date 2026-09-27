@@ -656,8 +656,9 @@ so `docker compose -f docker/compose.yml up -d --build ddg-mcp` is safe on its o
 in its `web-build` stage and copies the result into the runtime image; the BFF's only mounts
 are the `bff-data` volume and read-only views of the state (`/work`, `/root/.letta`, the memfs
 root — for file mtimes and skill discovery) — it takes no configuration from disk at all.
-So `docker compose up -d` on its own will happily serve a months-old UI, and a local `bun run build` changes nothing the container sees. That is the trap step 5
-catches: it compares the served `assets/index-*.js` name against the local one.
+So `docker compose up -d` on its own will happily serve a months-old UI, and a local
+`bun run build` changes nothing the container sees. That is the trap step 5 catches: it
+compares the served `assets/index-*.js` name against the local one.
 
 Lint policy: `bun run lint` fails on Biome **errors** only. Warnings are visible but do not
 block — a handful are load-bearing (see the comments in `biome.jsonc` for why

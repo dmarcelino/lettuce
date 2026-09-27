@@ -685,8 +685,13 @@ try {
     await bundledHead.click();
     const rows = page.locator(".skill-item");
     check("expanding bundled lists its skills", (await rows.count()) > 5, await rows.count());
-    const expandable = page.locator('.skill-main[aria-expanded="false"]').first();
-    if ((await expandable.count()) === 1) {
+    // Pin the row by index: a locator on aria-expanded="false" would move to
+    // the next collapsed row the moment this one expands.
+    const clampedIndex = await page
+      .locator(".skill-main")
+      .evaluateAll((els) => els.findIndex((el) => el.getAttribute("aria-expanded") === "false"));
+    const expandable = page.locator(".skill-main").nth(clampedIndex);
+    if (clampedIndex >= 0) {
       const desc = expandable.locator(".skill-desc");
       const before = (await desc.boundingBox())?.height ?? 0;
       await expandable.click();
