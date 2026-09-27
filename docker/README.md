@@ -35,7 +35,7 @@ alongside the two repos; prod sets an absolute path.
 
 ```
 $LETTA_STATE_DIR/
-  letta-home/     -> /root/.letta   settings.json, MCP config, global skills
+  letta-home/     -> /root/.letta   settings.json, mcp-home/ (shared MCP list), global skills
   letta-data/     -> /data          conversations + agent memory (memfs git repos)
   workspaces/     -> /work          agent working directories
 ```
@@ -244,6 +244,33 @@ Access policy by hand: **the two lists are unrelated**. Access is the gate that
 actually matters, and this one is what still stands if that policy is ever
 misconfigured, so it deliberately mirrors the policy's list shape rather than
 collapsing to a single address.
+
+## Web search and other MCP servers
+
+Settings → MCP holds **one list shared by every agent**. Agents learn it from the `mcp-servers`
+global skill the BFF generates, and call it with
+`sh /root/.letta/skills/mcp-servers/scripts/mcp.sh <list|tools|search|schema|call> …`. The list
+itself is `/root/.letta/mcp-home/.letta/settings.json`, not upstream's `settings.json` (CLAUDE.md
+explains why).
+
+A fresh install starts with DuckDuckGo web search, the `ddg-mcp` service (compose network only,
+no published port):
+
+| Variable (`docker/.env`) | Default | |
+|---|---|---|
+| `DDG_MCP_VERSION` | `0.7.0` | `duckduckgo-mcp-server` release; pinned |
+| `DDG_REGION` | `us-en` | results region |
+| `DDG_SAFE_SEARCH` | `OFF` | `STRICT`, `MODERATE` or `OFF` |
+| `DDG_MCP_URL` | `http://ddg-mcp:8000/mcp` | the seeded entry; set empty to start with no servers |
+
+The seed applies only while the list does not exist, so removing `duckduckgo` in Settings → MCP
+sticks. To check it from the host:
+
+```bash
+docker compose -f docker/compose.yml exec app-server \
+  sh /root/.letta/skills/mcp-servers/scripts/mcp.sh call mcp__duckduckgo__search \
+  --args '{"query":"letta code","max_results":3}'
+```
 
 ## Run
 

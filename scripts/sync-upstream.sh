@@ -41,6 +41,13 @@ BEHAVIOR_FILES=(
   # sandbox policy it rewrites and the `codex login status` preflight it must pass.
   "src/tools/impl/codex-app-server.ts"
   "src/tools/impl/external-coding-agent.ts"
+  # The shared MCP list (bff/src/mcp) is a settings file `letta mcp` reads with
+  # HOME pointed elsewhere: it relies on initialize() not persisting once the
+  # rollback flag is set, on getAgentSettings matching agentId + baseUrl, and on
+  # `--agent` taking any id.
+  "src/settings-manager.ts"
+  "src/cli/subcommands/mcp.ts"
+  "src/cli/subcommands/mcp-io.ts"
 )
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -126,6 +133,9 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "     when nothing is active, and still emit Interrupted before the turn unwinds?"
   warn "   * background-process-protocol.ts — a new kind? readBackgroundProcesses drops it."
   warn "   * toolset-catalog.ts — tools added/removed? Update tool-summary.ts and CLAUDE.md."
+  warn "   * settings-manager.ts / subcommands/mcp*.ts — does \`letta mcp --agent <id>\` with"
+  warn "     HOME=/root/.letta/mcp-home still read the shared list without rewriting it?"
+  warn "     Run the mcp-servers wrapper's \`list\` and \`call\` in the container."
 else
   echo "  none"
 fi

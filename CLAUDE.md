@@ -135,7 +135,7 @@ crons never fire.
 
 ```
 $LETTA_STATE_DIR/
-  letta-home/     -> /root/.letta   settings.json (MCP config lives here), global skills
+  letta-home/     -> /root/.letta   settings.json, mcp-home/ (shared MCP list), global skills
   letta-data/     -> /data          conversations + agent memory (memfs git repos)
   workspaces/     -> /work          agent working directories
 ```
@@ -212,11 +212,33 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   refuses with that 403, which is now a real misconfiguration rather than a contradiction.
   `AllowedUser.name` was deleted with the file: nothing ever rendered it (the UI reads only
   `status.user?.email`).
-- **MCP is not in the protocol.** Servers live in `/root/.letta/settings.json` under
-  `agents[<n>].mcpServers[]` (keyed by `agentId`). We read the file, merge into that one
-  agent entry, write it back, and then `execute_command {command_id:"reload"}` — which
-  replies "Reloaded settings, local mods, and agent secrets". Merge rather than replace:
-  the file holds ~18 unrelated top-level settings including `deviceId`.
+- **MCP is one shared list, kept out of upstream's `settings.json`, and agents learn it from a
+  skill.** Upstream MCP is per-agent only (`settings.json` → `agents[].mcpServers`), and in
+  app-server mode it is not native tools: agents run `letta mcp search|tools|schema|call`
+  through Bash, a fresh process that reads settings and connects per call. We used to write
+  that per-agent entry and it **did not stick**: the app-server holds `settings.json` in
+  memory and rewrites the whole `agents` array from that copy on any agent-setting change
+  (`upsertAgentSettings` → `markDirty("agents")` → `persistSettings`; agent create, pin, memfs,
+  toolset, system-prompt versioning), silently dropping what we wrote, and `reload` never
+  re-reads it (`handleReloadCommand` clears only project caches), so upstream's
+  `mcp-servers-info` reminder never saw it either. New entries also lacked `baseUrl`, which
+  `getAgentSettings` matches (`local:/data/local-backend`), so they were invisible anyway.
+
+  So `bff/src/mcp/` keeps the list in `/root/.letta/mcp-home/.letta/settings.json`, a file the
+  app-server never loads, under the synthetic agent `agent-local-mcp-global`. The
+  `mcp-servers` skill's wrapper runs `HOME=/root/.letta/mcp-home letta mcp "$@" --agent
+  agent-local-mcp-global`, which is what makes the list global. The file sets
+  `autoConversationTitlesRollbackApplied: true` — load-bearing: without it
+  `settingsManager.initialize()` persists on every CLI call and races our writes. The skill
+  (SKILL.md with the server names in its description, plus the wrapper) is rendered into
+  `mcp-home/skill/` and linked with `skill_enable` (the protocol cannot delete files, so an empty
+  list is `skill_disable`), on every save and every upstream connect. No reload is needed:
+  skills and the file are read from disk per turn and per call. Upstream's reminder still says
+  "MCP servers with available tools: None" — it only knows the per-agent list; the skill says so.
+  Codex's `mcp: {inherit: true}` forwards that same empty list, so the Tasks form no longer
+  offers it and `delegating-to-codex` tells agents to hand workers the wrapper instead.
+  Browsers reach none of these files: `/api/mcp` reads and writes the list (an entry is a
+  command line agent shells exec), and `settings.json` is no longer a readable exception.
 - **letta-code's filesystem sandbox is OFF, deliberately, and the image carries no bubblewrap.**
   The app-server runs upstream's `letta/letta:<version>` (plus the Codex CLI, nothing of
   upstream's changed) with Docker's default seccomp, AppArmor and capabilities, and
@@ -437,8 +459,13 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     command; re-verify both on every letta-code or Codex bump (`CODEX_VERSION` is pinned in
     compose, never floated).
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
-- **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
-  letta-code feature.
+- **No built-in web search/fetch tool.** Web search is the `ddg-mcp` sidecar
+  (`docker/ddg-mcp`, nickclyde/duckduckgo-mcp-server, pinned `DDG_MCP_VERSION`), reached at
+  `http://ddg-mcp:8000/mcp` over the compose network with no published port and no auth. A
+  sidecar, not a stdio command, because `letta mcp` connects per call: stdio would cold-start
+  Python every call and lose the server's cache and its rate limiter (30 searches / 20 fetches
+  a minute), which is what keeps DuckDuckGo from blocking us. The BFF seeds it (`DDG_MCP_URL`)
+  only when the shared list does not exist yet, so removing it in Settings → MCP sticks.
 - **File protocol gotchas** (all verified against a running app-server):
   - `get_tree` returns paths **relative** to the root it was given; every other file command
     wants an absolute path, so the client must join them.
@@ -554,7 +581,7 @@ Passing typecheck is not done. Passing tests is not done. **Running in the conta
 6. **`bun run smoke` green** when the change touches BFF session, protocol or settings
    paths. Not part of `verify`: it needs a live stack, it needs at least one agent to
    exist, and it mutates real state (writes `smoke-probe.md` into the agent cwd, edits
-   and restores `/root/.letta/settings.json`, creates and deletes a cron task).
+   and restores the shared MCP list, creates and deletes a cron task).
 7. **Released to prod — pushed to `origin`, then redeployed with Dockhand — but stop and ask
    first.**
 
@@ -610,7 +637,9 @@ tracked, and no secret values are in history. Re-check that before pushing anyth
 touches configuration.
 
 Only `bff` is rebuilt in step 4 — it is the only service carrying our code. Recreate
-`app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or their compose config changes.
+`app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or their compose config changes,
+and `ddg-mcp` only when `DDG_MCP_VERSION` or `docker/ddg-mcp/` changes (it shares no namespace,
+so `docker compose -f docker/compose.yml up -d --build ddg-mcp` is safe on its own).
 
 **`web/dist` is baked into the bff image, never mounted.** `bff.Dockerfile` builds the SPA
 in its `web-build` stage and copies the result into the runtime image; the BFF's only mounts
@@ -642,7 +671,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run check-version-pin` | Assert every letta-code version literal agrees (runs inside `verify`) |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
-| `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway |
+| `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway + ddg-mcp |
 | `git push origin main` | Release, part 1 — **ask for confirmation first, every time** |
 | `~/.claude/skills/dockhand-deploy/dockhand.sh plan letta letta-code-ui-prod` | Prod preflight: commits, compose diff, what gets recreated (read-only) |
 | `… deploy letta letta-code-ui-prod --confirm` | Release, part 2 — prod redeploy via Dockhand, same confirmation as the push |

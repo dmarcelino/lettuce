@@ -123,7 +123,7 @@ export function SettingsTab({ session, agentId, conversationId, skills, skillsSt
       </div>
 
       {section === "connection" ? <ConnectionSection session={session} /> : null}
-      {section === "mcp" ? <McpEditor session={session} agentId={agentId} /> : null}
+      {section === "mcp" ? <McpEditor session={session} /> : null}
       {section === "skills" ? (
         <SkillsSection session={session} skills={skills} stale={skillsStale} />
       ) : null}

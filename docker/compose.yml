@@ -235,6 +235,9 @@ services:
       PUSH_VAPID_PRIVATE_KEY: ${PUSH_VAPID_PRIVATE_KEY:-}
       PUSH_VAPID_CONTACT_EMAIL: ${PUSH_VAPID_CONTACT_EMAIL:-}
       PUSH_SUBSCRIPTIONS_FILE: /app/data/push-subscriptions.json
+      # The shared MCP list's starting entry — used only when that list does not
+      # exist yet, so removing the server in Settings → MCP sticks. Empty: none.
+      DDG_MCP_URL: ${DDG_MCP_URL-http://ddg-mcp:8000/mcp}
     volumes:
       # Push subscriptions: device endpoints the BFF rewrites on every
       # subscribe/unsubscribe. Nothing reads this by hand and losing it only
@@ -287,6 +290,23 @@ services:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work
+    restart: unless-stopped
+
+  # DuckDuckGo web search, the MCP server a fresh install starts with (see
+  # docker/ddg-mcp/Dockerfile for why it is a sidecar). Agents reach it from
+  # the app-server container over the default network as
+  # http://ddg-mcp:8000/mcp — the BFF seeds that URL into the shared MCP list
+  # (DDG_MCP_URL on the bff) when the list does not exist yet. No `ports:`:
+  # nothing outside the compose network can reach it, and it has no auth.
+  ddg-mcp:
+    build:
+      context: ddg-mcp
+      args:
+        DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
+    image: letta-ddg-mcp:${DDG_MCP_VERSION:-0.7.0}
+    environment:
+      DDG_REGION: ${DDG_REGION:-us-en}
+      DDG_SAFE_SEARCH: ${DDG_SAFE_SEARCH:-OFF}
     restart: unless-stopped
 
   # Outbound-only, dashboard-managed tunnel: the public-hostname-to-origin

@@ -1,142 +1,71 @@
 import { describe, expect, test } from "bun:test";
 import {
+  defaultMcpServers,
+  GLOBAL_MCP_AGENT,
   InvalidMcpServersError,
-  mergeMcpServers,
+  LOCAL_BASE_URL,
   readMcpServers,
+  renderMcpSettings,
   SettingsUnreadableError,
   validateMcpServers,
 } from "./settings.ts";
 
-/**
- * The merge is the only thing protecting ~18 unrelated top-level settings and
- * the other agents' entries when the MCP editor saves. A replace-instead-of-
- * merge here silently destroys `deviceId` and every other agent's config, so
- * these assert preservation rather than just shape.
- */
-const AGENT = "agent-1";
-const OTHER = "agent-2";
+const DDG = { name: "duckduckgo", transport: "http" as const, url: "http://ddg-mcp:8000/mcp" };
 
-function settingsFixture() {
-  return JSON.stringify(
-    {
-      lastAgent: AGENT,
-      tokenStreaming: true,
-      deviceId: "device-abc",
-      reflectionTrigger: "manual",
-      agents: [
-        { agentId: AGENT, model: "gpt-4" },
-        {
-          agentId: OTHER,
-          mcpServers: [{ name: "other-server", transport: "stdio", command: "x" }],
-        },
-      ],
-    },
-    null,
-    2,
-  );
-}
-
-describe("mergeMcpServers", () => {
-  test("adds servers to the named agent and preserves every other setting", () => {
-    const before = JSON.parse(settingsFixture());
-    const after = JSON.parse(
-      mergeMcpServers(settingsFixture(), AGENT, [
-        { name: "searxng", transport: "stdio", command: "uvx", args: ["mcp-searxng"] },
-      ]),
-    ) as Record<string, any>;
-
-    expect(after.agents[0].mcpServers[0].name).toBe("searxng");
-    // The agent's own unrelated keys survive alongside the new servers.
-    expect(after.agents[0].model).toBe("gpt-4");
-    expect(after.deviceId).toBe(before.deviceId);
-    expect(after.tokenStreaming).toBe(before.tokenStreaming);
-    expect(after.reflectionTrigger).toBe(before.reflectionTrigger);
-    expect(after.lastAgent).toBe(before.lastAgent);
-    // The other agent is untouched.
-    expect(after.agents[1]).toEqual(before.agents[1]);
-    expect(after.agents).toHaveLength(2);
+describe("renderMcpSettings", () => {
+  test("stores the list under the global agent, with the local backend's baseUrl", () => {
+    // `letta mcp` matches agentId AND baseUrl; without the key the entry is invisible.
+    const parsed = JSON.parse(renderMcpSettings([DDG]));
+    expect(parsed.agents).toEqual([
+      { agentId: GLOBAL_MCP_AGENT, baseUrl: LOCAL_BASE_URL, mcpServers: [DDG] },
+    ]);
+    expect(GLOBAL_MCP_AGENT.startsWith("agent-local-")).toBe(true);
   });
 
-  test("replacing an agent's servers leaves the other agent alone", () => {
-    const after = JSON.parse(
-      mergeMcpServers(
-        JSON.stringify({
-          deviceId: "keep-me",
-          agents: [
-            {
-              agentId: AGENT,
-              mcpServers: [{ name: "old", transport: "stdio", command: "old" }],
-            },
-            { agentId: OTHER, mcpServers: [{ name: "other", transport: "stdio", command: "x" }] },
-          ],
-        }),
-        AGENT,
-        [{ name: "new", transport: "stdio", command: "new" }],
-      ),
-    ) as Record<string, any>;
-
-    expect(after.agents[0].mcpServers).toHaveLength(1);
-    expect(after.agents[0].mcpServers[0].name).toBe("new");
-    expect(after.agents[1].mcpServers[0].name).toBe("other");
-    expect(after.deviceId).toBe("keep-me");
+  test("marks the one-time migration done, so the CLI never rewrites the file", () => {
+    const parsed = JSON.parse(renderMcpSettings([]));
+    expect(parsed.autoConversationTitlesRollbackApplied).toBe(true);
   });
 
-  test("an empty list removes the key rather than writing an empty array", () => {
-    const after = JSON.parse(
-      mergeMcpServers(
-        JSON.stringify({ agents: [{ agentId: AGENT, mcpServers: [{ name: "a" }] }] }),
-        AGENT,
-        [],
-      ),
-    ) as Record<string, any>;
-    expect("mcpServers" in after.agents[0]).toBe(false);
-    expect(after.agents[0].agentId).toBe(AGENT);
-  });
-
-  test("an empty list for an unknown agent does not create an entry", () => {
-    const original = settingsFixture();
-    expect(mergeMcpServers(original, "nope", [])).toBe(original);
-  });
-
-  test("an unknown agent gets a new entry appended", () => {
-    const after = JSON.parse(
-      mergeMcpServers(settingsFixture(), "agent-3", [
-        { name: "fresh", transport: "stdio", command: "f" },
-      ]),
-    ) as Record<string, any>;
-    expect(after.agents).toHaveLength(3);
-    expect(after.agents[2].agentId).toBe("agent-3");
-    expect(after.agents[2].mcpServers[0].name).toBe("fresh");
-  });
-
-  test("unparseable settings refuse the merge rather than clobbering the file", () => {
-    expect(() => mergeMcpServers("{not json", AGENT, [])).toThrow(SettingsUnreadableError);
-    expect(() => mergeMcpServers("[]", AGENT, [])).toThrow(SettingsUnreadableError);
-    expect(() => mergeMcpServers('"a string"', AGENT, [])).toThrow(SettingsUnreadableError);
+  test("round-trips through readMcpServers", () => {
+    expect(readMcpServers(renderMcpSettings([DDG]))).toEqual([DDG]);
   });
 });
 
 describe("readMcpServers", () => {
-  test("returns the named agent's servers", () => {
-    const raw = JSON.stringify({
-      agents: [{ agentId: AGENT, mcpServers: [{ name: "one" }, { name: "two" }] }],
-    });
-    expect(readMcpServers(raw, AGENT).map((s) => s.name)).toEqual(["one", "two"]);
+  test("no agents, no global entry, or no servers read as empty", () => {
+    expect(readMcpServers("{}")).toEqual([]);
+    expect(readMcpServers(JSON.stringify({ agents: [{ agentId: "agent-local-x" }] }))).toEqual([]);
+    expect(readMcpServers(JSON.stringify({ agents: [{ agentId: GLOBAL_MCP_AGENT }] }))).toEqual([]);
   });
 
-  test("an agent with no servers, no entry, or no agents array reads as empty", () => {
-    expect(readMcpServers(JSON.stringify({ agents: [{ agentId: AGENT }] }), AGENT)).toEqual([]);
-    expect(readMcpServers(JSON.stringify({ agents: [] }), AGENT)).toEqual([]);
-    expect(readMcpServers(JSON.stringify({}), AGENT)).toEqual([]);
+  test("ignores other agents' entries", () => {
+    const raw = JSON.stringify({
+      agents: [
+        { agentId: "agent-local-x", mcpServers: [{ name: "not-ours", command: "x" }] },
+        { agentId: GLOBAL_MCP_AGENT, mcpServers: [DDG] },
+      ],
+    });
+    expect(readMcpServers(raw)).toEqual([DDG]);
   });
 
-  test("displays a malformed stored entry rather than refusing to show it", () => {
-    // Validation is a write-time concern. Refusing to DISPLAY something the CLI
-    // or an older editor wrote would hide the user's own configuration.
+  test("displays a malformed stored entry rather than hiding it", () => {
     const raw = JSON.stringify({
-      agents: [{ agentId: AGENT, mcpServers: [{ name: "odd" }, null] }],
+      agents: [{ agentId: GLOBAL_MCP_AGENT, mcpServers: [{ name: "odd" }, null, "junk"] }],
     });
-    expect(readMcpServers(raw, AGENT)).toEqual([{ name: "odd" }]);
+    expect(readMcpServers(raw)).toEqual([{ name: "odd" }]);
+  });
+
+  test("an unparseable file is an error, not an empty list that a save would overwrite", () => {
+    expect(() => readMcpServers("{not json")).toThrow(SettingsUnreadableError);
+    expect(() => readMcpServers("[]")).toThrow(SettingsUnreadableError);
+  });
+});
+
+describe("defaultMcpServers", () => {
+  test("seeds the sidecar when a URL is configured, and nothing otherwise", () => {
+    expect(defaultMcpServers("http://ddg-mcp:8000/mcp")).toEqual([DDG]);
+    expect(defaultMcpServers(null)).toEqual([]);
   });
 });
 

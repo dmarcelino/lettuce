@@ -64,7 +64,7 @@ interface Props {
 // `codex` runs the Codex CLI instead of a Letta subagent — enabled in Settings → Codex.
 const SUBAGENT_TYPES = ["general-purpose", "recall", "history-analyzer", CODEX_SUBAGENT_TYPE];
 
-const BLANK_SUBAGENT = { type: "general-purpose", description: "", prompt: "", inheritMcp: false };
+const BLANK_SUBAGENT = { type: "general-purpose", description: "", prompt: "" };
 
 /**
  * A new task defaults to a fresh conversation per run; the editor overrides
@@ -206,11 +206,6 @@ export function TasksTab({
       subagent_type: subagentType,
       description: subagent.description.trim(),
       prompt: subagent.prompt.trim(),
-      // Discovery metadata only: the worker calls the parent's MCP servers
-      // through `letta mcp`, under the parent's identity. Codex-only upstream.
-      ...(subagentType === CODEX_SUBAGENT_TYPE && subagent.inheritMcp
-        ? { mcp: { inherit: true } }
-        : {}),
     };
     setLaunchBusy(true);
     setStatus("Launching subagent…");
@@ -441,22 +436,14 @@ export function TasksTab({
           </label>
 
           {subagent.type.trim() === CODEX_SUBAGENT_TYPE ? (
-            <>
-              <p className="muted small">
-                A Codex worker, set up in the Codex section of Settings. Its full run appears under
-                Codex runs.
-              </p>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={subagent.inheritMcp}
-                  onChange={(event) =>
-                    setSubagent({ ...subagent, inheritMcp: event.target.checked })
-                  }
-                />
-                Let it use this agent&apos;s MCP servers
-              </label>
-            </>
+            // No `mcp.inherit` toggle: upstream only forwards the parent's
+            // per-agent MCP list, which is always empty here (the shared list
+            // lives in bff/src/mcp). A worker reaches it through the
+            // mcp-servers skill's wrapper, named in its prompt.
+            <p className="muted small">
+              A Codex worker, set up in the Codex section of Settings. Its full run appears under
+              Codex runs.
+            </p>
           ) : null}
 
           <label className="field">

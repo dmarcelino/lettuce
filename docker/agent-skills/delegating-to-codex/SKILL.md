@@ -25,9 +25,10 @@ that stands alone: the worker sees nothing of this conversation. Say which direc
 what "done" means (e.g. "tests pass"), and what to report back.
 
 - It always runs in the background; its result arrives later as a task notification.
-- Add `mcp: { inherit: true }` if it needs your MCP servers (web search, etc.), or
-  `mcp: { inherit: true, servers: ["name"] }` for just some. It reaches them through the
-  `letta mcp` CLI under your identity.
+- Do not use `mcp: { inherit: true }`: it only forwards your per-agent MCP list, which is empty
+  here. If the worker needs web search or another shared MCP server, say so in the prompt and
+  give it the wrapper: `sh /root/.letta/skills/mcp-servers/scripts/mcp.sh` (see the
+  `mcp-servers` skill for its commands). It runs in the same container, so it can call it.
 - Do not pass `agent_id` or `conversation_id` — Codex workers cannot take them.
 
 ## Following up

@@ -5,12 +5,12 @@ import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 
 /**
- * MCP servers are absent from the app-server protocol: they live in
- * ~/.letta/settings.json under the agent's own entry. The browser may READ
- * that file but cannot WRITE it — an mcpServers entry is an arbitrary command
- * line the app-server execs as root — so reads and writes go through the BFF's
- * /api/mcp routes, which merge the agent's entry server-side and issue the
- * `reload` that makes the change take effect.
+ * One MCP server list shared by every agent. It is not in the app-server
+ * protocol, and not in upstream's per-agent settings either (the app-server
+ * overwrote those — see bff/src/mcp/settings.ts): the BFF keeps it in a file of
+ * its own and tells agents about it through the `mcp-servers` skill. Reads and
+ * writes go through /api/mcp; the browser never touches the file, since an
+ * entry is a command line agent shells will exec.
  */
 type Transport = "stdio" | "http" | "sse";
 
@@ -26,7 +26,7 @@ interface McpServer {
 
 const BLANK: McpServer = { name: "", transport: "stdio", command: "", args: [] };
 
-export function McpEditor({ session, agentId }: { session: SessionApi; agentId: string | null }) {
+export function McpEditor({ session }: { session: SessionApi }) {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [status, setStatus] = useState("");
   const [draft, setDraft] = useState<McpServer | null>(null);
@@ -39,10 +39,9 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
   }, draft !== null);
 
   const load = useCallback(async () => {
-    if (!agentId) return;
     setStatus("Loading settings…");
     try {
-      const response = await fetch(`/api/mcp?agent_id=${encodeURIComponent(agentId)}`);
+      const response = await fetch("/api/mcp");
       if (!response.ok) {
         setStatus((await response.text()) || "Could not read MCP settings");
         return;
@@ -53,20 +52,19 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
     } catch (cause) {
       setStatus(errorMessage(cause));
     }
-  }, [agentId]);
+  }, []);
 
   useEffect(() => {
-    if (session.ready && agentId) void load();
-  }, [session.ready, agentId, load]);
+    if (session.ready) void load();
+  }, [session.ready, load]);
 
   const persist = async (next: McpServer[]) => {
-    if (!agentId) return;
     setStatus("Saving…");
     try {
       const response = await fetch("/api/mcp", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent_id: agentId, servers: next }),
+        body: JSON.stringify({ servers: next }),
       });
       if (!response.ok) {
         setStatus((await response.text()) || "Save failed");
@@ -74,7 +72,7 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
       }
       const body = (await response.json()) as { servers?: McpServer[] };
       setServers(Array.isArray(body.servers) ? body.servers : next);
-      setStatus("Saved. The agent is reloading its tools.");
+      setStatus("Saved. Agents see the change on their next turn.");
     } catch (cause) {
       setStatus(errorMessage(cause));
     }
@@ -116,10 +114,6 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
     await persist(servers.filter((_, i) => i !== index));
   };
 
-  if (!agentId) {
-    return <p className="muted pad">Select an agent.</p>;
-  }
-
   return (
     <>
       <div className="pane-bar">
@@ -138,6 +132,10 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
         <span className="spacer" />
         <span className="muted small">{servers.length} configured</span>
       </div>
+
+      <p className="muted small pad">
+        Shared by every agent. Agents reach these through the <code>mcp-servers</code> skill.
+      </p>
 
       {status ? <p className="muted small pad">{status}</p> : null}
 
@@ -168,12 +166,10 @@ export function McpEditor({ session, agentId }: { session: SessionApi; agentId: 
         {servers.length === 0 ? <li className="muted pad">No MCP servers configured</li> : null}
       </ul>
 
-      <p className="section-note">Example — SearXNG web search</p>
-      <pre className="tool-args pad-x">{`name: searxng
-transport: stdio
-command: uvx
-args: mcp-searxng
-env: SEARXNG_URL=http://host.docker.internal:8080`}</pre>
+      <p className="section-note">Example — the bundled DuckDuckGo web search</p>
+      <pre className="tool-args pad-x">{`name: duckduckgo
+transport: http
+url: http://ddg-mcp:8000/mcp`}</pre>
 
       {draft ? (
         <div className="sheet">
@@ -185,7 +181,7 @@ env: SEARXNG_URL=http://host.docker.internal:8080`}</pre>
                 Name
                 <input
                   value={draft.name}
-                  placeholder="searxng"
+                  placeholder="duckduckgo"
                   onChange={(event) => setDraft({ ...draft, name: event.target.value })}
                 />
               </label>

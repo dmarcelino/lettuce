@@ -1,18 +1,20 @@
 /**
- * The MCP settings merge, done server-side.
+ * The shared MCP server list, and the settings file `letta mcp` reads it from.
  *
- * MCP servers are absent from the app-server protocol: they live in
- * `/root/.letta/settings.json` under the agent's own entry (see CLAUDE.md).
- * The MCP editor used to read that file and write it back from the browser,
- * which meant the browser needed `write_file` on a file whose `mcpServers`
- * entries are arbitrary command lines the app-server execs as root. The
- * browser may read the file; the write happens here instead, so the merge is
- * performed against the file as it is right now rather than a copy the client
- * read earlier, and the browser never gets a write handle on it at all.
+ * Upstream keeps MCP servers per agent in `/root/.letta/settings.json`, and
+ * that file is unusable for us: the app-server holds it in memory and rewrites
+ * the whole `agents` array from that copy whenever any agent setting changes
+ * (agent create, pin, memfs, toolset, system-prompt versioning), which
+ * silently dropped entries written from outside, and `reload` never re-reads
+ * it. See CLAUDE.md.
  *
- * Merge, never replace: the file holds ~18 unrelated top-level settings
- * including `deviceId`, and the `agents` array holds entries for agents this
- * screen is not touching. Only the named agent's `mcpServers` changes.
+ * So the servers live in a settings file of their own, under a home directory
+ * the app-server never loads: `letta mcp`, run from an agent's shell with
+ * `HOME=MCP_HOME` (the `mcp-servers` skill's wrapper does that), reads it fresh
+ * on every call. One synthetic agent id holds the list, which makes it global —
+ * every agent passes the same `--agent`.
+ *
+ * The BFF owns this file outright, so it is rendered whole, never merged.
  */
 
 export type McpTransport = "stdio" | "http" | "sse";
@@ -27,26 +29,30 @@ export interface McpServer {
   headers?: Record<string, string>;
 }
 
-/** A settings file we cannot parse is not something to merge into. */
+/** `HOME` for `letta mcp` — under the letta-home bind mount, so it persists. */
+export const MCP_HOME = "/root/.letta/mcp-home";
+export const MCP_SETTINGS_PATH = `${MCP_HOME}/.letta/settings.json`;
+
+/**
+ * The agent id the list is stored under. Nothing checks that it exists
+ * (`resolveMcpAgentId` takes the string as given); the `agent-local-` prefix
+ * keeps it compatible with letta-code's local-mode id checks all the same.
+ */
+export const GLOBAL_MCP_AGENT = "agent-local-mcp-global";
+
+/**
+ * `getAgentSettings` matches `baseUrl` as well as `agentId`, and in local mode
+ * the key is `local:<resolved LETTA_LOCAL_BACKEND_DIR>` — `/data/local-backend`
+ * per docker/compose.yml, inherited by every agent shell. An entry without it
+ * is invisible to `letta mcp`.
+ */
+export const LOCAL_BASE_URL = "local:/data/local-backend";
+
+/** A settings file we cannot parse is not something to show or overwrite. */
 export class SettingsUnreadableError extends Error {}
 
 /** A payload we refuse to write. Surfaced to the caller as a 400. */
 export class InvalidMcpServersError extends Error {}
-
-function parseSettings(raw: string): Record<string, unknown> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new SettingsUnreadableError(
-      `settings.json is not valid JSON: ${error instanceof Error ? error.message : "unknown error"}`,
-    );
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new SettingsUnreadableError("settings.json is not a JSON object");
-  }
-  return parsed as Record<string, unknown>;
-}
 
 function isStringRecord(value: unknown): value is Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -123,74 +129,60 @@ export function validateMcpServers(value: unknown): McpServer[] {
   return servers;
 }
 
-/** The named agent's entry, or undefined when the file has none. */
-function findAgent(
-  settings: Record<string, unknown>,
-  agentId: string,
-): Record<string, unknown> | undefined {
-  const agents = settings.agents;
-  if (!Array.isArray(agents)) return undefined;
-  for (const entry of agents) {
-    if (
-      entry &&
-      typeof entry === "object" &&
-      (entry as { agentId?: unknown }).agentId === agentId
-    ) {
-      return entry as Record<string, unknown>;
-    }
+/**
+ * The whole settings file for `letta mcp`.
+ *
+ * `autoConversationTitlesRollbackApplied: true` is load-bearing: without it
+ * `settingsManager.initialize()` runs a one-time migration and persists, so
+ * every agent's `letta mcp` call would rewrite this file — racing the BFF's
+ * own writes. With it set, the CLI only ever reads.
+ */
+export function renderMcpSettings(servers: McpServer[]): string {
+  const settings = {
+    autoConversationTitles: false,
+    autoConversationTitlesRollbackApplied: true,
+    agents: [{ agentId: GLOBAL_MCP_AGENT, baseUrl: LOCAL_BASE_URL, mcpServers: servers }],
+  };
+  return `${JSON.stringify(settings, null, 2)}\n`;
+}
+
+/**
+ * The configured servers, as written.
+ *
+ * Returned unvalidated on purpose: refusing to DISPLAY a server that is on
+ * disk would hide it rather than show it. Validation happens on write.
+ */
+export function readMcpServers(raw: string): McpServer[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new SettingsUnreadableError(
+      `${MCP_SETTINGS_PATH} is not valid JSON: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
   }
-  return undefined;
-}
-
-/**
- * The agent's configured servers, as written.
- *
- * Returned unvalidated on purpose: this reads whatever an older editor version
- * or the CLI may have written, and refusing to DISPLAY a server the user did
- * not just add would hide it rather than show it. Validation happens on write.
- */
-export function readMcpServers(settingsRaw: string, agentId: string): McpServer[] {
-  const agent = findAgent(parseSettings(settingsRaw), agentId);
-  const servers = agent?.mcpServers;
-  if (!Array.isArray(servers)) return [];
-  return servers.filter((entry): entry is McpServer => Boolean(entry) && typeof entry === "object");
-}
-
-/**
- * Merge `servers` into `agentId`'s entry and return the whole file to write.
- *
- * Every other top-level setting and every other agent entry is carried through
- * byte-for-byte in content (re-serialised, not textually patched). An empty
- * list removes the `mcpServers` key rather than writing `[]`, matching what
- * the editor did and keeping the file tidy.
- */
-export function mergeMcpServers(
-  settingsRaw: string,
-  agentId: string,
-  servers: McpServer[],
-): string {
-  const settings = parseSettings(settingsRaw);
-  const agents = Array.isArray(settings.agents) ? [...(settings.agents as unknown[])] : [];
-  const index = agents.findIndex(
-    (entry) =>
-      Boolean(entry) &&
-      typeof entry === "object" &&
-      (entry as { agentId?: unknown }).agentId === agentId,
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new SettingsUnreadableError(`${MCP_SETTINGS_PATH} is not a JSON object`);
+  }
+  const agents = (parsed as { agents?: unknown }).agents;
+  if (!Array.isArray(agents)) return [];
+  const entry = agents.find(
+    (agent) =>
+      Boolean(agent) &&
+      typeof agent === "object" &&
+      (agent as { agentId?: unknown }).agentId === GLOBAL_MCP_AGENT,
+  ) as { mcpServers?: unknown } | undefined;
+  if (!Array.isArray(entry?.mcpServers)) return [];
+  return entry.mcpServers.filter(
+    (server): server is McpServer => Boolean(server) && typeof server === "object",
   );
+}
 
-  if (index === -1) {
-    if (servers.length === 0) {
-      // Nothing to remove and nothing to add: hand back an identical file
-      // rather than appending an empty agent entry.
-      return settingsRaw;
-    }
-    agents.push({ agentId, mcpServers: servers });
-  } else {
-    const existing = { ...(agents[index] as Record<string, unknown>) };
-    if (servers.length === 0) delete existing.mcpServers;
-    else existing.mcpServers = servers;
-    agents[index] = existing;
-  }
-
-  return `${JSON.stringify({ ...settings, agents }, null, 2)}\n`;
+/**
+ * What a fresh install starts with: the bundled DuckDuckGo sidecar, when its
+ * URL is configured. Only used when the settings file does not exist yet —
+ * once it does, the list is the user's, so removing the server sticks.
+ */
+export function defaultMcpServers(seedUrl: string | null): McpServer[] {
+  return seedUrl ? [{ name: "duckduckgo", transport: "http", url: seedUrl }] : [];
 }

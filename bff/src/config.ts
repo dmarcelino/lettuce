@@ -51,6 +51,12 @@ export interface BffConfig {
    * all. Callers check `config.push !== null` before wiring up push routes.
    */
   push: PushConfig | null;
+  /**
+   * The MCP server a fresh install starts with (the `ddg-mcp` sidecar), or
+   * null for none. Only read when the shared MCP settings file does not exist
+   * yet — see `mcp/settings.ts` `defaultMcpServers`.
+   */
+  mcpSeedUrl: string | null;
 }
 
 export interface PushConfig {
@@ -217,6 +223,7 @@ export function loadConfig(): BffConfig {
     devBypassEmail,
     devBypassAllowRemote,
     push: readPushConfig(),
+    mcpSeedUrl: process.env.DDG_MCP_URL?.trim() || null,
   };
 }
 

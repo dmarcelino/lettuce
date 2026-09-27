@@ -58,30 +58,19 @@ describe("workspace clamp", () => {
     refuse({ type: "read_file", path: "/root/.letta/transcripts" });
   });
 
-  test("settings.json is READABLE, but only that exact file", () => {
-    // MCP config has no protocol command; the MCP editor reads this file.
-    allow({ type: "read_file", path: "/root/.letta/settings.json" });
-    // The exception must not extend to the directory around it.
-    refuse({ type: "list_in_directory", path: "/root/.letta" });
-    refuse({ type: "read_file", path: "/root/.letta/settings.json.bak-before-prune" });
-    refuse({ type: "get_tree", path: "/root/.letta/projects" });
-  });
-
-  test("settings.json is not writable from a browser session", () => {
-    // An mcpServers entry is an arbitrary command line the app-server execs as
-    // root. Writes go through PUT /api/mcp, which merges server-side; a raw
-    // browser write would be code execution one step from the settings file.
+  test("settings.json and the MCP home are not reachable from a browser session", () => {
+    // MCP entries are command lines agent shells exec. They are read and
+    // written only through /api/mcp, never with raw file commands.
+    refuse({ type: "read_file", path: "/root/.letta/settings.json" });
     refuse({ type: "write_file", path: "/root/.letta/settings.json", content: "{}" });
-    refuse({ type: "edit_file", path: "/root/.letta/settings.json", content: "{}" });
-    // watch_file writes nothing but subscribes the browser to changes on it.
     refuse({ type: "watch_file", path: "/root/.letta/settings.json" });
-    // Workspace paths are still writable — the refusal is scoped to the exception.
+    refuse({ type: "read_file", path: "/root/.letta/mcp-home/.letta/settings.json" });
+    refuse({ type: "list_in_directory", path: "/root/.letta" });
+    // Workspace paths are unaffected.
     allow({ type: "write_file", path: `${WORKSPACE_ROOT}/agent-1/notes.md`, content: "hi" });
   });
 
   test("traversal out of the workspace is refused after normalisation", () => {
-    // Note: traversal that resolves ONTO an allowed exact path is fine — the
-    // exception is checked after normalisation, which is the point.
     refuse({ type: "read_file", path: `${WORKSPACE_ROOT}/../etc/passwd` });
     refuse({ type: "read_file", path: `${WORKSPACE_ROOT}/agent-1/../../etc/passwd` });
     // Normalising back inside is fine.

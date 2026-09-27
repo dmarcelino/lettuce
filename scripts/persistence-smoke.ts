@@ -497,99 +497,59 @@ check(
   llama?.connected,
 );
 
-// MCP lives in settings.json, not the protocol. The browser may READ that file
-// but must never WRITE it — an mcpServers entry is an arbitrary command line
-// the app-server execs as root — so the round trip goes through /api/mcp, which
-// merges the agent's entry server-side. Verify the merge preserves every
-// unrelated setting, and that the raw write path is now refused.
-const SETTINGS = "/root/.letta/settings.json";
-g.send({ type: "read_file", request_id: "rs1", path: SETTINGS, encoding: "utf8" });
-const rs1 = await g.waitFor((f) => f.request_id === "rs1");
-check("settings.json is readable", typeof rs1.content === "string", rs1.error);
-
-// The boundary that made this route necessary: a browser write is refused.
-g.send({ type: "write_file", request_id: "wrefuse", path: SETTINGS, content: "{}" });
-const writeRefused = await g.waitFor((f) => f.type === "__bff_error" && f.request_id === "wrefuse");
+// MCP: one shared list, kept out of upstream's settings.json (the app-server
+// rewrites that file from memory and dropped entries written from outside).
+// Only /api/mcp touches it — raw file commands on either settings file are
+// refused. The round trip restores whatever list was there, never an empty one.
+g.send({ type: "read_file", request_id: "rs1", path: "/root/.letta/settings.json" });
+const readRefused = await g.waitFor((f) => f.type === "__bff_error" && f.request_id === "rs1");
 check(
-  "a browser write to settings.json is refused",
-  String(writeRefused.message).includes("may not write"),
-  writeRefused,
+  "a browser read of settings.json is refused",
+  String(readRefused.message).includes("outside the workspace"),
+  readRefused,
 );
 
-if (typeof rs1.content === "string") {
-  const original: string = rs1.content;
-  const parsed = JSON.parse(original);
-  const agentEntry = parsed.agents?.[0];
+const mcpBefore = await fetch(`${ORIGIN}/api/mcp`, { headers: { cookie } });
+check("GET /api/mcp succeeds", mcpBefore.ok, mcpBefore.status);
+if (mcpBefore.ok) {
+  const original = ((await mcpBefore.json()).servers ?? []) as Array<{ name: string }>;
+  const put = await fetch(`${ORIGIN}/api/mcp`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({
+      servers: [...original, { name: "smoke-mcp", transport: "stdio", command: "true", args: [] }],
+    }),
+  });
+  check("PUT /api/mcp succeeds", put.ok, `${put.status} ${await put.text().catch(() => "")}`);
+
+  const got = await (await fetch(`${ORIGIN}/api/mcp`, { headers: { cookie } })).json();
+  const names = (got?.servers ?? []).map((server: { name: string }) => server.name);
   check(
-    "settings.json carries an agent entry",
-    Boolean(agentEntry?.agentId),
-    parsed.agents?.length,
+    "GET /api/mcp reports the saved server alongside the existing ones",
+    names.includes("smoke-mcp") && original.every((server) => names.includes(server.name)),
+    names,
   );
 
-  if (agentEntry) {
-    const put = await fetch(`${ORIGIN}/api/mcp`, {
-      method: "PUT",
-      headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({
-        agent_id: agentEntry.agentId,
-        servers: [{ name: "smoke-mcp", transport: "stdio", command: "true", args: [] }],
-      }),
-    });
-    check("PUT /api/mcp succeeds", put.ok, `${put.status} ${await put.text().catch(() => "")}`);
+  // A malformed payload is refused rather than written.
+  const bad = await fetch(`${ORIGIN}/api/mcp`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ servers: [{ transport: "stdio" }] }),
+  });
+  check("a nameless MCP server is refused with 400", bad.status === 400, bad.status);
 
-    g.send({ type: "read_file", request_id: "rs2", path: SETTINGS, encoding: "utf8" });
-    const rs2 = await g.waitFor((f) => f.request_id === "rs2");
-    const back = JSON.parse(rs2.content);
-    check(
-      "MCP server persisted",
-      back.agents?.[0]?.mcpServers?.[0]?.name === "smoke-mcp",
-      back.agents?.[0]?.mcpServers,
-    );
-    check(
-      "unrelated settings survived the merge",
-      Object.keys(back).length === Object.keys(parsed).length && back.deviceId === parsed.deviceId,
-      { before: Object.keys(parsed).length, after: Object.keys(back).length },
-    );
-
-    // The route issues `reload` itself; read it back through the GET so the
-    // editor's own view is what we assert on.
-    const get = await fetch(
-      `${ORIGIN}/api/mcp?agent_id=${encodeURIComponent(agentEntry.agentId)}`,
-      { headers: { cookie } },
-    );
-    const got = await get.json();
-    check("GET /api/mcp reports the saved server", got?.servers?.[0]?.name === "smoke-mcp", got);
-
-    // A malformed payload is refused rather than written.
-    const bad = await fetch(`${ORIGIN}/api/mcp`, {
-      method: "PUT",
-      headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ agent_id: agentEntry.agentId, servers: [{ transport: "stdio" }] }),
-    });
-    check("a nameless MCP server is refused with 400", bad.status === 400, bad.status);
-
-    // Put the agent's servers back exactly as found — whatever they were, not
-    // an empty list, which would destroy a real configuration.
-    const restore = await fetch(`${ORIGIN}/api/mcp`, {
-      method: "PUT",
-      headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({
-        agent_id: agentEntry.agentId,
-        servers: Array.isArray(agentEntry.mcpServers) ? agentEntry.mcpServers : [],
-      }),
-    });
-    check("smoke MCP change reverted", restore.ok, restore.status);
-
-    g.send({ type: "read_file", request_id: "rs3", path: SETTINGS, encoding: "utf8" });
-    const rs3 = await g.waitFor((f) => f.request_id === "rs3");
-    const reverted = JSON.parse(rs3.content);
-    check(
-      "the agent's original servers are back",
-      JSON.stringify(reverted.agents?.[0]?.mcpServers ?? []) ===
-        JSON.stringify(agentEntry.mcpServers ?? []),
-      reverted.agents?.[0]?.mcpServers,
-    );
-  }
+  const restore = await fetch(`${ORIGIN}/api/mcp`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ servers: original }),
+  });
+  check("smoke MCP change reverted", restore.ok, restore.status);
+  const reverted = await (await fetch(`${ORIGIN}/api/mcp`, { headers: { cookie } })).json();
+  check(
+    "the original MCP servers are back",
+    JSON.stringify(reverted?.servers ?? []) === JSON.stringify(original),
+    reverted?.servers,
+  );
 }
 
 // channel_* is off the allowlist on purpose: the app-server never dispatches

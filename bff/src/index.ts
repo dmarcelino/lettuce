@@ -4,6 +4,8 @@ import type {
   AgentRetrieveResponseMessage,
   ListInDirectoryResponseMessage,
   ReadFileResponseMessage,
+  SkillDisableResponseMessage,
+  SkillEnableResponseMessage,
   WriteFileResponseMessage,
   WsProtocolMessage,
 } from "@letta-ai/letta-code/app-server-protocol";
@@ -38,11 +40,10 @@ import {
   DEFAULT_HTTP_REFILL_PER_SECOND,
   HttpRateLimiter,
 } from "./http-rate-limit.ts";
+import { ensureMcpServers, loadMcpServers, type McpIo, saveMcpServers } from "./mcp/service.ts";
 import {
   InvalidMcpServersError,
   type McpServer,
-  mergeMcpServers,
-  readMcpServers,
   SettingsUnreadableError,
   validateMcpServers,
 } from "./mcp/settings.ts";
@@ -53,7 +54,7 @@ import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
 import { securityHeaders } from "./security-headers.ts";
 import { scopeKeyOf } from "./session/buffer.ts";
-import { SETTINGS_PATH, WORKSPACE_ROOT, workspaceViolation } from "./session/protocol.ts";
+import { WORKSPACE_ROOT, workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { symlinkViolation } from "./session/symlink-guard.ts";
 import { TurnErrorLog } from "./session/turn-errors.ts";
@@ -106,6 +107,9 @@ const upstream = new UpstreamConnection({
     registry.broadcastUpstreamState(state, info);
     if (state === "connected") {
       void installShippedSkills();
+      void ensureMcpServers(mcpIo, config.mcpSeedUrl)
+        .then((servers) => log(`MCP: ${servers.length} shared server(s) configured`))
+        .catch((error) => log(`MCP: could not sync shared servers: ${errorMessage(error)}`));
       void reapplyCodexSettings(codexIo)
         .then((applied) => applied && log("Codex: re-rendered config from saved settings"))
         .catch((error) => log(`Codex: could not re-render config: ${errorMessage(error)}`));
@@ -172,6 +176,32 @@ const codexIo: CodexFileIo = {
     if (response.success) return response.files ?? [];
     if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
     throw new Error(response.error ?? `Could not list ${dir}`);
+  },
+};
+
+// The shared MCP list and its skill (see `mcp/`), through the app-server like
+// the Codex files. Reads reuse `codexIo.read` — same file, same ENOENT → null.
+const mcpIo: McpIo = {
+  read: (path) => codexIo.read(path),
+  write: (path, content) => codexIo.write(path, content),
+  async enableSkill(skillPath) {
+    const response = await upstream.request<SkillEnableResponseMessage>({
+      type: "skill_enable",
+      skill_path: skillPath,
+      request_id: `bff-mcp-skill-enable-${randomUUID()}`,
+    });
+    if (response?.success !== true) throw new Error(response?.error ?? "skill_enable failed");
+  },
+  async disableSkill(name) {
+    const response = await upstream.request<SkillDisableResponseMessage>({
+      type: "skill_disable",
+      name,
+      request_id: `bff-mcp-skill-disable-${randomUUID()}`,
+    });
+    // Nothing linked is the state we want, not a failure.
+    if (response?.success !== true && !/not found/i.test(response?.error ?? "")) {
+      throw new Error(response?.error ?? "skill_disable failed");
+    }
   },
 };
 
@@ -417,37 +447,19 @@ app.post("/push/test", async (c) => {
   }
 });
 
-// ── MCP settings ────────────────────────────────────────────────────────────
-// MCP servers are not in the app-server protocol; they live in
-// /root/.letta/settings.json under the agent's own entry. The browser may READ
-// that file (see READABLE_EXCEPTIONS) but must never WRITE it: an mcpServers
-// entry is an arbitrary command line the app-server execs as root. These routes
-// do the merge server-side against the file as it currently stands, so the
-// browser never holds a write handle on it and two editors cannot clobber each
-// other with stale copies.
-
-async function readSettingsFile(): Promise<string> {
-  const response = await upstream.request<ReadFileResponseMessage>({
-    type: "read_file",
-    path: SETTINGS_PATH,
-    request_id: `bff-mcp-read-${randomUUID()}`,
-    encoding: "utf8",
-  });
-  if (!response.success || typeof response.content !== "string") {
-    throw new SettingsUnreadableError(response.error ?? "Could not read settings.json");
-  }
-  return response.content;
-}
+// ── MCP servers ─────────────────────────────────────────────────────────────
+// One shared list for every agent, in a settings file only the BFF writes and
+// only `letta mcp` (run from agent shells with HOME pointed at it) reads — see
+// `mcp/settings.ts` for why upstream's per-agent settings.json cannot hold it.
+// The browser never gets a write handle on it: an MCP entry is a command line
+// that agent shells will exec.
 
 app.get("/api/mcp", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
-  const agentId = c.req.query("agent_id");
-  if (!agentId) return c.text("Missing agent_id", 400);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
 
   try {
-    const servers = readMcpServers(await readSettingsFile(), agentId);
-    return c.json({ servers });
+    return c.json({ servers: await loadMcpServers(mcpIo) });
   } catch (error) {
     if (error instanceof SettingsUnreadableError) return c.text(error.message, 502);
     return c.text(errorMessage(error), 502);
@@ -459,53 +471,21 @@ app.put("/api/mcp", async (c) => {
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
 
   const body = await c.req.json().catch(() => null);
-  const agentId = (body as { agent_id?: unknown } | null)?.agent_id;
-  if (typeof agentId !== "string" || !agentId) return c.text("Missing agent_id", 400);
-
   let servers: McpServer[];
   try {
-    servers = validateMcpServers((body as { servers?: unknown }).servers);
+    servers = validateMcpServers((body as { servers?: unknown } | null)?.servers);
   } catch (error) {
     if (error instanceof InvalidMcpServersError) return c.text(error.message, 400);
     return c.text(errorMessage(error), 400);
   }
 
-  let merged: string;
+  // No reload: nothing in the app-server process reads this file. The next
+  // `letta mcp` call and the next turn's skill listing both see it from disk.
   try {
-    merged = mergeMcpServers(await readSettingsFile(), agentId, servers);
-  } catch (error) {
-    if (error instanceof SettingsUnreadableError) return c.text(error.message, 502);
-    return c.text(errorMessage(error), 502);
-  }
-
-  try {
-    const written = await upstream.request<WriteFileResponseMessage>({
-      type: "write_file",
-      path: SETTINGS_PATH,
-      content: merged,
-      request_id: `bff-mcp-write-${randomUUID()}`,
-    });
-    if (written?.success !== true) {
-      return c.text(written?.error ?? "Failed to write settings.json", 502);
-    }
+    await saveMcpServers(mcpIo, servers);
   } catch (error) {
     return c.text(errorMessage(error), 502);
   }
-
-  // Settings are read at load time, so the runtime must re-read them. Fire and
-  // forget: `reload` has no meaningful response for us beyond the write having
-  // landed, and blocking the request on a runtime restart would be worse.
-  try {
-    upstream.sendInternal({
-      type: "execute_command",
-      command_id: "reload",
-      request_id: `bff-mcp-reload-${randomUUID()}`,
-      runtime: { agent_id: agentId, conversation_id: "default" },
-    });
-  } catch (error) {
-    log(`MCP save: reload failed after a successful write: ${errorMessage(error)}`);
-  }
-
   return c.json({ ok: true, servers });
 });
 
