@@ -555,18 +555,53 @@ Passing typecheck is not done. Passing tests is not done. **Running in the conta
    paths. Not part of `verify`: it needs a live stack, it needs at least one agent to
    exist, and it mutates real state (writes `smoke-probe.md` into the agent cwd, edits
    and restores `/root/.letta/settings.json`, creates and deletes a cron task).
-7. **Pushed to `origin` — but stop and ask first.**
+7. **Released to prod — pushed to `origin`, then redeployed with Dockhand — but stop and ask
+   first.**
 
-### Stop before pushing
+### Stop before releasing to prod
 
-**Never `git push` without asking, every time.** After merging to `main`, halt and ask for
-explicit confirmation. Standing approval does not carry over: a yes on one change is not a
-yes on the next one.
+**Never `git push` and never redeploy prod without asking, every time.** After merging to
+`main` and passing steps 1–6, halt and ask for explicit confirmation of the full release. Standing
+approval does not carry over: a yes on one change is not a yes on the next one, and "go ahead"
+given before the preflight was shown is not a yes either.
 
 Pushing is the one step that leaves this machine, and `origin` is the only copy of this
 project that is not on one laptop — so it matters, and so it is worth a human deciding.
 It comes last, after `deploy-check`, so nothing reaches `origin` that has not been proven
 to run in the container first.
+
+**Prod is deployed from `origin`, not from this machine.** Dockhand (http://192.168.1.24:3000)
+builds the stack from `dmarchevsky/letta-code-ui` `main` at the moment of the deploy, so the push
+must land first and an unpushed commit never reaches prod. Use the `dockhand-deploy` skill
+(`~/.claude/skills/dockhand-deploy/`) for every step — `plan`, `deploy --confirm`, `verify` — never
+ad-hoc API calls and never the Dockhand stop/down/delete/exec endpoints.
+
+The confirmation question must **name the target exactly** and show the preflight, so the user is
+approving a specific thing:
+
+| | Prod value |
+|---|---|
+| Dockhand environment | `letta` (id 7, host `172.31.0.102`) |
+| Stack | `letta-code-ui-prod` (git stack id 8, compose `docker/compose.yml`) |
+| Containers | `letta-code-ui-prod-app-server-1`, `-bff-1`, `-channel-gateway-1`, `-cloudflared-1` |
+
+Re-read environment and stack from `dockhand.sh stacks letta` before asking — never from memory,
+never inferred from a similar name (`duckduckgo` alone exists in three environments). If they do
+not match the table, stop and ask rather than deploying.
+
+The question also states: the commit range (`plan` output: deployed commit → `origin/main`),
+whether `docker/compose.yml` changed, **which containers will be recreated**, and the previous
+deploy's duration. Call out an `app-server` recreate explicitly — Dockhand runs an unscoped
+`compose up`, so any image or compose change to it recreates it, and that kills every in-flight
+turn with no drain (the BFF's shutdown drain covers only `bff`; see "A `bff` redeploy is the one
+time the connection does close"). A cron or Telegram turn does not show in the BFF log, so the
+log alone cannot prove nothing is running.
+
+Order, once confirmed: `git push origin main` → `dockhand.sh deploy letta letta-code-ui-prod
+--confirm` → `dockhand.sh verify letta letta-code-ui-prod --since <printed time>` → the BFF log
+must show `Upstream connected: letta-code <pinned version>`. A version other than the pin means
+Dockhand's stored stack variables override it. On any failure, stop and report — no retry, no
+rollback, no restart without the user choosing it.
 
 `origin` is `dmarchevsky/letta-code-ui`, private, and was empty until the first push. There
 is no `main` upstream to track on a fresh clone — the first push of a branch needs
@@ -608,4 +643,6 @@ app-server request loop that `use-session.ts` documents).
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
 | `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway |
-| `git push origin main` | Last step — **ask for confirmation first, every time** |
+| `git push origin main` | Release, part 1 — **ask for confirmation first, every time** |
+| `~/.claude/skills/dockhand-deploy/dockhand.sh plan letta letta-code-ui-prod` | Prod preflight: commits, compose diff, what gets recreated (read-only) |
+| `… deploy letta letta-code-ui-prod --confirm` | Release, part 2 — prod redeploy via Dockhand, same confirmation as the push |
