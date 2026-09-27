@@ -1571,6 +1571,13 @@ p.warning code {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* A pane is a scrolling flex column, and a block with overflow other than
+   visible has a min-height of 0 there — so the example commands in Settings
+   (Skills, MCP) were squeezed to half a line instead of making the pane scroll. */
+.pane > .tool-args {
+  flex-shrink: 0;
+}
+
 .pane-bar {
   display: flex;
   align-items: center;

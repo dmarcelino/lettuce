@@ -710,6 +710,12 @@ try {
     check("enable is disabled until a path is typed", await enableButton.isDisabled());
     await page.locator('.pane input[placeholder^="/work/"]').fill("/work/agent-x/.agents/skills/s");
     check("enable becomes available with a path", await enableButton.isEnabled());
+    const squeezed = await page
+      .locator(".pane > pre.tool-args")
+      .evaluateAll((els) =>
+        els.filter((el) => el.scrollHeight > el.clientHeight + 1).map((el) => el.textContent),
+      );
+    check("skills example commands are shown in full", squeezed.length === 0, squeezed);
     const skillsBox = await overflow(page);
     check("skills section has nothing clipped", skillsBox.clipped.length === 0, skillsBox);
     await shot(page, "desktop-skills");
