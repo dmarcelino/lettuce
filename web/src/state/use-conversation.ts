@@ -51,14 +51,6 @@ export interface PendingApproval {
   diffs: unknown[];
 }
 
-export interface SkillSummary {
-  id: string;
-  name: string;
-  description: string;
-  path: string;
-  source: string;
-}
-
 export interface ToolsetSummary {
   id: string;
   label: string;
@@ -95,8 +87,6 @@ export interface ConversationApi {
   stopping: boolean;
   /** Working directory of this runtime, from device status. */
   cwd: string | null;
-  /** Skills the runtime currently has loaded, from device status. */
-  skills: SkillSummary[];
   queue: QueuedItem[];
   approvals: PendingApproval[];
   error: string | null;
@@ -127,8 +117,11 @@ export interface ConversationApi {
   /** Releases items parked by an interrupt so they start the next turn. */
   resumeQueue: () => void;
   runCommand: (commandId: string, args?: string) => void;
-  /** True once a skill was enabled or disabled but no turn has rebuilt the list yet. */
-  skillsStale: boolean;
+  /**
+   * Bumped on every `skills_updated` frame, so Settings → Skills re-reads its
+   * list — including after an agent's own shell enabled or disabled one.
+   */
+  skillsVersion: number;
   /** Live permission mode, from device status. Null until the first status frame. */
   permissionMode: PermissionMode | null;
   setPermissionMode: (mode: PermissionMode) => void;
@@ -322,10 +315,7 @@ export function useConversation(
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
-  const [skills, setSkills] = useState<SkillSummary[]>([]);
-  const [skillsStale, setSkillsStale] = useState(false);
-  /** Ids behind the last `skills` we accepted, to notice when a turn refreshed them. */
-  const skillIdsRef = useRef("");
+  const [skillsVersion, setSkillsVersion] = useState(0);
   const [permissionMode, setPermissionModeFromStatus] = useState<PermissionMode | null>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [toolsetPreference, setToolsetPreferenceFromStatus] = useState<string | null>(null);
@@ -537,7 +527,6 @@ export function useConversation(
               device_status?: {
                 is_processing?: unknown;
                 current_working_directory?: unknown;
-                current_available_skills?: unknown;
                 current_permission_mode?: unknown;
                 supported_commands?: unknown;
                 mod_commands?: unknown;
@@ -550,21 +539,6 @@ export function useConversation(
           setProcessing(status?.is_processing === true);
           if (typeof status?.current_working_directory === "string") {
             setCwd(status.current_working_directory);
-          }
-          if (Array.isArray(status?.current_available_skills)) {
-            const next = status.current_available_skills as SkillSummary[];
-            // A turn recomputes the list (turn-setup.ts); nothing else does. So
-            // a list that actually changed is the only evidence that whatever
-            // was enabled or disabled has landed.
-            const ids = next
-              .map((skill) => skill.id)
-              .sort()
-              .join(",");
-            if (ids !== skillIdsRef.current) {
-              skillIdsRef.current = ids;
-              setSkillsStale(false);
-            }
-            setSkills(next);
           }
           // `change_device_state` has no response frame; this is the only
           // acknowledgement a mode change ever gets, so the status frame is the
@@ -588,12 +562,10 @@ export function useConversation(
           break;
         }
         case "skills_updated": {
-          // Enable/disable only moves a symlink in /root/.letta/skills; the
-          // advertised list is rebuilt in turn-setup.ts and NOWHERE else, and
-          // no protocol command asks for a fresh one. So there is nothing to
-          // reload here — all the client can honestly do is say the list it is
-          // showing is behind, until the next turn rebuilds it.
-          setSkillsStale(true);
+          // Enable/disable moved a symlink in /root/.letta/skills. The list in
+          // Settings comes from the BFF's own discovery (`/api/skills`), not
+          // from device status, so a re-read picks the change up at once.
+          setSkillsVersion((version) => version + 1);
           break;
         }
         case "update_loop_status": {
@@ -849,7 +821,6 @@ export function useConversation(
     processing,
     stopping,
     cwd,
-    skills,
     queue,
     approvals,
     error,
@@ -860,7 +831,7 @@ export function useConversation(
     removeQueued,
     resumeQueue,
     runCommand,
-    skillsStale,
+    skillsVersion,
     permissionMode,
     setPermissionMode,
     commands,

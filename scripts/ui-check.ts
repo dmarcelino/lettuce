@@ -544,6 +544,23 @@ try {
       lastBox,
     );
 
+    // Skills on a phone: long names, badges and paths must wrap, not push the
+    // pane sideways — measured on the pane for the same reason as above.
+    await page.locator('.pane-bar button:text-is("Skills")').click();
+    await page.locator(".skill-group-head").first().waitFor({ timeout: 10_000 });
+    await page.locator('.skill-group-head:has-text("Bundled")').click();
+    await page.locator('.skill-main[aria-expanded="false"]').first().click();
+    const skillsWidth = await page.evaluate(() => {
+      const pane = document.querySelector(".skill-list")?.closest(".pane") as HTMLElement;
+      return { scroll: pane.scrollWidth, client: pane.clientWidth };
+    });
+    check(
+      "skills list fits the phone width (no sideways scroll)",
+      skillsWidth.scroll <= skillsWidth.client,
+      skillsWidth,
+    );
+    await shot(page, "phone-skills");
+
     await page.close();
   }
 
@@ -654,10 +671,35 @@ try {
       (await page.locator(warningSelector).count()) === 0,
     );
 
-    // Skills: the enable field is the only route to a global skill now that the
-    // sandbox stops the agent writing /root/.letta/skills itself.
+    // Skills: the list comes from the BFF's own discovery, so it is populated
+    // with no turn running (bundled skills alone are ~20). Bundled starts
+    // collapsed; descriptions are one line until a row is tapped.
     await page.locator('.pane-bar button:text-is("Skills")').click();
-    await page.waitForTimeout(300);
+    await page.locator(".skill-group-head").first().waitFor({ timeout: 10_000 });
+    const bundledHead = page.locator('.skill-group-head:has-text("Bundled")');
+    check("skills list is populated without a turn", (await bundledHead.count()) === 1);
+    check(
+      "bundled group starts collapsed",
+      (await bundledHead.getAttribute("aria-expanded")) === "false",
+    );
+    await bundledHead.click();
+    const rows = page.locator(".skill-item");
+    check("expanding bundled lists its skills", (await rows.count()) > 5, await rows.count());
+    const expandable = page.locator('.skill-main[aria-expanded="false"]').first();
+    if ((await expandable.count()) === 1) {
+      const desc = expandable.locator(".skill-desc");
+      const before = (await desc.boundingBox())?.height ?? 0;
+      await expandable.click();
+      const after = (await desc.boundingBox())?.height ?? 0;
+      check("tapping a clamped description expands it", after > before, { before, after });
+      check(
+        "an expanded row shows its path",
+        (await expandable.locator(".skill-path").count()) === 1,
+      );
+      await expandable.click();
+    } else {
+      check("some description is long enough to clamp", false);
+    }
     const enableButton = page.locator('button:text-is("Enable globally")');
     check("skills section offers an enable field", (await enableButton.count()) === 1);
     check("enable is disabled until a path is typed", await enableButton.isDisabled());

@@ -47,6 +47,7 @@ import {
   SettingsUnreadableError,
   validateMcpServers,
 } from "./mcp/settings.ts";
+import { MCP_SKILL_NAME } from "./mcp/skill.ts";
 import { AgentNames } from "./push/agent-names.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { configureWebPush, sendPush } from "./push/send.ts";
@@ -59,6 +60,8 @@ import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { symlinkViolation } from "./session/symlink-guard.ts";
 import { TurnErrorLog } from "./session/turn-errors.ts";
 import { drainActiveTurns } from "./shutdown.ts";
+import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
+import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 
 const config: BffConfig = loadConfig();
@@ -106,6 +109,7 @@ const upstream = new UpstreamConnection({
     log(`Upstream state: ${state}`);
     registry.broadcastUpstreamState(state, info);
     if (state === "connected") {
+      skillCatalog.reset();
       void installShippedSkills();
       void ensureMcpServers(mcpIo, config.mcpSeedUrl)
         .then((servers) => log(`MCP: ${servers.length} shared server(s) configured`))
@@ -178,6 +182,38 @@ const codexIo: CodexFileIo = {
     throw new Error(response.error ?? `Could not list ${dir}`);
   },
 };
+
+// Settings → Skills (see `skills/`). Bundled skills are in the app-server image,
+// so they come over the connection; every other root is read from the BFF's
+// read-only mounts, because the protocol's listings skip symlinks.
+const skillCatalog = new SkillCatalog(
+  hostSkillFs,
+  upstreamSkillFs({
+    async list(dir) {
+      const response = await upstream.request<ListInDirectoryResponseMessage>({
+        type: "list_in_directory",
+        path: dir,
+        include_files: true,
+        request_id: `bff-skills-list-${randomUUID()}`,
+      });
+      if (response.success) return { folders: response.folders, files: response.files ?? [] };
+      if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
+      throw new Error(response.error ?? `Could not list ${dir}`);
+    },
+    async read(path) {
+      const content = await codexIo.read(path);
+      if (content === null) throw new Error(`ENOENT: ${path}`);
+      return content;
+    },
+  }),
+  () =>
+    new Map([
+      ...readSkillTree(agentSkillsDir).map(
+        (file) => [file.path.split("/")[0] ?? "", "this app"] as const,
+      ),
+      [MCP_SKILL_NAME, "Settings → MCP"],
+    ]),
+);
 
 // The shared MCP list and its skill (see `mcp/`), through the app-server like
 // the Codex files. Reads reuse `codexIo.read` — same file, same ENOENT → null.
@@ -487,6 +523,24 @@ app.put("/api/mcp", async (c) => {
     return c.text(errorMessage(error), 502);
   }
   return c.json({ ok: true, servers });
+});
+
+// ── Skills ──────────────────────────────────────────────────────────────────
+// Upstream publishes the skill list only on a live conversation runtime, which
+// is evicted between turns — so the BFF discovers it itself. See
+// `skills/discovery.ts`.
+
+app.get("/api/skills", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const agentId = c.req.query("agent_id");
+  if (!agentId) return c.text("agent_id is required", 400);
+  try {
+    return c.json(await skillCatalog.list(agentId, c.req.query("cwd")));
+  } catch (error) {
+    if (error instanceof InvalidSkillScopeError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 502);
+  }
 });
 
 // ── Codex workers ───────────────────────────────────────────────────────────

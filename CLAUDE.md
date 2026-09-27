@@ -278,15 +278,26 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   - **`skill_enable` always means global.** It validates `<skill_path>/SKILL.md` and then does
     exactly one thing: symlink the directory into `/root/.letta/skills`
     (`listener/commands/skills-agents.ts`). `skill_disable` only unlinks from there, so on a
-    project- or agent-scoped skill it answers "Skill not found" — which is why the Skills tab
-    offers Disable only for `source === "global"`.
+    project- or agent-scoped skill it answers "Skill not found", and it **refuses a real
+    directory** ("not a symlink") — so the Skills tab offers Disable only on a global skill whose
+    root entry is a link (`link` in `/api/skills`), and not on the ones the BFF reinstalls
+    itself (`managedBy`: the shipped skills and `mcp-servers`).
   - **An agent can install into any scope.** Shells are unconfined within the container (the
     sandbox is off), so an agent's shell can write `/root/.letta/skills` (global) and its own
     agent memory dir, and `skill_enable` from a shell works.
-  - **The advertised list is rebuilt in `turn-setup.ts` and nowhere else.** It starts empty and
-    is recomputed at the start of each turn, and no protocol command asks for a fresh one — so
-    Settings→Skills is blank until the agent has taken a turn, and after an enable/disable the
-    `skills_updated` frame can only mark the list stale, never reload it.
+  - **Upstream publishes the list only during a turn, so the BFF discovers it itself.**
+    `device_status.current_available_skills` is set in `turn-setup.ts` on the *conversation
+    runtime*, and that runtime is evicted between turns (`evictConversationRuntimeIfIdle`), after
+    which `buildDeviceStatus` sends `[]` — the Skills tab used to show skills only while the
+    agent was working. No protocol command lists skills. `bff/src/skills/` re-implements
+    discovery (roots, override order, the frontmatter parser, `disable-model-invocation`, the
+    bundled skills hidden from local agents; memfs `skills/` counts as `agent`) and serves
+    `GET /api/skills?agent_id=&cwd=`. Bundled skills live only in the app-server image and are
+    read over the upstream connection (cached per connect); every other root comes from the
+    BFF's **read-only mounts** of `letta-home` and `letta-data/local-backend/memfs` at the
+    app-server's own paths — not the protocol, because `list_in_directory`/`get_tree` skip
+    symlinks and every `skill_enable`d skill is one. `sync-upstream.sh` flags the upstream files
+    this mirrors. The tab re-reads on every `skills_updated` frame.
   - **`skillsDirectory` is not reachable.** It exists on `runtime-context.ts` but has no
     `runtime_start` field and no settings key, so a repo shipping its skills under its own
     convention (`.letta/skills`, `.claude/skills`) has to be symlinked into a scanned path.
@@ -643,9 +654,9 @@ so `docker compose -f docker/compose.yml up -d --build ddg-mcp` is safe on its o
 
 **`web/dist` is baked into the bff image, never mounted.** `bff.Dockerfile` builds the SPA
 in its `web-build` stage and copies the result into the runtime image; the BFF's only mounts
-are the `bff-data` volume and `/work` (read-only) — it takes no configuration from disk at
-all. So `docker compose up -d` on its own will happily serve a months-old
-UI, and a local `bun run build` changes nothing the container sees. That is the trap step 5
+are the `bff-data` volume and read-only views of the state (`/work`, `/root/.letta`, the memfs
+root — for file mtimes and skill discovery) — it takes no configuration from disk at all.
+So `docker compose up -d` on its own will happily serve a months-old UI, and a local `bun run build` changes nothing the container sees. That is the trap step 5
 catches: it compares the served `assets/index-*.js` name against the local one.
 
 Lint policy: `bun run lint` fails on Biome **errors** only. Warnings are visible but do not

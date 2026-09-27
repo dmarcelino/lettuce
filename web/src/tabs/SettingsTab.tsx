@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CodexSection } from "../components/CodexSection.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { McpEditor } from "../components/McpEditor.tsx";
@@ -19,7 +19,15 @@ import {
   unsubscribeFromPush,
   updatePushPreferences,
 } from "../lib/push.ts";
-import type { SkillSummary } from "../state/use-conversation.ts";
+import {
+  fetchSkills,
+  groupSkills,
+  type SkillList,
+  type SkillSource,
+  type SkillSummary,
+  skillDir,
+  summarizeSkills,
+} from "../lib/skills.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -51,10 +59,10 @@ interface Props {
   agentId: string | null;
   /** Reflection settings resolve against the conversation's working directory. */
   conversationId: string | null;
-  /** Skills advertised on the latest device status snapshot. */
-  skills: SkillSummary[];
-  /** True once a skill was enabled or disabled but no turn has rebuilt the list. */
-  skillsStale: boolean;
+  /** The conversation's working directory — where project-scope skills live. */
+  cwd: string | null;
+  /** Changes whenever the app-server reports a skill enabled or disabled. */
+  skillsVersion: number;
 }
 
 type Section =
@@ -98,7 +106,7 @@ function currentValues(provider: ProviderEntry): Record<string, string> {
   return state?.base_url ? { baseUrl: state.base_url } : {};
 }
 
-export function SettingsTab({ session, agentId, conversationId, skills, skillsStale }: Props) {
+export function SettingsTab({ session, agentId, conversationId, cwd, skillsVersion }: Props) {
   const [section, setSection] = useState<Section>("connection");
 
   // Secrets are agent-scoped, so the chip is pointless with no agent selected.
@@ -125,7 +133,7 @@ export function SettingsTab({ session, agentId, conversationId, skills, skillsSt
       {section === "connection" ? <ConnectionSection session={session} /> : null}
       {section === "mcp" ? <McpEditor session={session} /> : null}
       {section === "skills" ? (
-        <SkillsSection session={session} skills={skills} stale={skillsStale} />
+        <SkillsSection session={session} agentId={agentId} cwd={cwd} version={skillsVersion} />
       ) : null}
       {section === "codex" ? <CodexSection /> : null}
       {section === "secrets" ? <SecretsSection session={session} agentId={agentId} /> : null}
@@ -443,15 +451,43 @@ function ProviderRow({
 
 function SkillsSection({
   session,
-  skills,
-  stale,
+  agentId,
+  cwd,
+  version,
 }: {
   session: SessionApi;
-  skills: SkillSummary[];
-  stale: boolean;
+  agentId: string | null;
+  cwd: string | null;
+  version: number;
 }) {
+  const [list, setList] = useState<SkillList | null>(null);
+  const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [path, setPath] = useState("");
+  /** Bundled is long and rarely what you came for, so it starts closed. */
+  const [collapsed, setCollapsed] = useState<Set<SkillSource>>(() => new Set(["bundled"]));
+
+  // From the BFF, not device status: upstream only reports skills on a live
+  // conversation runtime, which is evicted between turns (see bff/src/skills/).
+  const load = useCallback(async () => {
+    if (!agentId) return;
+    setLoading(true);
+    try {
+      setList(await fetchSkills(agentId, cwd));
+      setStatus("");
+    } catch (cause) {
+      setStatus(errorMessage(cause));
+    } finally {
+      setLoading(false);
+    }
+  }, [agentId, cwd]);
+
+  // `version` moves on every skills_updated frame — an agent's own shell can
+  // enable or disable a skill too.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: version is the refresh trigger
+  useEffect(() => {
+    if (session.ready) void load();
+  }, [session.ready, load, version]);
 
   /**
    * `skill_enable` does exactly one thing: symlink the directory it is given
@@ -466,94 +502,115 @@ function SkillsSection({
     try {
       const response = await session.request<{ success?: boolean; error?: string }>(
         "skill_enable",
-        {
-          skill_path: skillPath,
-        },
+        { skill_path: skillPath },
       );
       if (response?.success === false) {
         setStatus(response.error ?? "Failed");
         return;
       }
-      setStatus("Enabled. It appears in the list after the agent's next turn.");
+      setStatus("Enabled for every agent.");
       setPath("");
+      void load();
     } catch (cause) {
       setStatus(errorMessage(cause));
     }
   };
 
+  // `skill_disable` takes the symlink's name in /root/.letta/skills and refuses
+  // anything that is not a symlink — so only linked global skills offer it.
   const disable = async (skill: SkillSummary) => {
+    if (!skill.link) return;
     setStatus(`Disabling ${skill.name}…`);
     try {
       const response = await session.request<{ success?: boolean; error?: string }>(
         "skill_disable",
-        { name: skill.name },
+        { name: skill.link },
       );
-      setStatus(response?.success === false ? (response.error ?? "Failed") : "");
+      if (response?.success === false) {
+        setStatus(response.error ?? "Failed");
+        return;
+      }
+      setStatus("");
+      void load();
     } catch (cause) {
       setStatus(errorMessage(cause));
     }
   };
+
+  const toggleGroup = (source: SkillSource) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next;
+    });
+
+  const skills = list?.skills ?? [];
 
   return (
     <>
       {status ? <p className="muted small pad">{status}</p> : null}
 
-      <p className="section-note">
-        {skills.length} skill{skills.length === 1 ? "" : "s"} loaded
-      </p>
+      <div className="row-between pad skills-summary">
+        <span className="muted small">
+          {agentId ? (list ? summarizeSkills(skills) : "Loading skills…") : "Pick an agent first"}
+        </span>
+        <button
+          type="button"
+          className="link"
+          disabled={loading || !agentId}
+          onClick={() => void load()}
+        >
+          Refresh
+        </button>
+      </div>
 
-      {/* The app-server rebuilds this list in turn-setup.ts and nowhere else,
-          and no command asks for a fresh one — so after an enable or disable
-          the honest thing is to say the list is behind, not to fake a reload. */}
-      {stale ? (
-        <p className="muted small pad">
-          Skills changed. This list is rebuilt at the start of the agent's next turn — send a
-          message to refresh it.
+      {groupSkills(skills).map((group) => {
+        const open = !collapsed.has(group.source);
+        return (
+          <section key={group.source} className="skill-group">
+            <button
+              type="button"
+              className="tool-head skill-group-head"
+              aria-expanded={open}
+              onClick={() => toggleGroup(group.source)}
+            >
+              <span className="tag">
+                {group.label} ({group.skills.length})
+              </span>
+              <span className="muted small skill-group-hint">{group.hint}</span>
+              <Icon name={open ? "chevron-down" : "chevron-right"} />
+            </button>
+            {open ? (
+              <ul className="list compact skill-list">
+                {group.skills.map((skill) => (
+                  <SkillRow key={skill.id} skill={skill} onDisable={() => void disable(skill)} />
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        );
+      })}
+
+      {list && list.errors.length > 0 ? (
+        <p className="warning small">
+          {list.errors.length} skill file{list.errors.length === 1 ? "" : "s"} could not be read:{" "}
+          {list.errors.map((error) => `${error.path} (${error.message})`).join("; ")}
         </p>
       ) : null}
 
-      <ul className="list">
-        {skills.map((skill) => (
-          <li key={skill.id}>
-            <div className="row static">
-              <span className="grow-text">
-                <strong>{skill.name}</strong>
-                <div className="muted small">{skill.description}</div>
-                <div className="muted small">
-                  <code>{skill.source}</code> {skill.path}
-                </div>
-              </span>
-              {/* Only a global skill can be disabled: skill_disable unlinks from
-                  /root/.letta/skills and nothing else, so on a project- or
-                  agent-scoped skill it answers "Skill not found". */}
-              {skill.source === "global" ? (
-                <button type="button" className="link danger" onClick={() => void disable(skill)}>
-                  Disable
-                </button>
-              ) : null}
-            </div>
-          </li>
-        ))}
-        {skills.length === 0 ? (
-          <li className="muted pad">
-            No skills loaded. The list is empty until the agent has taken a turn in this
-            conversation.
-          </li>
-        ) : null}
-      </ul>
-
-      <p className="section-note">Enable a skill globally</p>
+      <p className="section-note">Enable a skill for every agent</p>
       <p className="muted small pad">
-        Symlinks a directory containing a <code>SKILL.md</code> into{" "}
-        <code>/root/.letta/skills</code>, where every agent loads it. The path must be inside{" "}
-        <code>/work</code>.
+        Links a directory under <code>/work</code> that contains a <code>SKILL.md</code> into{" "}
+        <code>/root/.letta/skills</code>. The files stay where they are, so edits to them take
+        effect on the agent's next turn. Disable removes only the link.
       </p>
       <div className="pad-x">
         <label className="field">
           Skill directory
           <input
             value={path}
-            placeholder="/work/<agent-id>/.agents/skills/my-skill"
+            placeholder="/work/shared-skills/my-skill"
             onChange={(event) => setPath(event.target.value)}
           />
         </label>
@@ -569,18 +626,76 @@ function SkillsSection({
 
       <p className="section-note">Installing from git</p>
       <p className="muted small pad">
-        The browser has no shell on the app-server host, so ask the agent in Chat. Its shell is
-        confined to its own workspace, which means it can install for itself but not globally — have
-        it clone into <code>.agents/skills/</code> under its working directory:
+        The browser has no shell, so ask the agent in Chat to clone it. Where it clones decides who
+        gets the skill. For this agent only:
       </p>
       <pre className="tool-args pad-x">
         Clone https://github.com/me/my-skill into .agents/skills/my-skill in your working directory.
       </pre>
       <p className="muted small pad">
-        That is per-agent: every conversation with this agent sees it, other agents do not. For a
-        skill every agent should have, use the field above.
+        For every agent, clone it outside any one agent's directory, then enable that path above:
       </p>
+      <pre className="tool-args pad-x">
+        Clone https://github.com/me/my-skill into /work/shared-skills/my-skill.
+      </pre>
     </>
+  );
+}
+
+/**
+ * One skill: name and a one-line description, tap for the rest. Only rows whose
+ * description is actually cut off get the chevron — a short one has nothing
+ * more to show.
+ */
+function SkillRow({ skill, onDisable }: { skill: SkillSummary; onDisable: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+  const descRef = useRef<HTMLSpanElement>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the text changes
+  useLayoutEffect(() => {
+    const el = descRef.current;
+    if (el && !expanded) setClamped(el.scrollHeight > el.clientHeight + 1);
+  }, [skill.description, expanded]);
+
+  const expandable = clamped || expanded;
+  const badges = [
+    ...(skill.overrides?.length ? [`overrides ${skill.overrides.join(", ")}`] : []),
+    ...(skill.managedBy ? [`managed by ${skill.managedBy}`] : []),
+  ];
+
+  return (
+    <li className="skill-item">
+      <div className="skill-row">
+        <button
+          type="button"
+          className="skill-main"
+          aria-expanded={expandable ? expanded : undefined}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <span className="skill-title">
+            <strong>{skill.name}</strong>
+            {badges.map((badge) => (
+              <span key={badge} className="tag muted">
+                {badge}
+              </span>
+            ))}
+            {expandable ? (
+              <Icon name={expanded ? "chevron-down" : "chevron-right"} className="chevron" />
+            ) : null}
+          </span>
+          <span ref={descRef} className={`skill-desc muted${expanded ? " expanded" : ""}`}>
+            {skill.description}
+          </span>
+          {expanded ? <code className="skill-path muted">{skillDir(skill.path)}</code> : null}
+        </button>
+        {skill.link && !skill.managedBy ? (
+          <button type="button" className="link danger" onClick={onDisable}>
+            Disable
+          </button>
+        ) : null}
+      </div>
+    </li>
   );
 }
 

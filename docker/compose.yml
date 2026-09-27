@@ -250,9 +250,19 @@ services:
       # Read-only here: the BFF only needs `stat()` to report real modified
       # times for the Files tab (get_tree carries no mtime field, and the
       # fork cannot be patched to add one — see CLAUDE.md). It never lists
-      # directories from this mount itself, only stats paths get_tree already
-      # returned, so it can't show anything get_tree wouldn't have.
+      # directories from this mount for the Files tab, only stats paths get_tree
+      # already returned, so it can't show anything get_tree wouldn't have.
+      # Settings → Skills does list `<cwd>/.agents/skills` here (see below).
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work:ro
+      # Settings → Skills (bff/src/skills/): the global, agent and memfs skill
+      # roots, read-only and at the app-server's own absolute paths so the
+      # symlinks in them resolve. Not over the protocol: upstream publishes no
+      # skill list outside a live turn, and its directory listings skip
+      # symlinks — which is what every `skill_enable`d skill is. The BFF could
+      # already read these files through the upstream connection; the mounts
+      # add no reach, only the ability to follow a link.
+      - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta:ro
+      - ${LETTA_STATE_DIR:-../..}/letta-data/local-backend/memfs:/data/local-backend/memfs:ro
     restart: unless-stopped
 
   # Telegram and the other messaging channels. A separate process by design:

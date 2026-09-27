@@ -435,8 +435,8 @@ function Workspace({ status }: { status: Status }) {
             session={session}
             agentId={agents.agentId}
             conversationId={agents.conversationId}
-            skills={conversation.skills}
-            skillsStale={conversation.skillsStale}
+            cwd={conversation.cwd}
+            skillsVersion={conversation.skillsVersion}
           />
         )}
       </div>

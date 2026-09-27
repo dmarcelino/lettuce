@@ -37,6 +37,12 @@ BEHAVIOR_FILES=(
   # Which tools agents get. 0.33 dropped `memory` and `MultiEdit` from every
   # toolset; CLAUDE.md and web/src/lib/tool-summary.ts describe the tool set.
   "src/tools/toolset-catalog.ts"
+  # Settings → Skills: bff/src/skills/ re-implements skill discovery (roots,
+  # override order, frontmatter, the local-agent bundled exclusions), because
+  # upstream publishes the list only on a live conversation runtime.
+  "src/agent/skills.ts"
+  "src/agent/client-skills.ts"
+  "src/utils/frontmatter.ts"
   # The Codex worker path our shim sits in (docker/codex): the turn/start
   # sandbox policy it rewrites and the `codex login status` preflight it must pass.
   "src/tools/impl/codex-app-server.ts"
@@ -133,6 +139,9 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "     when nothing is active, and still emit Interrupted before the turn unwinds?"
   warn "   * background-process-protocol.ts — a new kind? readBackgroundProcesses drops it."
   warn "   * toolset-catalog.ts — tools added/removed? Update tool-summary.ts and CLAUDE.md."
+  warn "   * skills.ts / client-skills.ts / frontmatter.ts — new skill root, changed override"
+  warn "     order or parsing? Mirror it in bff/src/skills/ and compare /api/skills with a"
+  warn "     live turn's current_available_skills."
   warn "   * settings-manager.ts / subcommands/mcp*.ts — does \`letta mcp --agent <id>\` with"
   warn "     HOME=/root/.letta/mcp-home still read the shared list without rewriting it?"
   warn "     Run the mcp-servers wrapper's \`list\` and \`call\` in the container."
