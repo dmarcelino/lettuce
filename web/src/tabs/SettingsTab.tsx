@@ -109,12 +109,12 @@ export function SettingsTab({ session, agentId, conversationId, skills, skillsSt
 
   return (
     <div className="pane">
-      <div className="pane-bar">
+      <div className="pane-bar section-tabs">
         {visibleSections.map((name) => (
           <button
             key={name}
             type="button"
-            className={`chip${section === name ? " on" : ""}`}
+            className={section === name ? "active" : undefined}
             onClick={() => setSection(name)}
           >
             {SECTION_LABELS[name]}

@@ -128,28 +128,6 @@ pre {
   flex: 1;
 }
 
-.chip {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--muted);
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 13px;
-  white-space: nowrap;
-}
-.chip.on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #0b1020;
-  font-weight: 600;
-}
-.chip.clear {
-  color: var(--bad);
-}
-.chip:disabled {
-  opacity: 0.4;
-}
-
 .placeholder {
   flex: 1;
   display: grid;
@@ -1600,6 +1578,28 @@ p.warning code {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+/* A pane's own section switcher (Settings). Same look as the main `.tabs`, but
+   wrapping onto a second row instead of scrolling: seven sections are wider
+   than a phone, and a sideways-scrolling pane hid the ones past the edge. */
+.section-tabs {
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 8px;
+}
+.section-tabs button {
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--muted);
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.section-tabs button.active {
+  background: var(--surface-2);
+  color: var(--text);
 }
 .pane-bar input {
   flex: 1;

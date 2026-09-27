@@ -519,6 +519,31 @@ try {
     );
     await restored.fill("");
 
+    // Settings' section switcher wraps rather than widening the pane. The
+    // generic `overflow()` cannot see this: `.pane` scrolls vertically, which
+    // makes its computed overflow-x `auto` too, so an over-wide bar counted as
+    // "inside a scroller" and passed while the whole pane scrolled sideways.
+    await page.locator('nav.tabs button:text-is("Settings")').click();
+    await page.locator(".section-tabs").waitFor();
+    await shot(page, "phone-settings");
+    const settingsWidth = await page.evaluate(() => {
+      const bar = document.querySelector(".section-tabs") as HTMLElement;
+      const pane = bar.parentElement as HTMLElement;
+      return { bar: bar.scrollWidth, pane: pane.scrollWidth, client: pane.clientWidth };
+    });
+    check(
+      "settings sections fit the phone width (no sideways scroll)",
+      settingsWidth.bar <= settingsWidth.client && settingsWidth.pane <= settingsWidth.client,
+      settingsWidth,
+    );
+    const sectionButtons = page.locator(".section-tabs button");
+    const lastBox = await sectionButtons.last().boundingBox();
+    check(
+      "every settings section is on screen",
+      lastBox !== null && lastBox.x + lastBox.width <= PHONE.width,
+      lastBox,
+    );
+
     await page.close();
   }
 
