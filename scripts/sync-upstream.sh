@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Sync the letta-code fork from upstream and report protocol / behavioral drift.
+# Move the letta-code reference checkout to a release tag and report protocol /
+# behavioral drift. The checkout is a plain clone of upstream, pinned to a tag.
 #
-# Usage: scripts/sync-upstream.sh [<upstream-ref>]     (default: upstream/main)
+# Usage: scripts/sync-upstream.sh v<version>
 set -euo pipefail
 
 UI_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FORK="${LETTA_CODE_DIR:-$(cd "$UI_ROOT/.." && pwd)/letta-code}"
-REF="${1:-upstream/main}"
+CHECKOUT="${LETTA_CODE_DIR:-$(cd "$UI_ROOT/.." && pwd)/letta-code}"
+UPSTREAM_URL="https://github.com/letta-ai/letta-code.git"
+REF="${1:-}"
 
 # Files whose *types* we consume — drift here is also caught by `bun run typecheck`.
 PROTOCOL_FILES=(
@@ -45,19 +47,25 @@ say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\033[33m%s\033[0m\n' "$*"; }
 fail() { printf '\033[31m%s\033[0m\n' "$*" >&2; exit 1; }
 
-cd "$FORK"
+# Only published releases have an image and an npm package to pin to.
+[[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || fail "Usage: sync-upstream.sh v<version>  (a published release tag, not a branch)"
 
-say "Fork: $FORK"
+[[ -d "$CHECKOUT/.git" ]] || git clone "$UPSTREAM_URL" "$CHECKOUT"
+cd "$CHECKOUT"
 
-# ── 1. The zero-delta rule ────────────────────────────────────────────────────
+say "Upstream checkout: $CHECKOUT"
+
+# ── 1. The checkout carries no local changes ──────────────────────────────────
 if [[ -n "$(git status --porcelain)" ]]; then
   git status --short
-  fail "Fork has local changes. The zero-delta rule is broken — see CLAUDE.md."
+  fail "Upstream checkout has local changes. It is read-only — see CLAUDE.md."
 fi
 
 CURRENT="$(git rev-parse HEAD)"
-git fetch upstream --tags
-TARGET="$(git rev-parse "$REF")"
+# Fetch by URL, so any clone works whatever its remotes are called.
+git fetch --tags "$UPSTREAM_URL"
+TARGET="$(git rev-parse "$REF^{commit}")"
 
 if [[ "$CURRENT" == "$TARGET" ]]; then
   say "Already at $REF ($(git rev-parse --short HEAD)). Nothing to sync."
@@ -124,18 +132,18 @@ fi
 
 # ── 4. Apply ──────────────────────────────────────────────────────────────────
 say "Applying"
-git merge --ff-only "$TARGET" || fail "Fast-forward failed — the fork has diverged from upstream."
+git -c advice.detachedHead=false checkout --detach "$TARGET"
 
 if [[ -n "$(git status --porcelain)" ]]; then
-  fail "Fork is dirty after merge. The zero-delta rule is broken."
+  fail "Upstream checkout is dirty after checkout."
 fi
-echo "  now at $(git rev-parse --short HEAD), delta still zero"
+echo "  now at $REF ($(git rev-parse --short HEAD))"
 
 # ── 5. Re-pin to the new release ──────────────────────────────────────────────
-# The fork is no longer a build input — the UI consumes @letta-ai/letta-code
+# The checkout is not a build input — the UI consumes @letta-ai/letta-code
 # from npm and the images come from letta/letta on Docker Hub. So there is
 # nothing to rebuild here; what has to move is the version literal.
-VERSION="$(node -p "require('$FORK/package.json').version")"
+VERSION="$(node -p "require('$CHECKOUT/package.json').version")"
 say "Re-pinning to $VERSION"
 
 # Both artifacts must actually exist, or the stack pins a version it cannot run.
@@ -160,5 +168,5 @@ if bun run typecheck; then
   echo "  docker/.env is gitignored — update LETTA_CODE_VERSION there by hand if you set it."
   echo "  A version bump is a full rebuild: docker compose -f docker/compose.yml up -d --build"
 else
-  fail "Typecheck failed — the protocol changed under us. Fix the UI, do NOT patch the fork."
+  fail "Typecheck failed — the protocol changed under us. Fix the UI — upstream is not ours to patch."
 fi

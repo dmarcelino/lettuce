@@ -1,7 +1,7 @@
 # Running the stack
 
-Everything here builds from **this repo alone**. The sibling `letta-code/` fork
-is dev tooling (drift reporting via `bun run sync-upstream`), not a build input:
+Everything here builds from **this repo alone**. The sibling `letta-code/` checkout
+(a plain upstream clone) is dev tooling (drift reporting via `bun run sync-upstream`), not a build input:
 the app-server and channel-gateway images come from upstream's published
 `letta/letta:<version>`, and the UI consumes `@letta-ai/letta-code` from npm. A
 host needs only `git` and `docker`.
@@ -183,7 +183,7 @@ re-authenticated.
 ## Prod deployment (Dockhand or any compose manager)
 
 The host needs `git` + `docker` and a clone of **this repo only** — no `bun`, no
-fork checkout, no pre-built images pushed to a registry. Point the manager at
+letta-code checkout, no pre-built images pushed to a registry. Point the manager at
 `docker/compose.yml` and give it this stack environment:
 
 | Variable | Value |

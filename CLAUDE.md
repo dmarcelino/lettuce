@@ -7,31 +7,37 @@ mobile-first web UI we own end to end. No Letta Cloud, no cloud LLM providers.
 
 ```
 /home/dima/work/letta/
-  letta-code/      fork of letta-ai/letta-code — MUST stay byte-identical to upstream
+  letta-code/      plain clone of letta-ai/letta-code at the pinned release tag — read-only
   letta-code-ui/   this repo — everything we own
 ```
 
-**The fork is dev tooling, not a build input.** Nothing in `letta-code/` is compiled into any
+**The upstream clone is dev tooling, not a build input.** Nothing in `letta-code/` is compiled into any
 image and nothing outside `letta-code-ui/` is in any build context. The channel-gateway runs
 upstream's published `letta/letta:<version>` as-is; the app-server runs a thin image built
 `FROM` it that only adds the Codex CLI and our `codex` shim (`docker/codex/`, see "Codex
 workers"); the UI consumes
 `@letta-ai/letta-code` from npm. The checkout exists so `sync-upstream.sh` can diff it and so
-you can read the source. A prod host needs only `git` and `docker` — no `bun`, no fork.
+you can read the source (the npm package ships only `dist/`). A prod host needs only `git` and
+`docker` — no `bun`, no letta-code checkout.
+
+There is no fork. There used to be one (`dmarchevsky/letta-code`), but the zero-delta rule
+meant it could never hold anything upstream did not, and nobody pushed to it — it simply fell
+behind. A missing `letta-code/` is recreated by `sync-upstream.sh` (`git clone` of upstream).
 
 This file is the **only** CLAUDE.md. `letta-code/` keeps upstream's own `AGENTS.md`
 (and its `CLAUDE.md -> AGENTS.md` symlink) untouched — that is upstream's file, not ours.
 
-## The one hard rule: zero fork delta
+## The one hard rule: upstream is not ours to patch
 
-`letta-code/` carries **no local changes**. Every capability we need already exists in its
-app-server protocol. If something seems to require patching the fork, it is almost certainly
-reachable through an existing protocol command — check `letta-code/src/types/protocol_v2.ts`
-first. `scripts/sync-upstream.sh` asserts the delta is empty and will fail the sync if it is not.
+We run upstream's published artifacts unmodified, and `letta-code/` carries **no local
+changes**. Every capability we need already exists in its app-server protocol. If something
+seems to require patching letta-code, it is almost certainly reachable through an existing
+protocol command — check `letta-code/src/types/protocol_v2.ts` first. `scripts/sync-upstream.sh`
+refuses to run against a dirty checkout.
 
-Building the fork (`bun install && bun run build`) writes only to gitignored paths
-(`node_modules/`, `dist/`), so it does not create a delta — but nothing needs that build any
-more, so there is rarely a reason to run it.
+Building the checkout (`bun install && bun run build`) writes only to gitignored paths
+(`node_modules/`, `dist/`), so it does not dirty it — but nothing needs that build, so there is
+rarely a reason to run it.
 
 ## Architecture
 
@@ -344,7 +350,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   stale runtime with `success: false, error: "Runtime is no longer active"`. Both are visible
   only in `abort_message_response`, so the UI **must** use `request()` and not `send()` for
   abort. `use-conversation.ts` does, and renders its own honest "Stopping" line for the gap.
-  Fixing the cancellation itself needs a fork delta; do not add one.
+  Fixing the cancellation itself needs an upstream change; it cannot be done from here.
 - **`tool_return_message` has two shapes, and one call emits several frames.** A live delta
   carries the singular `tool_call_id`/`status`/`tool_return` fields **and** a `tool_returns[]`
   array (`normalizeToolReturnWireMessage`, `listener/interrupts.ts`); history persists only the
@@ -388,7 +394,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   `Task` / `launch_subagent` accept `subagent_type: "codex"` and spawn `codex app-server
   --stdio` from PATH (`tools/impl/external-coding-agent.ts`, `codex-app-server.ts`). Our
   app-server image (`docker/codex/Dockerfile`) installs the real CLI under `/opt/codex` and puts
-  `docker/codex/codex-shim.mjs` on PATH as `codex`. No fork delta. What the spike established
+  `docker/codex/codex-shim.mjs` on PATH as `codex`. Upstream unmodified. What the spike established
   (2026-09-27, Codex 0.157.1, measured in the container):
   - **letta hard-codes `sandboxPolicy: workspaceWrite` on every `turn/start`, and Codex builds
     that with bubblewrap,** which Docker's default seccomp (no user namespaces) and then its
@@ -446,7 +452,8 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 
 ## Upstream sync
 
-`bun run sync-upstream` — fetches upstream, reports protocol drift, asserts zero fork delta,
+`bun run sync-upstream v<version>` — fetches upstream tags, reports protocol and behavioral
+drift between the checkout's current tag and the target, checks the target out (detached),
 re-pins every version site to the new release, and typechecks.
 
 Protocol drift shows up two ways:
@@ -466,10 +473,9 @@ Protocol drift shows up two ways:
 
 ### Version pinning
 
-**Sync to a published release tag, never `upstream/main`:** `bun run sync-upstream v<version>`.
-The script defaults to `upstream/main`, which is the wrong target here. Everything the stack
+**Sync to a published release tag, never `main`:** the script accepts only `v<x.y.z>`. Everything the stack
 runs comes from a **published artifact**: the images are `letta/letta:$LETTA_CODE_VERSION` from
-Docker Hub, and the protocol types are `@letta-ai/letta-code@<v>` from npm. A fork sitting one
+Docker Hub, and the protocol types are `@letta-ai/letta-code@<v>` from npm. A checkout sitting one
 commit past a tag has nothing to pin to, and quietly stops being the code the app-server runs.
 `sync-upstream.sh` now asserts both artifacts exist before re-pinning.
 
@@ -587,7 +593,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run build` | Builds the SPA into `web/dist` (runs `tsc --noEmit` first) |
 | `bun run dev` | BFF + Vite dev server |
 | `bun run smoke` | Live acceptance suite against a running stack — mutates state |
-| `bun run sync-upstream` | Sync fork from upstream, report drift, re-pin the version |
+| `bun run sync-upstream v<x.y.z>` | Move the upstream checkout to a release, report drift, re-pin |
 | `bun run check-version-pin` | Assert every letta-code version literal agrees (runs inside `verify`) |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
