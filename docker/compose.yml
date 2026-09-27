@@ -37,6 +37,10 @@ services:
     # `codex app-server`, whose protocol the shim rewrites one field of, so a
     # Codex bump is re-verified like a letta-code bump, never floated.
     #
+    # The GitHub CLI (GH_VERSION) is there for letta-code's WatchPR tool. Its
+    # login lives in GH_CONFIG_DIR, under the persisted /root/.letta, so it
+    # survives recreates; sign in once with `gh auth login --with-token`.
+    #
     # Default container hardening (seccomp, AppArmor, default capabilities) is
     # deliberately left intact: this is the one service agent-authored shell
     # commands run in, so the container -> host boundary is the one that
@@ -48,7 +52,8 @@ services:
       args:
         LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.33.3}
         CODEX_VERSION: ${CODEX_VERSION:-0.157.1}
-    image: letta-app-server:${LETTA_CODE_VERSION:-0.33.3}-codex${CODEX_VERSION:-0.157.1}
+        GH_VERSION: ${GH_VERSION:-2.101.0}
+    image: letta-app-server:${LETTA_CODE_VERSION:-0.33.3}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}
     command:
       - letta
       - server
@@ -65,6 +70,8 @@ services:
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
       # getFallbackWorkingDirectory() prefers this over process.cwd().
       USER_CWD: /work
+      # gh keeps its login here, on the letta-home bind mount (see above).
+      GH_CONFIG_DIR: /root/.letta/gh
       # letta-code's bubblewrap filesystem sandbox: OFF, explicitly. Unset is
       # not off — memory subagents are sandboxed by default whenever a bwrap
       # backend exists (sandbox/availability.ts isFsSandboxEnabled) — so the
@@ -270,6 +277,8 @@ services:
       LETTA_LOCAL_BACKEND_EXPERIMENTAL: "true"
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
       USER_CWD: /work
+      # gh keeps its login here, on the letta-home bind mount (see above).
+      GH_CONFIG_DIR: /root/.letta/gh
       # No LETTA_FS_SANDBOX needed: the gateway is a relay that hands inbound
       # channel messages to the app-server, which runs the turn and every tool.
       # The app-server owns scheduling; a second scheduler would fight for the lease.

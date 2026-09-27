@@ -476,8 +476,10 @@ Protocol drift shows up two ways:
      follow-ups stored in the local cron scheduler — so they fire only because the BFF's
      permanent connection keeps the scheduler running, and they appear in `cron_list`).
      0.33.3 added `WatchPR` (a `monitor` background process with `source:
-     "github_pull_request"`). It shells out to `gh`, which the app-server image does not
-     carry, so it fails here until `gh` is installed and authenticated in the container.
+     "github_pull_request"`). It shells out to `gh api`, so the app-server image carries the
+     GitHub CLI (pinned `GH_VERSION`, installed from the release tarball — the base image has
+     no apt, gzip or git). Its login is in `GH_CONFIG_DIR=/root/.letta/gh`, persisted and
+     readable by every agent shell; setup is in `docker/README.md`.
 
 ### Version pinning
 

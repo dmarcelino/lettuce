@@ -292,6 +292,23 @@ $C letta channels pair --channel telegram --code <code-from-bot> \
 $C letta channels status
 ```
 
+## GitHub (WatchPR)
+
+Agents' `WatchPR` tool watches a pull request through the GitHub CLI, which the
+app-server image carries (pinned by `GH_VERSION`). Sign it in once; the login is
+stored in `GH_CONFIG_DIR=/root/.letta/gh` on the state root, so it survives
+recreates. Use a fine-grained token with read access to the repos you want
+watched (pull requests, checks, commit statuses):
+
+```bash
+docker compose -f docker/compose.yml exec -T app-server \
+  gh auth login --with-token < token.txt
+docker compose -f docker/compose.yml exec app-server gh auth status
+```
+
+Every agent shell can read that token — the same reach as any other file under
+`/root/.letta` (see the sandbox notes in CLAUDE.md).
+
 ## Push notifications
 
 Fully optional and self-gating — leave the three `PUSH_VAPID_*` variables
