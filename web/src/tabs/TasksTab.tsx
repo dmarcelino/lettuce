@@ -38,8 +38,7 @@ const PROCESS_KIND_LABEL: Record<BackgroundProcessSummary["kind"], string> = {
   bash: "Shell",
   agent_task: "Subagent",
   monitor: "Monitor",
-  // Arrives on the wire as kind "bash"; re-detected from the process id in
-  // use-conversation. Not stoppable from here — see stopMonitor's doc.
+  // Not stoppable from here — see stopMonitor's doc.
   workflow: "Workflow",
 };
 

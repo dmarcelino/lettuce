@@ -299,17 +299,20 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   `memfs: true`, and the UI surfaces it in the **Memory** tab, not the agent editor. Expect
   "I asked it to update its system prompt and the UI shows the old one" — both statements are
   true and about different fields.
-- **Memory lives outside every agent workspace, and there are two ways to write it.** The memfs
-  repo is `/data/local-backend/memfs/<agent-id>/memory` (`$MEMORY_DIR` in the agent's shell
-  env) — never under `/work/<agent-id>`. Agents reach it two ways: the in-process `memory` tool
-  (`memory {command:"str_replace", file_path:"system/human.md", reason:…}`, present in
-  `ANTHROPIC_DEFAULT_TOOLS`), which writes with node `fs` and commits with `execFile("git")`,
-  neither of them sandboxed; or plain `Edit`/`Write`/`Bash` on `$MEMORY_DIR` (the file tools
-  pass the cross-agent guard for the agent's own memory; shells are unconfined). Prefer the
-  `memory` tool: the repo carries `pre-commit`/`post-commit` hooks that validate frontmatter,
-  and the tool commits for you. `letta memory` (the CLI) has status/diff/backup/export/pull but
-  **no write verb** — its own help says "use git commands" — so an agent that goes looking
-  there finds nothing and concludes memory is unwritable.
+- **Memory lives outside every agent workspace, and agents write it with ordinary file tools.**
+  The memfs repo is `/data/local-backend/memfs/<agent-id>/memory` (`$MEMORY_DIR` in the agent's
+  shell env) — never under `/work/<agent-id>`. Since letta-code 0.33 the in-process `memory`
+  tool (and `memory_apply_patch`) is in **no toolset** (`tools/toolset-catalog.ts`); its code
+  still exists but no agent can call it. Agents use plain `Edit`/`Write`/`Bash` on
+  `$MEMORY_DIR` (the file tools pass the cross-agent guard for the agent's own memory; shells
+  are unconfined), and the repo's `pre-commit`/`post-commit` hooks validate frontmatter.
+  Incidental upkeep and post-turn git conflict repair go to a **background memory worker**, a
+  subagent registered like any other (`registerSubagent`) — so it shows in
+  `update_subagent_state`, and `push/turn-watcher.ts` holds the "finished" push until it ends.
+  Old transcripts still contain `memory` calls, which is why `tool-summary.ts` keeps the case.
+  `letta memory` (the CLI) has status/diff/backup/export/pull but **no write verb** — its own
+  help says "use git commands" — so an agent that goes looking there finds nothing and
+  concludes memory is unwritable.
 - **Stop cannot actually cancel a local generation, and the app-server says it did.**
   `abort_message` → `handleAbortMessageInput` (`listener/control-inputs.ts`) →
   `turnLifecycle.requestCancellation()`, which **synchronously** flips the lifecycle to
@@ -409,6 +412,13 @@ Protocol drift shows up two ways:
    - `src/websocket/listener/connection-lifecycle.ts` — the turn-cancellation semantics above.
    - `src/channels/gateway-supervisor.ts` and `src/channels/gateway-local.ts` — if the gateway
      ever gains `--ws-auth`, the shared-network-namespace workaround below can be dropped.
+   - `src/types/background-process-protocol.ts` — `readBackgroundProcesses` hand-parses these
+     and drops unknown kinds. 0.33 made `workflow` a native kind (it used to arrive as `bash`
+     with a `workflow_N` id); a missed new kind vanishes from the Tasks tab without a type error.
+   - `src/tools/toolset-catalog.ts` — which tools agents actually get. 0.33 removed `memory`,
+     `MultiEdit`, `TodoWrite` and the Codex shell aliases, and added `Wake` (durable timed
+     follow-ups stored in the local cron scheduler — so they fire only because the BFF's
+     permanent connection keeps the scheduler running, and they appear in `cron_list`).
 
 ### Version pinning
 

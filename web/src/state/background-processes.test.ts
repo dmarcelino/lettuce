@@ -2,28 +2,27 @@ import { describe, expect, test } from "bun:test";
 import { readBackgroundProcesses } from "./use-conversation.ts";
 
 /**
- * The app-server's snapshot builder filters only `kind !== "monitor"` and maps
- * everything else to `kind: "bash"`, so a Workflow-tool run arrives labelled
- * as a shell job. We re-detect it from the process id, which upstream mints
- * as `workflow_N` via `getNextWorkflowId()`.
+ * Since letta-code 0.33 the snapshot builder emits workflows natively as
+ * `kind: "workflow"` (`WorkflowBackgroundProcessSummary`). Before that they
+ * arrived as `kind: "bash"`, and an allowlist that forgot the new kind would
+ * silently drop every running workflow from the Tasks tab.
  */
-describe("workflow detection in background processes", () => {
-  test("a workflow_N id is relabelled as a workflow", () => {
+describe("background process parsing", () => {
+  test("a native workflow keeps its kind and description", () => {
     const [process] = readBackgroundProcesses([
       {
         process_id: "workflow_1",
-        kind: "bash",
-        command: "workflow nightly-digest",
+        kind: "workflow",
+        description: "nightly-digest",
+        started_at_ms: 1,
         status: "running",
-        exit_code: null,
       },
     ]);
     expect(process?.kind).toBe("workflow");
-    expect(process?.label).toBe("workflow nightly-digest");
+    expect(process?.label).toBe("nightly-digest");
   });
 
-  test("a real shell command that starts with 'workflow ' is NOT a workflow", () => {
-    // This is why the match is on the id and not the command prefix.
+  test("a shell command that starts with 'workflow ' stays a shell job", () => {
     const [process] = readBackgroundProcesses([
       {
         process_id: "bash_7",
@@ -34,13 +33,14 @@ describe("workflow detection in background processes", () => {
       },
     ]);
     expect(process?.kind).toBe("bash");
+    expect(process?.label).toBe("workflow --help");
   });
 
   test("a workflow is never stoppable", () => {
     // stopMonitor upstream refuses anything whose process.kind !== "monitor",
     // so offering Stop for a workflow would always fail.
     const [process] = readBackgroundProcesses([
-      { process_id: "workflow_2", kind: "bash", command: "workflow x", status: "running" },
+      { process_id: "workflow_2", kind: "workflow", description: "x", status: "running" },
     ]);
     expect(process?.stoppable).toBe(false);
   });

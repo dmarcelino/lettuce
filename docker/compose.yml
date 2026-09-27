@@ -36,7 +36,7 @@ services:
     # matters. letta-code's bubblewrap sandbox used to need SYS_ADMIN plus both
     # profiles unconfined, and was switched off because it traded that boundary
     # for a cross-agent one that did not hold — see LETTA_FS_SANDBOX below.
-    image: letta/letta:${LETTA_CODE_VERSION:-0.32.19}
+    image: letta/letta:${LETTA_CODE_VERSION:-0.33.2}
     command:
       - letta
       - server
@@ -232,7 +232,7 @@ services:
   # service every channel command returns silence.
   channel-gateway:
     # Upstream's published image, used as-is — same image as the app-server.
-    image: letta/letta:${LETTA_CODE_VERSION:-0.32.19}
+    image: letta/letta:${LETTA_CODE_VERSION:-0.33.2}
     depends_on:
       app-server:
         condition: service_healthy

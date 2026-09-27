@@ -94,6 +94,25 @@ describe("summarizeToolCall", () => {
     expect(summarize("read_file", `{"path":"${CWD}/x.ts"}`)?.headline).toBe("x.ts");
   });
 
+  test("a Wake create names the wake and when it fires", () => {
+    expect(
+      summarize("Wake", '{"action":"create","name":"check build","after_seconds":300}'),
+    ).toEqual({
+      headline: "create  check build",
+      subtitle: "in 300 s",
+    });
+    expect(
+      summarize("Wake", '{"action":"create","name":"digest","cron":"0 8 * * *"}')?.subtitle,
+    ).toBe("cron 0 8 * * * (UTC)");
+  });
+
+  test("a Wake cancel names the id and a list stands alone", () => {
+    expect(summarize("Wake", '{"action":"cancel","id":"wake_1"}')).toEqual({
+      headline: "cancel  wake_1",
+    });
+    expect(summarize("Wake", '{"action":"list"}')).toEqual({ headline: "list" });
+  });
+
   test("an unknown tool falls through so the raw JSON still speaks for it", () => {
     expect(summarize("SomeFutureTool", '{"whatever":1}')).toBeNull();
   });

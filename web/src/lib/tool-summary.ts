@@ -122,6 +122,8 @@ export function summarizeToolCall(
       return file ? { headline: file, mono: true } : null;
     }
 
+    // Removed upstream in letta-code 0.33 (as was `memory` below); kept so
+    // older transcripts still read well.
     case "MultiEdit": {
       const file = path("file_path") || path("path");
       if (!file) return null;
@@ -173,6 +175,26 @@ export function summarizeToolCall(
         headline: [command, file].filter(Boolean).join("  "),
         mono: true,
         ...(reason ? { subtitle: reason } : {}),
+      };
+    }
+
+    case "Wake": {
+      const action = str(args, "action");
+      if (!action) return null;
+      const name = str(args, "name");
+      const cron = str(args, "cron");
+      const at = str(args, "scheduled_at");
+      const after = args.after_seconds;
+      const when = cron
+        ? `cron ${cron} (UTC)`
+        : at
+          ? `at ${at}`
+          : typeof after === "number"
+            ? `in ${after} s`
+            : "";
+      return {
+        headline: [action, name || str(args, "id")].filter(Boolean).join("  "),
+        ...(when ? { subtitle: when } : {}),
       };
     }
 

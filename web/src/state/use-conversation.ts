@@ -68,14 +68,7 @@ export interface ToolsetSummary {
 
 export interface BackgroundProcessSummary {
   processId: string;
-  /**
-   * `workflow` is not a wire kind. The app-server's snapshot builder
-   * (`background-process-snapshot.ts`) filters only `kind !== "monitor"` and
-   * maps everything else to `kind: "bash"`, so a Workflow-tool run arrives
-   * labelled as a shell job. We re-detect it from the process id, which
-   * upstream mints as `workflow_N` (`getNextWorkflowId()`), and keep the
-   * distinction so the Tasks tab can say "Workflow" instead of "Shell".
-   */
+  /** `workflow` is a native wire kind since letta-code 0.33 (`WorkflowBackgroundProcessSummary`). */
   kind: "bash" | "agent_task" | "monitor" | "workflow";
   label: string;
   status: string;
@@ -145,7 +138,7 @@ export interface ConversationApi {
   toolsetPreference: string | null;
   /** Toolsets this runtime can load, from device status. */
   availableToolsets: ToolsetSummary[];
-  /** Bash jobs, subagent tasks and monitors currently running, from device status. */
+  /** Bash jobs, subagent tasks, monitors and workflows currently running, from device status. */
   backgroundProcesses: BackgroundProcessSummary[];
   /**
    * Stops a persistent monitor. No-op for bash, agent_task and workflow
@@ -237,17 +230,13 @@ export function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[
       task_type?: unknown;
     };
     if (typeof entry.process_id !== "string") return [];
-    if (entry.kind !== "bash" && entry.kind !== "agent_task" && entry.kind !== "monitor") return [];
+    const kind = entry.kind;
+    if (kind !== "bash" && kind !== "agent_task" && kind !== "monitor" && kind !== "workflow") {
+      return [];
+    }
     const status = typeof entry.status === "string" ? entry.status : "unknown";
-    // A Workflow-tool run arrives as kind "bash" with command
-    // `workflow <name>`. Match on the id, which upstream mints as
-    // `workflow_N` and no other id generator produces — matching the command
-    // instead would also catch a real shell command that happens to start
-    // with "workflow ".
-    const isWorkflow = entry.kind === "bash" && entry.process_id.startsWith("workflow_");
-    const kind: BackgroundProcessSummary["kind"] = isWorkflow ? "workflow" : entry.kind;
     const label =
-      entry.kind === "bash"
+      kind === "bash"
         ? typeof entry.command === "string"
           ? entry.command
           : "(command)"
@@ -255,14 +244,14 @@ export function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[
           ? entry.description
           : typeof entry.task_type === "string"
             ? entry.task_type
-            : entry.kind;
+            : kind;
     return [
       {
         processId: entry.process_id,
         kind,
         label,
         status,
-        stoppable: entry.kind === "monitor" && status === "running",
+        stoppable: kind === "monitor" && status === "running",
       },
     ];
   });

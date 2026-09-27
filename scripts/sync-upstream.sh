@@ -29,6 +29,12 @@ BEHAVIOR_FILES=(
   "src/websocket/app-server-auth.ts"
   "src/websocket/listener/interrupts.ts"
   "src/websocket/listener/control-inputs.ts"
+  # Hand-parsed in web/src/state/use-conversation.ts (readBackgroundProcesses):
+  # an unlisted kind is dropped, so a new one silently vanishes from Tasks.
+  "src/types/background-process-protocol.ts"
+  # Which tools agents get. 0.33 dropped `memory` and `MultiEdit` from every
+  # toolset; CLAUDE.md and web/src/lib/tool-summary.ts describe the tool set.
+  "src/tools/toolset-catalog.ts"
 )
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -106,6 +112,8 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "     neither, so typecheck sees nothing."
   warn "   * control-inputs.ts — does handleAbortMessageInput still return false with no frames"
   warn "     when nothing is active, and still emit Interrupted before the turn unwinds?"
+  warn "   * background-process-protocol.ts — a new kind? readBackgroundProcesses drops it."
+  warn "   * toolset-catalog.ts — tools added/removed? Update tool-summary.ts and CLAUDE.md."
 else
   echo "  none"
 fi
