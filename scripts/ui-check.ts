@@ -399,9 +399,11 @@ try {
       const steps = page.locator(".messages .steps-head").first();
       if ((await steps.count()) > 0) {
         check("steps start collapsed", (await steps.getAttribute("aria-expanded")) === "false");
-        await steps.click();
+        // The filter sheet is still open over the transcript (the checks after
+        // this need it), so its scrim would take a real pointer click.
+        await steps.evaluate((el: HTMLElement) => el.click());
         check("a tap opens the steps", (await steps.getAttribute("aria-expanded")) === "true");
-        await steps.click();
+        await steps.evaluate((el: HTMLElement) => el.click());
       }
     }
     await shot(page, "phone-filters");
