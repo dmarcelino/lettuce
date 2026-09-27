@@ -25,10 +25,17 @@ name: letta
 
 services:
   app-server:
-    # Upstream's published image, used as-is. Pinned to a published release,
-    # never `latest`: the UI is compiled against this exact release's protocol
-    # types (see CLAUDE.md), so the running app-server must match.
-    # `scripts/check-version-pin.ts` asserts every copy of this literal agrees.
+    # Upstream's published image plus the Codex CLI and our `codex` shim
+    # (docker/codex/Dockerfile) — nothing of upstream's is modified. Pinned to
+    # a published release, never `latest`: the UI is compiled against this
+    # exact release's protocol types (see CLAUDE.md), so the running app-server
+    # must match. `scripts/check-version-pin.ts` asserts every copy of this
+    # literal agrees. The build context is docker/codex alone, so docker/.env
+    # never reaches the daemon.
+    #
+    # Codex is pinned separately (CODEX_VERSION): letta-code drives it over
+    # `codex app-server`, whose protocol the shim rewrites one field of, so a
+    # Codex bump is re-verified like a letta-code bump, never floated.
     #
     # Default container hardening (seccomp, AppArmor, default capabilities) is
     # deliberately left intact: this is the one service agent-authored shell
@@ -36,7 +43,12 @@ services:
     # matters. letta-code's bubblewrap sandbox used to need SYS_ADMIN plus both
     # profiles unconfined, and was switched off because it traded that boundary
     # for a cross-agent one that did not hold — see LETTA_FS_SANDBOX below.
-    image: letta/letta:${LETTA_CODE_VERSION:-0.33.2}
+    build:
+      context: codex
+      args:
+        LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.33.2}
+        CODEX_VERSION: ${CODEX_VERSION:-0.157.1}
+    image: letta-app-server:${LETTA_CODE_VERSION:-0.33.2}-codex${CODEX_VERSION:-0.157.1}
     command:
       - letta
       - server
@@ -127,6 +139,13 @@ services:
       # inside Dockhand's container, and the daemon mounts an empty directory.
       AGENT_APP_PORTS: "3000-3099"
       AGENT_APP_HOST: ${AGENT_APP_HOST:-}
+      # Codex subagent workers (`subagent_type: "codex"`). Its home lives on the
+      # letta-home bind mount so threads survive a recreate — follow-ups and
+      # SendAgentMessage steering resume them by id — and so the BFF can read
+      # their rollout files for the run viewer. The BFF writes config.toml,
+      # auth.json and letta-ui.json there from Settings → Codex; the shim
+      # refuses to run until that says enabled.
+      CODEX_HOME: /root/.letta/codex
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data

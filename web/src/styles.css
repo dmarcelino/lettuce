@@ -2507,3 +2507,40 @@ p.warning code {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ── Codex run viewer (CodexRunSheet) ─────────────────────────────────────
+   One worker's run read from its rollout: prose steps as Markdown, each
+   command a disclosure with its output. Commands are long single lines, so
+   the summary wraps anywhere rather than pushing the sheet sideways. */
+.codex-run {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  min-width: 0;
+}
+.codex-step {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.codex-prompt {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.codex-reasoning {
+  margin: 0;
+  font-style: italic;
+  white-space: pre-wrap;
+}
+.codex-command summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.codex-command summary code {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.codex-command .tool-args {
+  max-height: 40vh;
+  overflow-y: auto;
+}

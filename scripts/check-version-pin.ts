@@ -3,7 +3,7 @@
  *
  * The app-server image, the channel-gateway image and the protocol types the UI
  * compiles against must all be the SAME release, or the UI is typechecked
- * against one protocol and talks to another. The literal is repeated in five
+ * against one protocol and talks to another. The literal is repeated in six
  * tracked places and nothing used to check them — CLAUDE.md said so outright
  * ("Nothing asserts they agree").
  *
@@ -27,11 +27,22 @@ interface Site {
 }
 
 const SITES: Site[] = [
+  // The app-server is built FROM letta/letta (docker/codex/Dockerfile), so its
+  // literal lives in the build arg and in the local image tag. The
+  // `(?:(?!^ {2}\S)…)` guard keeps each match inside the app-server block: a
+  // plain lazy `[\s\S]*?` would run on into channel-gateway's image line and
+  // report that one instead.
   {
     file: "docker/compose.yml",
-    label: "compose app-server image",
+    label: "compose app-server base image (build arg)",
     pattern:
-      /^ {2}app-server:[\s\S]*?image:\s*letta\/letta:\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/m,
+      /^ {2}app-server:(?:(?!^ {2}\S)[\s\S])*?LETTA_CODE_VERSION:\s*\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/m,
+  },
+  {
+    file: "docker/compose.yml",
+    label: "compose app-server image tag",
+    pattern:
+      /^ {2}app-server:(?:(?!^ {2}\S)[\s\S])*?image:\s*letta-app-server:\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/m,
   },
   {
     file: "docker/compose.yml",

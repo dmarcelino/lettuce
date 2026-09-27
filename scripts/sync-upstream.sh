@@ -35,6 +35,10 @@ BEHAVIOR_FILES=(
   # Which tools agents get. 0.33 dropped `memory` and `MultiEdit` from every
   # toolset; CLAUDE.md and web/src/lib/tool-summary.ts describe the tool set.
   "src/tools/toolset-catalog.ts"
+  # The Codex worker path our shim sits in (docker/codex): the turn/start
+  # sandbox policy it rewrites and the `codex login status` preflight it must pass.
+  "src/tools/impl/codex-app-server.ts"
+  "src/tools/impl/external-coding-agent.ts"
 )
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }

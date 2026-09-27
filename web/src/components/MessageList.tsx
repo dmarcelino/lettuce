@@ -1,11 +1,13 @@
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { copyText } from "../lib/clipboard.ts";
+import { codexThreadInTaskText } from "../lib/codex.ts";
 import { collectFileTokens } from "../lib/file-links.ts";
 import { groupTranscript, type TranscriptEntry, type TranscriptItem } from "../lib/messages.ts";
 import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { CodexRunSheet } from "./CodexRunSheet.tsx";
 import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
 
@@ -245,6 +247,7 @@ const MessageItem = memo(function MessageItem({
   onEdit?: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [codexOpen, setCodexOpen] = useState(false);
   const label = KIND_LABEL[entry.kind] ?? entry.kind;
 
   // Look up every filename this entry mentions so `Markdown` can link the real
@@ -382,6 +385,9 @@ const MessageItem = memo(function MessageItem({
     // Header always readable — what finished and whether it worked — with the
     // result body (genuine markdown) behind the same disclosure tool output uses.
     const hasResult = entry.text.trim().length > 0;
+    // A Codex worker's report is only its last message; the run itself —
+    // every command and its output — is in Codex's rollout (CodexRunSheet).
+    const codexThread = codexThreadInTaskText(entry.text);
     return (
       <div className="entry task">
         <button
@@ -403,6 +409,14 @@ const MessageItem = memo(function MessageItem({
           ) : null}
         </button>
         {open && hasResult ? <div className="bubble task-result">{md(entry.text)}</div> : null}
+        {codexThread ? (
+          <button type="button" className="link small pad-x" onClick={() => setCodexOpen(true)}>
+            Show Codex run
+          </button>
+        ) : null}
+        {codexThread && codexOpen ? (
+          <CodexRunSheet threadId={codexThread} onClose={() => setCodexOpen(false)} />
+        ) : null}
       </div>
     );
   }

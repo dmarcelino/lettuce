@@ -1,0 +1,95 @@
+import { describe, expect, test } from "bun:test";
+import {
+  type CodexFileIo,
+  getCodexRun,
+  listCodexRuns,
+  reapplyCodexSettings,
+  saveCodexSettings,
+} from "./service.ts";
+import { CODEX_CONFIG_PATH, CODEX_SETTINGS_PATH } from "./settings.ts";
+
+function memoryIo(initial: Record<string, string> = {}) {
+  const files = new Map(Object.entries(initial));
+  const writes: string[] = [];
+  const io: CodexFileIo = {
+    read: async (path) => files.get(path) ?? null,
+    write: async (path, content) => {
+      writes.push(path);
+      files.set(path, content);
+    },
+    listFiles: async (dir) => {
+      const names = [...files.keys()]
+        .filter((path) => path.startsWith(`${dir}/`) && !path.slice(dir.length + 1).includes("/"))
+        .map((path) => path.slice(dir.length + 1));
+      return names.length ? names : null;
+    },
+  };
+  return { io, files, writes };
+}
+
+const READY = { baseUrl: "http://h/v1", model: "m", enabled: true };
+
+describe("saving settings", () => {
+  test("writes Codex's files before the switch the shim reads", async () => {
+    const { io, writes } = memoryIo();
+    await saveCodexSettings(io, READY);
+    expect(writes.at(-1)).toBe(CODEX_SETTINGS_PATH);
+    expect(writes).toContain(CODEX_CONFIG_PATH);
+  });
+
+  test("keeps a saved key across a later save that does not mention it", async () => {
+    const { io } = memoryIo();
+    await saveCodexSettings(io, { ...READY, apiKey: "secret" });
+    const next = await saveCodexSettings(io, { model: "m2" });
+    expect(next.apiKey).toBe("secret");
+  });
+
+  test("an invalid update writes nothing", async () => {
+    const { io, writes } = memoryIo();
+    await expect(saveCodexSettings(io, { enabled: true })).rejects.toThrow();
+    expect(writes).toEqual([]);
+  });
+
+  test("reapply does nothing until settings were saved once", async () => {
+    const { io, writes } = memoryIo();
+    expect(await reapplyCodexSettings(io)).toBe(false);
+    expect(writes).toEqual([]);
+    await saveCodexSettings(io, READY);
+    expect(await reapplyCodexSettings(io)).toBe(true);
+  });
+});
+
+const T1 = "01a0e3cf-b69f-7eb0-8b79-4cc6ad0c0e9a"; // 2026-09-27
+const T2 = "01a0e3d0-0000-7000-8000-000000000000"; // a little later, same day
+const DAY = "/root/.letta/codex/sessions/2026/09/27";
+
+function rollout(threadId: string, prompt: string) {
+  return [
+    JSON.stringify({ type: "session_meta", payload: { id: threadId, cwd: "/work/a" } }),
+    JSON.stringify({
+      type: "response_item",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: prompt }] },
+    }),
+  ].join("\n");
+}
+
+describe("runs", () => {
+  test("a run is found by thread id alone", async () => {
+    const { io } = memoryIo({
+      [`${DAY}/rollout-2026-09-27T17-00-35-${T1}.jsonl`]: rollout(T1, "first"),
+    });
+    expect((await getCodexRun(io, T1))?.prompt).toBe("first");
+    expect(await getCodexRun(io, T2)).toBeNull();
+  });
+
+  test("recent runs are newest first and capped", async () => {
+    const { io } = memoryIo({
+      [`${DAY}/rollout-2026-09-27T17-00-35-${T1}.jsonl`]: rollout(T1, "first"),
+      [`${DAY}/rollout-2026-09-27T18-00-00-${T2}.jsonl`]: rollout(T2, "second"),
+      [`${DAY}/notes.txt`]: "ignored",
+    });
+    const now = Date.UTC(2026, 8, 27, 20);
+    expect((await listCodexRuns(io, 10, now)).map((r) => r.prompt)).toEqual(["second", "first"]);
+    expect(await listCodexRuns(io, 1, now)).toHaveLength(1);
+  });
+});

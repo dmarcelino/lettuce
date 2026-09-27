@@ -3,8 +3,10 @@ import type {
   LaunchSubagentResponse,
 } from "@letta-ai/letta-code/app-server-protocol";
 import { useCallback, useEffect, useState } from "react";
+import { CodexRunsList } from "../components/CodexRunsList.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
@@ -59,9 +61,10 @@ interface Props {
  * an error naming every valid one. The other builtins (fork, init,
  * reflection, memory) are harness internals.
  */
-const SUBAGENT_TYPES = ["general-purpose", "recall", "history-analyzer"];
+// `codex` runs the Codex CLI instead of a Letta subagent — enabled in Settings → Codex.
+const SUBAGENT_TYPES = ["general-purpose", "recall", "history-analyzer", CODEX_SUBAGENT_TYPE];
 
-const BLANK_SUBAGENT = { type: "general-purpose", description: "", prompt: "" };
+const BLANK_SUBAGENT = { type: "general-purpose", description: "", prompt: "", inheritMcp: false };
 
 /**
  * A new task defaults to a fresh conversation per run; the editor overrides
@@ -198,10 +201,16 @@ export function TasksTab({
    */
   const launchSubagent = async () => {
     if (!agentId || !conversationId) return;
+    const subagentType = subagent.type.trim() || "general-purpose";
     const args: LaunchSubagentCommand["args"] = {
-      subagent_type: subagent.type.trim() || "general-purpose",
+      subagent_type: subagentType,
       description: subagent.description.trim(),
       prompt: subagent.prompt.trim(),
+      // Discovery metadata only: the worker calls the parent's MCP servers
+      // through `letta mcp`, under the parent's identity. Codex-only upstream.
+      ...(subagentType === CODEX_SUBAGENT_TYPE && subagent.inheritMcp
+        ? { mcp: { inherit: true } }
+        : {}),
     };
     setLaunchBusy(true);
     setStatus("Launching subagent…");
@@ -301,6 +310,13 @@ export function TasksTab({
           <p className="section-note">Scheduled</p>
         </>
       ) : null}
+
+      <CodexRunsList
+        refreshKey={backgroundProcesses
+          .filter((process) => process.kind === "agent_task")
+          .map((process) => process.processId)
+          .join(",")}
+      />
 
       <ul className="list">
         {tasks.map((task) => (
@@ -423,6 +439,24 @@ export function TasksTab({
               ))}
             </datalist>
           </label>
+
+          {subagent.type.trim() === CODEX_SUBAGENT_TYPE ? (
+            <>
+              <p className="muted small">
+                A Codex worker, set up in Settings → Codex. Its full run appears under Codex runs.
+              </p>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={subagent.inheritMcp}
+                  onChange={(event) =>
+                    setSubagent({ ...subagent, inheritMcp: event.target.checked })
+                  }
+                />
+                Let it use this agent&apos;s MCP servers
+              </label>
+            </>
+          ) : null}
 
           <label className="field">
             Description

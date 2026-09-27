@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import type {
   AgentRetrieveResponseMessage,
+  ListInDirectoryResponseMessage,
   ReadFileResponseMessage,
   WriteFileResponseMessage,
   WsProtocolMessage,
@@ -18,6 +19,17 @@ import {
   encodeSession,
   type SessionPayload,
 } from "./auth/session-cookie.ts";
+import { isCodexThreadId } from "./codex/rollout.ts";
+import {
+  type CodexFileIo,
+  getCodexRun,
+  listCodexRuns,
+  loadCodexSettings,
+  reapplyCodexSettings,
+  saveCodexSettings,
+  suggestedCodexBaseUrl,
+} from "./codex/service.ts";
+import { InvalidCodexSettingsError, toPublicCodexSettings } from "./codex/settings.ts";
 import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
 import { errorMessage } from "./errors.ts";
 import { inlineContentType } from "./files/content-type.ts";
@@ -92,7 +104,12 @@ const upstream = new UpstreamConnection({
   onStateChange: (state, info) => {
     log(`Upstream state: ${state}`);
     registry.broadcastUpstreamState(state, info);
-    if (state === "connected") void installShippedSkills();
+    if (state === "connected") {
+      void installShippedSkills();
+      void reapplyCodexSettings(codexIo)
+        .then((applied) => applied && log("Codex: re-rendered config from saved settings"))
+        .catch((error) => log(`Codex: could not re-render config: ${errorMessage(error)}`));
+    }
   },
   log,
 });
@@ -120,6 +137,43 @@ async function installShippedSkills(): Promise<void> {
     log,
   );
 }
+
+// Codex workers' files, reached through the app-server like every other file
+// the BFF touches — see `codex/settings.ts`. Only these routes use it, never a
+// browser: `/root/.letta` is outside the workspace clamp on purpose.
+const codexIo: CodexFileIo = {
+  async read(path) {
+    const response = await upstream.request<ReadFileResponseMessage>({
+      type: "read_file",
+      path,
+      encoding: "utf8",
+      request_id: `bff-codex-read-${randomUUID()}`,
+    });
+    if (response.success && typeof response.content === "string") return response.content;
+    if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
+    throw new Error(response.error ?? `Could not read ${path}`);
+  },
+  async write(path, content) {
+    const response = await upstream.request<WriteFileResponseMessage>({
+      type: "write_file",
+      path,
+      content,
+      request_id: `bff-codex-write-${randomUUID()}`,
+    });
+    if (response?.success !== true) throw new Error(response?.error ?? `Could not write ${path}`);
+  },
+  async listFiles(dir) {
+    const response = await upstream.request<ListInDirectoryResponseMessage>({
+      type: "list_in_directory",
+      path: dir,
+      include_files: true,
+      request_id: `bff-codex-list-${randomUUID()}`,
+    });
+    if (response.success) return response.files ?? [];
+    if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
+    throw new Error(response.error ?? `Could not list ${dir}`);
+  },
+};
 
 // The symlink guard inspects the workspace through this process's own mount. If
 // that mount is absent — running the BFF outside the container, or a compose
@@ -453,6 +507,62 @@ app.put("/api/mcp", async (c) => {
   }
 
   return c.json({ ok: true, servers });
+});
+
+// ── Codex workers ───────────────────────────────────────────────────────────
+// Settings → Codex, and the run viewer. See `codex/` for what the files are and
+// why the BFF, not the browser, touches them.
+
+app.get("/api/codex/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  try {
+    const [settings, suggestedBaseUrl] = await Promise.all([
+      loadCodexSettings(codexIo),
+      suggestedCodexBaseUrl(codexIo),
+    ]);
+    return c.json({ settings: toPublicCodexSettings(settings), suggestedBaseUrl });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.put("/api/codex/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const body = await c.req.json().catch(() => null);
+  try {
+    const saved = await saveCodexSettings(codexIo, body);
+    return c.json({ settings: toPublicCodexSettings(saved) });
+  } catch (error) {
+    if (error instanceof InvalidCodexSettingsError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.get("/api/codex/runs", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
+  try {
+    return c.json({ runs: await listCodexRuns(codexIo, limit) });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.get("/api/codex/runs/:threadId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const threadId = c.req.param("threadId");
+  // The id becomes part of a file lookup; only a real Codex thread id gets that far.
+  if (!isCodexThreadId(threadId)) return c.text("Not a Codex thread id", 400);
+  try {
+    const run = await getCodexRun(codexIo, threadId);
+    return run ? c.json({ run }) : c.text("No such Codex run", 404);
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
 });
 
 // Failed turns for one conversation, which the transcript cannot reload on its

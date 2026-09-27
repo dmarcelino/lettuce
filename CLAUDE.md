@@ -12,8 +12,10 @@ mobile-first web UI we own end to end. No Letta Cloud, no cloud LLM providers.
 ```
 
 **The fork is dev tooling, not a build input.** Nothing in `letta-code/` is compiled into any
-image and nothing outside `letta-code-ui/` is in any build context. The app-server and
-channel-gateway run upstream's published `letta/letta:<version>`; the UI consumes
+image and nothing outside `letta-code-ui/` is in any build context. The channel-gateway runs
+upstream's published `letta/letta:<version>` as-is; the app-server runs a thin image built
+`FROM` it that only adds the Codex CLI and our `codex` shim (`docker/codex/`, see "Codex
+workers"); the UI consumes
 `@letta-ai/letta-code` from npm. The checkout exists so `sync-upstream.sh` can diff it and so
 you can read the source. A prod host needs only `git` and `docker` — no `bun`, no fork.
 
@@ -210,8 +212,9 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   replies "Reloaded settings, local mods, and agent secrets". Merge rather than replace:
   the file holds ~18 unrelated top-level settings including `deviceId`.
 - **letta-code's filesystem sandbox is OFF, deliberately, and the image carries no bubblewrap.**
-  The app-server runs upstream's `letta/letta:<version>` unmodified, with Docker's default
-  seccomp, AppArmor and capabilities, and `LETTA_FS_SANDBOX: "0"`. The explicit `"0"` is
+  The app-server runs upstream's `letta/letta:<version>` (plus the Codex CLI, nothing of
+  upstream's changed) with Docker's default seccomp, AppArmor and capabilities, and
+  `LETTA_FS_SANDBOX: "0"`. The explicit `"0"` is
   load-bearing: unset is not off — memory subagents are sandboxed by default whenever a bwrap
   backend exists (`src/sandbox/availability.ts` `isFsSandboxEnabled`).
 
@@ -381,6 +384,47 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   streamed); anything from the repo must travel in an image. `AGENT_APP_PORTS` and `AGENT_APP_HOST` (the address to put in URLs, from
   `docker/.env`) are in the app-server env for it. No auth in front of those ports, and the
   processes die with the container. The skill's frontmatter `name` must match its directory.
+- **Codex workers: letta-code runs them, a shim makes them fit this container.** Since 0.33,
+  `Task` / `launch_subagent` accept `subagent_type: "codex"` and spawn `codex app-server
+  --stdio` from PATH (`tools/impl/external-coding-agent.ts`, `codex-app-server.ts`). Our
+  app-server image (`docker/codex/Dockerfile`) installs the real CLI under `/opt/codex` and puts
+  `docker/codex/codex-shim.mjs` on PATH as `codex`. No fork delta. What the spike established
+  (2026-09-27, Codex 0.157.1, measured in the container):
+  - **letta hard-codes `sandboxPolicy: workspaceWrite` on every `turn/start`, and Codex builds
+    that with bubblewrap,** which Docker's default seccomp (no user namespaces) and then its
+    AppArmor (no mounts) both refuse — every command fails, and the model just says so.
+    Relaxing both is the trade-off rejected above for letta's own sandbox, and Codex's
+    deprecated `use_legacy_landlock` still requires bwrap. Codex's managed
+    `requirements.toml` `allowed_sandbox_modes` *rejects* a disallowed mode rather than
+    downgrading it. So the shim rewrites that one field to `{type: "externalSandbox"}` — the
+    container is the sandbox — and passes every other byte through. A worker therefore has the
+    same reach as an agent shell: the whole container, other agents' memory included. Under
+    `externalSandbox` Codex enforces nothing, network included, so the UI offers no network
+    toggle (it would only be a hint to the model).
+  - **The preflight is `codex login status`, not `--version`,** and a custom provider is never
+    "logged in". The BFF writes an API-key `auth.json` with a placeholder key; it is an
+    OpenAI-provider credential no worker uses.
+  - **Configuration is Settings → Codex, owned by the BFF** (`bff/src/codex/`). It stores
+    `letta-ui.json` in `CODEX_HOME=/root/.letta/codex` (persisted, so threads survive recreates
+    and `SendAgentMessage` follow-ups can resume them) and renders `config.toml` (provider
+    `letta-ui`, `wire_api = "responses"` — the endpoint must serve `/v1/responses`, which
+    llama.cpp does) and `auth.json` from it, on every save and every upstream connect. The API
+    key never goes back to a browser. `letta-ui.json` is also the switch: the shim refuses to
+    run until it says `enabled`, and that refusal is what a task reports.
+  - **letta keeps only a worker's final message.** The full run lives in Codex's rollout,
+    `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<thread id>.jsonl`, appended live. Thread
+    ids are UUIDv7, so the day directory comes from the id. `GET /api/codex/runs[/:threadId]`
+    parse it (`codex/rollout.ts`); the viewer polls while a run is going. The task
+    notification carries `agent_id=codex_<thread id>` (success only), which is how a transcript
+    entry links to its run. The live `update_subagent_state` snapshot does **not** carry it
+    (`agent_url` stays null for external workers), hence the "Codex runs" list in Tasks.
+  - **cwd is whatever the parent runtime's is:** `/work/<agent-id>` for UI conversations, but
+    `/work` for a runtime started without a cwd (cron- and channel-fired ones).
+  - Codex also fetches its plugin marketplace from GitHub on start (`$CODEX_HOME/.tmp/plugins`)
+    — not model traffic, but not nothing.
+  - Upstream drift to watch: the shim depends on letta's `turn/start` shape and the preflight
+    command; re-verify both on every letta-code or Codex bump (`CODEX_VERSION` is pinned in
+    compose, never floated).
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **No built-in web search/fetch tool.** Web search is an MCP server (searxng), not a
   letta-code feature.
@@ -403,7 +447,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 ## Upstream sync
 
 `bun run sync-upstream` — fetches upstream, reports protocol drift, asserts zero fork delta,
-re-pins all five version sites to the new release, and typechecks.
+re-pins every version site to the new release, and typechecks.
 
 Protocol drift shows up two ways:
 1. **Typed** — `web/` and `bff/` import from `@letta-ai/letta-code` (pinned to the npm release
@@ -429,27 +473,32 @@ Docker Hub, and the protocol types are `@letta-ai/letta-code@<v>` from npm. A fo
 commit past a tag has nothing to pin to, and quietly stops being the code the app-server runs.
 `sync-upstream.sh` now asserts both artifacts exist before re-pinning.
 
-**The version literal lives in five tracked places and they must move together:**
+**The version literal lives in six tracked places and they must move together:**
 
 | File | Form |
 |---|---|
-| `docker/compose.yml` | `image: letta/letta:${LETTA_CODE_VERSION:-<v>}` — app-server |
+| `docker/compose.yml` | `LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-<v>}` — app-server build arg (its `FROM`) |
+| `docker/compose.yml` | `image: letta-app-server:${LETTA_CODE_VERSION:-<v>}-codex…` — app-server local tag |
 | `docker/compose.yml` | `image: letta/letta:${LETTA_CODE_VERSION:-<v>}` — channel-gateway |
 | `package.json` | `"@letta-ai/letta-code": "<v>"` |
 | `bff/package.json` | same |
 | `web/package.json` | same |
 | `docker/.env` | `LETTA_CODE_VERSION=<v>` — gitignored, so it drifts unseen |
 
-`scripts/check-version-pin.ts` asserts the five agree and runs first in `bun run verify`.
+`scripts/check-version-pin.ts` asserts they agree and runs first in `bun run verify`. Its
+app-server patterns are fenced to that service's block: a plain lazy match ran on into
+channel-gateway's image line once the app-server stopped naming `letta/letta` directly.
 `docker/.env` is reported but never fatal — it cannot be fixed from a fresh clone.
-`sync-upstream.sh` rewrites all five for you.
+`sync-upstream.sh` rewrites all of them for you (its sed replaces every
+`LETTA_CODE_VERSION:-…}`).
 
 **The trap that hides a stale pin:** a shell `LETTA_CODE_VERSION` outranks `docker/.env` in
 Compose's precedence order. That is how `.env` sat at `0.30.27` through the whole `0.30.29`
 cycle without anyone noticing. The pin check now prints a warning for exactly this case.
 
 **A version bump is a full redeploy.** `docker compose -f docker/compose.yml up -d --build` —
-pulls the new app-server and channel-gateway images and rebuilds bff. This is the documented exception to "Only `bff` is rebuilt
+rebuilds the app-server image on the new base, pulls the new channel-gateway image and
+rebuilds bff. This is the documented exception to "Only `bff` is rebuilt
 in step 4" under Definition of done; that note governs ordinary UI and BFF changes, this one
 governs version bumps. Recreating `app-server` drops the BFF's permanent upstream connection,
 so any in-flight turn is lost and the cron scheduler and Telegram gateway restart on the BFF's
@@ -539,7 +588,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run dev` | BFF + Vite dev server |
 | `bun run smoke` | Live acceptance suite against a running stack — mutates state |
 | `bun run sync-upstream` | Sync fork from upstream, report drift, re-pin the version |
-| `bun run check-version-pin` | Assert the five letta-code version literals agree (runs inside `verify`) |
+| `bun run check-version-pin` | Assert every letta-code version literal agrees (runs inside `verify`) |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
 | `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway |
