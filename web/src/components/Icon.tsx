@@ -43,7 +43,9 @@ export type IconName =
   | "chats"
   | "back"
   | "more"
-  | "search";
+  | "search"
+  | "pin"
+  | "trash";
 
 /** Path data on a 24×24 grid; stroked, never filled. */
 const PATHS: Record<IconName, string> = {
@@ -78,6 +80,9 @@ const PATHS: Record<IconName, string> = {
   settings:
     "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
   plus: "M12 5v14M5 12h14",
+  // A push pin: the head, the collar, the point.
+  pin: "M9 4h6M10 4v5l-3 4v1h10v-1l-3-4V4M12 14v6",
+  trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   // Clipboard with a tick: background work that reported back.
   task: "M9 4h6v3H9zM8 5H6a1 1 0 00-1 1v13a1 1 0 001 1h12a1 1 0 001-1V6a1 1 0 00-1-1h-2M9 13l2 2 4-4",
   // Curly braces: a JSON-schema-constrained reply.

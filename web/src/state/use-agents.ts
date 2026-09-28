@@ -2,7 +2,8 @@ import {
   DEFAULT_CREATE_AGENT_PERSONALITIES,
   PERSONALITY_OPTIONS,
 } from "@letta-ai/letta-code/agent-presets";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchPinnedAgents, orderByPins, savePinnedAgent } from "../lib/agent-pins.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
@@ -137,6 +138,9 @@ export interface AgentsApi {
   createAgent: (preset: AgentPreset, draft: AgentDraft) => Promise<void>;
   updateAgent: (agentId: string, draft: AgentDraft) => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
+  /** Agent ids pinned to the top of every agent list; `agents` is already in that order. */
+  pinned: ReadonlySet<string>;
+  setPinned: (agentId: string, pinned: boolean) => Promise<void>;
   createConversation: () => Promise<void>;
   adoptNewConversation: () => Promise<void>;
   renameConversation: (conversationId: string, summary: string) => Promise<void>;
@@ -206,6 +210,33 @@ export function useAgents(session: SessionApi): AgentsApi {
   useEffect(() => {
     if (ready) void refreshAgents();
   }, [ready, refreshAgents]);
+
+  // Pins are the BFF's (HTTP), not the app-server's: only the order depends
+  // on them, so a failed load just lists agents unpinned.
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!ready) return;
+    fetchPinnedAgents()
+      .then(setPinnedIds)
+      .catch(() => {});
+  }, [ready]);
+
+  const setPinned = useCallback(async (target: string, pinned: boolean) => {
+    // Optimistic, so the row moves on tap; the server's answer is the truth.
+    setPinnedIds((current) => {
+      const without = current.filter((id) => id !== target);
+      return pinned ? [...without, target] : without;
+    });
+    try {
+      setPinnedIds(await savePinnedAgent(target, pinned));
+    } catch (cause) {
+      setError(errorMessage(cause));
+      setPinnedIds(await fetchPinnedAgents().catch(() => []));
+    }
+  }, []);
+
+  const orderedAgents = useMemo(() => orderByPins(agents, pinnedIds), [agents, pinnedIds]);
+  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
 
   useEffect(() => {
     if (ready && agentId) void refreshConversations(agentId);
@@ -393,7 +424,7 @@ export function useAgents(session: SessionApi): AgentsApi {
   );
 
   return {
-    agents,
+    agents: orderedAgents,
     conversations,
     agentId,
     conversationId,
@@ -407,6 +438,8 @@ export function useAgents(session: SessionApi): AgentsApi {
     createAgent,
     updateAgent,
     deleteAgent,
+    pinned: pinnedSet,
+    setPinned,
     createConversation,
     adoptNewConversation,
     renameConversation,

@@ -211,6 +211,78 @@ try {
     await pressBack();
     check("then Back closes the switcher", (await page.locator(".switcher").count()) === 0);
 
+    // An agent's ⋯ is a menu — Edit, Pin, Delete — opening above the button,
+    // fully on screen even though the agents sit in their own scrolling box.
+    await switcherButton.click();
+    const agentCard = (name: string) =>
+      page.locator(".switcher-agents .switcher-card.agent", {
+        has: page.locator(".switcher-card-title", { hasText: name }),
+      });
+    const firstName = (
+      await page.locator(".switcher-agents .switcher-card-title").first().innerText()
+    ).trim();
+    const openAgentMenu = async () => {
+      await agentCard(firstName).locator(".switcher-more").click();
+      return page.locator(".switcher-menu.floating");
+    };
+    let agentMenu = await openAgentMenu();
+    const menuItems = (await agentMenu.locator("button").allInnerTexts()).map((t) => t.trim());
+    const wasPinned = menuItems[1] === "Unpin";
+    check(
+      "agent ⋯ offers Edit, Pin and Delete",
+      JSON.stringify(menuItems) ===
+        JSON.stringify(["Edit", wasPinned ? "Unpin" : "Pin to top", "Delete…"]),
+      menuItems,
+    );
+    const menuBox = await agentMenu.boundingBox();
+    check(
+      "the agent menu is fully on screen",
+      menuBox !== null &&
+        menuBox.x >= 0 &&
+        menuBox.y >= 0 &&
+        menuBox.x + menuBox.width <= PHONE.width &&
+        menuBox.y + menuBox.height <= PHONE.height,
+      menuBox,
+    );
+    await shot(page, "phone-agent-menu");
+    await pressBack();
+    check(
+      "Back closes the agent menu first, keeping the switcher",
+      (await page.locator(".switcher-menu.floating").count()) === 0 &&
+        (await page.locator(".switcher").count()) === 1,
+    );
+
+    // Pin, then put it back: the check leaves the pin state as it found it.
+    const pinnedMark = () => agentCard(firstName).locator(".switcher-pin").count();
+    agentMenu = await openAgentMenu();
+    await agentMenu.locator("button").nth(1).click();
+    await page.waitForTimeout(600);
+    check("pinning toggles the agent's pin mark", (await pinnedMark()) === (wasPinned ? 0 : 1));
+    if (!wasPinned) {
+      check(
+        "a pinned agent is listed first",
+        (await page.locator(".switcher-agents .switcher-card-title").first().innerText()).trim() ===
+          firstName,
+      );
+    }
+    agentMenu = await openAgentMenu();
+    await agentMenu.locator("button").nth(1).click();
+    await page.waitForTimeout(600);
+    check("and back again", (await pinnedMark()) === (wasPinned ? 1 : 0));
+
+    // Delete asks for the name first; Cancel leaves everything alone.
+    agentMenu = await openAgentMenu();
+    await agentMenu.locator('button:has-text("Delete")').click();
+    const deleteSheet = page.locator(".sheet-panel", { hasText: "Delete agent" });
+    check("Delete opens the name confirmation", await deleteSheet.isVisible());
+    check(
+      "Delete stays disabled until the name is typed",
+      await deleteSheet.locator('button:text-is("Delete")').isDisabled(),
+    );
+    await deleteSheet.locator('button:text-is("Cancel")').click();
+    check("Cancel keeps the switcher open", (await page.locator(".switcher").count()) === 1);
+    await page.locator(".switcher-bar .sheet-close").click();
+
     await page.locator('.composer-row button[aria-label^="Filter"]').click();
     await pressBack();
     check(

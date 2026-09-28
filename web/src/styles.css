@@ -3007,3 +3007,23 @@ p.warning code {
 .google-lost p {
   margin: 0 0 8px;
 }
+
+/* An agent's ⋯ menu: fixed to the viewport and opening upward, because the
+   agents' own scrolling box would clip it (see AgentMenu). `right` and
+   `bottom` come from the button. */
+.switcher-menu.floating {
+  position: fixed;
+  top: auto;
+  z-index: 45;
+}
+.switcher-menu button.danger {
+  color: var(--bad);
+}
+/* A pinned agent, marked before its name. */
+.switcher-pin {
+  width: 13px;
+  height: 13px;
+  margin-right: 5px;
+  color: var(--muted);
+  vertical-align: -0.1em;
+}

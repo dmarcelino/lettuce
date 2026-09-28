@@ -652,6 +652,12 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   workaround; that was wrong.)
 - **Rename** = `conversation_update {body:{summary}}`. A fresh conversation has
   `summary: null`, so the UI supplies its own placeholder.
+- **Pinning an existing agent is not in the protocol, so pins are ours.** letta-code keeps a
+  pinned list in `settings.json` for its CLI picker, but the app-server only sets it at creation
+  (`create_agent.pin_global`). The switcher's agent ⋯ menu (Edit, Pin, Delete — `AgentMenu`,
+  fixed to the viewport because the agents' own scroll box clips an absolute menu) pins through
+  the BFF: `bff/src/agents/pins.ts`, `pinned-agents.json` on `bff-data`, `/api/agents/pins`.
+  `use-agents` returns `agents` already ordered pinned-first; the desktop picker groups them.
 - **`create_agent` presets** are exactly `memo | tutorial | blank | linus | kawaii`. There is
   no `default`.
 

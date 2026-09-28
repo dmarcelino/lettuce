@@ -134,13 +134,27 @@ export function Sidebar({
             onChange={(event) => agents.selectAgent(event.target.value)}
           >
             {agents.agents.length === 0 ? <option value="">No agents</option> : null}
-            {agents.agents.map((agent) => (
+            {(() => {
               // A native option cannot hold markup, so the marker is text — and
               // words rather than a dot glyph, which the UI does not use.
-              <option key={agent.id} value={agent.id}>
-                {activeAgentIds.has(agent.id) ? `${agent.name} — responding` : agent.name}
-              </option>
-            ))}
+              const option = (agent: (typeof agents.agents)[number]) => (
+                <option key={agent.id} value={agent.id}>
+                  {activeAgentIds.has(agent.id) ? `${agent.name} — responding` : agent.name}
+                </option>
+              );
+              // Pinned agents lead the list already; with any pinned, the two
+              // groups are labelled, since an option cannot carry the pin icon.
+              const pinned = agents.agents.filter((agent) => agents.pinned.has(agent.id));
+              if (pinned.length === 0) return agents.agents.map(option);
+              return (
+                <>
+                  <optgroup label="Pinned">{pinned.map(option)}</optgroup>
+                  <optgroup label="Agents">
+                    {agents.agents.filter((agent) => !agents.pinned.has(agent.id)).map(option)}
+                  </optgroup>
+                </>
+              );
+            })()}
           </select>
         </div>
 

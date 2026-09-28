@@ -5,7 +5,9 @@ import { statsOf, useAgentStats } from "../state/use-agent-stats.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { AgentMenu } from "./AgentMenu.tsx";
 import { ConversationMenu } from "./ConversationMenu.tsx";
+import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
 import { Icon } from "./Icon.tsx";
 
 interface Props {
@@ -37,10 +39,28 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  /** An agent's ⋯ menu, with the button it hangs from. */
+  const [agentMenu, setAgentMenu] = useState<{ id: string; anchor: DOMRect } | null>(null);
+  const [deleting, setDeleting] = useState<AgentSummary | null>(null);
   const [busy, setBusy] = useState(false);
   // Back closes an open ⋯ menu first, then the switcher — never the app.
   useBackToClose(onClose);
   useBackToClose(() => setMenuFor(null), menuFor !== null);
+  useBackToClose(() => setAgentMenu(null), agentMenu !== null);
+
+  // The agent menu is fixed to the viewport, so it must not outlive a scroll
+  // or a press anywhere else. Its own ⋯ button toggles it, so presses there
+  // are left to the click.
+  useEffect(() => {
+    if (!agentMenu) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest(".switcher-menu.floating, [data-agent-more]")) return;
+      setAgentMenu(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [agentMenu]);
   const [switchedTo, setSwitchedTo] = useState<string | null>(null);
 
   const stats = useAgentStats(session.request, agents.agents, true);
@@ -54,12 +74,13 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (menuFor) setMenuFor(null);
+      if (agentMenu) setAgentMenu(null);
+      else if (menuFor) setMenuFor(null);
       else onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menuFor, onClose]);
+  }, [agentMenu, menuFor, onClose]);
 
   const archivedCount = agents.conversations.filter((c) => c.archived).length;
   const liveCount = agents.conversations.length - archivedCount;
@@ -224,7 +245,11 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
           {agents.error ? <p className="warning small">{agents.error}</p> : null}
         </div>
 
-        <section className="switcher-agents" aria-label="Agents">
+        <section
+          className="switcher-agents"
+          aria-label="Agents"
+          onScroll={() => setAgentMenu(null)}
+        >
           <h3 className="switcher-group">Agents</h3>
           <button type="button" className="switcher-new" disabled={busy} onClick={onNewAgent}>
             <Icon name="plus" />
@@ -246,7 +271,12 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
                     {agent.name.trim().charAt(0).toUpperCase() || "?"}
                   </span>
                   <span className="switcher-agent-text">
-                    <span className="switcher-card-title">{agent.name}</span>
+                    <span className="switcher-card-title">
+                      {agents.pinned.has(agent.id) ? (
+                        <Icon name="pin" className="switcher-pin" />
+                      ) : null}
+                      {agent.name}
+                    </span>
                     <span className="switcher-card-meta">
                       {parts.join(" · ")}
                       {responding ? (
@@ -263,17 +293,41 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
                 <button
                   type="button"
                   className="switcher-more"
-                  aria-label={`Edit ${agent.name}`}
-                  title="Edit agent"
-                  onClick={() => onEditAgent(agent.id)}
+                  data-agent-more={agent.id}
+                  aria-label={`More for ${agent.name}`}
+                  aria-haspopup="menu"
+                  aria-expanded={agentMenu?.id === agent.id}
+                  onClick={(event) => {
+                    const anchor = event.currentTarget.getBoundingClientRect();
+                    setMenuFor(null);
+                    setAgentMenu((current) =>
+                      current?.id === agent.id ? null : { id: agent.id, anchor },
+                    );
+                  }}
                 >
                   <Icon name="more" />
                 </button>
+                {agentMenu?.id === agent.id ? (
+                  <AgentMenu
+                    agentName={agent.name}
+                    pinned={agents.pinned.has(agent.id)}
+                    anchor={agentMenu.anchor}
+                    onEdit={() => onEditAgent(agent.id)}
+                    onTogglePin={() =>
+                      void agents.setPinned(agent.id, !agents.pinned.has(agent.id))
+                    }
+                    onDelete={() => setDeleting(agent)}
+                    onClose={() => setAgentMenu(null)}
+                  />
+                ) : null}
               </div>
             );
           })}
         </section>
       </div>
+      {deleting ? (
+        <DeleteAgentSheet agents={agents} agent={deleting} onClose={() => setDeleting(null)} />
+      ) : null}
     </div>
   );
 }

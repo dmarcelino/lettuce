@@ -4,6 +4,7 @@ import type { AgentDraft, AgentsApi } from "../state/use-agents.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { ModelField } from "./AgentEditor.tsx";
+import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
 
 interface Props {
   session: SessionApi;
@@ -21,7 +22,6 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
   const [draft, setDraft] = useState<AgentDraft | null>(null);
   /** The agent as last loaded or saved, so Save knows what changed. */
   const [saved, setSaved] = useState<AgentDraft | null>(null);
-  const [confirmName, setConfirmName] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -33,7 +33,6 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
     setBusy(true);
     setDraft(null);
     setDeleting(false);
-    setConfirmName("");
     setStatus(null);
     void (async () => {
       try {
@@ -84,57 +83,6 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
       setBusy(false);
     }
   };
-
-  const remove = async () => {
-    setBusy(true);
-    setStatus("Deleting agent…");
-    try {
-      await agents.deleteAgent(agentId);
-    } catch (cause) {
-      setStatus(errorMessage(cause));
-      setBusy(false);
-    }
-  };
-
-  if (deleting) {
-    return (
-      <div className="pad-x">
-        {status ? <p className="muted small">{status}</p> : null}
-        <p className="warning">
-          Deleting <strong>{saved.name}</strong> removes the agent and all of its conversations.
-          This cannot be undone.
-        </p>
-        <label className="field">
-          Type the agent name to confirm
-          <input
-            value={confirmName}
-            placeholder={saved.name}
-            onChange={(event) => setConfirmName(event.target.value)}
-          />
-        </label>
-        <div className="row-actions">
-          <button
-            type="button"
-            className="button ghost"
-            onClick={() => {
-              setDeleting(false);
-              setConfirmName("");
-            }}
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            className="button danger"
-            disabled={busy || confirmName.trim() !== saved.name.trim()}
-            onClick={() => void remove()}
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="pad-x">
@@ -198,6 +146,13 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
       >
         Delete agent…
       </button>
+      {deleting ? (
+        <DeleteAgentSheet
+          agents={agents}
+          agent={{ id: agentId, name: saved.name }}
+          onClose={() => setDeleting(false)}
+        />
+      ) : null}
     </div>
   );
 }

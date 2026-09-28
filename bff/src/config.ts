@@ -51,6 +51,8 @@ export interface BffConfig {
    * all. Callers check `config.push !== null` before wiring up push routes.
    */
   push: PushConfig | null;
+  /** Pinned agents (`agents/pins.ts`), on the `bff-data` volume. */
+  pinnedAgentsFile: string;
   /**
    * Backends of the agents' native `web_search` / `fetch_webpage` tools (see
    * `web-tools/`): SearXNG answers searches, ddg-mcp reads pages and is the
@@ -248,6 +250,7 @@ export function loadConfig(): BffConfig {
     devBypassEmail,
     devBypassAllowRemote,
     push: readPushConfig(),
+    pinnedAgentsFile: process.env.PINNED_AGENTS_FILE?.trim() || "/app/data/pinned-agents.json",
     webTools: {
       searxngUrl: process.env.SEARXNG_URL?.trim() || null,
       ddgMcpUrl: process.env.DDG_MCP_URL?.trim() || null,
