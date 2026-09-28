@@ -32,9 +32,13 @@ import {
   suggestedCodexBaseUrl,
 } from "./codex/service.ts";
 import { InvalidCodexSettingsError, toPublicCodexSettings } from "./codex/settings.ts";
-import { type BffConfig, isAllowedUser, loadConfig } from "./config.ts";
+import { type BffConfig, googleWritesAllowed, isAllowedUser, loadConfig } from "./config.ts";
 import { errorMessage } from "./errors.ts";
 import { inlineContentType } from "./files/content-type.ts";
+import { createGoogleFsIo } from "./google/fs-io.ts";
+import { GoogleOAuthError } from "./google/oauth.ts";
+import { GoogleAccessError, GoogleService } from "./google/service.ts";
+import { InvalidGoogleSettingsError } from "./google/settings.ts";
 import {
   DEFAULT_HTTP_CAPACITY,
   DEFAULT_HTTP_REFILL_PER_SECOND,
@@ -117,6 +121,9 @@ const upstream = new UpstreamConnection({
       void reapplyCodexSettings(codexIo)
         .then((applied) => applied && log("Codex: re-rendered config from saved settings"))
         .catch((error) => log(`Codex: could not re-render config: ${errorMessage(error)}`));
+      void googleService
+        .reapply()
+        .catch((error) => log(`Google: could not re-render config: ${errorMessage(error)}`));
     }
   },
   log,
@@ -596,6 +603,158 @@ app.get("/api/codex/runs/:threadId", async (c) => {
     return run ? c.json({ run }) : c.text("No such Codex run", 404);
   } catch (error) {
     return c.text(errorMessage(error), 502);
+  }
+});
+
+// ── Google (Gmail / Calendar / Tasks) ───────────────────────────────────────
+// Agents use Google through the `google-mcp` sidecar; this is where the user
+// decides how far. The policy and the token live on volumes only the BFF and
+// the sidecar mount — never the app-server, where agent shells run — so an
+// agent cannot change its own access. See `google/`.
+
+/** The shared MCP list is only how agents find the sidecar; access is decided there. */
+async function syncGoogleMcpEntry(serving: boolean): Promise<void> {
+  if (!upstream.isReady()) return; // retried by `reapply` on the next connect
+  const servers = await loadMcpServers(mcpIo);
+  const listed = servers.some((server) => server.url === config.google.mcpUrl);
+  if (serving === listed) return;
+  await saveMcpServers(
+    mcpIo,
+    serving
+      ? [...servers, { name: "google", transport: "http", url: config.google.mcpUrl }]
+      : servers.filter((server) => server.url !== config.google.mcpUrl),
+  );
+  log(`Google: ${serving ? "added to" : "removed from"} the shared MCP list`);
+}
+
+const googleService = new GoogleService({
+  io: createGoogleFsIo(config.google.policyDir, config.google.credsDir),
+  fetch: (input, init) => fetch(input, init),
+  redirectUri: config.google.redirectUri,
+  syncMcpEntry: syncGoogleMcpEntry,
+  log,
+});
+
+/** Whether the sidecar answers at all — it serves nothing while disabled. */
+async function googleSidecarUp(): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/health", config.google.mcpUrl), {
+      signal: AbortSignal.timeout(1500),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function googleWriteRefusal(c: Context): Response | null {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!googleWritesAllowed(config)) {
+    return c.text(
+      "Google access cannot be changed while DEV_BYPASS_EMAIL is set: agents can sign " +
+        "themselves in through the bypass. Use Cloudflare Access, or set " +
+        "GOOGLE_ALLOW_DEV_BYPASS=true on a machine only you use.",
+      403,
+    );
+  }
+  return null;
+}
+
+function googleErrorResponse(c: Context, error: unknown): Response {
+  if (error instanceof InvalidGoogleSettingsError || error instanceof GoogleAccessError) {
+    return c.text(error.message, 400);
+  }
+  if (error instanceof GoogleOAuthError) return c.text(error.message, 502);
+  return c.text(errorMessage(error), 500);
+}
+
+app.get("/api/google", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  try {
+    const [settings, sidecarUp] = await Promise.all([googleService.status(), googleSidecarUp()]);
+    return c.json({
+      settings,
+      sidecarUp,
+      redirectUri: config.google.redirectUri,
+      writable: googleWritesAllowed(config),
+    });
+  } catch (error) {
+    return googleErrorResponse(c, error);
+  }
+});
+
+app.put("/api/google", async (c) => {
+  const refused = googleWriteRefusal(c);
+  if (refused) return refused;
+  const body = await c.req.json().catch(() => null);
+  try {
+    return c.json(await googleService.save(body));
+  } catch (error) {
+    return googleErrorResponse(c, error);
+  }
+});
+
+app.post("/api/google/connect", async (c) => {
+  const refused = googleWriteRefusal(c);
+  if (refused) return refused;
+  try {
+    return c.json({ url: await googleService.startConnect() });
+  } catch (error) {
+    return googleErrorResponse(c, error);
+  }
+});
+
+app.post("/api/google/disconnect", async (c) => {
+  const refused = googleWriteRefusal(c);
+  if (refused) return refused;
+  try {
+    return c.json(await googleService.disconnect());
+  } catch (error) {
+    return googleErrorResponse(c, error);
+  }
+});
+
+app.post("/api/google/verify", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  try {
+    return c.json(await googleService.verify());
+  } catch (error) {
+    return googleErrorResponse(c, error);
+  }
+});
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
+}
+
+function googleResultPage(title: string, detail: string, status: number): Response {
+  const html =
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
+    `<title>${escapeHtml(title)}</title>` +
+    `<body style="font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem">` +
+    `<h1 style="font-size:1.25rem">${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p>` +
+    `<p><a href="/">Back to the app</a> — Settings → Google shows what agents can do.</p>`;
+  return new Response(html, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8", ...hardened },
+  });
+}
+
+// Google's redirect back. Deliberately not gated on the session: with a
+// GOOGLE_OAUTH_REDIRECT_URI override (local testing via localhost) the browser
+// arrives on another origin without our cookie. The single-use `state` minted
+// by the gated /connect is what authorises it.
+app.get("/api/google/oauth/callback", async (c) => {
+  try {
+    const { email } = await googleService.finishConnect({
+      state: c.req.query("state"),
+      code: c.req.query("code"),
+      error: c.req.query("error"),
+    });
+    return googleResultPage("Google connected", `Agents now act as ${email}.`, 200);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return googleResultPage("Google was not connected", detail, 400);
   }
 });
 

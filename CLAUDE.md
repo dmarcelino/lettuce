@@ -146,8 +146,10 @@ beside the two repos; prod sets an absolute path. **The default is a trap in a w
 not to the real state. Set `LETTA_STATE_DIR` absolutely in `docker/.env` so a compose command
 run from anywhere hits the same state, and always do container work from the main checkout.
 
-`bff-data` is the only remaining named volume — web-push device endpoints, rebuildable by
-re-subscribing. Everything precious is in that one host directory, so a backup is a single
+Three named volumes remain, none precious. `bff-data` holds web-push device endpoints,
+rebuildable by re-subscribing. `google-policy` and `google-creds` hold Settings → Google and
+its token; they are named volumes deliberately, so the app-server cannot mount them by accident
+through the state tree, and losing them only means reconnecting Google. Everything precious is in that one host directory, so a backup is a single
 `tar`. `scripts/migrate-volumes-to-host.sh` moves an older install off the named volumes; it
 copies and verifies but never deletes, because the memfs git history is the only record of
 what an agent has learned.
@@ -477,6 +479,42 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   Python every call and lose the server's cache and its rate limiter (30 searches / 20 fetches
   a minute), which is what keeps DuckDuckGo from blocking us. The BFF seeds it (`DDG_MCP_URL`)
   only when the shared list does not exist yet, so removing it in Settings → MCP sticks.
+- **Google (Gmail / Calendar / Tasks) is a sidecar whose access no agent can change.** Agents
+  reach `http://google-mcp:8000/mcp` (`docker/google-mcp`: taylorwilsdon/google_workspace_mcp,
+  pinned `WORKSPACE_MCP_VERSION`, under `supervisor.py`), listed in the shared MCP list while it
+  serves. Reaching it is not the control — agent shells reach everything. What it may do is
+  fixed in two places no agent can touch:
+  1. **The token's OAuth scopes.** The BFF runs the consent (`bff/src/google/`), asking for
+     exactly the levels' scopes, never `include_granted_scopes`. Invariant: the token never
+     holds a scope the policy does not want — narrowing a level **revokes** it (Google would
+     otherwise keep honouring the wider grant), a consent that comes back wider is revoked
+     unkept, and changing the OAuth client drops it. Widening waits for a reconnect; meanwhile
+     the sidecar runs at what the grant covers (`coveredPermissions`, which also handles scopes
+     unticked on Google's consent screen).
+  2. **workspace-mcp's `--permissions`**, which filters its tool list by the same scopes.
+     `bff/src/google/policy.ts` mirrors its level → scope table (`auth/permissions.py`) —
+     re-verify on every version bump. The supervisor also removes `start_google_auth` (else any
+     agent can mint a consent link), sets `WORKSPACE_MCP_DISABLE_LOCAL_FILES=true`
+     (**load-bearing**: without it tools accept server-side `file_path`, and an agent could mail
+     itself `/creds`), and launches from a clean env so no `WORKSPACE_MCP_*` fallback widens it.
+
+  Both live on the `google-policy` / `google-creds` volumes, mounted by `bff` and `google-mcp`
+  **only — never mount them into `app-server` or `channel-gateway`.** The token file is
+  workspace-mcp's own format (`<email>.json`, `LocalDirectoryCredentialStore`); single-user mode
+  uses the first file it finds, so connecting clears the directory first. The supervisor polls
+  `sidecar.json` and restarts on change; disabled means nothing listens.
+
+  **Dev bypass is the hole.** Agent shells share the BFF's namespace, so in dev-bypass mode they
+  can `curl 127.0.0.1:8080/auth/dev-login` and hold a session. Google writes are therefore
+  refused whenever `DEV_BYPASS_EMAIL` is set (`googleWritesAllowed`) unless
+  `GOOGLE_ALLOW_DEV_BYPASS=true`. Every **other** setting (MCP list, Codex, agents) is still
+  writable that way in local mode — a known gap, not fixed here. Behind Cloudflare Access an
+  agent cannot mint a session. The OAuth callback is gated by its single-use `state`, not the
+  cookie, so a `GOOGLE_OAUTH_REDIRECT_URI` on another origin (localhost) works.
+
+  Limits by design: one policy for every agent (per-agent would need per-agent containers), and
+  allowed tools still combine — Calendar `full` can invite any address, which mails them even
+  with Gmail read-only, and email content is prompt-injection input.
 - **File protocol gotchas** (all verified against a running app-server):
   - `get_tree` returns paths **relative** to the root it was given; every other file command
     wants an absolute path, so the client must join them.
@@ -650,7 +688,8 @@ touches configuration.
 Only `bff` is rebuilt in step 4 — it is the only service carrying our code. Recreate
 `app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or their compose config changes,
 and `ddg-mcp` only when `DDG_MCP_VERSION` or `docker/ddg-mcp/` changes (it shares no namespace,
-so `docker compose -f docker/compose.yml up -d --build ddg-mcp` is safe on its own).
+so `docker compose -f docker/compose.yml up -d --build ddg-mcp` is safe on its own). The same
+goes for `google-mcp` with `WORKSPACE_MCP_VERSION` / `docker/google-mcp/`.
 
 **`web/dist` is baked into the bff image, never mounted.** `bff.Dockerfile` builds the SPA
 in its `web-build` stage and copies the result into the runtime image; the BFF's only mounts
@@ -683,7 +722,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run check-version-pin` | Assert every letta-code version literal agrees (runs inside `verify`) |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
-| `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway + ddg-mcp |
+| `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway + ddg-mcp + google-mcp |
 | `git push origin main` | Release, part 1 — **ask for confirmation first, every time** |
 | `~/.claude/skills/dockhand-deploy/dockhand.sh plan letta letta-code-ui-prod` | Prod preflight: commits, compose diff, what gets recreated (read-only) |
 | `… deploy letta letta-code-ui-prod --confirm` | Release, part 2 — prod redeploy via Dockhand, same confirmation as the push |

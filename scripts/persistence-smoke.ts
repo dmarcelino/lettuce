@@ -552,6 +552,33 @@ if (mcpBefore.ok) {
   );
 }
 
+// ── Settings → Google ───────────────────────────────────────────────────────
+// Read-only, apart from one refused write: connecting needs a human at Google's
+// consent screen. What must hold is that the status never leaks the client
+// secret, and that a dev-bypass deployment refuses changes (an agent could
+// otherwise sign itself in through the bypass and widen its own access).
+section("Settings → Google");
+const googleRes = await fetch(`${ORIGIN}/api/google`, { headers: { cookie } });
+check("GET /api/google succeeds", googleRes.ok, googleRes.status);
+const googleText = googleRes.ok ? await googleRes.text() : "";
+const googleStatus = googleText ? JSON.parse(googleText) : null;
+check(
+  "the client secret is never sent to a browser",
+  !googleText.includes('clientSecret"'),
+  googleStatus?.settings && Object.keys(googleStatus.settings),
+);
+if (googleStatus && googleStatus.writable === false) {
+  const refused = await fetch(`${ORIGIN}/api/google`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ enabled: false }),
+  });
+  check("dev-bypass sessions cannot change Google access", refused.status === 403, refused.status);
+}
+if (googleStatus?.settings?.serving) {
+  check("the Google sidecar answers while serving", googleStatus.sidecarUp === true, googleStatus);
+}
+
 // channel_* is off the allowlist on purpose: the app-server never dispatches
 // those commands to a WebSocket client, so allowing them would hang.
 g.send({ type: "channels_list", request_id: "chan" });

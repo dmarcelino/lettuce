@@ -1,0 +1,235 @@
+import { describe, expect, test } from "bun:test";
+import { GOOGLE_REVOKE_URI, GOOGLE_USERINFO_URI } from "./oauth.ts";
+import { scopesForPermissions } from "./policy.ts";
+import { GoogleAccessError, type GoogleIo, GoogleService } from "./service.ts";
+import { GOOGLE_SIDECAR_FILE, GOOGLE_TOKEN_URI, type SidecarConfig } from "./settings.ts";
+
+const G = "https://www.googleapis.com/auth/";
+
+function memoryIo() {
+  const policy = new Map<string, string>();
+  const creds = new Map<string, string>();
+  const io: GoogleIo = {
+    readPolicy: async (name) => policy.get(name) ?? null,
+    writePolicy: async (name, content) => void policy.set(name, content),
+    listCreds: async () => [...creds.keys()],
+    readCred: async (name) => creds.get(name) ?? null,
+    writeCred: async (name, content) => void creds.set(name, content),
+    deleteCred: async (name) => void creds.delete(name),
+  };
+  return { io, policy, creds };
+}
+
+/** A fake Google: grants whatever scopes `grant` says, records revokes. */
+function fakeGoogle(opts: { grant?: (asked: string[]) => string[] } = {}) {
+  const revoked: string[] = [];
+  let tokenCount = 0;
+  let lastAsked: string[] = [];
+  const fetch = async (url: string, init?: RequestInit): Promise<Response> => {
+    if (url === GOOGLE_TOKEN_URI) {
+      const form = new URLSearchParams(String(init?.body));
+      if (form.get("grant_type") === "refresh_token") {
+        if (revoked.includes(form.get("refresh_token") ?? "")) {
+          return Response.json({ error: "invalid_grant" }, { status: 400 });
+        }
+        return Response.json({ access_token: "a2", scope: lastAsked.join(" ") });
+      }
+      tokenCount += 1;
+      const scopes = (opts.grant ?? ((asked) => asked))(lastAsked);
+      return Response.json({
+        access_token: `access-${tokenCount}`,
+        refresh_token: `refresh-${tokenCount}`,
+        expires_in: 3600,
+        scope: scopes.join(" "),
+      });
+    }
+    if (url === GOOGLE_REVOKE_URI) {
+      revoked.push(new URLSearchParams(String(init?.body)).get("token") ?? "");
+      return new Response("", { status: 200 });
+    }
+    if (url === GOOGLE_USERINFO_URI) return Response.json({ email: "Me@Example.com" });
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  return {
+    fetch,
+    revoked,
+    ask(url: string) {
+      lastAsked = (new URL(url).searchParams.get("scope") ?? "").split(" ");
+      return new URL(url).searchParams.get("state") ?? "";
+    },
+  };
+}
+
+function setup(opts: Parameters<typeof fakeGoogle>[0] = {}) {
+  const mem = memoryIo();
+  const google = fakeGoogle(opts);
+  const mcp: boolean[] = [];
+  const service = new GoogleService({
+    io: mem.io,
+    fetch: google.fetch,
+    redirectUri: "https://ui.example/api/google/oauth/callback",
+    syncMcpEntry: async (serving) => void mcp.push(serving),
+    log: () => {},
+  });
+  const sidecar = () => JSON.parse(mem.policy.get(GOOGLE_SIDECAR_FILE) ?? "{}") as SidecarConfig;
+  const connect = async () => {
+    const state = google.ask(await service.startConnect());
+    return service.finishConnect({ state, code: "c" });
+  };
+  return { ...mem, google, service, mcp, sidecar, connect };
+}
+
+const CLIENT = { clientId: "id.apps.googleusercontent.com", clientSecret: "secret" };
+const POLICY = { gmail: "readonly", calendar: "full", tasks: "manage" };
+
+describe("connecting", () => {
+  test("asks for exactly the policy's scopes and serves them", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    expect(t.sidecar().enabled).toBe(false);
+
+    const url = new URL(await t.service.startConnect());
+    expect(url.searchParams.get("scope")?.split(" ").sort()).toEqual(
+      scopesForPermissions(POLICY as never),
+    );
+    expect(url.searchParams.get("include_granted_scopes")).toBeNull();
+    expect(url.searchParams.get("access_type")).toBe("offline");
+
+    const { email } = await t.connect();
+    expect(email).toBe("me@example.com");
+    expect([...t.creds.keys()]).toEqual(["me@example.com.json"]);
+    expect(t.sidecar()).toMatchObject({
+      enabled: true,
+      email: "me@example.com",
+      permissions: ["gmail:readonly", "calendar:full", "tasks:manage"],
+    });
+    expect(t.mcp.at(-1)).toBe(true);
+  });
+
+  test("a state can be used once only, and a made-up one never", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    const state = t.google.ask(await t.service.startConnect());
+    await t.service.finishConnect({ state, code: "c" });
+    await expect(t.service.finishConnect({ state, code: "c" })).rejects.toThrow(GoogleAccessError);
+    await expect(t.service.finishConnect({ state: "forged", code: "c" })).rejects.toThrow(
+      GoogleAccessError,
+    );
+  });
+
+  test("a scope left unticked lowers the served level", async () => {
+    const t = setup({ grant: (asked) => asked.filter((s) => s !== `${G}calendar`) });
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    expect(t.sidecar().permissions).toEqual([
+      "gmail:readonly",
+      "calendar:readonly",
+      "tasks:manage",
+    ]);
+    expect((await t.service.status()).needsReconnect).toBe(true);
+  });
+
+  test("a token wider than the policy is revoked, not kept", async () => {
+    const t = setup({ grant: (asked) => [...asked, `${G}gmail.send`] });
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await expect(t.connect()).rejects.toThrow(/more than the current settings allow/);
+    expect(t.google.revoked).toEqual(["refresh-1"]);
+    expect(t.creds.size).toBe(0);
+    expect(t.sidecar().enabled).toBe(false);
+  });
+
+  test("reconnecting revokes the replaced token and leaves one credential file", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    await t.connect();
+    expect(t.google.revoked).toEqual(["refresh-1"]);
+    expect(t.creds.size).toBe(1);
+  });
+});
+
+describe("changing the policy", () => {
+  test("narrowing revokes the token and stops serving", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: { ...POLICY, gmail: "send" } });
+    await t.connect();
+    await t.service.save({ permissions: { gmail: "readonly" } });
+    expect(t.google.revoked).toEqual(["refresh-1"]);
+    expect(t.creds.size).toBe(0);
+    expect(t.sidecar().enabled).toBe(false);
+    expect(t.mcp.at(-1)).toBe(false);
+  });
+
+  test("switching tasks between manage and full keeps the token", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: { ...POLICY, tasks: "full" } });
+    await t.connect();
+    await t.service.save({ permissions: { tasks: "manage" } });
+    expect(t.google.revoked).toEqual([]);
+    expect(t.sidecar().permissions).toContain("tasks:manage");
+  });
+
+  test("widening keeps the token and waits for a reconnect", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    const { settings } = await t.service.save({ permissions: { gmail: "send" } });
+    expect(t.google.revoked).toEqual([]);
+    expect(settings.needsReconnect).toBe(true);
+    expect(t.sidecar().permissions).toContain("gmail:readonly");
+  });
+
+  test("disabling stops serving but keeps the grant", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    await t.service.save({ enabled: false });
+    expect(t.sidecar()).toMatchObject({ enabled: false, clientSecret: "", permissions: [] });
+    expect(t.creds.size).toBe(1);
+  });
+
+  test("a new OAuth client drops the old client's token", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    await t.service.save({ clientSecret: "rotated" });
+    expect(t.google.revoked).toEqual(["refresh-1"]);
+    expect((await t.service.status()).grant).toBeNull();
+  });
+
+  test("the secret never reaches the public view", async () => {
+    const t = setup();
+    const { settings } = await t.service.save({ ...CLIENT });
+    expect(JSON.stringify(settings)).not.toContain('secret"');
+    expect(settings.hasClientSecret).toBe(true);
+  });
+
+  test("an unknown level is refused", async () => {
+    const t = setup();
+    await expect(t.service.save({ permissions: { gmail: "everything" } })).rejects.toThrow();
+    await expect(t.service.save({ permissions: { drive: "full" } })).rejects.toThrow();
+  });
+});
+
+describe("disconnect and verify", () => {
+  test("disconnect revokes and clears", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    await t.service.disconnect();
+    expect(t.google.revoked).toEqual(["refresh-1"]);
+    expect(t.creds.size).toBe(0);
+    expect(t.sidecar().enabled).toBe(false);
+  });
+
+  test("verify notices a token revoked at Google", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    t.google.revoked.push("refresh-1");
+    const { settings, warning } = await t.service.verify();
+    expect(settings.grant).toBeNull();
+    expect(warning).toMatch(/no longer accepts/);
+    expect(t.creds.size).toBe(0);
+  });
+});

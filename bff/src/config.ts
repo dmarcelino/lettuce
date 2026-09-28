@@ -57,6 +57,31 @@ export interface BffConfig {
    * yet — see `mcp/settings.ts` `defaultMcpServers`.
    */
   mcpSeedUrl: string | null;
+  /** Settings → Google — see `google/settings.ts`. */
+  google: GoogleConfig;
+}
+
+export interface GoogleConfig {
+  /** The BFF's mount of the `google-policy` volume. */
+  policyDir: string;
+  /** The BFF's mount of the `google-creds` volume. */
+  credsDir: string;
+  /** The sidecar's MCP endpoint, as agents reach it; what goes into the shared list. */
+  mcpUrl: string;
+  /** Must match a redirect URI on the OAuth client exactly. */
+  redirectUri: string;
+  /**
+   * Whether a dev-bypass session may change Google access. Off by default:
+   * agent shells share the BFF's network namespace, so in dev-bypass mode an
+   * agent can `curl 127.0.0.1:8080/auth/dev-login` and hold a session of its
+   * own. Only Cloudflare Access proves a human is asking.
+   */
+  allowDevBypass: boolean;
+}
+
+/** Whether this deployment lets a signed-in session change Google access. */
+export function googleWritesAllowed(config: BffConfig): boolean {
+  return config.devBypassEmail === null || config.google.allowDevBypass;
 }
 
 export interface PushConfig {
@@ -224,6 +249,15 @@ export function loadConfig(): BffConfig {
     devBypassAllowRemote,
     push: readPushConfig(),
     mcpSeedUrl: process.env.DDG_MCP_URL?.trim() || null,
+    google: {
+      policyDir: process.env.GOOGLE_POLICY_DIR?.trim() || "/app/google/policy",
+      credsDir: process.env.GOOGLE_CREDS_DIR?.trim() || "/app/google/creds",
+      mcpUrl: process.env.GOOGLE_MCP_URL?.trim() || "http://google-mcp:8000/mcp",
+      redirectUri:
+        process.env.GOOGLE_OAUTH_REDIRECT_URI?.trim() ||
+        `${publicOrigin}/api/google/oauth/callback`,
+      allowDevBypass: process.env.GOOGLE_ALLOW_DEV_BYPASS?.trim() === "true",
+    },
   };
 }
 

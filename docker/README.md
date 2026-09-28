@@ -336,6 +336,43 @@ docker compose -f docker/compose.yml exec app-server gh auth status
 Every agent shell can read that token — the same reach as any other file under
 `/root/.letta` (see the sandbox notes in CLAUDE.md).
 
+## Google (Gmail, Calendar, Tasks)
+
+Agents use one Google account through the `google-mcp` sidecar, at the levels
+chosen in **Settings → Google** (e.g. Gmail read-only, Tasks and Calendar
+read-write). Unlike the GitHub token above, this token is **not** readable by
+agents: it and the levels live on the `google-policy` / `google-creds` volumes,
+which only the BFF and the sidecar mount.
+
+One-time Google Cloud setup (your own project, free):
+
+1. Create a project at <https://console.cloud.google.com/> and enable the
+   **Gmail API**, **Google Calendar API** and **Google Tasks API**.
+2. **OAuth consent screen** (Google Auth Platform → Branding / Audience): user
+   type **External**, then **Publish app** so the
+   status reads **In production**. Leave it in *Testing* and Google expires
+   the refresh token after 7 days. Verification is not needed for your own
+   account; you click through an "unverified app" warning once per consent.
+3. **Clients → Create client → Web application**, with the authorized redirect
+   URI Settings → Google shows — by default
+   `${PUBLIC_ORIGIN}/api/google/oauth/callback`. Google accepts only `https`
+   or `localhost`, so a plain-http LAN origin cannot be used: set
+   `GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8090/api/google/oauth/callback`
+   in `docker/.env` and connect from a browser on the host (or through
+   `ssh -L 8090:localhost:8090`).
+4. In Settings → Google: paste the client ID and secret, choose the levels,
+   tick **Allow agents to use Google**, **Save**, then **Connect Google**.
+
+Changing a level down (or turning a service off) **revokes** the token, and
+you connect again; changing one up keeps the old access until you reconnect.
+Disconnect revokes it at Google too. You can always check or revoke access at
+<https://myaccount.google.com/permissions>.
+
+**Settings → Google is read-only in dev-bypass mode.** Agent shells share the
+BFF's network namespace, so they could `curl 127.0.0.1:8080/auth/dev-login`
+and change the levels themselves. Behind Cloudflare Access they cannot. For a
+machine only you use, `GOOGLE_ALLOW_DEV_BYPASS=true` lifts the lock.
+
 ## Push notifications
 
 Fully optional and self-gating — leave the three `PUSH_VAPID_*` variables

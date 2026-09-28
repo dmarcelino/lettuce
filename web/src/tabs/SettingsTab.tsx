@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CodexSection } from "../components/CodexSection.tsx";
+import { GoogleSection } from "../components/GoogleSection.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { McpEditor } from "../components/McpEditor.tsx";
 import { ReflectionSection } from "../components/ReflectionSection.tsx";
@@ -70,6 +71,7 @@ type Section =
   | "mcp"
   | "skills"
   | "codex"
+  | "google"
   | "secrets"
   | "reflection"
   | "notifications";
@@ -79,6 +81,7 @@ const SECTION_LABELS: Record<Section, string> = {
   mcp: "MCP",
   skills: "Skills",
   codex: "Codex",
+  google: "Google",
   secrets: "Secrets",
   reflection: "Reflection",
   notifications: "Notifications",
@@ -112,7 +115,16 @@ export function SettingsTab({ session, agentId, conversationId, cwd, skillsVersi
   // Secrets are agent-scoped, so the chip is pointless with no agent selected.
   const agentManagement = session.appServerInfo?.capabilities.agent_management ?? false;
   const visibleSections: Section[] = (
-    ["connection", "mcp", "skills", "codex", "secrets", "reflection", "notifications"] as Section[]
+    [
+      "connection",
+      "mcp",
+      "skills",
+      "codex",
+      "google",
+      "secrets",
+      "reflection",
+      "notifications",
+    ] as Section[]
   ).filter((name) => name !== "secrets" || agentManagement);
 
   return (
@@ -136,6 +148,7 @@ export function SettingsTab({ session, agentId, conversationId, cwd, skillsVersi
         <SkillsSection session={session} agentId={agentId} cwd={cwd} version={skillsVersion} />
       ) : null}
       {section === "codex" ? <CodexSection /> : null}
+      {section === "google" ? <GoogleSection /> : null}
       {section === "secrets" ? <SecretsSection session={session} agentId={agentId} /> : null}
       {section === "reflection" ? (
         <ReflectionSection session={session} agentId={agentId} conversationId={conversationId} />

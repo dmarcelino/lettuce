@@ -1842,6 +1842,13 @@ p.warning code {
 .pad-x {
   margin: 0 12px 12px;
 }
+/* Several actions side by side, wrapping on a phone rather than overflowing. */
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
 .field select {
   background: var(--surface-2);
   color: var(--text);

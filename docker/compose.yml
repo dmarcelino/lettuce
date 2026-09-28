@@ -238,7 +238,21 @@ services:
       # The shared MCP list's starting entry — used only when that list does not
       # exist yet, so removing the server in Settings → MCP sticks. Empty: none.
       DDG_MCP_URL: ${DDG_MCP_URL-http://ddg-mcp:8000/mcp}
+      # Settings → Google. Changing Google access from a dev-bypass session is
+      # refused unless this is "true": agent shells share this namespace and can
+      # sign themselves in through the bypass. See bff/src/config.ts.
+      GOOGLE_ALLOW_DEV_BYPASS: ${GOOGLE_ALLOW_DEV_BYPASS:-}
+      # Defaults to ${PUBLIC_ORIGIN}/api/google/oauth/callback. Google accepts
+      # only https or localhost here, so a plain-http LAN origin needs an
+      # override such as http://localhost:8090/api/google/oauth/callback.
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
     volumes:
+      # Google access policy and OAuth token (bff/src/google/): shared with the
+      # google-mcp sidecar and NOTHING else. The app-server and channel-gateway
+      # must never mount these — agent shells run there, and whatever they can
+      # write, an agent can change about its own Google access.
+      - google-policy:/app/google/policy
+      - google-creds:/app/google/creds
       # Push subscriptions: device endpoints the BFF rewrites on every
       # subscribe/unsubscribe. Nothing reads this by hand and losing it only
       # means re-subscribing from Settings → Notifications, so unlike the state
@@ -319,6 +333,25 @@ services:
       DDG_SAFE_SEARCH: ${DDG_SAFE_SEARCH:-OFF}
     restart: unless-stopped
 
+  # Gmail, Calendar and Tasks for agents: workspace-mcp under a supervisor that
+  # runs it only as Settings → Google says (docker/google-mcp). Agents reach it
+  # as http://google-mcp:8000/mcp — the BFF adds that to the shared MCP list
+  # while it serves. No `ports:` and no auth, like ddg-mcp: reaching it is not
+  # the control. What it may do is fixed by two things no agent can touch —
+  # the token's OAuth scopes and workspace-mcp's `--permissions` — both on the
+  # two volumes below, which only this service and the BFF mount.
+  google-mcp:
+    build:
+      context: google-mcp
+      args:
+        WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-1.29.0}
+    image: letta-google-mcp:${WORKSPACE_MCP_VERSION:-1.29.0}
+    volumes:
+      - google-policy:/policy:ro
+      # Read-write: workspace-mcp stores the refreshed access token here.
+      - google-creds:/creds
+    restart: unless-stopped
+
   # Outbound-only, dashboard-managed tunnel: the public-hostname-to-origin
   # mapping lives in the Cloudflare Zero Trust dashboard (see docker/README.md),
   # not in a local config.yml. No ports, no network_mode — it joins Compose's
@@ -354,3 +387,7 @@ volumes:
   # settings.json, agent workspaces — lives under LETTA_STATE_DIR on the host
   # instead, where it can be inspected and backed up with ordinary tools.
   bff-data:
+  # Settings → Google: the BFF and google-mcp only (see those services). Losing
+  # them means reconnecting Google, nothing more — Google holds the account.
+  google-policy:
+  google-creds:
