@@ -1225,7 +1225,8 @@ try {
       return {
         input: measure('.field input:not([type="checkbox"])'),
         select: measure(".field select"),
-        button: measure(".button"),
+        // The pane's buttons: the sidebar's heading actions are compact by design.
+        button: measure(".main .button:not(.compact)"),
         sidebarSelect: measure(".sidebar select"),
       };
     });
