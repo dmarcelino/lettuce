@@ -78,6 +78,22 @@ interface Props {
 
 type OpenSheet = "filters" | "permissions" | "commands" | "structured" | null;
 
+/** The composer grows with its text up to this height, then scrolls. */
+const MAX_TEXTAREA_HEIGHT = 160;
+
+/**
+ * Size the box to its text. `scrollHeight` is rounded to a whole pixel while the
+ * content is not (16px × 1.4 lines plus padding is 30.4px), so a box sized to it
+ * sits a fraction short — and with `overflow-y: auto` that drew a scrollbar on a
+ * single line. It scrolls only once it has stopped growing.
+ */
+function fitToContent(textarea: HTMLTextAreaElement): void {
+  textarea.style.height = "auto";
+  const height = textarea.scrollHeight;
+  textarea.style.height = `${Math.min(height, MAX_TEXTAREA_HEIGHT)}px`;
+  textarea.style.overflowY = height > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
+}
+
 /**
  * The single control surface for a turn: the textarea plus one row of controls
  * beneath it. Everything that used to sit in a chip row above the transcript
@@ -144,7 +160,7 @@ export function Composer({
     // The restored value has not hit the DOM yet; grow to fit it after paint,
     // the same clamp `onChange` uses, so a multi-line draft is not squashed.
     const frame = requestAnimationFrame(() => {
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+      fitToContent(textarea);
     });
     return () => cancelAnimationFrame(frame);
   }, [draftKey]);
@@ -163,8 +179,7 @@ export function Composer({
     if (!textarea) return;
     textarea.focus();
     requestAnimationFrame(() => {
-      textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+      fitToContent(textarea);
       textarea.setSelectionRange(prefill.length, prefill.length);
     });
   }, [prefill]);
@@ -180,7 +195,10 @@ export function Composer({
     setHighlight(0);
     setDismissed(false);
     const textarea = textareaRef.current;
-    if (textarea) textarea.style.height = "auto";
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.overflowY = "";
+    }
   };
 
   /**
@@ -195,8 +213,7 @@ export function Composer({
     const textarea = textareaRef.current;
     if (!textarea) return;
     requestAnimationFrame(() => {
-      textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+      fitToContent(textarea);
       textarea.setSelectionRange(next.length, next.length);
     });
   };
@@ -316,9 +333,7 @@ export function Composer({
               remember(event.target.value);
               setHighlight(0);
               setDismissed(false);
-              const textarea = event.target;
-              textarea.style.height = "auto";
-              textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+              fitToContent(event.target);
             }}
             onKeyDown={(event) => {
               // An IME mid-composition owns every key; the send button is still

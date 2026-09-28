@@ -965,6 +965,8 @@ pre {
   font-size: 16px;
   line-height: 1.4;
   max-height: 160px;
+  /* Until it reaches max-height; see fitToContent in Composer.tsx. */
+  overflow-y: hidden;
 }
 .composer textarea:focus {
   outline: none;
