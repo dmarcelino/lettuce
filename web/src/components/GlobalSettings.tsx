@@ -26,53 +26,41 @@ export type GlobalSection =
 interface SectionInfo {
   id: GlobalSection;
   label: string;
-  description: string;
+  /** The phone's chip: eight full names do not fit two rows at 390px. */
+  short: string;
 }
 
 /** The sections, grouped as the list shows them. */
 export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[] = [
   {
     label: "Model",
-    sections: [
-      {
-        id: "providers",
-        label: "Providers & models",
-        description: "The endpoints every agent's models come from",
-      },
-    ],
+    sections: [{ id: "providers", label: "Providers & models", short: "Models" }],
   },
   {
     label: "Tools & integrations",
     sections: [
-      { id: "web", label: "Web search", description: "web_search and fetch_webpage" },
-      { id: "mcp", label: "MCP servers", description: "The shared server list" },
-      { id: "google", label: "Google", description: "Gmail, Calendar and Tasks access" },
-      { id: "codex", label: "Codex workers", description: "Coding subagents and their provider" },
+      { id: "web", label: "Web search", short: "Web" },
+      { id: "mcp", label: "MCP servers", short: "MCP" },
+      { id: "google", label: "Google", short: "Google" },
+      { id: "codex", label: "Codex workers", short: "Codex" },
     ],
   },
   {
     label: "Skills",
-    sections: [
-      { id: "skills", label: "Global skills", description: "Skills every agent can load" },
-    ],
+    sections: [{ id: "skills", label: "Global skills", short: "Skills" }],
   },
   {
     label: "This device",
-    sections: [
-      {
-        id: "notifications",
-        label: "Notifications",
-        description: "Push notifications to this browser",
-      },
-    ],
+    sections: [{ id: "notifications", label: "Notifications", short: "Push" }],
   },
   {
     label: "App",
-    sections: [{ id: "about", label: "About", description: "Version, sign-in and connection" }],
+    sections: [{ id: "about", label: "About", short: "About" }],
   },
 ];
 
 const ALL_SECTIONS = GLOBAL_SECTION_GROUPS.flatMap((group) => group.sections);
+const SHARED_NOTE = "Shared by every agent. An agent's own settings are in its Agent tab.";
 const LAST_SECTION_KEY = "letta-ui:settings-section";
 const WIDE_QUERY = "(min-width: 900px)";
 
@@ -97,7 +85,7 @@ function writeLastSection(section: GlobalSection): void {
   }
 }
 
-/** Two panes at the desktop breakpoint, list → detail below it. */
+/** The grouped list beside the section at the desktop breakpoint, chips above it below. */
 function useWide(): boolean {
   const [wide, setWide] = useState(() => globalThis.matchMedia?.(WIDE_QUERY).matches ?? false);
   useEffect(() => {
@@ -128,6 +116,10 @@ interface Props {
  * Switcher, opened from the top bar's gear: it has nothing to do with which
  * agent is selected, so it is not a tab beside the agent's own. Per-agent
  * settings are the Agent tab.
+ *
+ * Desktop: the grouped list beside the open section. Phone: the Agent tab's
+ * wrapping chips, short names, over the section — a list you had to back out
+ * of to reach the next section cost a tap per visit.
  */
 export function GlobalSettings({
   session,
@@ -140,21 +132,17 @@ export function GlobalSettings({
   onClose,
 }: Props) {
   const wide = useWide();
-  // A phone opens on the list, unless sent to a section; a desktop always has
-  // one open beside the list, so it resumes where it was.
-  const [picked, setPicked] = useState<GlobalSection | null>(initialSection ?? null);
-  const section: GlobalSection | null = wide
-    ? (picked ?? readLastSection() ?? "providers")
-    : picked;
+  // One section is always open, so it resumes where it was.
+  const [section, setSection] = useState<GlobalSection>(
+    () => initialSection ?? readLastSection() ?? "providers",
+  );
 
   const pick = (next: GlobalSection) => {
-    setPicked(next);
+    setSection(next);
     writeLastSection(next);
   };
 
-  // Back steps from a section to the list on a phone, then closes.
   useBackToClose(onClose);
-  useBackToClose(() => setPicked(null), !wide && picked !== null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -167,8 +155,7 @@ export function GlobalSettings({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const info = ALL_SECTIONS.find((candidate) => candidate.id === section) ?? null;
-  const showList = wide || section === null;
+  const info = ALL_SECTIONS.find((candidate) => candidate.id === section);
 
   const content: Record<GlobalSection, () => ReactNode> = {
     providers: () => <ConnectionSection session={session} />,
@@ -187,39 +174,46 @@ export function GlobalSettings({
     <div className="switcher settings-screen" role="dialog" aria-modal="true" aria-label="Settings">
       <div className="switcher-panel settings-panel">
         <header className="switcher-bar">
-          {!wide && section !== null ? (
-            <button
-              type="button"
-              className="sheet-close"
-              onClick={() => setPicked(null)}
-              aria-label="Back to settings"
-            >
-              <Icon name="back" />
-            </button>
-          ) : null}
-          <h2>{!wide && info ? info.label : "Settings"}</h2>
+          <h2>Settings</h2>
           <button type="button" className="sheet-close" onClick={onClose} aria-label="Close">
             <Icon name="close" />
           </button>
         </header>
 
+        {wide ? null : (
+          <>
+            <nav className="pane-bar section-tabs" aria-label="Settings sections">
+              {ALL_SECTIONS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={item.id === section ? "active" : undefined}
+                  aria-current={item.id === section ? "true" : undefined}
+                  onClick={() => pick(item.id)}
+                >
+                  {item.short}
+                </button>
+              ))}
+            </nav>
+            <p className="scope-line small">{SHARED_NOTE}</p>
+          </>
+        )}
+
         <div className="settings-body">
-          {showList ? (
+          {wide ? (
             <nav className="settings-nav" aria-label="Settings sections">
-              <p className="settings-nav-note small muted">
-                Shared by every agent. An agent's own settings are in its Agent tab.
-              </p>
+              <p className="settings-nav-note small muted">{SHARED_NOTE}</p>
               {GLOBAL_SECTION_GROUPS.map((group) => (
                 <section key={group.label}>
                   <h3 className="switcher-group">{group.label}</h3>
                   <ul className="menu-list">
                     {group.sections.map((item) => (
+                      // Selected by its border alone: a tick beside a list you
+                      // navigate reads as a setting being switched on.
                       <MenuRow
                         key={item.id}
                         title={item.label}
-                        description={wide ? undefined : item.description}
-                        mark={wide ? "check" : undefined}
-                        selected={wide && item.id === section}
+                        selected={item.id === section}
                         onClick={() => pick(item.id)}
                       />
                     ))}
@@ -229,12 +223,10 @@ export function GlobalSettings({
             </nav>
           ) : null}
 
-          {section !== null ? (
-            <div className="pane settings-content">
-              {wide && info ? <h3 className="settings-content-title">{info.label}</h3> : null}
-              {content[section]()}
-            </div>
-          ) : null}
+          <div className="pane settings-content">
+            {wide && info ? <h3 className="settings-content-title">{info.label}</h3> : null}
+            {content[section]()}
+          </div>
         </div>
       </div>
     </div>

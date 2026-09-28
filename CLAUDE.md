@@ -510,8 +510,8 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent**
   tab (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name,
   model, base system prompt, delete), Secrets, Reflection, and the Skills it sees. **Settings**,
-  the top bar's gear (`components/GlobalSettings.tsx`, full screen, list → section on a phone,
-  two panes on desktop), holds what every agent shares — providers, web search, MCP servers,
+  the top bar's gear (`components/GlobalSettings.tsx`, full screen; wrapping chips with short
+  names on a phone, the grouped list beside the section on desktop), holds what every agent shares — providers, web search, MCP servers,
   Google, Codex workers, global skills — plus this device's notifications and an About. A new
   setting goes where its backend key is: keyed by `agent_id` → Agent tab; a BFF file or an
   app-server-wide command → Settings; `runtime` scope → next to the conversation (composer).

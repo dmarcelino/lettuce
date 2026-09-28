@@ -33,7 +33,7 @@ export function MenuRow({
         disabled={disabled}
         onClick={onClick}
         aria-pressed={mark === "checkbox" ? selected : undefined}
-        aria-current={mark === "check" && selected ? "true" : undefined}
+        aria-current={selected && mark !== "checkbox" ? "true" : undefined}
       >
         <span className="menu-row-text">
           <span className="menu-row-title">{title}</span>

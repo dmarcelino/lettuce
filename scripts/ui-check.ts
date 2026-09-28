@@ -590,22 +590,51 @@ try {
     );
     await shot(page, "phone-skills");
 
-    // Settings for every agent: the top bar's gear, a list first on a phone,
-    // then one section with a back arrow — never a row of chips to scroll.
+    // Settings for every agent: the top bar's gear. On a phone, the Agent
+    // tab's wrapping chips with short names over the open section — no list
+    // to back out of. All eight must be on screen with no sideways scroll.
     await page.locator('.topbar button[aria-label="Settings"]').click();
     await page.locator(".settings-screen").waitFor();
+    const phoneChips = (
+      await page.locator(".settings-screen .section-tabs button").allInnerTexts()
+    ).map((t) => t.trim());
+    const expectedPhoneChips = [
+      "Models",
+      "Web",
+      "MCP",
+      "Google",
+      "Codex",
+      "Skills",
+      "Push",
+      "About",
+    ];
     check(
-      "phone settings open on the section list",
-      (await page.locator(".settings-nav").isVisible()) &&
-        (await page.locator(".settings-content").count()) === 0,
+      `phone settings chips are ${expectedPhoneChips.join(" / ")}`,
+      JSON.stringify(phoneChips) === JSON.stringify(expectedPhoneChips),
+      phoneChips,
+    );
+    check(
+      "phone settings show chips, not the desktop list",
+      (await page.locator(".settings-nav").count()) === 0 &&
+        (await page.locator(".settings-content").isVisible()),
+    );
+    const chipsFit = await page.evaluate(() => {
+      const bar = document.querySelector(".settings-screen .section-tabs") as HTMLElement;
+      const last = bar.lastElementChild?.getBoundingClientRect();
+      return { scroll: bar.scrollWidth, client: bar.clientWidth, lastRight: last?.right ?? 0 };
+    });
+    check(
+      "every settings chip is on screen (no sideways scroll)",
+      chipsFit.scroll <= chipsFit.client && chipsFit.lastRight <= PHONE.width,
+      chipsFit,
     );
     await shot(page, "phone-settings");
-    await page.locator('.settings-nav .menu-row:has-text("MCP servers")').click();
-    await page.locator(".settings-content").waitFor();
+    await page.locator('.settings-screen .section-tabs button:text-is("MCP")').click();
+    await page.waitForTimeout(700);
     check(
-      "a phone section replaces the list and names itself",
-      (await page.locator(".settings-nav").count()) === 0 &&
-        (await page.locator(".settings-screen .switcher-bar h2").innerText()) === "MCP servers",
+      "a chip opens its section",
+      (await page.locator(".settings-screen .section-tabs button.active").innerText()) === "MCP" &&
+        (await page.locator(".settings-content").innerText()).includes("MCP"),
     );
     const sectionWidth = await page.evaluate(() => {
       const pane = document.querySelector(".settings-content") as HTMLElement;
@@ -617,8 +646,6 @@ try {
       sectionWidth,
     );
     await shot(page, "phone-settings-mcp");
-    await page.locator('button[aria-label="Back to settings"]').click();
-    check("back returns to the section list", await page.locator(".settings-nav").isVisible());
     await page.locator('.settings-screen button[aria-label="Close"]').click();
     check("close leaves settings", (await page.locator(".settings-screen").count()) === 0);
 
@@ -770,6 +797,11 @@ try {
       "desktop settings show the list and a section together",
       (await page.locator(".settings-nav").isVisible()) &&
         (await page.locator(".settings-content").isVisible()),
+    );
+    check(
+      "the selected settings row is marked by its border, not a tick",
+      (await page.locator(".settings-nav .menu-row.selected").count()) === 1 &&
+        (await page.locator(".settings-nav .menu-row-check").count()) === 0,
     );
     const expectedRows = [
       "Providers & models",
