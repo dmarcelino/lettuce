@@ -13,7 +13,18 @@
   --bad: #f87171;
   /* Square everywhere. Kept as a token so the few call sites stay expressive. */
   --radius: 0;
+  /* One height for every form control and button: an .icon-button's, so a form,
+     the sidebar and the composer line up. */
+  --control-h: 40px;
+  /* A .button's text size. Touch keeps 16px: iOS Safari zooms the page when a
+     focused input's text is smaller. */
+  --control-font: 14px;
   color-scheme: dark;
+}
+@media (pointer: coarse) {
+  :root {
+    --control-font: 16px;
+  }
 }
 
 * {
@@ -163,13 +174,8 @@ pre {
   color: var(--muted);
 }
 
+/* Styled with the form controls, under .field. */
 .sidebar select {
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 0;
-  padding: 9px 10px;
-  font-size: 14px;
   width: 100%;
 }
 
@@ -1076,8 +1082,12 @@ pre {
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 
 .button {
-  display: inline-block;
-  padding: 10px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--control-h);
+  padding: 8px 16px;
   border: none;
   border-radius: 0;
   background: var(--accent);
@@ -1711,10 +1721,10 @@ p.warning code {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 0;
-  padding: 8px 10px;
+  height: var(--control-h);
+  padding: 0 10px;
   font: inherit;
-  font-size: 16px;
-  line-height: 1.3;
+  font-size: var(--control-font);
 }
 .path {
   font-size: 12px;
@@ -1965,17 +1975,39 @@ p.warning code {
 }
 .field input,
 .field select,
-.field textarea {
+.field textarea,
+.sidebar select,
+.limit-edit > input {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 0;
-  padding: 10px;
+  padding: 9px 10px;
   font: inherit;
-  font-size: 16px;
+  font-size: var(--control-font);
   font-weight: 400;
   line-height: 1.4;
   resize: vertical;
+}
+/* Single-line controls share the button height; a textarea grows instead. */
+.field input:not([type="checkbox"]),
+.field select,
+.sidebar select,
+.limit-edit > input {
+  height: var(--control-h);
+  padding-block: 0;
+  line-height: normal;
+}
+/* The native arrow differs per platform and shifts the text inward, so a select
+   read as a different control from the input above it. */
+.field select,
+.sidebar select {
+  appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23939cad' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
 }
 .field .small {
   font-weight: 400;
@@ -2036,18 +2068,6 @@ p.warning code {
   gap: 8px;
   margin: 8px 0;
 }
-.field select {
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 0;
-  padding: 10px;
-  font: inherit;
-  font-size: 16px;
-  font-weight: 400;
-  line-height: 1.4;
-}
-
 /* A response in progress with no row to mark — the agent's unlisted default
    conversation, or one the list has not caught up with. See lib/activity.ts. */
 .activity-note {
@@ -2180,6 +2200,7 @@ p.warning code {
   align-items: center;
   gap: 8px;
   margin: 8px 12px 0;
+  height: var(--control-h);
   padding: 0 12px;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -2188,12 +2209,13 @@ p.warning code {
 .switcher-search input {
   flex: 1;
   min-width: 0;
-  padding: 8px 0;
+  padding: 0;
   background: none;
   border: none;
   outline: none;
   color: var(--text);
   font: inherit;
+  font-size: var(--control-font);
 }
 .switcher-list {
   flex: 1;
@@ -2699,7 +2721,6 @@ p.warning code {
 }
 .limit-edit > input {
   width: 100%;
-  font-size: 16px;
   font-variant-numeric: tabular-nums;
 }
 .limit-presets {

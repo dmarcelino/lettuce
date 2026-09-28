@@ -1196,6 +1196,55 @@ try {
     await textarea.fill("");
     await context.close();
   }
+
+  // Inputs, selects and buttons share one height (--control-h). They had drifted
+  // to five — 36 to 44px — with fields at 16px text beside 14px buttons. Touch
+  // keeps 16px text (iOS zooms a focused input below that) but not a taller box.
+  section("Form controls share one height");
+  for (const [label, options] of [
+    ["mouse", { viewport: DESKTOP }],
+    ["touch", { viewport: PHONE, isMobile: true, hasTouch: true }],
+  ] as const) {
+    const context = await browser.newContext(options);
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await page.locator('nav.tabs button:text-is("Settings")').click();
+    await page.locator('.section-tabs button:text-is("Reflection")').click();
+    await page.locator(".field select").first().waitFor();
+    const sizes = await page.evaluate(() => {
+      const measure = (selector: string) => {
+        const el = [...document.querySelectorAll<HTMLElement>(selector)].find(
+          (candidate) => candidate.offsetParent !== null,
+        );
+        if (!el) return null;
+        return {
+          height: Math.round(el.getBoundingClientRect().height * 10) / 10,
+          font: getComputedStyle(el).fontSize,
+        };
+      };
+      return {
+        input: measure('.field input:not([type="checkbox"])'),
+        select: measure(".field select"),
+        button: measure(".button"),
+        sidebarSelect: measure(".sidebar select"),
+      };
+    });
+    const heights = Object.values(sizes)
+      .filter((size) => size !== null)
+      .map((size) => size.height);
+    check(
+      `${label}: input, select and button are one height`,
+      heights.length >= 3 && heights.every((height) => height === heights[0]),
+      sizes,
+    );
+    const fieldFont = label === "touch" ? "16px" : "14px";
+    check(
+      `${label}: field text is ${fieldFont}`,
+      sizes.input?.font === fieldFont && sizes.select?.font === fieldFont,
+      sizes,
+    );
+    await context.close();
+  }
 } finally {
   await browser.close();
 }
