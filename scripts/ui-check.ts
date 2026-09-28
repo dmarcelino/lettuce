@@ -547,34 +547,35 @@ try {
     }
     await page.locator('nav.tabs button:text-is("Chat")').click();
 
-    // Settings' section switcher wraps rather than widening the pane. The
-    // generic `overflow()` cannot see this: `.pane` scrolls vertically, which
-    // makes its computed overflow-x `auto` too, so an over-wide bar counted as
-    // "inside a scroller" and passed while the whole pane scrolled sideways.
-    await page.locator('nav.tabs button:text-is("Settings")').click();
+    // The Agent tab's section switcher wraps rather than widening the pane.
+    // The generic `overflow()` cannot see this: `.pane` scrolls vertically,
+    // which makes its computed overflow-x `auto` too, so an over-wide bar
+    // counted as "inside a scroller" and passed while the whole pane scrolled
+    // sideways.
+    await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.locator(".section-tabs").waitFor();
-    await shot(page, "phone-settings");
-    const settingsWidth = await page.evaluate(() => {
+    await shot(page, "phone-agent");
+    const agentWidth = await page.evaluate(() => {
       const bar = document.querySelector(".section-tabs") as HTMLElement;
       const pane = bar.parentElement as HTMLElement;
       return { bar: bar.scrollWidth, pane: pane.scrollWidth, client: pane.clientWidth };
     });
     check(
-      "settings sections fit the phone width (no sideways scroll)",
-      settingsWidth.bar <= settingsWidth.client && settingsWidth.pane <= settingsWidth.client,
-      settingsWidth,
+      "agent sections fit the phone width (no sideways scroll)",
+      agentWidth.bar <= agentWidth.client && agentWidth.pane <= agentWidth.client,
+      agentWidth,
     );
     const sectionButtons = page.locator(".section-tabs button");
     const lastBox = await sectionButtons.last().boundingBox();
     check(
-      "every settings section is on screen",
+      "every agent section is on screen",
       lastBox !== null && lastBox.x + lastBox.width <= PHONE.width,
       lastBox,
     );
 
     // Skills on a phone: long names, badges and paths must wrap, not push the
     // pane sideways — measured on the pane for the same reason as above.
-    await page.locator('.pane-bar button:text-is("Skills")').click();
+    await page.locator('.section-tabs button:text-is("Skills")').click();
     await page.locator(".skill-group-head").first().waitFor({ timeout: 10_000 });
     await page.locator('.skill-group-head:has-text("Bundled")').click();
     await page.locator('.skill-main[aria-expanded="false"]').first().click();
@@ -588,6 +589,38 @@ try {
       skillsWidth,
     );
     await shot(page, "phone-skills");
+
+    // Settings for every agent: the top bar's gear, a list first on a phone,
+    // then one section with a back arrow — never a row of chips to scroll.
+    await page.locator('.topbar button[aria-label="Settings"]').click();
+    await page.locator(".settings-screen").waitFor();
+    check(
+      "phone settings open on the section list",
+      (await page.locator(".settings-nav").isVisible()) &&
+        (await page.locator(".settings-content").count()) === 0,
+    );
+    await shot(page, "phone-settings");
+    await page.locator('.settings-nav .menu-row:has-text("MCP servers")').click();
+    await page.locator(".settings-content").waitFor();
+    check(
+      "a phone section replaces the list and names itself",
+      (await page.locator(".settings-nav").count()) === 0 &&
+        (await page.locator(".settings-screen .switcher-bar h2").innerText()) === "MCP servers",
+    );
+    const sectionWidth = await page.evaluate(() => {
+      const pane = document.querySelector(".settings-content") as HTMLElement;
+      return { scroll: pane.scrollWidth, client: pane.clientWidth };
+    });
+    check(
+      "a settings section fits the phone width",
+      sectionWidth.scroll <= sectionWidth.client,
+      sectionWidth,
+    );
+    await shot(page, "phone-settings-mcp");
+    await page.locator('button[aria-label="Back to settings"]').click();
+    check("back returns to the section list", await page.locator(".settings-nav").isVisible());
+    await page.locator('.settings-screen button[aria-label="Close"]').click();
+    check("close leaves settings", (await page.locator(".settings-screen").count()) === 0);
 
     await page.close();
   }
@@ -634,126 +667,54 @@ try {
     await shot(page, "desktop-filters");
     await page.keyboard.press("Escape");
 
-    // Settings: Channels is gone; the rest of the chips are the ones we built.
-    await page.locator('nav.tabs button:text-is("Settings")').click();
+    // The Agent tab holds the selected agent's settings and nothing shared.
+    await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.waitForTimeout(500);
-    check(
-      "Channels section is gone",
-      (await page.locator('.pane-bar button:text-is("Channels")').count()) === 0,
-    );
-    const expectedChips = [
-      "Connection",
-      "Web",
-      "MCP",
-      "Skills",
-      "Codex",
-      "Google",
-      "Secrets",
-      "Reflection",
-      "Notifications",
-    ];
-    const chipLabels = (await page.locator(".pane-bar button").allInnerTexts()).map((t) =>
+    const expectedChips = ["General", "Secrets", "Reflection", "Skills"];
+    const chipLabels = (await page.locator(".section-tabs button").allInnerTexts()).map((t) =>
       t.trim(),
     );
     check(
-      `chips are ${expectedChips.join(" / ")}`,
+      `agent chips are ${expectedChips.join(" / ")}`,
       JSON.stringify(chipLabels) === JSON.stringify(expectedChips),
       chipLabels,
     );
-    const settingsBox = await overflow(page);
-    check("settings has nothing clipped", settingsBox.clipped.length === 0, settingsBox);
+    check(
+      "the agent's General section edits it in place",
+      (await page.locator('.pane label:has-text("Name") input').count()) === 1 &&
+        (await page.locator('.pane button:text-is("Delete agent…")').count()) === 1,
+    );
+    const agentBox = await overflow(page);
+    check("agent tab has nothing clipped", agentBox.clipped.length === 0, agentBox);
 
     // App-wide conventions, section by section: one toggle (MenuRow, never the
     // platform checkbox) and one heading voice (sentence case, never uppercase).
     const conventions: Record<string, { checkboxes: number; uppercase: string[] }> = {};
-    for (const chip of expectedChips) {
-      await page.locator(`.section-tabs button:text-is("${chip}")`).click();
-      await page.waitForTimeout(700);
-      conventions[chip] = await page.evaluate(() => ({
+    const scan = () =>
+      page.evaluate(() => ({
         checkboxes: document.querySelectorAll('input[type="checkbox"]').length,
-        uppercase: [...document.querySelectorAll<HTMLElement>(".pane *, .sidebar *")]
+        uppercase: [
+          ...document.querySelectorAll<HTMLElement>(".pane *, .sidebar *, .settings-screen *"),
+        ]
           .filter(
             (el) => getComputedStyle(el).textTransform === "uppercase" && el.textContent?.trim(),
           )
           .map((el) => (el.textContent ?? "").trim().slice(0, 30)),
       }));
-    }
-    const offenders = Object.entries(conventions).filter(
-      ([, found]) => found.checkboxes > 0 || found.uppercase.length > 0,
-    );
-    check(
-      "no native checkboxes or uppercase labels in any section",
-      offenders.length === 0,
-      offenders,
-    );
-    await page.locator('.section-tabs button:text-is("Connection")').click();
-    await page.waitForTimeout(300);
-
-    // The two sections added from upstream must lay out like the existing ones,
-    // not just exist. Secrets needs an agent selected; Reflection needs a
-    // conversation, and renders an empty-state notice when it has none.
-    for (const chip of ["Secrets", "Reflection"]) {
-      await page.locator(`.pane-bar button:text-is("${chip}")`).click();
-      await page.waitForTimeout(400);
+    for (const chip of expectedChips) {
+      await page.locator(`.section-tabs button:text-is("${chip}")`).click();
+      await page.waitForTimeout(700);
+      conventions[`Agent/${chip}`] = await scan();
+      // Secrets needs an agent selected; Reflection needs a conversation, and
+      // renders an empty-state notice when it has none. Both must lay out.
       const box = await overflow(page);
-      check(`${chip.toLowerCase()} section has nothing clipped`, box.clipped.length === 0, box);
+      check(`agent ${chip.toLowerCase()} has nothing clipped`, box.clipped.length === 0, box);
     }
-    // Codex loads its settings from the BFF (GET /api/codex/settings); a form
-    // means the route answered, not just that the chip exists.
-    await page.locator('.pane-bar button:text-is("Codex")').click();
-    await page.waitForTimeout(800);
-    check(
-      "codex section loads its settings",
-      (await page.locator('.menu-row:has-text("Allow Codex workers")').count()) === 1,
-      await page.locator(".pane").innerText(),
-    );
-    const codexBox = await overflow(page);
-    check("codex section has nothing clipped", codexBox.clipped.length === 0, codexBox);
 
-    // Google loads its status from the BFF (GET /api/google). Under dev bypass
-    // the form must also say it is locked, not just grey its inputs out.
-    await page.locator('.pane-bar button:text-is("Google")').click();
-    await page.waitForTimeout(800);
-    const googleText = await page.locator(".pane").innerText();
-    check(
-      "google section loads its status",
-      (await page.locator('.menu-row:has-text("Allow agents to use Google")').count()) === 1,
-      googleText,
-    );
-    const googleLocked = await page.locator('label:has-text("Gmail") select').isDisabled();
-    check(
-      "a locked google section says why",
-      !googleLocked || googleText.includes("Read-only here"),
-      googleText,
-    );
-    const googleBox = await overflow(page);
-    check("google section has nothing clipped", googleBox.clipped.length === 0, googleBox);
-
-    await page.locator('.pane-bar button:text-is("Connection")').click();
-    await page.waitForTimeout(300);
-
-    // Models served: count in the heading, provider per row.
-    const servedHeading = await page.locator('.section-note:has-text("Models served")').innerText();
-    check("models-served heading carries a count", /\(\d+\)/.test(servedHeading), servedHeading);
-
-    // Refreshing against a stable endpoint must NOT raise the change warning —
-    // a detector that cries wolf on every refresh is worse than none.
-    const warningSelector = '.warning:has-text("different set of models")';
-    check(
-      "no spurious model-change warning on load",
-      (await page.locator(warningSelector).count()) === 0,
-    );
-    await page.locator('button:has-text("Refresh models")').click();
-    await page.waitForTimeout(2500);
-    check(
-      "no spurious model-change warning after a refresh",
-      (await page.locator(warningSelector).count()) === 0,
-    );
-
-    // Skills: the list comes from the BFF's own discovery, so it is populated
-    // with no turn running (bundled skills alone are ~20). Bundled starts
-    // collapsed; descriptions are one line until a row is tapped.
-    await page.locator('.pane-bar button:text-is("Skills")').click();
+    // Agent → Skills: the list comes from the BFF's own discovery, so it is
+    // populated with no turn running (bundled skills alone are ~20). Bundled
+    // starts collapsed; descriptions are one line until a row is tapped.
+    await page.locator('.section-tabs button:text-is("Skills")').click();
     await page.locator(".skill-group-head").first().waitFor({ timeout: 10_000 });
     const bundledHead = page.locator('.skill-group-head:has-text("Bundled")');
     check("skills list is populated without a turn", (await bundledHead.count()) === 1);
@@ -784,26 +745,144 @@ try {
     } else {
       check("some description is long enough to clamp", false);
     }
+    check(
+      "enabling a skill for every agent is not in the agent's tab",
+      (await page.locator('button:text-is("Enable globally")').count()) === 0,
+    );
+    const agentSkillsBox = await overflow(page);
+    check("agent skills has nothing clipped", agentSkillsBox.clipped.length === 0, agentSkillsBox);
+    await shot(page, "desktop-agent-skills");
+
+    // Its link goes to global Settings, open on Global skills.
+    await page.locator('.pane button:text-is("Settings → Global skills")').click();
+    await page.locator(".settings-screen").waitFor();
+    check(
+      "the skills link opens global skills",
+      (await page.locator(".settings-content-title").innerText()) === "Global skills",
+    );
+    await page.keyboard.press("Escape");
+    check("Escape closes settings", (await page.locator(".settings-screen").count()) === 0);
+
+    // Settings for every agent, from the gear: list and section side by side.
+    await page.locator('.topbar button[aria-label="Settings"]').click();
+    await page.locator(".settings-screen").waitFor();
+    check(
+      "desktop settings show the list and a section together",
+      (await page.locator(".settings-nav").isVisible()) &&
+        (await page.locator(".settings-content").isVisible()),
+    );
+    const expectedRows = [
+      "Providers & models",
+      "Web search",
+      "MCP servers",
+      "Google",
+      "Codex workers",
+      "Global skills",
+      "Notifications",
+      "About",
+    ];
+    const rowLabels = (await page.locator(".settings-nav .menu-row-title").allInnerTexts()).map(
+      (t) => t.trim(),
+    );
+    check(
+      `settings rows are ${expectedRows.join(" / ")}`,
+      JSON.stringify(rowLabels) === JSON.stringify(expectedRows),
+      rowLabels,
+    );
+    check(
+      "no per-agent section among the shared ones",
+      !rowLabels.some((label) => ["Secrets", "Reflection"].includes(label)),
+      rowLabels,
+    );
+    const openSection = async (label: string) => {
+      await page.locator(`.settings-nav .menu-row:has-text("${label}")`).click();
+      await page.waitForTimeout(700);
+    };
+    for (const label of expectedRows) {
+      await openSection(label);
+      conventions[`Settings/${label}`] = await scan();
+      const box = await overflow(page);
+      check(`${label} has nothing clipped`, box.clipped.length === 0, box);
+    }
+    const offenders = Object.entries(conventions).filter(
+      ([, found]) => found.checkboxes > 0 || found.uppercase.length > 0,
+    );
+    check(
+      "no native checkboxes or uppercase labels in any section",
+      offenders.length === 0,
+      offenders,
+    );
+
+    // Codex loads its settings from the BFF (GET /api/codex/settings); a form
+    // means the route answered, not just that the row exists.
+    await openSection("Codex workers");
+    check(
+      "codex section loads its settings",
+      (await page.locator('.menu-row:has-text("Allow Codex workers")').count()) === 1,
+      await page.locator(".settings-content").innerText(),
+    );
+
+    // Google loads its status from the BFF (GET /api/google). Under dev bypass
+    // the form must also say it is locked, not just grey its inputs out.
+    await openSection("Google");
+    const googleText = await page.locator(".settings-content").innerText();
+    check(
+      "google section loads its status",
+      (await page.locator('.menu-row:has-text("Allow agents to use Google")').count()) === 1,
+      googleText,
+    );
+    const googleLocked = await page.locator('label:has-text("Gmail") select').isDisabled();
+    check(
+      "a locked google section says why",
+      !googleLocked || googleText.includes("Read-only here"),
+      googleText,
+    );
+
+    await openSection("Providers & models");
+
+    // Models served: count in the heading, provider per row.
+    const servedHeading = await page.locator('.section-note:has-text("Models served")').innerText();
+    check("models-served heading carries a count", /\(\d+\)/.test(servedHeading), servedHeading);
+
+    // Refreshing against a stable endpoint must NOT raise the change warning —
+    // a detector that cries wolf on every refresh is worse than none.
+    const warningSelector = '.warning:has-text("different set of models")';
+    check(
+      "no spurious model-change warning on load",
+      (await page.locator(warningSelector).count()) === 0,
+    );
+    await page.locator('button:has-text("Refresh models")').click();
+    await page.waitForTimeout(2500);
+    check(
+      "no spurious model-change warning after a refresh",
+      (await page.locator(warningSelector).count()) === 0,
+    );
+
+    // Global skills: only the global scope, plus the enable-by-path form.
+    await openSection("Global skills");
     const enableButton = page.locator('button:text-is("Enable globally")');
-    check("skills section offers an enable field", (await enableButton.count()) === 1);
+    check("global skills offers an enable field", (await enableButton.count()) === 1);
     check("enable is disabled until a path is typed", await enableButton.isDisabled());
-    await page.locator('.pane input[placeholder^="/work/"]').fill("/work/agent-x/.agents/skills/s");
+    await page
+      .locator('.settings-content input[placeholder^="/work/"]')
+      .fill("/work/agent-x/.agents/skills/s");
     check("enable becomes available with a path", await enableButton.isEnabled());
+    check(
+      "global skills lists no other scope",
+      (await page.locator(".settings-content .skill-group-head").count()) === 0,
+    );
     const squeezed = await page
       .locator(".pane > pre.tool-args")
       .evaluateAll((els) =>
         els.filter((el) => el.scrollHeight > el.clientHeight + 1).map((el) => el.textContent),
       );
     check("skills example commands are shown in full", squeezed.length === 0, squeezed);
-    const skillsBox = await overflow(page);
-    check("skills section has nothing clipped", skillsBox.clipped.length === 0, skillsBox);
-    await shot(page, "desktop-skills");
+    await shot(page, "desktop-global-skills");
 
     // Notifications: headless Chromium supports the Push/Notification APIs,
     // so this renders the real toggle rather than the iOS install notice —
     // just needs to render without clipping, not actually subscribe.
-    await page.locator('.pane-bar button:text-is("Notifications")').click();
-    await page.waitForTimeout(300);
+    await openSection("Notifications");
     check(
       "notifications section offers a toggle or an unsupported notice",
       (await page
@@ -817,15 +896,15 @@ try {
       "no test-notification button until this device is subscribed",
       (await page.locator('button:has-text("Send a test notification")').count()) === 0,
     );
-    const notificationsBox = await overflow(page);
-    check(
-      "notifications section has nothing clipped",
-      notificationsBox.clipped.length === 0,
-      notificationsBox,
-    );
     await shot(page, "desktop-notifications");
 
+    await openSection("About");
+    check(
+      "about names the letta-code version",
+      /v\d+\.\d+\.\d+/.test(await page.locator(".settings-content").innerText()),
+    );
     await shot(page, "desktop-settings");
+    await page.locator('.settings-screen button[aria-label="Close"]').click();
 
     // Sheet geometry. MemoryTab and TasksTab used to hand-roll the markup and
     // omit .sheet-panel, so on desktop the body and the actions became two
@@ -1208,7 +1287,7 @@ try {
     const context = await browser.newContext(options);
     const page = await context.newPage();
     await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
-    await page.locator('nav.tabs button:text-is("Settings")').click();
+    await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.locator('.section-tabs button:text-is("Reflection")').click();
     await page.locator(".field select").first().waitFor();
     const sizes = await page.evaluate(() => {

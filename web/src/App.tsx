@@ -5,6 +5,7 @@ import { AuthPill } from "./components/AuthPill.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { ContextGauge, ContextSheet } from "./components/ContextGauge.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
+import { type GlobalSection, GlobalSettings } from "./components/GlobalSettings.tsx";
 import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
@@ -27,9 +28,9 @@ import { useContextLimit } from "./state/use-context-limit.ts";
 import { useConversation } from "./state/use-conversation.ts";
 import { useCurrentModel } from "./state/use-models.ts";
 import { useSession } from "./state/use-session.ts";
+import { AgentTab } from "./tabs/AgentTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { MemoryTab } from "./tabs/MemoryTab.tsx";
-import { SettingsTab } from "./tabs/SettingsTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 
 interface Status {
@@ -38,7 +39,7 @@ interface Status {
   user: { email: string } | null;
 }
 
-const TABS = ["Chat", "Files", "Tasks", "Memory", "Settings"] as const;
+const TABS = ["Chat", "Files", "Tasks", "Memory", "Agent"] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -177,9 +178,12 @@ function Workspace({ status }: { status: Status }) {
   /** The agents-and-conversations menu (phone); see `Switcher`. */
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
+  const closeGlobalSettings = useCallback(() => setGlobalSettings(null), []);
   const [showModels, setShowModels] = useState(false);
-  /** `null` = closed; `{ id: null }` = create; `{ id }` = edit that agent. */
-  const [agentEditor, setAgentEditor] = useState<{ id: string | null } | null>(null);
+  /** The New agent sheet. Editing an agent is the Agent tab's General section. */
+  const [creatingAgent, setCreatingAgent] = useState(false);
+  /** Settings shared by every agent: `null` = closed, else the section to open on. */
+  const [globalSettings, setGlobalSettings] = useState<{ section?: GlobalSection } | null>(null);
   const [filters, setFilters] = useState<Set<FilterGroup>>(new Set());
   const [showTimestamps, setShowTimestamps] = useState(() => readShowTimestamps());
   /** Text an "Edit" put on its way to the composer; cleared once it lands. */
@@ -246,6 +250,11 @@ function Workspace({ status }: { status: Status }) {
     agents.conversations.find((c) => c.id === agents.conversationId)?.summary ?? "Letta";
   const agentName = agents.agents.find((a) => a.id === agents.agentId)?.name ?? null;
 
+  const editAgent = (id: string) => {
+    if (id !== agents.agentId) agents.selectAgent(id);
+    setTab("Agent");
+  };
+
   const toggleFilter = (group: FilterGroup) => {
     setFilters((current) => toggleShown(current, group));
   };
@@ -264,8 +273,8 @@ function Workspace({ status }: { status: Status }) {
         agents={agents}
         open={false}
         onClose={() => {}}
-        onNewAgent={() => setAgentEditor({ id: null })}
-        onEditAgent={(id) => setAgentEditor({ id })}
+        onNewAgent={() => setCreatingAgent(true)}
+        onEditAgent={editAgent}
         activeScopes={session.activeScopes}
         activeAgentIds={session.activeAgentIds}
       />
@@ -300,6 +309,17 @@ function Workspace({ status }: { status: Status }) {
           />
           {bypass ? <AuthPill email={status.user?.email} /> : null}
           <LinkPill link={session.link} />
+          {/* Settings shared by every agent. The selected agent's own are its
+              Agent tab; this is the one way into the rest, at every width. */}
+          <button
+            type="button"
+            className="icon-button flat topbar-settings"
+            onClick={() => setGlobalSettings({})}
+            aria-label="Settings"
+            title="Settings"
+          >
+            <Icon name="settings" />
+          </button>
         </header>
 
         <nav className="tabs">
@@ -426,16 +446,31 @@ function Workspace({ status }: { status: Status }) {
         ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />
         ) : (
-          <SettingsTab
+          <AgentTab
             session={session}
-            agentId={agents.agentId}
+            agents={agents}
             conversationId={agents.conversationId}
             cwd={conversation.cwd}
             skillsVersion={conversation.skillsVersion}
-            agentName={agentName}
+            onOpenGlobalSettings={(section) => setGlobalSettings({ section })}
           />
         )}
       </div>
+
+      {/* Before the approval sheet: an approval that arrives while Settings is
+          open has to land on top of it, not hide underneath. */}
+      {globalSettings ? (
+        <GlobalSettings
+          session={session}
+          agentId={agents.agentId}
+          cwd={conversation.cwd}
+          skillsVersion={conversation.skillsVersion}
+          user={status.user}
+          authMode={status.auth_mode}
+          initialSection={globalSettings.section}
+          onClose={closeGlobalSettings}
+        />
+      ) : null}
 
       {conversation.approvals.length > 0 ? (
         <ApprovalSheet
@@ -488,22 +523,17 @@ function Workspace({ status }: { status: Status }) {
           onClose={() => setSwitcherOpen(false)}
           onNewAgent={() => {
             setSwitcherOpen(false);
-            setAgentEditor({ id: null });
+            setCreatingAgent(true);
           }}
           onEditAgent={(id) => {
             setSwitcherOpen(false);
-            setAgentEditor({ id });
+            editAgent(id);
           }}
         />
       ) : null}
 
-      {agentEditor ? (
-        <AgentEditor
-          session={session}
-          agents={agents}
-          agentId={agentEditor.id}
-          onClose={() => setAgentEditor(null)}
-        />
+      {creatingAgent ? (
+        <AgentEditor session={session} agents={agents} onClose={() => setCreatingAgent(false)} />
       ) : null}
     </div>
   );

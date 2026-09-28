@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import {
   AGENT_PRESETS,
@@ -6,65 +6,34 @@ import {
   type AgentPreset,
   type AgentsApi,
 } from "../state/use-agents.ts";
-import { useModels } from "../state/use-models.ts";
+import { type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Sheet } from "./Sheet.tsx";
 
 interface Props {
   session: SessionApi;
   agents: AgentsApi;
-  /** The agent to edit, or null to create a new one. */
-  agentId: string | null;
   onClose: () => void;
 }
 
 const EMPTY: AgentDraft = { name: "", system: "", modelHandle: null };
 
-export function AgentEditor({ session, agents, agentId, onClose }: Props) {
-  const creating = agentId === null;
+/**
+ * New agent. Editing an existing one is the Agent tab's General section
+ * (`AgentGeneralSection`), next to the agent's other settings.
+ */
+export function AgentEditor({ session, agents, onClose }: Props) {
   const models = useModels(session);
-
   const [draft, setDraft] = useState<AgentDraft>(EMPTY);
-  /** What the model was on load, so an untouched field is not re-applied. */
-  const [savedModel, setSavedModel] = useState<string | null>(null);
   const [preset, setPreset] = useState<AgentPreset>("memo");
-  const [confirmName, setConfirmName] = useState("");
-  const [deleting, setDeleting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [busy, setBusy] = useState(!creating);
+  const [busy, setBusy] = useState(false);
 
-  const { retrieveAgent } = agents;
-
-  useEffect(() => {
-    if (agentId === null) {
-      setDraft(EMPTY);
-      setBusy(false);
-      return;
-    }
-    let cancelled = false;
+  const create = async () => {
     setBusy(true);
-    void (async () => {
-      try {
-        const detail = await retrieveAgent(agentId);
-        if (cancelled) return;
-        setDraft({ name: detail.name, system: detail.system, modelHandle: detail.modelHandle });
-        setSavedModel(detail.modelHandle);
-      } catch (cause) {
-        if (!cancelled) setStatus(errorMessage(cause));
-      } finally {
-        if (!cancelled) setBusy(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [agentId, retrieveAgent]);
-
-  const run = async (label: string, action: () => Promise<void>) => {
-    setBusy(true);
-    setStatus(label);
+    setStatus("Creating agent…");
     try {
-      await action();
+      await agents.createAgent(preset, draft);
       onClose();
     } catch (cause) {
       setStatus(errorMessage(cause));
@@ -72,173 +41,88 @@ export function AgentEditor({ session, agents, agentId, onClose }: Props) {
     }
   };
 
-  const save = () => {
-    // Re-sending the current handle would make the server redo the whole model
-    // switch (and its context-window reconciliation) for no change.
-    const submitted: AgentDraft =
-      draft.modelHandle === savedModel ? { ...draft, modelHandle: null } : draft;
-    return run(creating ? "Creating agent…" : "Saving…", () =>
-      creating ? agents.createAgent(preset, submitted) : agents.updateAgent(agentId, submitted),
-    );
-  };
-
-  const remove = () => {
-    if (agentId === null) return;
-    void run("Deleting agent…", () => agents.deleteAgent(agentId));
-  };
-
-  // A model the endpoint no longer serves must stay selectable, or saving the
-  // name would silently move the agent onto a different model.
-  const known = models.models.some((model) => model.handle === draft.modelHandle);
-
   return (
     <Sheet
-      title={creating ? "New agent" : "Edit agent"}
+      title="New agent"
       onClose={onClose}
-      size="spacious"
       status={status}
       actions={
-        deleting ? (
-          <>
-            <button
-              type="button"
-              className="button ghost"
-              onClick={() => {
-                setDeleting(false);
-                setConfirmName("");
-              }}
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              className="button danger"
-              disabled={busy || confirmName.trim() !== draft.name.trim()}
-              onClick={remove}
-            >
-              Delete
-            </button>
-          </>
-        ) : (
-          <>
-            {creating ? null : (
-              // Apart from Cancel/Save, at the far edge: the one irreversible
-              // action should not sit where a Cancel habitually is.
-              <button
-                type="button"
-                className="button danger outline leading"
-                disabled={busy}
-                onClick={() => setDeleting(true)}
-              >
-                Delete agent…
-              </button>
-            )}
-            <button type="button" className="button ghost" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="button"
-              disabled={busy || !draft.name.trim()}
-              onClick={() => void save()}
-            >
-              {creating ? "Create" : "Save"}
-            </button>
-          </>
-        )
+        <>
+          <button type="button" className="button ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={busy || !draft.name.trim()}
+            onClick={() => void create()}
+          >
+            Create
+          </button>
+        </>
       }
     >
-      {deleting ? (
-        <>
-          <p className="warning">
-            Deleting <strong>{draft.name}</strong> removes the agent and all of its conversations.
-            This cannot be undone.
-          </p>
-          <label className="field">
-            Type the agent name to confirm
-            <input
-              value={confirmName}
-              placeholder={draft.name}
-              onChange={(event) => setConfirmName(event.target.value)}
-            />
-          </label>
-        </>
-      ) : (
-        <>
-          <label className="field">
-            Name
-            <input
-              value={draft.name}
-              placeholder="my-assistant"
-              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-            />
-          </label>
+      <label className="field">
+        Name
+        <input
+          value={draft.name}
+          placeholder="my-assistant"
+          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+        />
+      </label>
 
-          {creating ? (
-            <label className="field">
-              Personality preset
-              <select
-                value={preset}
-                onChange={(event) => setPreset(event.target.value as AgentPreset)}
-              >
-                {AGENT_PRESETS.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
+      <label className="field">
+        Personality preset
+        <select value={preset} onChange={(event) => setPreset(event.target.value as AgentPreset)}>
+          {AGENT_PRESETS.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </label>
 
-          <label className="field">
-            Model
-            <select
-              value={draft.modelHandle ?? ""}
-              disabled={models.loading}
-              onChange={(event) => setDraft({ ...draft, modelHandle: event.target.value || null })}
-            >
-              <option value="">{creating ? "Preset default" : "Unchanged"}</option>
-              {draft.modelHandle && !known ? (
-                <option value={draft.modelHandle}>{draft.modelHandle} (not served)</option>
-              ) : null}
-              {models.models.map((model) => (
-                <option key={model.id} value={model.handle}>
-                  {model.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {creating ? null : (
-            <>
-              <label className="field">
-                Base system prompt (managed by letta-code)
-                <textarea
-                  className="deny-reason"
-                  value={draft.system}
-                  rows={8}
-                  onChange={(event) => setDraft({ ...draft, system: event.target.value })}
-                />
-                {/* Neither half of this is discoverable from the field itself, and
-                    both surprised someone: an agent asked to "update its system
-                    prompt" rewrites its persona block, not this, so this looked
-                    unchanged and the work looked lost. */}
-                <span className="small">
-                  A versioned preset letta-code refreshes on upgrade (tracked as{" "}
-                  <code>systemPromptPreset</code> / <code>systemPromptHash</code>). Editing it marks
-                  this agent <strong>custom</strong> and stops those refreshes for good.
-                </span>
-              </label>
-              <p className="muted small">
-                This is not where an agent's own instructions live. What it writes about itself —
-                and what you should edit to shape its behaviour — is the persona block in the{" "}
-                <strong>Memory</strong> tab (<code>system/persona.md</code>, or{" "}
-                <code>persona.md</code> for agents created on letta-code 0.33.3 or later).
-              </p>
-            </>
-          )}
-        </>
-      )}
+      <ModelField
+        models={models}
+        value={draft.modelHandle}
+        emptyLabel="Preset default"
+        onChange={(modelHandle) => setDraft({ ...draft, modelHandle })}
+      />
     </Sheet>
+  );
+}
+
+/** The agent's model, as a select over what the endpoint serves. */
+export function ModelField({
+  models,
+  value,
+  emptyLabel,
+  onChange,
+}: {
+  models: ModelsApi;
+  value: string | null;
+  emptyLabel: string;
+  onChange: (handle: string | null) => void;
+}) {
+  // A model the endpoint no longer serves must stay selectable, or saving the
+  // name would silently move the agent onto a different model.
+  const known = models.models.some((model) => model.handle === value);
+  return (
+    <label className="field">
+      Model
+      <select
+        value={value ?? ""}
+        disabled={models.loading}
+        onChange={(event) => onChange(event.target.value || null)}
+      >
+        <option value="">{emptyLabel}</option>
+        {value && !known ? <option value={value}>{value} (not served)</option> : null}
+        {models.models.map((model) => (
+          <option key={model.id} value={model.handle}>
+            {model.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

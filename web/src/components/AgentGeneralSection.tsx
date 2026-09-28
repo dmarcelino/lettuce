@@ -1,0 +1,203 @@
+import { useEffect, useState } from "react";
+import { errorMessage } from "../lib/errors.ts";
+import type { AgentDraft, AgentsApi } from "../state/use-agents.ts";
+import { useModels } from "../state/use-models.ts";
+import type { SessionApi } from "../state/use-session.ts";
+import { ModelField } from "./AgentEditor.tsx";
+
+interface Props {
+  session: SessionApi;
+  agents: AgentsApi;
+  agentId: string;
+}
+
+/**
+ * Agent → General: name, model and base system prompt, edited in place, plus
+ * the delete. Creating an agent stays a sheet (`AgentEditor`) — there is no
+ * agent yet for this tab to be about.
+ */
+export function AgentGeneralSection({ session, agents, agentId }: Props) {
+  const models = useModels(session);
+  const [draft, setDraft] = useState<AgentDraft | null>(null);
+  /** The agent as last loaded or saved, so Save knows what changed. */
+  const [saved, setSaved] = useState<AgentDraft | null>(null);
+  const [confirmName, setConfirmName] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(true);
+
+  const { retrieveAgent } = agents;
+
+  useEffect(() => {
+    let cancelled = false;
+    setBusy(true);
+    setDraft(null);
+    setDeleting(false);
+    setConfirmName("");
+    setStatus(null);
+    void (async () => {
+      try {
+        const detail = await retrieveAgent(agentId);
+        if (cancelled) return;
+        const loaded = {
+          name: detail.name,
+          system: detail.system,
+          modelHandle: detail.modelHandle,
+        };
+        setDraft(loaded);
+        setSaved(loaded);
+      } catch (cause) {
+        if (!cancelled) setStatus(errorMessage(cause));
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, retrieveAgent]);
+
+  if (!draft || !saved) {
+    return <p className="muted pad">{status ?? "Loading agent…"}</p>;
+  }
+
+  const dirty =
+    draft.name !== saved.name ||
+    draft.system !== saved.system ||
+    draft.modelHandle !== saved.modelHandle;
+
+  const save = async () => {
+    setBusy(true);
+    setStatus("Saving…");
+    try {
+      // Re-sending the current handle would make the server redo the whole model
+      // switch (and its context-window reconciliation) for no change.
+      await agents.updateAgent(agentId, {
+        ...draft,
+        modelHandle: draft.modelHandle === saved.modelHandle ? null : draft.modelHandle,
+      });
+      setSaved(draft);
+      setStatus("Saved.");
+    } catch (cause) {
+      setStatus(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    setStatus("Deleting agent…");
+    try {
+      await agents.deleteAgent(agentId);
+    } catch (cause) {
+      setStatus(errorMessage(cause));
+      setBusy(false);
+    }
+  };
+
+  if (deleting) {
+    return (
+      <div className="pad-x">
+        {status ? <p className="muted small">{status}</p> : null}
+        <p className="warning">
+          Deleting <strong>{saved.name}</strong> removes the agent and all of its conversations.
+          This cannot be undone.
+        </p>
+        <label className="field">
+          Type the agent name to confirm
+          <input
+            value={confirmName}
+            placeholder={saved.name}
+            onChange={(event) => setConfirmName(event.target.value)}
+          />
+        </label>
+        <div className="row-actions">
+          <button
+            type="button"
+            className="button ghost"
+            onClick={() => {
+              setDeleting(false);
+              setConfirmName("");
+            }}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            className="button danger"
+            disabled={busy || confirmName.trim() !== saved.name.trim()}
+            onClick={() => void remove()}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pad-x">
+      {status ? <p className="muted small">{status}</p> : null}
+      <label className="field">
+        Name
+        <input
+          value={draft.name}
+          placeholder="my-assistant"
+          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+        />
+      </label>
+
+      <ModelField
+        models={models}
+        value={draft.modelHandle}
+        emptyLabel="Unchanged"
+        onChange={(modelHandle) => setDraft({ ...draft, modelHandle })}
+      />
+
+      <label className="field">
+        Base system prompt (managed by letta-code)
+        <textarea
+          className="deny-reason"
+          value={draft.system}
+          rows={8}
+          onChange={(event) => setDraft({ ...draft, system: event.target.value })}
+        />
+        {/* Neither half of this is discoverable from the field itself, and
+            both surprised someone: an agent asked to "update its system
+            prompt" rewrites its persona block, not this, so this looked
+            unchanged and the work looked lost. */}
+        <span className="small">
+          A versioned preset letta-code refreshes on upgrade (tracked as{" "}
+          <code>systemPromptPreset</code> / <code>systemPromptHash</code>). Editing it marks this
+          agent <strong>custom</strong> and stops those refreshes for good.
+        </span>
+      </label>
+      <p className="muted small">
+        This is not where an agent's own instructions live. What it writes about itself — and what
+        you should edit to shape its behaviour — is the persona block in the <strong>Memory</strong>{" "}
+        tab (<code>system/persona.md</code>, or <code>persona.md</code> for agents created on
+        letta-code 0.33.3 or later).
+      </p>
+
+      <button
+        type="button"
+        className="button"
+        disabled={busy || !dirty || !draft.name.trim()}
+        onClick={() => void save()}
+      >
+        Save
+      </button>
+
+      <p className="section-note">Delete</p>
+      <button
+        type="button"
+        className="button danger outline"
+        disabled={busy}
+        onClick={() => setDeleting(true)}
+      >
+        Delete agent…
+      </button>
+    </div>
+  );
+}

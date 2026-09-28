@@ -315,7 +315,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     exactly one thing: symlink the directory into `/root/.letta/skills`
     (`listener/commands/skills-agents.ts`). `skill_disable` only unlinks from there, so on a
     project- or agent-scoped skill it answers "Skill not found", and it **refuses a real
-    directory** ("not a symlink") — so the Skills tab offers Disable only on a global skill whose
+    directory** ("not a symlink") — so Settings → Global skills offers Disable only on a global skill whose
     root entry is a link (`link` in `/api/skills`), and not on the ones the BFF reinstalls
     itself (`managedBy`: the shipped skills and `mcp-servers`).
   - **An agent can install into any scope.** Shells are unconfined within the container (the
@@ -324,7 +324,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   - **Upstream publishes the list only during a turn, so the BFF discovers it itself.**
     `device_status.current_available_skills` is set in `turn-setup.ts` on the *conversation
     runtime*, and that runtime is evicted between turns (`evictConversationRuntimeIfIdle`), after
-    which `buildDeviceStatus` sends `[]` — the Skills tab used to show skills only while the
+    which `buildDeviceStatus` sends `[]` — the skills list used to show skills only while the
     agent was working. No protocol command lists skills. `bff/src/skills/` re-implements
     discovery (roots, override order, the frontmatter parser, `disable-model-invocation`, the
     bundled skills hidden from local agents; memfs `skills/` counts as `agent`) and serves
@@ -333,7 +333,8 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     BFF's **read-only mounts** of `letta-home` and `letta-data/local-backend/memfs` at the
     app-server's own paths — not the protocol, because `list_in_directory`/`get_tree` skip
     symlinks and every `skill_enable`d skill is one. `sync-upstream.sh` flags the upstream files
-    this mirrors. The tab re-reads on every `skills_updated` frame.
+    this mirrors. Both views (Agent → Skills, every scope one agent sees; Settings → Global
+    skills, the links) re-read on every `skills_updated` frame.
   - **`skillsDirectory` is not reachable.** It exists on `runtime-context.ts` but has no
     `runtime_start` field and no settings key, so a repo shipping its skills under its own
     convention (`.letta/skills`, `.claude/skills`) has to be symlinked into a scanned path.
@@ -364,7 +365,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   - Changing this env means recreating `app-server`, which drops the BFF's permanent upstream
     connection — see the version-bump note for what that costs.
 - **Two different things are called "the system prompt", and an agent can only change one.**
-  `agent.system` — what the agent editor shows — is a letta-code-**managed** preset, tracked in
+  `agent.system` — what Agent → General shows — is a letta-code-**managed** preset, tracked in
   `settings.json` as `systemPromptPreset` + `systemPromptHash` + `systemPromptVersion`. On
   startup `scheduleManagedSystemPromptUpdate` (`agent/system-prompt-versioning.ts`) compares the
   hash and, while it still matches, **overwrites `system`** with the new preset text on a version
@@ -376,7 +377,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   layout instead: `persona.md` at the repo root plus a `MEMORY.md` index; the format is detected
   by that index, so older agents keep `system/`) (`/data/local-backend/memfs/<agent-id>/memory/`, a git
   repo — `git log` there is the provenance). That block is composed into context every turn when
-  `memfs: true`, and the UI surfaces it in the **Memory** tab, not the agent editor. Expect
+  `memfs: true`, and the UI surfaces it in the **Memory** tab, not Agent → General. Expect
   "I asked it to update its system prompt and the UI shows the old one" — both statements are
   true and about different fields.
 - **Memory lives outside every agent workspace, and agents write it with ordinary file tools.**
@@ -484,7 +485,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     preflight, harmless, and an OpenAI-provider credential no worker uses. With workers disabled
     the shim fails the preflight, so the task reports "Codex executable is not ready: <our
     disabled message>".
-  - **Configuration is Settings → Codex, owned by the BFF** (`bff/src/codex/`). It stores
+  - **Configuration is Settings → Codex workers, owned by the BFF** (`bff/src/codex/`). It stores
     `letta-ui.json` in `CODEX_HOME=/root/.letta/codex` (persisted, so threads survive recreates
     and `SendAgentMessage` follow-ups can resume them) and renders `config.toml` (provider
     `letta-ui`, `wire_api = "responses"` — the endpoint must serve `/v1/responses`, which
@@ -506,6 +507,14 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     command; re-verify both on every letta-code or Codex bump (`CODEX_VERSION` is pinned in
     compose, never floated).
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
+- **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent**
+  tab (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name,
+  model, base system prompt, delete), Secrets, Reflection, and the Skills it sees. **Settings**,
+  the top bar's gear (`components/GlobalSettings.tsx`, full screen, list → section on a phone,
+  two panes on desktop), holds what every agent shares — providers, web search, MCP servers,
+  Google, Codex workers, global skills — plus this device's notifications and an About. A new
+  setting goes where its backend key is: keyed by `agent_id` → Agent tab; a BFF file or an
+  app-server-wide command → Settings; `runtime` scope → next to the conversation (composer).
 - **Web search and page reading are native tools, `web_search` and `fetch_webpage`, installed
   as a letta-code mod.** Upstream's own tools of those names are Letta-*server* tools, which our
   local backend (`serverSideToolManagement: false`) cannot have. A **mod** is upstream's supported
@@ -543,9 +552,9 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     agent runtime (`listener/commands.ts`). So `resyncMods` (index.ts) renders all three mods,
     writes only those that differ (`internal-tools/install.ts` `syncMods`) and sends **one**
     `reload` in the first agent's `default` conversation — retried every 30 s while no agent
-    exists. It runs on connect, on a Settings → Web or → MCP save, and 4/12/30 s after any
+    exists. It runs on connect, on a Settings → Web search or → MCP servers save, and 4/12/30 s after any
     Google change. An app-server restart needs no reload: the files are already there.
-  - **Settings → Web** (`/api/web-tools/*`, `/root/.letta/web-tools/letta-ui.json`): a switch
+  - **Settings → Web search** (`/api/web-tools/*`, `/root/.letta/web-tools/letta-ui.json`): a switch
     (off renders a mod that registers nothing — the protocol cannot delete a file), backend
     status, a test search, and mod load errors from letta-code's
     `/root/.letta/mods/diagnostics/latest.json` (errors only — a clean load writes nothing).
