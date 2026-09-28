@@ -1379,6 +1379,12 @@ try {
       "rows carry no rename/archive icons",
       (await page.locator(".sidebar .conversations button[aria-label^='Rename']").count()) === 0,
     );
+    await page.mouse.move(600, 400);
+    const idle = page.locator(".sidebar .conversations li.conversation-row:not(.active)").first();
+    check(
+      "⋯ is hidden on a row not pointed at",
+      (await idle.count()) === 0 || !(await idle.locator(".conversation-more").isVisible()),
+    );
     await active.locator(".conversation-more").click();
     const menu = active.locator(".switcher-menu");
     check(

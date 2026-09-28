@@ -257,7 +257,8 @@ pre {
 }
 /* A ⋯ on 34 rows at once was noise: it appears on the row being pointed at,
    focused, open or showing its menu, and takes the date's place there. */
-.conversation-more {
+/* Scoped to the row so it outranks .icon-button.flat's display. */
+.conversations li .conversation-more {
   display: none;
 }
 .conversation-more .icon {
