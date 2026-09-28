@@ -197,6 +197,12 @@ remove a running gateway — `up -d` merely stops managing it — so it must be 
 dockhand skill cannot stop containers. With no gateway, agents simply have no `MessageChannel`
 tool.
 
+**The sidecars are opt-in too: `google-mcp` has `profiles: ["google"]`, `searxng` and
+`ddg-mcp` share `profiles: ["search"]`.** Prod runs `COMPOSE_PROFILES=cloudflared,google,search`.
+Nothing `depends_on` them; without them the BFF's tools fail per call (web) or are not
+registered (Google — but the shared-MCP-list entry follows Settings → Google, not the
+container, so keep that disabled). Same removal rule as the gateway: `--profile <p> rm -sf …`.
+
 Telegram is set up once with the CLI inside the gateway container (see `docker/README.md`),
 the same way llama.cpp is set up with `letta connect`. The gateway then runs it, and the
 agent reaches it through the `MessageChannel` tool the gateway registers as an external tool.
@@ -805,7 +811,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run check-version-pin` | Assert every letta-code version literal agrees (runs inside `verify`) |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
-| `docker compose -f docker/compose.yml up -d` | App-server + BFF + searxng + ddg-mcp + google-mcp; `cloudflared` and `channel-gateway` only with their profiles |
+| `docker compose -f docker/compose.yml up -d` | App-server + BFF; `cloudflared`, `google-mcp` (`google`), `searxng` + `ddg-mcp` (`search`) and `channel-gateway` (`telegram`) only with their profiles |
 | `git push origin main` | Release, part 1 — **ask for confirmation first, every time** |
 | `~/.claude/skills/dockhand-deploy/dockhand.sh plan letta letta-code-ui-prod` | Prod preflight: commits, compose diff, what gets recreated (read-only) |
 | `… deploy letta letta-code-ui-prod --confirm` | Release, part 2 — prod redeploy via Dockhand, same confirmation as the push |

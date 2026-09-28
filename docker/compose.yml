@@ -331,7 +331,15 @@ services:
   # (docker/searxng/settings.yml, which also records which engines were probed
   # to work from a residential IP). No `ports:` and no auth; the limiter is off
   # because the BFF is its only client. Pinned — never float `latest`.
+  #
+  # searxng and ddg-mcp are opt-in together, behind the `search` profile
+  # (COMPOSE_PROFILES contains "search"). Without them the BFF still registers
+  # web_search / fetch_webpage, and each call fails with the backend's error;
+  # Settings → Web can switch the tools off. Removing the profile does not
+  # remove running containers — stop them yourself:
+  #   docker compose -f docker/compose.yml --profile search rm -sf searxng ddg-mcp
   searxng:
+    profiles: ["search"]
     build:
       context: searxng
       args:
@@ -346,6 +354,7 @@ services:
   # agents' shared MCP list. No `ports:`: nothing outside the compose network
   # can reach it, and it has no auth.
   ddg-mcp:
+    profiles: ["search"]
     build:
       context: ddg-mcp
       args:
@@ -366,7 +375,15 @@ services:
   # the control. What it may do is fixed by two things no agent can touch —
   # the token's OAuth scopes and workspace-mcp's `--permissions` — both on the
   # two volumes below, which only this service and the BFF mount.
+  #
+  # Opt-in behind the `google` profile (COMPOSE_PROFILES contains "google").
+  # Without it no native Google tool is registered (the BFF registers only
+  # tools the sidecar lists), but keep Settings → Google disabled too: the
+  # shared-MCP-list entry follows that switch, not whether the sidecar runs.
+  # To turn it off, drop the profile and
+  #   docker compose -f docker/compose.yml --profile google rm -sf google-mcp
   google-mcp:
+    profiles: ["google"]
     build:
       context: google-mcp
       args:
@@ -387,7 +404,8 @@ services:
   #
   # profiles gates whether this container is even CREATED: with
   # COMPOSE_PROFILES unset (local mode, the default), `docker compose up -d`
-  # skips it entirely. Set COMPOSE_PROFILES=cloudflared to opt in.
+  # skips it entirely. Set COMPOSE_PROFILES=cloudflared to opt in (alongside
+  # any others, e.g. cloudflared,google,search).
   #
   # TUNNEL_TOKEN stays soft-optional (`:-`, not `:?`) on purpose even though
   # cloudflared cannot run without one: Compose interpolates every service's

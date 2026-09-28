@@ -188,7 +188,7 @@ letta-code checkout, no pre-built images pushed to a registry. Point the manager
 
 | Variable | Value |
 |---|---|
-| `COMPOSE_PROFILES` | `cloudflared` |
+| `COMPOSE_PROFILES` | `cloudflared,google,search` (drop `google` / `search` to skip those sidecars) |
 | `LETTA_STATE_DIR` | `/srv/letta` (absolute) |
 | `PUBLIC_ORIGIN` | `https://<your-hostname>` |
 | `SESSION_SECRET` | `openssl rand -hex 32` |
@@ -261,6 +261,12 @@ Every agent gets two native tools — no MCP, no skill — from a letta-code mod
 the app-server (`/root/.letta/mods/letta-ui-web-tools.mjs`). Searches go to the `searxng`
 service, falling back to `ddg-mcp`; pages are read through `ddg-mcp`. Neither publishes a port.
 Settings → Web has the switch, the backend status and a test search.
+
+Both sidecars sit behind the **`search`** compose profile: add it to `COMPOSE_PROFILES`
+(e.g. `cloudflared,google,search`). Without it the tools are still registered and every call
+fails with the backend's error, so switch them off in Settings → Web. Removing the profile
+leaves running containers alone — `docker compose -f docker/compose.yml --profile search rm -sf
+searxng ddg-mcp`.
 
 | Variable (`docker/.env`) | Default | |
 |---|---|---|
@@ -363,6 +369,12 @@ chosen in **Settings → Google** (e.g. Gmail read-only, Tasks and Calendar
 read-write). Unlike the GitHub token above, this token is **not** readable by
 agents: it and the levels live on the `google-policy` / `google-creds` volumes,
 which only the BFF and the sidecar mount.
+
+The sidecar sits behind the **`google`** compose profile: add it to `COMPOSE_PROFILES`
+(e.g. `cloudflared,google,search`). Without it, leave Settings → Google disabled — the
+shared-MCP-list entry follows that switch, not the container. Removing the profile leaves a
+running container alone — `docker compose -f docker/compose.yml --profile google rm -sf
+google-mcp`.
 
 One-time Google Cloud setup (your own project, free):
 
