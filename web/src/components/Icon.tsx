@@ -72,8 +72,11 @@ const PATHS: Record<IconName, string> = {
   warning: "M12 4l9 16H3zM12 10v4M12 17h.01",
   memory:
     "M9 4a3 3 0 00-3 3 3 3 0 00-1 5 3 3 0 001 5 3 3 0 003 3 3 3 0 003-3V7a3 3 0 00-3-3zM15 7a3 3 0 013-3 3 3 0 013 3",
+  // Six rounded lobes: the hand-drawn polygon it replaces had square, uneven
+  // teeth. Path from Lucide's "settings" icon — ISC License, Copyright (c)
+  // Lucide Contributors 2022, https://github.com/lucide-icons/lucide/blob/main/LICENSE
   settings:
-    "M12 15a3 3 0 100-6 3 3 0 000 6zM19 12l2-1-2-4-2 1a7 7 0 00-2-1V5h-4v2a7 7 0 00-2 1L7 7 5 11l2 1a7 7 0 000 2l-2 1 2 4 2-1a7 7 0 002 1v2h4v-2a7 7 0 002-1l2 1 2-4-2-1a7 7 0 000-2z",
+    "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
   plus: "M12 5v14M5 12h14",
   // Clipboard with a tick: background work that reported back.
   task: "M9 4h6v3H9zM8 5H6a1 1 0 00-1 1v13a1 1 0 001 1h12a1 1 0 001-1V6a1 1 0 00-1-1h-2M9 13l2 2 4-4",
