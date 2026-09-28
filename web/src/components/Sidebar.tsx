@@ -86,7 +86,7 @@ export function Sidebar({
             <span className="row-actions">
               <button
                 type="button"
-                className="link"
+                className="button ghost compact square"
                 title="Edit agent"
                 disabled={busy || !agents.agentId}
                 onClick={() => agents.agentId && onEditAgent(agents.agentId)}
@@ -96,7 +96,7 @@ export function Sidebar({
               </button>
               <button
                 type="button"
-                className="link"
+                className="button ghost compact"
                 disabled={busy}
                 onClick={onNewAgent}
                 aria-label="New agent"
@@ -126,7 +126,7 @@ export function Sidebar({
             <span className="section-label">Conversations</span>
             <button
               type="button"
-              className="link"
+              className="button ghost compact"
               disabled={busy || !agents.agentId}
               onClick={() => void guard(agents.createConversation)}
               aria-label="New conversation"
@@ -201,7 +201,7 @@ export function Sidebar({
                     <div className="conversation-actions">
                       <button
                         type="button"
-                        className="link"
+                        className="icon-button flat"
                         title="Rename"
                         disabled={busy}
                         onClick={() => {
@@ -216,7 +216,7 @@ export function Sidebar({
                       </button>
                       <button
                         type="button"
-                        className="link"
+                        className="icon-button flat"
                         title={archived ? "Unarchive" : "Archive"}
                         disabled={busy}
                         onClick={() =>
