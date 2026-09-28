@@ -67,7 +67,7 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
     ],
   },
   {
-    label: "About",
+    label: "App",
     sections: [{ id: "about", label: "About", description: "Version, sign-in and connection" }],
   },
 ];

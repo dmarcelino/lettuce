@@ -2974,3 +2974,9 @@ p.warning code {
     padding-inline: 12px;
   }
 }
+
+/* Agent → General sits in .pad-x, which .section-note's own inset would
+   double; and the destructive action gets clear air above it. */
+.section-note.agent-delete-head {
+  margin: 24px 0 6px;
+}

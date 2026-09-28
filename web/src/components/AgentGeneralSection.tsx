@@ -189,7 +189,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         Save
       </button>
 
-      <p className="section-note">Delete</p>
+      <p className="section-note agent-delete-head">Delete</p>
       <button
         type="button"
         className="button danger outline"
