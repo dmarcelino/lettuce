@@ -177,12 +177,3 @@ export function readMcpServers(raw: string): McpServer[] {
     (server): server is McpServer => Boolean(server) && typeof server === "object",
   );
 }
-
-/**
- * What a fresh install starts with: the bundled DuckDuckGo sidecar, when its
- * URL is configured. Only used when the settings file does not exist yet —
- * once it does, the list is the user's, so removing the server sticks.
- */
-export function defaultMcpServers(seedUrl: string | null): McpServer[] {
-  return seedUrl ? [{ name: "duckduckgo", transport: "http", url: seedUrl }] : [];
-}

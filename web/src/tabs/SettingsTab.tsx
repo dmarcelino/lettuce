@@ -7,6 +7,7 @@ import { MenuRow } from "../components/MenuRow.tsx";
 import { ReflectionSection } from "../components/ReflectionSection.tsx";
 import { SecretsSection } from "../components/SecretsSection.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { WebToolsSection } from "../components/WebToolsSection.tsx";
 import { errorMessage } from "../lib/errors.ts";
 import { handleProvider, isLocalHandle, localProviderKeys } from "../lib/providers.ts";
 import {
@@ -71,6 +72,7 @@ interface Props {
 
 export type Section =
   | "connection"
+  | "web"
   | "mcp"
   | "skills"
   | "codex"
@@ -81,6 +83,7 @@ export type Section =
 
 const SECTION_LABELS: Record<Section, string> = {
   connection: "Connection",
+  web: "Web",
   mcp: "MCP",
   skills: "Skills",
   codex: "Codex",
@@ -149,6 +152,7 @@ export function SettingsTab({
   const visibleSections: Section[] = (
     [
       "connection",
+      "web",
       "mcp",
       "skills",
       "codex",
@@ -180,6 +184,7 @@ export function SettingsTab({
       {section === "skills" ? (
         <SkillsSection session={session} agentId={agentId} cwd={cwd} version={skillsVersion} />
       ) : null}
+      {section === "web" ? <WebToolsSection /> : null}
       {section === "codex" ? <CodexSection /> : null}
       {section === "google" ? <GoogleSection /> : null}
       {section === "secrets" ? <SecretsSection session={session} agentId={agentId} /> : null}

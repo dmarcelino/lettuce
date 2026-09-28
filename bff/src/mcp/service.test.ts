@@ -43,35 +43,31 @@ function memoryIo(initial: Record<string, string> = {}) {
 }
 
 describe("ensureMcpServers", () => {
-  test("a fresh install gets the seed and the skill", async () => {
+  // Web search is a native tool now (web-tools/), so nothing is seeded.
+  test("a fresh install starts with an empty list and no skill", async () => {
     const { io, files, events } = memoryIo();
-    expect(await ensureMcpServers(io, SEED)).toEqual([DDG]);
-    expect(await loadMcpServers(io)).toEqual([DDG]);
+    expect(await ensureMcpServers(io)).toEqual([]);
+    expect(await loadMcpServers(io)).toEqual([]);
+    expect(files.has(MCP_SETTINGS_PATH)).toBe(true);
+    expect(events.at(-1)).toBe(`disable ${MCP_SKILL_NAME}`);
+  });
+
+  test("a configured server gets the skill, linked after its files exist", async () => {
+    const { io, files, events } = memoryIo({ [MCP_SETTINGS_PATH]: renderMcpSettings([DDG]) });
+    expect(await ensureMcpServers(io)).toEqual([DDG]);
     expect(files.has(`${MCP_SKILL_DIR}/SKILL.md`)).toBe(true);
     expect(files.has(`${MCP_SKILL_DIR}/scripts/mcp.sh`)).toBe(true);
     // Linked only after its files exist — skill_enable validates SKILL.md.
     expect(events.at(-1)).toBe(`enable ${MCP_SKILL_DIR}`);
   });
 
-  test("an existing list is never re-seeded, so removing the server sticks", async () => {
-    const { io, events } = memoryIo({ [MCP_SETTINGS_PATH]: renderMcpSettings([]) });
-    expect(await ensureMcpServers(io, SEED)).toEqual([]);
-    expect(events).toEqual([`disable ${MCP_SKILL_NAME}`]);
-  });
-
   test("an existing list is left as written and its skill re-rendered", async () => {
     const other: McpServer = { name: "notes", command: "notes-mcp" };
     const settings = renderMcpSettings([other]);
     const { io, files } = memoryIo({ [MCP_SETTINGS_PATH]: settings });
-    expect(await ensureMcpServers(io, SEED)).toEqual([other]);
+    expect(await ensureMcpServers(io)).toEqual([other]);
     expect(files.get(MCP_SETTINGS_PATH)).toBe(settings);
     expect(files.get(`${MCP_SKILL_DIR}/SKILL.md`)).toContain("notes");
-  });
-
-  test("no seed URL means a fresh install starts empty", async () => {
-    const { io } = memoryIo();
-    expect(await ensureMcpServers(io, null)).toEqual([]);
-    expect(await loadMcpServers(io)).toEqual([]);
   });
 });
 
@@ -91,28 +87,19 @@ describe("renderMcpSkill", () => {
     const frontmatter = parseFrontmatterForTest(skill?.content ?? "");
     expect(frontmatter.name).toBe(MCP_SKILL_NAME);
     expect(frontmatter.description).toContain("duckduckgo, notes");
-    expect(frontmatter.description).toContain("Web search");
   });
 
-  // An agent that never loads the skill still sees its description: that line
-  // alone has to get it past upstream's "None" reminder to a working call.
-  test("the description alone is enough to search", () => {
+  // An agent that never loads the skill still sees its description, so that
+  // line alone has to get it past upstream's empty-list "None" reminder.
+  test("the description names both traps", () => {
     const description = String(parseFrontmatterForTest(skill?.content ?? "").description);
-    expect(description).toContain(
-      `sh /root/.letta/skills/${MCP_SKILL_NAME}/scripts/mcp.sh call mcp__duckduckgo__search`,
-    );
     expect(description).toContain("MCP servers with available tools: None");
     expect(description).toContain("plain `letta mcp`");
-    const [plain] = renderMcpSkill([{ name: "notes", command: "x" }]);
-    const plainDescription = String(parseFrontmatterForTest(plain?.content ?? "").description);
-    expect(plainDescription).not.toContain("Web search");
-    expect(plainDescription).toContain("MCP servers with available tools: None");
   });
 
-  test("the web-search section appears only when duckduckgo is configured", () => {
-    expect(skill?.content).toContain("mcp__duckduckgo__search");
-    const [plain] = renderMcpSkill([{ name: "notes", command: "x" }]);
-    expect(plain?.content).not.toContain("duckduckgo");
+  test("web search is sent to the native tools, never an MCP server", () => {
+    expect(skill?.content).not.toContain("mcp__duckduckgo__search");
+    expect(skill?.content).toContain("`web_search`");
   });
 
   test("a line break in a server name cannot break the frontmatter", () => {

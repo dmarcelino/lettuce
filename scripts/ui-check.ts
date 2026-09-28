@@ -643,6 +643,7 @@ try {
     );
     const expectedChips = [
       "Connection",
+      "Web",
       "MCP",
       "Skills",
       "Codex",

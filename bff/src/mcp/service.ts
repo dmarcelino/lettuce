@@ -1,5 +1,4 @@
 import {
-  defaultMcpServers,
   MCP_SETTINGS_PATH,
   type McpServer,
   readMcpServers,
@@ -34,18 +33,18 @@ export async function saveMcpServers(io: McpIo, servers: McpServer[]): Promise<v
 }
 
 /**
- * Run on every upstream connect: create the settings file with the default
- * servers on a fresh install, and re-render the skill either way, so a deploy
- * always leaves the current wrapper and wording in place.
+ * Run on every upstream connect: create the settings file (empty) on a fresh
+ * install, and re-render the skill either way, so a deploy always leaves the
+ * current wrapper and wording in place. Web search is not seeded here any
+ * more: it is a native tool now (see `web-tools/`).
  *
  * Returns the servers now configured.
  */
-export async function ensureMcpServers(io: McpIo, seedUrl: string | null): Promise<McpServer[]> {
+export async function ensureMcpServers(io: McpIo): Promise<McpServer[]> {
   const raw = await io.read(MCP_SETTINGS_PATH);
   if (raw === null) {
-    const servers = defaultMcpServers(seedUrl);
-    await saveMcpServers(io, servers);
-    return servers;
+    await saveMcpServers(io, []);
+    return [];
   }
   const servers = readMcpServers(raw);
   await syncMcpSkill(io, servers);

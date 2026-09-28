@@ -44,7 +44,11 @@ rarely a reason to run it.
 ```
 browser ──WSS+cookie──> bff (Bun/Hono) ──ws + Bearer──> letta app-server (docker)
                                                               ├── llama.cpp /v1
-                                                              └── MCP servers
+                                                              ├── MCP servers (google-mcp)
+                                                              └── mods: web_search / fetch_webpage
+                                                                    └─> bff /internal/web-tools
+                                                                        ├─> searxng (search)
+                                                                        └─> ddg-mcp (pages, fallback)
 ```
 
 ### The BFF is a session multiplexer, not a proxy
@@ -237,9 +241,11 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   list is `skill_disable`), on every save and every upstream connect. No reload is needed:
   skills and the file are read from disk per turn and per call. Upstream's reminder still says
   "MCP servers with available tools: None" — it only knows the per-agent list — and plain
-  `letta mcp list` returns `[]`. **Both traps and the working search command live in the skill's
-  description, not just its body**: a local model was seen skipping the skill, trusting the
-  reminder, running plain `letta mcp list` and telling the user web search was not set up.
+  `letta mcp list` returns `[]`. **Both traps are named in the skill's description, not just its
+  body**: a local model was seen skipping the skill, trusting the reminder, running plain
+  `letta mcp list` and telling the user web search was not set up. That incident is also why web
+  search is no longer an MCP server at all (see "Web search and page reading are native tools").
+  A fresh install's list starts empty; nothing is seeded.
   Codex's `mcp: {inherit: true}` forwards that same empty list, so the Tasks form no longer
   offers it and `delegating-to-codex` tells agents to hand workers the wrapper instead.
   Browsers reach none of these files: `/api/mcp` reads and writes the list (an entry is a
@@ -475,13 +481,46 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     command; re-verify both on every letta-code or Codex bump (`CODEX_VERSION` is pinned in
     compose, never floated).
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
-- **No built-in web search/fetch tool.** Web search is the `ddg-mcp` sidecar
-  (`docker/ddg-mcp`, nickclyde/duckduckgo-mcp-server, pinned `DDG_MCP_VERSION`), reached at
-  `http://ddg-mcp:8000/mcp` over the compose network with no published port and no auth. A
-  sidecar, not a stdio command, because `letta mcp` connects per call: stdio would cold-start
-  Python every call and lose the server's cache and its rate limiter (30 searches / 20 fetches
-  a minute), which is what keeps DuckDuckGo from blocking us. The BFF seeds it (`DDG_MCP_URL`)
-  only when the shared list does not exist yet, so removing it in Settings → MCP sticks.
+- **Web search and page reading are native tools, `web_search` and `fetch_webpage`, installed
+  as a letta-code mod.** Upstream's own tools of those names are Letta-*server* tools, which our
+  local backend (`serverSideToolManagement: false`) cannot have. A **mod** is upstream's supported
+  way to add a client tool: a file in the app-server's global mods directory `/root/.letta/mods/`
+  whose default export calls `letta.tools.register(...)` (`src/mods/mod-sources.ts`,
+  `mod-engine.ts`). Listener turns get mod tools whatever the toolset preference
+  (`tools/manager.ts` `capturePreparedToolExecutionContext`) — chats, crons and channel turns
+  alike. **Subagents do not** (they run a providers-only capability profile), nor do Codex workers.
+
+  - **The mod is thin; the BFF does the work.** `bff/src/web-tools/mod.ts` renders
+    `letta-ui-web-tools.mjs` (plain ESM — mods cannot import npm packages): each tool POSTs its
+    args to `http://127.0.0.1:8080/internal/web-tools/{search,fetch}`. That route is handled in
+    `Bun.serve` before Hono and answers **only loopback clients** (`web-tools/http.ts`) — i.e. the
+    app-server namespace (the mod, agent shells, the gateway), which can reach the internet
+    anyway; a browser (published port, cloudflared) gets a 404. `requiresApproval: false`, or
+    "standard" mode would prompt and an unattended cron turn would stall.
+  - **Search:** the `searxng` sidecar (`docker/searxng`, pinned `SEARXNG_VERSION`, settings baked
+    into the image *outside* `/etc/searxng` — that path is a declared VOLUME and compose carries
+    an anonymous volume across recreates, so a settings change there would never land). Engines
+    were probed from a residential IP: bing, brave and yahoo answer; duckduckgo and qwant return
+    CAPTCHA; mojeek is inactive upstream (proof-of-work CAPTCHA); google needs JavaScript. When
+    SearXNG is down or every engine failed, the BFF falls back to ddg-mcp's `search`, whose
+    browser-TLS fallback SearXNG's duckduckgo engine lacks.
+  - **Pages:** ddg-mcp's `fetch_content` in markdown mode (`web-tools/ddg.ts`, MCP SDK, one
+    session per call). The sidecar keeps the rate limiter (30 searches / 20 fetches a minute) and
+    page cache, and fetches from its own container, not the BFF's. `DDG_REF_URL_THRESHOLD: "0"`
+    so fallback results carry real URLs, not `ref://` tokens. The Host header must stay
+    `ddg-mcp:8000` (its `--allowed-hosts` DNS-rebinding guard).
+  - **Loading: no file watch.** Global mods load on the first client connection (the BFF's,
+    `app-server.ts` `getStartupReady`) and again only on `execute_command reload`, which needs an
+    agent runtime (`listener/commands.ts`). So on every connect `web-tools/install.ts` renders
+    the mod, and only if the file differs writes it and sends `reload` in the first agent's
+    `default` conversation — retried every 30 s while no agent exists. An app-server restart
+    needs no reload: the file is already there when the BFF connects.
+  - **Settings → Web** (`/api/web-tools/*`, `/root/.letta/web-tools/letta-ui.json`): a switch
+    (off renders a mod that registers nothing — the protocol cannot delete a file), backend
+    status, a test search, and mod load errors from letta-code's
+    `/root/.letta/mods/diagnostics/latest.json` (errors only — a clean load writes nothing).
+  - **duckduckgo left the shared MCP list** in a one-time migration (`retireSeededDdgMcp`,
+    recorded as `mcpDdgRetired`), so a user who adds it back keeps it.
 - **Google (Gmail / Calendar / Tasks) is a sidecar whose access no agent can change.** Agents
   reach `http://google-mcp:8000/mcp` (`docker/google-mcp`: taylorwilsdon/google_workspace_mcp,
   pinned `WORKSPACE_MCP_VERSION`, under `supervisor.py`), listed in the shared MCP list while it
@@ -692,7 +731,8 @@ Only `bff` is rebuilt in step 4 — it is the only service carrying our code. Re
 `app-server` or `channel-gateway` only when `LETTA_CODE_VERSION` or their compose config changes,
 and `ddg-mcp` only when `DDG_MCP_VERSION` or `docker/ddg-mcp/` changes (it shares no namespace,
 so `docker compose -f docker/compose.yml up -d --build ddg-mcp` is safe on its own). The same
-goes for `google-mcp` with `WORKSPACE_MCP_VERSION` / `docker/google-mcp/`.
+goes for `google-mcp` with `WORKSPACE_MCP_VERSION` / `docker/google-mcp/`, and `searxng` with
+`SEARXNG_VERSION` / `docker/searxng/`.
 
 **`web/dist` is baked into the bff image, never mounted.** `bff.Dockerfile` builds the SPA
 in its `web-build` stage and copies the result into the runtime image; the BFF's only mounts
@@ -725,7 +765,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run check-version-pin` | Assert every letta-code version literal agrees (runs inside `verify`) |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
-| `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway + ddg-mcp + google-mcp |
+| `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway + searxng + ddg-mcp + google-mcp |
 | `git push origin main` | Release, part 1 — **ask for confirmation first, every time** |
 | `~/.claude/skills/dockhand-deploy/dockhand.sh plan letta letta-code-ui-prod` | Prod preflight: commits, compose diff, what gets recreated (read-only) |
 | `… deploy letta letta-code-ui-prod --confirm` | Release, part 2 — prod redeploy via Dockhand, same confirmation as the push |

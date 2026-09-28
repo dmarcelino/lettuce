@@ -253,23 +253,32 @@ global skill the BFF generates, and call it with
 itself is `/root/.letta/mcp-home/.letta/settings.json`, not upstream's `settings.json` (CLAUDE.md
 explains why).
 
-A fresh install starts with DuckDuckGo web search, the `ddg-mcp` service (compose network only,
-no published port):
+A fresh install starts with an empty list.
+
+### Web search: native `web_search` and `fetch_webpage`
+
+Every agent gets two native tools — no MCP, no skill — from a letta-code mod the BFF installs in
+the app-server (`/root/.letta/mods/letta-ui-web-tools.mjs`). Searches go to the `searxng`
+service, falling back to `ddg-mcp`; pages are read through `ddg-mcp`. Neither publishes a port.
+Settings → Web has the switch, the backend status and a test search.
 
 | Variable (`docker/.env`) | Default | |
 |---|---|---|
+| `SEARXNG_VERSION` | `2026.9.23-3cd69d30e` | `searxng/searxng` image tag; pinned |
+| `SEARXNG_URL` | `http://searxng:8080` | on the bff; empty switches SearXNG off |
 | `DDG_MCP_VERSION` | `0.7.0` | `duckduckgo-mcp-server` release; pinned |
 | `DDG_REGION` | `us-en` | results region |
 | `DDG_SAFE_SEARCH` | `OFF` | `STRICT`, `MODERATE` or `OFF` |
-| `DDG_MCP_URL` | `http://ddg-mcp:8000/mcp` | the seeded entry; set empty to start with no servers |
+| `DDG_MCP_URL` | `http://ddg-mcp:8000/mcp` | on the bff; empty switches page reading and the fallback off |
 
-The seed applies only while the list does not exist, so removing `duckduckgo` in Settings → MCP
-sticks. To check it from the host:
+SearXNG's engines and settings are baked into its image from `docker/searxng/settings.yml`, which
+records which engines answer from a home IP. To check the tools end to end from the host, the
+route the mod calls answers only inside the app-server's network namespace:
 
 ```bash
 docker compose -f docker/compose.yml exec app-server \
-  sh /root/.letta/skills/mcp-servers/scripts/mcp.sh call mcp__duckduckgo__search \
-  --args '{"query":"letta code","max_results":3}'
+  wget -qO- --post-data '{"query":"letta code"}' --header 'content-type: application/json' \
+  http://127.0.0.1:8080/internal/web-tools/search
 ```
 
 ## Run

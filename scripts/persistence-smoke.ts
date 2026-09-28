@@ -552,6 +552,79 @@ if (mcpBefore.ok) {
   );
 }
 
+// ── Settings → Web ─────────────────────────────────────────────────────────
+// Native web_search / fetch_webpage (bff/src/web-tools/). The mod calls the
+// BFF over loopback only; from here (not loopback) that route must not exist.
+section("Settings → Web");
+{
+  const internal = await fetch(`${ORIGIN}/internal/web-tools/search`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query: "smoke" }),
+  });
+  check(
+    "the mod's internal route is invisible from outside (404)",
+    internal.status === 404,
+    internal.status,
+  );
+
+  const status = await fetch(`${ORIGIN}/api/web-tools/status`, { headers: { cookie } });
+  check("GET /api/web-tools/status succeeds", status.ok, status.status);
+  const current = status.ok ? await status.json() : null;
+  check("the web-tools mod is installed", current?.modInstalled === true, current);
+  check(
+    "the mod loaded without errors",
+    (current?.modErrors ?? []).length === 0,
+    current?.modErrors,
+  );
+  check("SearXNG answers", current?.searxng === "up", current);
+
+  const search = await fetch(`${ORIGIN}/api/web-tools/test`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ query: "letta code agent" }),
+  });
+  const answer = search.ok ? await search.json() : null;
+  check(
+    "a test search returns results",
+    answer?.isError === false &&
+      /^Web results for|Found \d+ search results/m.test(answer?.text ?? ""),
+    answer,
+  );
+
+  const before = await (
+    await fetch(`${ORIGIN}/api/web-tools/settings`, { headers: { cookie } })
+  ).json();
+  const flip = await fetch(`${ORIGIN}/api/web-tools/settings`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ enabled: !before.settings.enabled }),
+  });
+  check("PUT /api/web-tools/settings succeeds", flip.ok, flip.status);
+  const bad = await fetch(`${ORIGIN}/api/web-tools/settings`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ enabled: "yes" }),
+  });
+  check("a malformed switch is refused with 400", bad.status === 400, bad.status);
+  const restore = await fetch(`${ORIGIN}/api/web-tools/settings`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ enabled: before.settings.enabled }),
+  });
+  check("the web-tools switch is restored", restore.ok, restore.status);
+
+  const mcp = await (await fetch(`${ORIGIN}/api/mcp`, { headers: { cookie } })).json();
+  check(
+    "the seeded duckduckgo MCP server is retired",
+    !(mcp?.servers ?? []).some(
+      (server: { name: string; url?: string }) =>
+        server.name === "duckduckgo" && server.url === "http://ddg-mcp:8000/mcp",
+    ),
+    mcp?.servers,
+  );
+}
+
 // ── Settings → Google ───────────────────────────────────────────────────────
 // Read-only, apart from one refused write: connecting needs a human at Google's
 // consent screen. What must hold is that the status never leaks the client

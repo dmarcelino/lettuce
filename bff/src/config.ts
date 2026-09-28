@@ -52,11 +52,11 @@ export interface BffConfig {
    */
   push: PushConfig | null;
   /**
-   * The MCP server a fresh install starts with (the `ddg-mcp` sidecar), or
-   * null for none. Only read when the shared MCP settings file does not exist
-   * yet — see `mcp/settings.ts` `defaultMcpServers`.
+   * Backends of the agents' native `web_search` / `fetch_webpage` tools (see
+   * `web-tools/`): SearXNG answers searches, ddg-mcp reads pages and is the
+   * search fallback. Null switches that backend off.
    */
-  mcpSeedUrl: string | null;
+  webTools: { searxngUrl: string | null; ddgMcpUrl: string | null };
   /** Settings → Google — see `google/settings.ts`. */
   google: GoogleConfig;
 }
@@ -248,7 +248,10 @@ export function loadConfig(): BffConfig {
     devBypassEmail,
     devBypassAllowRemote,
     push: readPushConfig(),
-    mcpSeedUrl: process.env.DDG_MCP_URL?.trim() || null,
+    webTools: {
+      searxngUrl: process.env.SEARXNG_URL?.trim() || null,
+      ddgMcpUrl: process.env.DDG_MCP_URL?.trim() || null,
+    },
     google: {
       policyDir: process.env.GOOGLE_POLICY_DIR?.trim() || "/app/google/policy",
       credsDir: process.env.GOOGLE_CREDS_DIR?.trim() || "/app/google/creds",

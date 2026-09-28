@@ -1,0 +1,52 @@
+# SearXNG for the agents' native web_search tool (bff/src/web-tools/). A private
+# instance: no published port, reached only by the BFF over the compose network,
+# so the bot limiter (which needs Valkey and screens out non-browser clients) is
+# off and JSON output is on.
+#
+# Baked into the image, never bind-mounted (Dockhand builds from git; a relative
+# bind source mounts an empty directory). It lives outside /etc/searxng on
+# purpose: that path is a declared VOLUME, and compose carries an anonymous
+# volume across recreates, so a settings change there would never land.
+use_default_settings:
+  engines:
+    # Probed from a residential IP (2026-09-28, this image): bing, brave and
+    # yahoo answer; duckduckgo and qwant return CAPTCHA (ddg-mcp, with its
+    # browser-TLS fallback, stays the BFF's fallback instead); mojeek is inactive
+    # upstream (proof-of-work CAPTCHA); google needs JavaScript. The vertical
+    # engines only answer their own categories (it, science).
+    keep_only:
+      - bing
+      - brave
+      - yahoo
+      - wikipedia
+      - github
+      - stackoverflow
+      - arxiv
+
+# bing and yahoo ship disabled in the default settings.
+engines:
+  - name: bing
+    disabled: false
+  - name: yahoo
+    disabled: false
+
+general:
+  instance_name: letta-web-search
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+server:
+  # Replaced with a random value at image build time (Dockerfile).
+  secret_key: "@BUILD_SECRET@"
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+outgoing:
+  request_timeout: 4.0
+  max_request_timeout: 8.0

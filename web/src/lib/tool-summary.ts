@@ -224,11 +224,14 @@ export function summarizeToolCall(
       };
     }
 
+    // `fetch_webpage` / `web_search`: the native web tools (bff/src/web-tools/).
+    case "fetch_webpage":
     case "WebFetch": {
       const url = str(args, "url");
       return url ? { headline: url, mono: true } : null;
     }
 
+    case "web_search":
     case "WebSearch": {
       const query = str(args, "query");
       return query ? { headline: query } : null;

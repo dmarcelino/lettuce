@@ -235,8 +235,10 @@ services:
       PUSH_VAPID_PRIVATE_KEY: ${PUSH_VAPID_PRIVATE_KEY:-}
       PUSH_VAPID_CONTACT_EMAIL: ${PUSH_VAPID_CONTACT_EMAIL:-}
       PUSH_SUBSCRIPTIONS_FILE: /app/data/push-subscriptions.json
-      # The shared MCP list's starting entry — used only when that list does not
-      # exist yet, so removing the server in Settings → MCP sticks. Empty: none.
+      # Backends of the agents' native web_search / fetch_webpage tools
+      # (bff/src/web-tools/): SearXNG answers searches, ddg-mcp fetches pages and
+      # is the search fallback. Empty disables that backend.
+      SEARXNG_URL: ${SEARXNG_URL-http://searxng:8080}
       DDG_MCP_URL: ${DDG_MCP_URL-http://ddg-mcp:8000/mcp}
       # Settings → Google. Changing Google access from a dev-bypass session is
       # refused unless this is "true": agent shells share this namespace and can
@@ -316,12 +318,25 @@ services:
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work
     restart: unless-stopped
 
-  # DuckDuckGo web search, the MCP server a fresh install starts with (see
-  # docker/ddg-mcp/Dockerfile for why it is a sidecar). Agents reach it from
-  # the app-server container over the default network as
-  # http://ddg-mcp:8000/mcp — the BFF seeds that URL into the shared MCP list
-  # (DDG_MCP_URL on the bff) when the list does not exist yet. No `ports:`:
-  # nothing outside the compose network can reach it, and it has no auth.
+  # Metasearch behind the agents' native `web_search` tool: the BFF queries its
+  # JSON API (bff/src/web-tools/searxng.ts). Settings are baked into the image
+  # (docker/searxng/settings.yml, which also records which engines were probed
+  # to work from a residential IP). No `ports:` and no auth; the limiter is off
+  # because the BFF is its only client. Pinned — never float `latest`.
+  searxng:
+    build:
+      context: searxng
+      args:
+        SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
+    image: letta-searxng:${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
+    restart: unless-stopped
+
+  # DuckDuckGo via duckduckgo-mcp-server (see docker/ddg-mcp/Dockerfile for why
+  # it is a sidecar): the page fetcher behind the native `fetch_webpage` tool
+  # and the search fallback when SearXNG is down or blocked. The BFF calls it
+  # at http://ddg-mcp:8000/mcp (DDG_MCP_URL on the bff); it is no longer in the
+  # agents' shared MCP list. No `ports:`: nothing outside the compose network
+  # can reach it, and it has no auth.
   ddg-mcp:
     build:
       context: ddg-mcp
@@ -331,6 +346,9 @@ services:
     environment:
       DDG_REGION: ${DDG_REGION:-us-en}
       DDG_SAFE_SEARCH: ${DDG_SAFE_SEARCH:-OFF}
+      # Long result URLs normally come back as ref:// tokens meant for an agent
+      # to expand; the BFF hands results straight to the model, so keep them real.
+      DDG_REF_URL_THRESHOLD: "0"
     restart: unless-stopped
 
   # Gmail, Calendar and Tasks for agents: workspace-mcp under a supervisor that

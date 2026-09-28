@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  defaultMcpServers,
   GLOBAL_MCP_AGENT,
   InvalidMcpServersError,
   LOCAL_BASE_URL,
@@ -59,13 +58,6 @@ describe("readMcpServers", () => {
   test("an unparseable file is an error, not an empty list that a save would overwrite", () => {
     expect(() => readMcpServers("{not json")).toThrow(SettingsUnreadableError);
     expect(() => readMcpServers("[]")).toThrow(SettingsUnreadableError);
-  });
-});
-
-describe("defaultMcpServers", () => {
-  test("seeds the sidecar when a URL is configured, and nothing otherwise", () => {
-    expect(defaultMcpServers("http://ddg-mcp:8000/mcp")).toEqual([DDG]);
-    expect(defaultMcpServers(null)).toEqual([]);
   });
 });
 

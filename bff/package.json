@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@letta-ai/letta-code": "0.33.3",
+    "@modelcontextprotocol/sdk": "1.30.1",
     "hono": "^4.6.0",
     "jose": "^6.2.12",
     "web-push": "^3.6.7",

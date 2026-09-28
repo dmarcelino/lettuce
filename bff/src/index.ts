@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import type {
+  AgentListResponseMessage,
   AgentRetrieveResponseMessage,
+  ExecuteCommandResponseMessage,
   ListInDirectoryResponseMessage,
   ReadFileResponseMessage,
   SkillDisableResponseMessage,
@@ -67,6 +69,18 @@ import { drainActiveTurns } from "./shutdown.ts";
 import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
+import { ddgCaller } from "./web-tools/ddg.ts";
+import { handleInternalWebTools } from "./web-tools/http.ts";
+import {
+  loadWebToolsSettings,
+  retireSeededDdgMcp,
+  saveWebToolsSettings,
+  syncWebToolsMod,
+  type WebToolsIo,
+} from "./web-tools/install.ts";
+import { type WebToolsBackends, webSearch } from "./web-tools/service.ts";
+import { InvalidWebToolsSettingsError } from "./web-tools/settings.ts";
+import { webToolsStatus } from "./web-tools/status.ts";
 
 const config: BffConfig = loadConfig();
 const secureCookies = config.publicOrigin.startsWith("https://");
@@ -115,15 +129,22 @@ const upstream = new UpstreamConnection({
     if (state === "connected") {
       skillCatalog.reset();
       void installShippedSkills();
-      void ensureMcpServers(mcpIo, config.mcpSeedUrl)
+      // One after another: each of these rewrites the shared MCP list, and two
+      // read-modify-writes at once would drop one's change.
+      void ensureMcpServers(mcpIo)
         .then((servers) => log(`MCP: ${servers.length} shared server(s) configured`))
-        .catch((error) => log(`MCP: could not sync shared servers: ${errorMessage(error)}`));
+        .catch((error) => log(`MCP: could not sync shared servers: ${errorMessage(error)}`))
+        .then(() => retireSeededDdgMcp(webToolsIo, mcpIo))
+        .then(
+          (removed) => removed && log("MCP: removed duckduckgo — web search is a native tool now"),
+        )
+        .catch((error) => log(`MCP: could not retire duckduckgo: ${errorMessage(error)}`))
+        .then(() => googleService.reapply())
+        .catch((error) => log(`Google: could not re-render config: ${errorMessage(error)}`));
       void reapplyCodexSettings(codexIo)
         .then((applied) => applied && log("Codex: re-rendered config from saved settings"))
         .catch((error) => log(`Codex: could not re-render config: ${errorMessage(error)}`));
-      void googleService
-        .reapply()
-        .catch((error) => log(`Google: could not re-render config: ${errorMessage(error)}`));
+      void reapplyWebToolsMod();
     }
   },
   log,
@@ -247,6 +268,67 @@ const mcpIo: McpIo = {
     }
   },
 };
+
+// Native web tools (see `web-tools/`): the mod that registers `web_search` /
+// `fetch_webpage` in the app-server, and the backends its calls land on.
+const webToolsBackends = (): WebToolsBackends => ({
+  searxngUrl: config.webTools.searxngUrl,
+  ddg: config.webTools.ddgMcpUrl ? ddgCaller(config.webTools.ddgMcpUrl) : null,
+});
+const webToolsIo: WebToolsIo = {
+  read: codexIo.read,
+  write: codexIo.write,
+  // `reload` needs an agent runtime to run in; which agent does not matter —
+  // it reloads the global mods for the whole process.
+  async reloadMods() {
+    const list = await upstream.request<AgentListResponseMessage>({
+      type: "agent_list",
+      request_id: `bff-web-tools-agents-${randomUUID()}`,
+      query: { limit: 1 },
+    });
+    const agentId = list.success ? list.agents[0]?.id : undefined;
+    if (!agentId) return false;
+    const response = await upstream.request<ExecuteCommandResponseMessage>({
+      type: "execute_command",
+      command_id: "reload",
+      request_id: `bff-web-tools-reload-${randomUUID()}`,
+      runtime: { agent_id: agentId, conversation_id: "default" },
+    });
+    if (!response.success) throw new Error(response.output || "reload failed");
+    return true;
+  },
+};
+/** Retries a reload that could not run yet (no agent existed) until one can. */
+let webToolsReloadRetry: ReturnType<typeof setInterval> | null = null;
+async function reapplyWebToolsMod(): Promise<void> {
+  try {
+    const settings = await loadWebToolsSettings(webToolsIo);
+    const result = await syncWebToolsMod(webToolsIo, {
+      enabled: settings.enabled,
+      port: config.port,
+    });
+    if (result !== "unchanged")
+      log(`Web tools: mod ${result} (${settings.enabled ? "on" : "off"})`);
+    if (result === "reload-pending") scheduleWebToolsReload();
+  } catch (error) {
+    log(`Web tools: could not install the mod: ${errorMessage(error)}`);
+  }
+}
+function scheduleWebToolsReload(): void {
+  if (webToolsReloadRetry) return;
+  webToolsReloadRetry = setInterval(() => {
+    if (!upstream.isReady()) return;
+    void webToolsIo
+      .reloadMods()
+      .then((done) => {
+        if (!done || !webToolsReloadRetry) return;
+        clearInterval(webToolsReloadRetry);
+        webToolsReloadRetry = null;
+        log("Web tools: mod reloaded");
+      })
+      .catch((error) => log(`Web tools: reload failed: ${errorMessage(error)}`));
+  }, 30_000);
+}
 
 // The symlink guard inspects the workspace through this process's own mount. If
 // that mount is absent — running the BFF outside the container, or a compose
@@ -579,6 +661,52 @@ app.put("/api/codex/settings", async (c) => {
     if (error instanceof InvalidCodexSettingsError) return c.text(error.message, 400);
     return c.text(errorMessage(error), 502);
   }
+});
+
+// Settings → Web: the native web tools' switch, backend status and a test search.
+app.get("/api/web-tools/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  try {
+    const settings = await loadWebToolsSettings(webToolsIo);
+    return c.json({ settings: { enabled: settings.enabled } });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.put("/api/web-tools/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const body = await c.req.json().catch(() => null);
+  try {
+    const saved = await saveWebToolsSettings(webToolsIo, body, config.port);
+    if (saved.mod === "reload-pending") scheduleWebToolsReload();
+    return c.json({ settings: { enabled: saved.settings.enabled }, mod: saved.mod });
+  } catch (error) {
+    if (error instanceof InvalidWebToolsSettingsError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.get("/api/web-tools/status", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  return c.json(
+    await webToolsStatus({
+      searxngUrl: config.webTools.searxngUrl,
+      ddgMcpUrl: config.webTools.ddgMcpUrl,
+      read: codexIo.read,
+    }),
+  );
+});
+
+// The same search an agent's `web_search` runs, so the settings screen can
+// prove the backends answer without starting a turn.
+app.post("/api/web-tools/test", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const body = (await c.req.json().catch(() => null)) as { query?: unknown } | null;
+  return c.json(await webSearch({ query: body?.query, max_results: 5 }, webToolsBackends()));
 });
 
 app.get("/api/codex/runs", async (c) => {
@@ -919,6 +1047,14 @@ const server = Bun.serve<SocketData>({
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400, headers: hardened });
     }
+
+    // The web-tools mod's calls: loopback only, before Hono's session layer.
+    const internal = await handleInternalWebTools(
+      request,
+      bunServer.requestIP(request)?.address,
+      webToolsBackends,
+    );
+    if (internal) return internal;
 
     return app.fetch(request);
   },

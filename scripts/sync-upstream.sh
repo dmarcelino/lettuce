@@ -54,6 +54,17 @@ BEHAVIOR_FILES=(
   "src/settings-manager.ts"
   "src/cli/subcommands/mcp.ts"
   "src/cli/subcommands/mcp-io.ts"
+  # The native web tools are a mod the BFF writes (bff/src/web-tools/mod.ts):
+  # where global mods are discovered, the default-export + tools.register shape,
+  # that listener turns get them whatever the toolset, that `reload` re-imports
+  # them, and the diagnostics file Settings → Web reads.
+  "src/mods/mod-sources.ts"
+  "src/mods/mod-engine.ts"
+  "src/mods/types.ts"
+  "src/mods/mod-diagnostics-file.ts"
+  "src/websocket/listener/mod-adapter.ts"
+  "src/websocket/listener/commands.ts"
+  "src/tools/manager.ts"
 )
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }

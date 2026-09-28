@@ -136,3 +136,15 @@ describe("summarizeToolCall", () => {
     expect(summarizeToolCall(undefined, { command: "ls" }, CWD)).toBeNull();
   });
 });
+
+describe("native web tools", () => {
+  test("web_search shows its query, fetch_webpage its URL", () => {
+    expect(summarizeToolCall("web_search", { query: "weather redmond" }, null)).toEqual({
+      headline: "weather redmond",
+    });
+    expect(summarizeToolCall("fetch_webpage", { url: "https://a.example/p" }, null)).toEqual({
+      headline: "https://a.example/p",
+      mono: true,
+    });
+  });
+});
