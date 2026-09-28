@@ -91,7 +91,22 @@ describe("renderMcpSkill", () => {
     const frontmatter = parseFrontmatterForTest(skill?.content ?? "");
     expect(frontmatter.name).toBe(MCP_SKILL_NAME);
     expect(frontmatter.description).toContain("duckduckgo, notes");
-    expect(frontmatter.description).toContain("search the web");
+    expect(frontmatter.description).toContain("Web search");
+  });
+
+  // An agent that never loads the skill still sees its description: that line
+  // alone has to get it past upstream's "None" reminder to a working call.
+  test("the description alone is enough to search", () => {
+    const description = String(parseFrontmatterForTest(skill?.content ?? "").description);
+    expect(description).toContain(
+      `sh /root/.letta/skills/${MCP_SKILL_NAME}/scripts/mcp.sh call mcp__duckduckgo__search`,
+    );
+    expect(description).toContain("MCP servers with available tools: None");
+    expect(description).toContain("plain `letta mcp`");
+    const [plain] = renderMcpSkill([{ name: "notes", command: "x" }]);
+    const plainDescription = String(parseFrontmatterForTest(plain?.content ?? "").description);
+    expect(plainDescription).not.toContain("Web search");
+    expect(plainDescription).toContain("MCP servers with available tools: None");
   });
 
   test("the web-search section appears only when duckduckgo is configured", () => {

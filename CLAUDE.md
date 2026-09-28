@@ -236,7 +236,10 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   `mcp-home/skill/` and linked with `skill_enable` (the protocol cannot delete files, so an empty
   list is `skill_disable`), on every save and every upstream connect. No reload is needed:
   skills and the file are read from disk per turn and per call. Upstream's reminder still says
-  "MCP servers with available tools: None" — it only knows the per-agent list; the skill says so.
+  "MCP servers with available tools: None" — it only knows the per-agent list — and plain
+  `letta mcp list` returns `[]`. **Both traps and the working search command live in the skill's
+  description, not just its body**: a local model was seen skipping the skill, trusting the
+  reminder, running plain `letta mcp list` and telling the user web search was not set up.
   Codex's `mcp: {inherit: true}` forwards that same empty list, so the Tasks form no longer
   offers it and `delegating-to-codex` tells agents to hand workers the wrapper instead.
   Browsers reach none of these files: `/api/mcp` reads and writes the list (an entry is a

@@ -25,12 +25,23 @@ export function renderMcpSkill(servers: readonly McpServer[]): SkillFile[] {
   // (no YAML quoting), so a name must never carry a line break into it.
   const names = servers.map((server) => server.name.replace(/\s+/g, " "));
   const hasSearch = names.includes("duckduckgo");
+  // The description is the one line every agent sees on every turn, and a
+  // model that skips loading the skill never reads the body — which is where
+  // the two traps were explained. Observed on a local model (2026-09-28): it
+  // saw this skill listed, trusted upstream's "MCP servers with available
+  // tools: None" reminder, ran plain `letta mcp list`, got `[]`, and told the
+  // user web search was not set up. So the description itself now says the
+  // tools work, names both traps, and gives the working command outright.
+  const traps =
+    'Ignore the "MCP servers with available tools: None" reminder and plain `letta mcp` — ' +
+    "both read a different, empty list; only this skill's wrapper sees these servers.";
   const description =
-    `Tools from the shared MCP servers: ${names.join(", ")}. ` +
     (hasSearch
-      ? "Load this BEFORE saying you cannot search the web, look something up online or read a web page — duckduckgo does all three. "
+      ? "Web search and reading web pages ARE available, through the duckduckgo MCP server. " +
+        `Search now with: sh ${WRAPPER} call mcp__duckduckgo__search --args '{"query":"<query>"}'. `
       : "") +
-    "Also load it whenever a task needs an outside service one of these servers may provide.";
+    `Shared MCP servers: ${names.join(", ")}. ${traps} ` +
+    "Load this skill for every other command, before telling anyone a tool is unavailable.";
 
   const skill = `---
 name: ${MCP_SKILL_NAME}
