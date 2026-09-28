@@ -416,6 +416,37 @@ export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
   );
 }
 
+/** Every filter group, in the order the Filter sheet lists them. */
+export const FILTER_ORDER: readonly FilterGroup[] = ["user", "agent", "tools", "tasks", "system"];
+
+/**
+ * Whether a group's messages are on screen. The filter set holds the groups to
+ * show, and an empty set means "everything" — so every box reads ticked then.
+ */
+export function isShown(active: ReadonlySet<FilterGroup>, group: FilterGroup): boolean {
+  return active.size === 0 || active.has(group);
+}
+
+/**
+ * Tick or untick one group as the Filter sheet shows it (ticked = shown).
+ * From "everything", unticking hides just that group; ticking the last hidden
+ * group back returns to the empty "everything" set. The last shown group
+ * cannot be unticked: an empty set already means everything, not nothing.
+ */
+export function toggleShown(
+  active: ReadonlySet<FilterGroup>,
+  group: FilterGroup,
+): Set<FilterGroup> {
+  const shown = new Set(FILTER_ORDER.filter((g) => isShown(active, g)));
+  if (shown.has(group)) {
+    if (shown.size === 1) return new Set(active);
+    shown.delete(group);
+  } else {
+    shown.add(group);
+  }
+  return shown.size === FILTER_ORDER.length ? new Set() : shown;
+}
+
 export function filterEntries(
   entries: TranscriptEntry[],
   active: ReadonlySet<FilterGroup>,

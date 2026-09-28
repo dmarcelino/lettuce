@@ -110,7 +110,6 @@ export function CodexSection() {
 
   return (
     <>
-      <p className="section-note">Codex workers</p>
       <p className="muted small pad">
         Agents can hand coding work to a Codex worker (subagent type <code>codex</code>). It runs in
         the agent&apos;s workspace inside the app-server container, with the same access as the

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BranchSheet } from "../components/BranchSheet.tsx";
 import { FileViewer } from "../components/FileViewer.tsx";
 import { Icon } from "../components/Icon.tsx";
+import { shortDate } from "../lib/conversation-groups.ts";
 import { downloadUrl, formatBytes, triggerDownload } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { formatEntryTimeFull } from "../lib/timestamps.ts";
 import { agentWorkspace, WORKSPACE_ROOT } from "../lib/workspace.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -244,18 +246,22 @@ export function FilesTab({ session, cwd, agentId }: Props) {
       ) : (
         <>
           <div className="file-row file-row-head">
+            <span className="file-sort-label muted small">Sort by</span>
             <button type="button" className="link grow-row" onClick={() => toggleSort("name")}>
-              Name{sortKey === "name" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+              Name
+              <SortMark active={sortKey === "name"} dir={sortDir} />
             </button>
             <button type="button" className="link file-size" onClick={() => toggleSort("size")}>
-              Size{sortKey === "size" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+              Size
+              <SortMark active={sortKey === "size"} dir={sortDir} />
             </button>
             <button
               type="button"
               className="link file-modified"
               onClick={() => toggleSort("modified")}
             >
-              Modified{sortKey === "modified" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+              Modified
+              <SortMark active={sortKey === "modified"} dir={sortDir} />
             </button>
             {/* Matches the download slot's box exactly (same classes) so this
                 header row is exactly as wide as a body row — see styles.css. */}
@@ -277,13 +283,36 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                     }}
                   >
                     <Icon name={entry.type === "dir" ? "folder" : "file"} />
-                    {entry.path}
+                    <span className="file-name">
+                      <span className="file-name-text">{entry.path}</span>
+                      {/* The size and date columns, folded under the name where
+                          there is no room for columns (a phone). */}
+                      <span className="file-meta muted small">
+                        {[
+                          entry.type === "dir"
+                            ? "Folder"
+                            : entry.size !== undefined
+                              ? formatBytes(entry.size)
+                              : null,
+                          entry.modified ? shortDate(entry.modified) : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    </span>
                   </button>
                   <span className="muted small file-size">
                     {entry.size !== undefined ? formatBytes(entry.size) : "—"}
                   </span>
-                  <span className="muted small file-modified">
-                    {entry.modified ? new Date(entry.modified).toLocaleString() : "—"}
+                  <span
+                    className="muted small file-modified"
+                    title={
+                      entry.modified
+                        ? formatEntryTimeFull(new Date(entry.modified).toISOString())
+                        : undefined
+                    }
+                  >
+                    {entry.modified ? shortDate(entry.modified) : "—"}
                   </span>
                   {/* Directories have nothing to hand over: there is no archive
                       command in the protocol, so ask the agent to tar one. A
@@ -327,4 +356,10 @@ export function FilesTab({ session, cwd, agentId }: Props) {
       ) : null}
     </div>
   );
+}
+
+/** The active column's direction; nothing on the others. */
+function SortMark({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
+  if (!active) return null;
+  return <Icon name={dir === "asc" ? "up" : "arrow-down"} className="sort-mark" />;
 }

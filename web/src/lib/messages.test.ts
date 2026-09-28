@@ -3,9 +3,11 @@ import {
   addLocalUserMessage,
   applyStreamDelta,
   createStreamIndex,
+  FILTER_ORDER,
   type FilterGroup,
   filterEntries,
   groupTranscript,
+  isShown,
   mergeTurnErrors,
   settleStreaming,
   sortedEntries,
@@ -13,6 +15,7 @@ import {
   stripInjectedBlocks,
   type Transcript,
   type TranscriptEntry,
+  toggleShown,
   transcriptFromHistory,
 } from "./messages.ts";
 
@@ -1011,5 +1014,25 @@ describe("groupTranscript", () => {
     const after = groupTranscript([first, e("tool_call", { date: "2026-09-25T15:09:00Z" })]);
     expect(before[0]).toMatchObject({ kind: "steps", id: first.id, date: first.date });
     expect(after[0]).toMatchObject({ kind: "steps", id: first.id, date: first.date });
+  });
+});
+
+describe("toggleShown (the Filter sheet: ticked = shown)", () => {
+  const everything = new Set<FilterGroup>();
+  test("from everything, unticking hides only that group", () => {
+    const next = toggleShown(everything, "tools");
+    expect([...next].sort()).toEqual(["agent", "system", "tasks", "user"]);
+    expect(isShown(next, "tools")).toBe(false);
+    expect(isShown(next, "user")).toBe(true);
+  });
+  test("ticking the last hidden group returns to the empty 'everything' set", () => {
+    expect(toggleShown(toggleShown(everything, "tools"), "tools").size).toBe(0);
+  });
+  test("the last shown group cannot be unticked", () => {
+    const onlyUser = new Set<FilterGroup>(["user"]);
+    expect([...toggleShown(onlyUser, "user")]).toEqual(["user"]);
+  });
+  test("every box reads ticked when nothing is filtered", () => {
+    for (const group of FILTER_ORDER) expect(isShown(everything, group)).toBe(true);
   });
 });

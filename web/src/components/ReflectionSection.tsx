@@ -158,7 +158,6 @@ export function ReflectionSection({ session, agentId, conversationId }: Props) {
 
   return (
     <>
-      <p className="section-note">Reflection</p>
       {status ? <p className="muted small pad">{status}</p> : null}
 
       <div className="pad-x">

@@ -8,6 +8,8 @@ import { Icon } from "../components/Icon.tsx";
 import { ToggleRow } from "../components/MenuRow.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
+import { shortDate } from "../lib/conversation-groups.ts";
+import { describeCron } from "../lib/cron-describe.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
@@ -333,9 +335,9 @@ export function TasksTab({
             {task.description ? <div className="small">{task.description}</div> : null}
             <div className="muted small">
               {task.last_fired_at
-                ? `Last fired ${new Date(task.last_fired_at).toLocaleString()} (${task.fire_count}×)`
+                ? `Last fired ${shortDate(task.last_fired_at)} (${task.fire_count}×)`
                 : task.scheduled_for
-                  ? `Scheduled for ${new Date(task.scheduled_for).toLocaleString()}`
+                  ? `Scheduled for ${shortDate(task.scheduled_for)}`
                   : "Never fired"}
               {task.last_run_outcome ? ` · ${task.last_run_outcome}` : ""}
             </div>
@@ -509,11 +511,20 @@ export function TasksTab({
           <label className="field">
             Schedule (cron)
             <input
+              className="mono-input"
               value={draft.cron}
               placeholder="0 9 * * *"
+              spellCheck={false}
+              autoCapitalize="off"
               onChange={(event) => setDraft({ ...draft, cron: event.target.value })}
             />
             <span className="muted small">
+              {describeCron(draft.cron) ? (
+                <span className="ok">{describeCron(draft.cron)}</span>
+              ) : draft.cron.trim() ? (
+                "Custom schedule"
+              ) : null}
+              {draft.cron.trim() ? <br /> : null}
               minute hour day month weekday — e.g. <code>0 9 * * *</code> is 9am daily
             </span>
           </label>

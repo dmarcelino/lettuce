@@ -204,23 +204,55 @@ pre {
 .conversation-name {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   text-align: left;
   background: none;
   border: none;
   color: var(--text);
   font-size: 14px;
   padding: 8px 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.conversation-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0.65;
+.conversation-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.conversation-date {
+  flex: none;
+}
+/* Same section heads as the switcher's. */
+.conversations li.conversation-group {
+  padding: 10px 6px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* The switcher's search field; it is a <label>, so undo the sidebar's
+   section-label styling that would otherwise catch it. */
+.sidebar .sidebar-search {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+}
+/* Rename/archive on 34 rows at once was noise: they appear on the row being
+   pointed at, focused, or open, and take the date's place there. */
+.conversation-actions {
+  display: none;
+  gap: 2px;
+}
+.conversations li:hover .conversation-actions,
+.conversations li:focus-within .conversation-actions,
 .conversations li.active .conversation-actions {
-  opacity: 1;
+  display: flex;
+}
+.conversations li:hover .conversation-date,
+.conversations li:focus-within .conversation-date,
+.conversations li.active .conversation-date {
+  display: none;
 }
 
 /* 12px: the one inline gutter every pane row, note and heading shares. */
@@ -1068,6 +1100,16 @@ pre {
   color: var(--bad);
 }
 /* Flat, not a dimmed accent: a faded blue read as a second enabled style. */
+/* A destructive action offered, not yet confirmed: outlined, not filled. */
+.button.danger.outline {
+  background: none;
+  color: var(--bad);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent);
+}
+/* Pushed to the start of a footer, away from Cancel/Save. */
+.sheet-actions .button.leading {
+  margin-right: auto;
+}
 .button:disabled {
   background: var(--surface-2);
   color: var(--muted);
@@ -1390,6 +1432,10 @@ p.warning.dismissible > span {
 p.warning.dismissible > .icon-button {
   margin: -6px -8px -6px 0;
 }
+/* Inside a sheet the body already provides the gutter. */
+.sheet-body p.warning {
+  margin-inline: 0;
+}
 p.warning code {
   background: rgba(0, 0, 0, 0.28);
   padding: 1px 5px;
@@ -1650,6 +1696,14 @@ p.warning code {
   border-color: var(--accent);
   color: var(--text);
 }
+/* Under Settings' chips: who the section's settings apply to. */
+.scope-line {
+  margin: 0;
+  padding: 7px 12px;
+  color: var(--muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
 .pane-bar input {
   flex: 1;
   min-width: 0;
@@ -1745,7 +1799,55 @@ p.warning code {
   width: 64px;
 }
 .file-modified {
-  width: 170px;
+  width: 110px;
+}
+.file-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.file-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-meta,
+.file-sort-label {
+  display: none;
+}
+.sort-mark {
+  width: 13px;
+  height: 13px;
+  margin-left: 3px;
+  vertical-align: -2px;
+}
+/* A phone has no room for three columns — the name got about eight
+   characters. Fold size and date under the name, and turn the column heads
+   into a plain "Sort by" row. */
+@media (max-width: 899px) {
+  .file-row > .file-size,
+  .file-row > .file-modified {
+    display: none;
+  }
+  .file-meta {
+    display: block;
+  }
+  .file-row-head {
+    gap: 4px;
+    padding-left: 12px;
+  }
+  .file-sort-label {
+    display: inline;
+  }
+  .file-row-head > .link,
+  .file-row-head > .link.grow-row {
+    flex: 0 0 auto;
+    width: auto;
+    padding-right: 6px;
+  }
+  .file-row-head > .file-download-placeholder {
+    display: none;
+  }
 }
 
 /* Fits the sheet at any width without pushing the actions off the bottom. */
@@ -1801,6 +1903,11 @@ p.warning code {
   flex-direction: column;
   gap: 4px;
 }
+/* A task that is itself one tappable row (a Codex run): the button carries the
+   padding, so the li must not add a second 12px. */
+.task:has(> .row) {
+  padding: 0;
+}
 .task-head {
   display: flex;
   align-items: center;
@@ -1812,6 +1919,21 @@ p.warning code {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+}
+.memory-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.memory-row-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.memory-size {
+  flex: none;
+  white-space: nowrap;
 }
 .one-line {
   display: block;
@@ -1858,6 +1980,15 @@ p.warning code {
 .field .small {
   font-weight: 400;
   color: var(--muted);
+}
+/* Space-separated tokens (a cron schedule) are unreadable in a proportional
+   font: "0 9 * * *" closed up into "09***". */
+.field input.mono-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.02em;
+}
+.ok {
+  color: var(--ok);
 }
 
 .memory-editor {

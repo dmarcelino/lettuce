@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import type { RuntimeScope } from "../lib/protocol.ts";
+import { handleProvider } from "../lib/providers.ts";
 import type { ToolsetSummary } from "../state/use-conversation.ts";
 import { type ModelEntry, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -129,19 +130,31 @@ export function ModelPicker({
         </p>
       ) : null}
 
-      <ul className="menu-list">
-        {models.models.map((model) => (
-          <MenuRow
-            key={model.id}
-            title={model.label}
-            description={model.handle}
-            mark="check"
-            selected={model.handle === current.handle}
-            disabled={busy}
-            onClick={() => void choose(model)}
-          />
-        ))}
-      </ul>
+      {groupByProvider(models.models).map(({ provider, models: group }) => (
+        <section key={provider}>
+          <p className="menu-section">
+            {provider} · {group.length} {group.length === 1 ? "model" : "models"}
+          </p>
+          <ul className="menu-list">
+            {group.map((model) => (
+              <MenuRow
+                key={model.id}
+                title={model.label}
+                // The handle is "<provider>/<label>" almost always; repeating it
+                // under every row said the provider ten times. Kept only when it
+                // adds something the title and heading do not.
+                description={
+                  model.handle === `${provider}/${model.label}` ? undefined : model.handle
+                }
+                mark="check"
+                selected={model.handle === current.handle}
+                disabled={busy}
+                onClick={() => void choose(model)}
+              />
+            ))}
+          </ul>
+        </section>
+      ))}
 
       {availableToolsets.length > 0 ? (
         <>
@@ -166,4 +179,18 @@ export function ModelPicker({
       ) : null}
     </Sheet>
   );
+}
+
+/** Models under their provider, in the order the list gave them. */
+export function groupByProvider(
+  models: readonly ModelEntry[],
+): { provider: string; models: ModelEntry[] }[] {
+  const groups = new Map<string, ModelEntry[]>();
+  for (const model of models) {
+    const provider = handleProvider(model.handle);
+    const group = groups.get(provider);
+    if (group) group.push(model);
+    else groups.set(provider, [model]);
+  }
+  return [...groups].map(([provider, group]) => ({ provider, models: group }));
 }

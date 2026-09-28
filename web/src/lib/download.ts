@@ -121,6 +121,13 @@ const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
  * files, so callers only ever pass a defined byte count for something that
  * actually has one.
  */
+/** A text length for a list row: "343 chars", "1.2k chars", "12k chars". */
+export function formatChars(count: number): string {
+  if (count < 1000) return `${count} chars`;
+  const thousands = count / 1000;
+  return `${thousands < 10 ? thousands.toFixed(1) : Math.round(thousands)}k chars`;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   let value = bytes;

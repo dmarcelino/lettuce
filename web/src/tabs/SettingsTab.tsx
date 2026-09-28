@@ -65,9 +65,11 @@ interface Props {
   cwd: string | null;
   /** Changes whenever the app-server reports a skill enabled or disabled. */
   skillsVersion: number;
+  /** For the scope line: which agent an agent-scoped section applies to. */
+  agentName: string | null;
 }
 
-type Section =
+export type Section =
   | "connection"
   | "mcp"
   | "skills"
@@ -87,6 +89,28 @@ const SECTION_LABELS: Record<Section, string> = {
   reflection: "Reflection",
   notifications: "Notifications",
 };
+
+/**
+ * What a section's settings apply to. The sections mix scopes — the provider,
+ * MCP, Codex and Google settings are shared by every agent, Secrets belong to
+ * one agent, Reflection to one agent in one directory, Notifications to this
+ * browser — and nothing on screen used to say which.
+ */
+export function scopeLine(section: Section, agentName: string | null): string {
+  const agent = agentName ?? "the selected agent";
+  switch (section) {
+    case "secrets":
+      return `Applies to ${agent} only`;
+    case "reflection":
+      return `Applies to ${agent}, in this conversation's working directory`;
+    case "skills":
+      return `Every skill ${agent} can load, from every scope`;
+    case "notifications":
+      return "Applies to this device only";
+    default:
+      return "Applies to every agent";
+  }
+}
 
 function isConnected(provider: ProviderEntry): boolean {
   if (typeof provider.connected === "boolean") return provider.connected;
@@ -110,7 +134,14 @@ function currentValues(provider: ProviderEntry): Record<string, string> {
   return state?.base_url ? { baseUrl: state.base_url } : {};
 }
 
-export function SettingsTab({ session, agentId, conversationId, cwd, skillsVersion }: Props) {
+export function SettingsTab({
+  session,
+  agentId,
+  conversationId,
+  cwd,
+  skillsVersion,
+  agentName,
+}: Props) {
   const [section, setSection] = useState<Section>("connection");
 
   // Secrets are agent-scoped, so the chip is pointless with no agent selected.
@@ -142,6 +173,7 @@ export function SettingsTab({ session, agentId, conversationId, cwd, skillsVersi
           </button>
         ))}
       </div>
+      <p className="scope-line small">{scopeLine(section, agentName)}</p>
 
       {section === "connection" ? <ConnectionSection session={session} /> : null}
       {section === "mcp" ? <McpEditor session={session} /> : null}
@@ -805,7 +837,6 @@ function NotificationsSection() {
   return (
     <>
       {status ? <p className="muted small pad">{status}</p> : null}
-      <p className="section-note">Notifications</p>
       <p className="muted small pad">
         Sends a notification to this device when the agent finishes a turn, hits an error, or needs
         a tool approval — while you're not watching that conversation.

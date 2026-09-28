@@ -122,13 +122,15 @@ export function AgentEditor({ session, agents, agentId, onClose }: Props) {
         ) : (
           <>
             {creating ? null : (
+              // Apart from Cancel/Save, at the far edge: the one irreversible
+              // action should not sit where a Cancel habitually is.
               <button
                 type="button"
-                className="button danger ghost"
+                className="button danger outline leading"
                 disabled={busy}
                 onClick={() => setDeleting(true)}
               >
-                Delete
+                Delete agent…
               </button>
             )}
             <button type="button" className="button ghost" onClick={onClose}>

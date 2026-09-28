@@ -1,4 +1,4 @@
-import { FILTER_LABELS, type FilterGroup } from "../lib/messages.ts";
+import { FILTER_LABELS, FILTER_ORDER, type FilterGroup, isShown } from "../lib/messages.ts";
 import { parseResponseFormat } from "../lib/structured-output.ts";
 import { PERMISSION_MODES, type PermissionMode, type SlashCommand } from "../lib/workspace.ts";
 import { MenuRow } from "./MenuRow.tsx";
@@ -10,8 +10,6 @@ import { Sheet } from "./Sheet.tsx";
  * choices apply at once; `MenuRow` rows with the selection marked on the right,
  * a tick for pick-one and a checkbox for pick-several.
  */
-
-const FILTER_ORDER: FilterGroup[] = ["user", "agent", "tools", "tasks", "system"];
 
 export function FilterSheet({
   active,
@@ -39,23 +37,27 @@ export function FilterSheet({
           disabled={active.size === 0}
           onClick={onClear}
         >
-          Show all
+          Reset
         </button>
       }
     >
-      <p className="menu-intro">
-        Show only the kinds of messages you pick. With none picked, everything is shown.
-      </p>
+      <p className="menu-intro">Untick a kind of message to hide it.</p>
       <ul className="menu-list">
-        {FILTER_ORDER.map((group) => (
-          <MenuRow
-            key={group}
-            title={FILTER_LABELS[group]}
-            mark="checkbox"
-            selected={active.has(group)}
-            onClick={() => onToggle(group)}
-          />
-        ))}
+        {FILTER_ORDER.map((group) => {
+          const shown = isShown(active, group);
+          // The last one shown stays: an empty filter means everything.
+          const onlyOne = shown && FILTER_ORDER.filter((g) => isShown(active, g)).length === 1;
+          return (
+            <MenuRow
+              key={group}
+              title={FILTER_LABELS[group]}
+              mark="checkbox"
+              selected={shown}
+              disabled={onlyOne}
+              onClick={() => onToggle(group)}
+            />
+          );
+        })}
       </ul>
 
       <p className="menu-section">Display</p>

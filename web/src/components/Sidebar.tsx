@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
+import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import type { AgentsApi } from "../state/use-agents.ts";
 import { Icon } from "./Icon.tsx";
 import { ToggleRow } from "./MenuRow.tsx";
@@ -25,6 +26,7 @@ export function Sidebar({
   activeAgentIds,
 }: Props) {
   const [showArchived, setShowArchived] = useState(false);
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
 
   const activity = agentActivity(
@@ -33,12 +35,20 @@ export function Sidebar({
     agents.conversations.map((conversation) => conversation.id),
   );
 
-  // A responding archived conversation stays visible: hiding the one thing
-  // that is busy would defeat the indicator.
-  const visible = agents.conversations.filter(
-    (conversation) =>
-      showArchived || !conversation.archived || activity.responding.has(conversation.id),
+  // The switcher's list, laid out for a column: the same filter, search and
+  // date sections, so desktop and phone never show two different lists.
+  const groups = useMemo(
+    () =>
+      groupByDate(
+        visibleConversations(agents.conversations, {
+          showArchived,
+          query,
+          responding: activity.responding,
+        }),
+      ),
+    [agents.conversations, showArchived, query, activity.responding],
   );
+  const liveCount = agents.conversations.filter((c) => !c.archived).length;
 
   // A busy conversation the list has never heard of was created after it was
   // fetched (a cron that starts a new conversation per run). Refetch once per
@@ -125,6 +135,17 @@ export function Sidebar({
             </button>
           </div>
 
+          <label className="switcher-search sidebar-search">
+            <Icon name="search" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={`Search ${liveCount} conversations`}
+              aria-label="Search conversations"
+            />
+          </label>
+
           <ul className="conversations">
             {/* The default conversation is never listed and cannot be opened
               (see lib/activity.ts), so it can only be reported here. */}
@@ -142,67 +163,79 @@ export function Sidebar({
                 not in this list
               </li>
             ) : null}
-            {visible.map((conversation) => {
-              const archived = conversation.archived;
-              const responding = activity.responding.has(conversation.id);
-              return (
-                <li
-                  key={conversation.id}
-                  className={conversation.id === agents.conversationId ? "active" : ""}
-                >
-                  <button
-                    type="button"
-                    className="conversation-name"
-                    onClick={() => {
-                      agents.selectConversation(conversation.id);
-                      onClose();
-                    }}
+            {groups.flatMap((group) => [
+              <li key={`group:${group.label}`} className="conversation-group">
+                {group.label}
+              </li>,
+              ...group.items.map((conversation) => {
+                const archived = conversation.archived;
+                const responding = activity.responding.has(conversation.id);
+                return (
+                  <li
+                    key={conversation.id}
+                    className={conversation.id === agents.conversationId ? "active" : ""}
                   >
-                    {responding ? (
-                      <span
-                        className="activity-dot"
-                        role="img"
-                        aria-label="Responding"
-                        title="Responding…"
-                      />
-                    ) : null}
-                    {conversation.summary}
-                    {archived ? <span className="tag muted">archived</span> : null}
-                  </button>
-
-                  <div className="conversation-actions">
                     <button
                       type="button"
-                      className="link"
-                      title="Rename"
-                      disabled={busy}
+                      className="conversation-name"
                       onClick={() => {
-                        const next = prompt("Conversation name", conversation.summary);
-                        if (next && next !== conversation.summary) {
-                          void guard(() => agents.renameConversation(conversation.id, next));
-                        }
+                        agents.selectConversation(conversation.id);
+                        onClose();
                       }}
-                      aria-label={`Rename ${conversation.summary}`}
                     >
-                      <Icon name="edit" />
+                      {responding ? (
+                        <span
+                          className="activity-dot"
+                          role="img"
+                          aria-label="Responding"
+                          title="Responding…"
+                        />
+                      ) : null}
+                      <span className="conversation-title">{conversation.summary}</span>
+                      {archived ? <span className="tag muted">archived</span> : null}
+                      <span className="conversation-date muted small">
+                        {listDate(conversation.updatedAt)}
+                      </span>
                     </button>
-                    <button
-                      type="button"
-                      className="link"
-                      title={archived ? "Unarchive" : "Archive"}
-                      disabled={busy}
-                      onClick={() =>
-                        void guard(() => agents.setArchived(conversation.id, !archived))
-                      }
-                      aria-label={`${archived ? "Unarchive" : "Archive"} ${conversation.summary}`}
-                    >
-                      <Icon name={archived ? "unarchive" : "archive"} />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-            {visible.length === 0 ? <li className="muted pad">No conversations</li> : null}
+
+                    <div className="conversation-actions">
+                      <button
+                        type="button"
+                        className="link"
+                        title="Rename"
+                        disabled={busy}
+                        onClick={() => {
+                          const next = prompt("Conversation name", conversation.summary);
+                          if (next && next !== conversation.summary) {
+                            void guard(() => agents.renameConversation(conversation.id, next));
+                          }
+                        }}
+                        aria-label={`Rename ${conversation.summary}`}
+                      >
+                        <Icon name="edit" />
+                      </button>
+                      <button
+                        type="button"
+                        className="link"
+                        title={archived ? "Unarchive" : "Archive"}
+                        disabled={busy}
+                        onClick={() =>
+                          void guard(() => agents.setArchived(conversation.id, !archived))
+                        }
+                        aria-label={`${archived ? "Unarchive" : "Archive"} ${conversation.summary}`}
+                      >
+                        <Icon name={archived ? "unarchive" : "archive"} />
+                      </button>
+                    </div>
+                  </li>
+                );
+              }),
+            ])}
+            {groups.length === 0 ? (
+              <li className="muted pad">
+                {query.trim() ? "No conversation matches." : "No conversations"}
+              </li>
+            ) : null}
           </ul>
 
           <ToggleRow title="Show archived" checked={showArchived} onChange={setShowArchived} />

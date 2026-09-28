@@ -13,7 +13,7 @@ import { Switcher } from "./components/Switcher.tsx";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { userHistory } from "./lib/input-history.ts";
-import { type FilterGroup, filterEntries } from "./lib/messages.ts";
+import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { type RuntimeScope, scopeKey } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import {
@@ -247,12 +247,7 @@ function Workspace({ status }: { status: Status }) {
   const agentName = agents.agents.find((a) => a.id === agents.agentId)?.name ?? null;
 
   const toggleFilter = (group: FilterGroup) => {
-    setFilters((current) => {
-      const next = new Set(current);
-      if (next.has(group)) next.delete(group);
-      else next.add(group);
-      return next;
-    });
+    setFilters((current) => toggleShown(current, group));
   };
 
   const bypass = status.auth_mode === "dev-bypass";
@@ -437,6 +432,7 @@ function Workspace({ status }: { status: Status }) {
             conversationId={agents.conversationId}
             cwd={conversation.cwd}
             skillsVersion={conversation.skillsVersion}
+            agentName={agentName}
           />
         )}
       </div>

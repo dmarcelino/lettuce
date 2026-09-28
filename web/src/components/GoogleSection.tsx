@@ -158,7 +158,6 @@ export function GoogleSection() {
 
   return (
     <>
-      <p className="section-note">Google</p>
       <p className="muted small pad">
         Lets every agent — chats, crons and Telegram alike — use Gmail, Calendar and Tasks as one
         Google account. The levels below are enforced twice, out of any agent&apos;s reach: Google
@@ -167,7 +166,7 @@ export function GoogleSection() {
       </p>
 
       {!status.writable ? (
-        <p className="small bad pad">
+        <p className="warning small">
           Read-only here: this deployment signs in with DEV_BYPASS_EMAIL, which an agent could use
           to sign itself in and change these settings. Change them through Cloudflare Access, or set
           GOOGLE_ALLOW_DEV_BYPASS=true on a machine only you use.

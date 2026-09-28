@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
-import { groupByDate, listDate } from "../lib/conversation-groups.ts";
+import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import { statsOf, useAgentStats } from "../state/use-agent-stats.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
@@ -60,19 +60,18 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
     return () => window.removeEventListener("keydown", onKey);
   }, [menuFor, onClose]);
 
-  const needle = query.trim().toLowerCase();
   const archivedCount = agents.conversations.filter((c) => c.archived).length;
   const liveCount = agents.conversations.length - archivedCount;
   const groups = useMemo(
     () =>
       groupByDate(
-        agents.conversations.filter(
-          (conversation) =>
-            (showArchived || !conversation.archived || activity.responding.has(conversation.id)) &&
-            (!needle || conversation.summary.toLowerCase().includes(needle)),
-        ),
+        visibleConversations(agents.conversations, {
+          showArchived,
+          query,
+          responding: activity.responding,
+        }),
       ),
-    [agents.conversations, showArchived, needle, activity.responding],
+    [agents.conversations, showArchived, query, activity.responding],
   );
 
   const guard = async (action: () => Promise<void>) => {
@@ -231,7 +230,7 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
 
           {groups.length === 0 ? (
             <p className="muted small switcher-empty">
-              {needle ? "No conversation matches." : "No conversations yet."}
+              {query.trim() ? "No conversation matches." : "No conversations yet."}
             </p>
           ) : null}
 

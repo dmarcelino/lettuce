@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { shortDate } from "../lib/conversation-groups.ts";
+import { formatBytes, formatChars } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -141,11 +143,23 @@ export function MemoryTab({ session, agentId }: Props) {
               }}
             >
               <Icon name={entry.is_system ? "settings" : "memory"} />
-              <span className="grow-text">
-                <strong>{entry.relative_path}</strong>
-                {entry.description ? <em className="muted"> — {entry.description}</em> : null}
+              <span className="grow-text memory-row-text">
+                <span className="memory-row-title">
+                  <strong>{entry.relative_path}</strong>
+                  {/* What the gear icon meant, said once: system blocks are
+                      composed into the agent's context on every turn. */}
+                  {entry.is_system ? <span className="tag">In context</span> : null}
+                </span>
+                {entry.description ? (
+                  <span className="muted small">{entry.description}</span>
+                ) : null}
               </span>
-              <span className="muted small">{entry.size}</span>
+              <span className="muted small memory-size">
+                {/* Upstream reports a text block's length and an image's bytes. */}
+                {entry.content === "" && entry.size > 0
+                  ? formatBytes(entry.size)
+                  : formatChars(entry.size)}
+              </span>
             </button>
           </li>
         ))}
@@ -195,7 +209,7 @@ export function MemoryTab({ session, agentId }: Props) {
               {history.map((commit) => (
                 <li key={commit.sha}>
                   <span className="muted small">
-                    {new Date(commit.timestamp).toLocaleString()} · {commit.sha.slice(0, 7)}
+                    {shortDate(commit.timestamp)} · {commit.sha.slice(0, 7)}
                   </span>
                   <div>{commit.message}</div>
                 </li>

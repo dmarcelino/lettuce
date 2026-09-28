@@ -342,6 +342,18 @@ try {
       groups.length === 5 && groups.some((g) => g.includes("Tasks")),
       groups,
     );
+    // Ticked means shown: with nothing filtered every kind is on screen, so
+    // every box reads ticked (it used to be the reverse — all unticked, all shown).
+    const groupStates = await page
+      .locator(".sheet-panel .menu-list")
+      .first()
+      .locator(".menu-row")
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-pressed")));
+    check(
+      "filter boxes start ticked",
+      groupStates.length === 5 && groupStates.every((state) => state === "true"),
+      groupStates,
+    );
     // Timestamps: on by default, and the filter-sheet toggle hides them.
     const timestampToggle = page.locator(".sheet-panel .menu-row", { hasText: "Timestamps" });
     const toggleInput = {
@@ -519,6 +531,22 @@ try {
     );
     await restored.fill("");
 
+    // Files on a phone: size and date fold under the name, so the name gets
+    // the row instead of about eight characters of it.
+    await page.locator('nav.tabs button:text-is("Files")').click();
+    await page.waitForTimeout(1200);
+    const nameShare = await page.evaluate(() => {
+      const row = document.querySelector<HTMLElement>(".list > li.file-row");
+      const name = row?.querySelector<HTMLElement>(".grow-row");
+      return row && name ? name.offsetWidth / row.offsetWidth : null;
+    });
+    if (nameShare === null) {
+      console.log("  SKIP  file names get the row (empty workspace)");
+    } else {
+      check("a file name gets most of the row on a phone", nameShare >= 0.6, { nameShare });
+    }
+    await page.locator('nav.tabs button:text-is("Chat")').click();
+
     // Settings' section switcher wraps rather than widening the pane. The
     // generic `overflow()` cannot see this: `.pane` scrolls vertically, which
     // makes its computed overflow-x `auto` too, so an over-wide bar counted as
@@ -599,6 +627,10 @@ try {
         return window.innerHeight - rect.bottom > 20;
       }),
     );
+    const filterWidth = await page.evaluate(
+      () => document.querySelector(".sheet-panel")?.getBoundingClientRect().width ?? 0,
+    );
+    check("a menu sheet is dialog-sized, not column-wide", filterWidth <= 600, { filterWidth });
     await shot(page, "desktop-filters");
     await page.keyboard.press("Escape");
 
@@ -630,6 +662,32 @@ try {
     const settingsBox = await overflow(page);
     check("settings has nothing clipped", settingsBox.clipped.length === 0, settingsBox);
 
+    // App-wide conventions, section by section: one toggle (MenuRow, never the
+    // platform checkbox) and one heading voice (sentence case, never uppercase).
+    const conventions: Record<string, { checkboxes: number; uppercase: string[] }> = {};
+    for (const chip of expectedChips) {
+      await page.locator(`.section-tabs button:text-is("${chip}")`).click();
+      await page.waitForTimeout(700);
+      conventions[chip] = await page.evaluate(() => ({
+        checkboxes: document.querySelectorAll('input[type="checkbox"]').length,
+        uppercase: [...document.querySelectorAll<HTMLElement>(".pane *, .sidebar *")]
+          .filter(
+            (el) => getComputedStyle(el).textTransform === "uppercase" && el.textContent?.trim(),
+          )
+          .map((el) => (el.textContent ?? "").trim().slice(0, 30)),
+      }));
+    }
+    const offenders = Object.entries(conventions).filter(
+      ([, found]) => found.checkboxes > 0 || found.uppercase.length > 0,
+    );
+    check(
+      "no native checkboxes or uppercase labels in any section",
+      offenders.length === 0,
+      offenders,
+    );
+    await page.locator('.section-tabs button:text-is("Connection")').click();
+    await page.waitForTimeout(300);
+
     // The two sections added from upstream must lay out like the existing ones,
     // not just exist. Secrets needs an agent selected; Reflection needs a
     // conversation, and renders an empty-state notice when it has none.
@@ -645,7 +703,7 @@ try {
     await page.waitForTimeout(800);
     check(
       "codex section loads its settings",
-      (await page.locator('label:has-text("Allow Codex workers")').count()) === 1,
+      (await page.locator('.menu-row:has-text("Allow Codex workers")').count()) === 1,
       await page.locator(".pane").innerText(),
     );
     const codexBox = await overflow(page);
@@ -658,7 +716,7 @@ try {
     const googleText = await page.locator(".pane").innerText();
     check(
       "google section loads its status",
-      (await page.locator('label:has-text("Allow agents to use Google")').count()) === 1,
+      (await page.locator('.menu-row:has-text("Allow agents to use Google")').count()) === 1,
       googleText,
     );
     const googleLocked = await page.locator('label:has-text("Gmail") select').isDisabled();
@@ -779,6 +837,10 @@ try {
     await page.waitForTimeout(500);
     check("task sheet renders a panel", (await page.locator(".sheet-panel").count()) === 1);
     check(
+      "a form sheet has the same header and close as a menu",
+      (await page.locator(".sheet-panel .sheet-head .sheet-close").count()) === 1,
+    );
+    check(
       "actions live inside the panel, not beside it",
       (await page.locator(".sheet-panel .sheet-actions").count()) === 1,
     );
@@ -796,7 +858,12 @@ try {
         : null;
     });
     const formPanelWidth = geometry?.panelWidth ?? 0;
-    check("panel takes the desktop width", formPanelWidth >= 500, geometry);
+    // A form is the standard tier: a dialog, not a banner across the column.
+    check(
+      "a form sheet takes the standard width",
+      formPanelWidth >= 500 && formPanelWidth <= 600,
+      geometry,
+    );
     check("panel is centred", geometry?.centred === true, geometry);
     check(
       "body and actions are within the panel",
@@ -835,13 +902,16 @@ try {
         };
       });
       check("memory sheet fills its panel", doc !== null);
-      // The point of the `fill` modifier is height, NOT width: a form sheet and
-      // a document sheet must be the same size across, or the app looks like two
-      // different apps depending on which modal you opened.
-      check("every sheet is the same width", doc?.panelWidth === formPanelWidth, {
-        form: formPanelWidth,
-        document: doc?.panelWidth,
-      });
+      // Width comes from the size tier, not `fill`: a document (spacious) takes
+      // the 880px content column, a form the standard 560px.
+      check(
+        "a document sheet is wider than a form",
+        (doc?.panelWidth ?? 0) > formPanelWidth + 200,
+        {
+          form: formPanelWidth,
+          document: doc?.panelWidth,
+        },
+      );
       check("the editor gets the panel's height", (doc?.editorHeight ?? 0) > 300, doc);
       check("only one scroll region — the body does not scroll", doc?.bodyScrolls === false, doc);
       await shot(page, "desktop-memory-sheet");

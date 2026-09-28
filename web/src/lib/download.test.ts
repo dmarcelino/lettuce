@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   downloadUrl,
   formatBytes,
+  formatChars,
   isBinaryReadError,
   isImageFile,
   isMarkdownFile,
@@ -124,5 +125,13 @@ describe("isBinaryReadError", () => {
     expect(isBinaryReadError("ENOENT: no such file or directory")).toBe(false);
     expect(isBinaryReadError("File too large for base64 read (max 25MB)")).toBe(false);
     expect(isBinaryReadError("")).toBe(false);
+  });
+});
+
+describe("formatChars", () => {
+  test("counts characters with a k past a thousand", () => {
+    expect(formatChars(343)).toBe("343 chars");
+    expect(formatChars(1201)).toBe("1.2k chars");
+    expect(formatChars(12_400)).toBe("12k chars");
   });
 });
