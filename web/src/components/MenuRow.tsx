@@ -27,7 +27,9 @@ export function MenuRow({
     <li>
       <button
         type="button"
-        className={`menu-row${selected ? " selected" : ""}`}
+        // The box already shows a checkbox row's state; the selected border is
+        // for pick-one rows, where it marks the single choice.
+        className={`menu-row${selected && mark !== "checkbox" ? " selected" : ""}`}
         disabled={disabled}
         onClick={onClick}
         aria-pressed={mark === "checkbox" ? selected : undefined}

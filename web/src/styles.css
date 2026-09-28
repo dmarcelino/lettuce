@@ -159,9 +159,8 @@ pre {
 .sidebar label,
 .sidebar .section-label {
   font-size: 12px;
+  font-weight: 600;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .sidebar select {
@@ -232,8 +231,9 @@ pre {
   letter-spacing: 0;
   font-size: 13px;
 }
+/* 12px: the one inline gutter every pane row, note and heading shares. */
 .pad {
-  padding: 8px 6px;
+  padding: 8px 12px;
 }
 
 .scrim {
@@ -602,10 +602,6 @@ pre {
   background: var(--surface-2);
   font-size: 14px;
 }
-.tag.ok-tag {
-  color: var(--ok);
-}
-
 /* Machine-injected blocks lifted out of a user message. Muted like every other
    System entry — they used to wear the accent-blue "you" bubble, which credited
    them to the person. */
@@ -617,19 +613,43 @@ pre {
   opacity: 0.85;
 }
 
+/* A status chip — one shape for every state label ("Finished", "Connected",
+   "managed by …"); the tone classes only recolour it. */
 .tag {
-  font-size: 11px;
+  display: inline-block;
+  flex: none;
+  font-size: 12px;
+  line-height: 18px;
+  padding: 0 7px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  white-space: nowrap;
 }
 .tag.bad {
   color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+}
+.tag.ok-tag {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
 }
 .tag.muted {
-  opacity: 0.6;
   margin-left: 6px;
-  text-transform: none;
+}
+/* Status words come from data in lower case ("connected", "active"). */
+.tag::first-letter {
+  text-transform: uppercase;
+}
+/* In a disclosure head the tag is the heading's label ("Details",
+   "Cloud providers (45)"), not a status — plain text, not a chip. */
+.tool-head > .tag:not(.bad):not(.ok-tag),
+.skill-group-head > .tag {
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .tool-head {
@@ -905,13 +925,16 @@ pre {
 
 .composer textarea {
   width: 100%;
+  font-family: inherit;
   resize: none;
   background: none;
   color: var(--text);
   border: none;
   padding: 6px 6px 2px;
   /* 16px keeps iOS Safari from zooming when the field is focused. */
-  font: 16px / 1.4 inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
   max-height: 160px;
 }
 .composer textarea:focus {
@@ -1053,8 +1076,12 @@ pre {
   background: var(--surface-2);
   color: var(--bad);
 }
+/* Flat, not a dimmed accent: a faded blue read as a second enabled style. */
 .button:disabled {
-  opacity: 0.45;
+  background: var(--surface-2);
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  cursor: not-allowed;
 }
 
 .icon-button {
@@ -1220,7 +1247,9 @@ button {
   border: 1px solid var(--border);
   border-radius: 0;
   padding: 10px;
-  font: 16px / 1.4 inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
   min-height: 72px;
   resize: vertical;
 }
@@ -1434,17 +1463,35 @@ p.warning code {
     padding-inline: max(12px, calc((100% - 880px) / 2));
   }
 
+  /* Five tabs stretched across a wide window were 200px slabs. Size them to
+     their labels, line them up with the content column below, and mark the
+     active one with an underline — the phone keeps its equal-width row. */
+  .tabs {
+    gap: 4px;
+    padding: 0 max(12px, calc((100% - 880px) / 2));
+  }
+  .tabs button {
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 12px 14px 10px;
+    border-bottom: 2px solid transparent;
+  }
+  .tabs button.active {
+    background: none;
+    border-bottom-color: var(--accent);
+  }
+
   /* Bottom sheets are a phone idiom; on a desktop browser this is a modal.
-     ONE width for every sheet, matching the 880px content column the messages,
-     composer and panes already use above — a modal that agrees with the app it
-     sits on top of. Short sheets still hug their content; the cap only bites
-     when there is more than a screenful. */
+     Three widths, one per `size` tier (Sheet.tsx): a six-row menu stretched to
+     the 880px content column read as a banner, not a dialog. Only a document
+     or a review (spacious) takes the full column. Short sheets still hug their
+     content; the height cap only bites past a screenful. */
   .sheet {
     justify-content: center;
     align-items: center;
   }
   .sheet-panel {
-    width: min(880px, 94vw);
+    width: min(560px, 94vw);
     /* max-height is also the resize ceiling (CSS has one slot for it), so
        this now bounds a drag too — raised from the old min(88vh, 940px) to
        leave room to grow into, since that cap left almost no headroom on a
@@ -1464,19 +1511,21 @@ p.warning code {
        compound selectors (`.sheet-panel.sheet-compact`), never bare ones. */
     min-width: 360px;
     max-width: 98vw;
-    min-height: 320px;
+    min-height: 200px;
   }
   /* Compact: a notice or a 1-3 field form (AuthPill, SettingsTab's
      connect-provider sheet, McpEditor). Nothing in this group needs more
      than a few short lines. */
   .sheet-panel.sheet-compact {
+    width: min(480px, 94vw);
     min-width: 320px;
-    min-height: 200px;
+    min-height: 160px;
   }
   /* Spacious: a document to read or edit (MemoryTab/FilesTab, both already
      `fill`), or a diff/JSON review (ApprovalSheet) that can run long and
      wide. Should never feel cramped when resized down. */
   .sheet-panel.sheet-spacious {
+    width: min(880px, 94vw);
     min-width: 480px;
     min-height: 400px;
   }
@@ -1491,8 +1540,8 @@ p.warning code {
   .sheet-actions {
     padding-bottom: 12px;
   }
-  /* Full-width buttons are a touch-target idiom. At 880px they become two
-     440px slabs, so let them hug and sit where `justify-content: flex-end`
+  /* Full-width buttons are a touch-target idiom. On a desktop modal they become
+     slabs, so let them hug and sit where `justify-content: flex-end`
      always intended. */
   .sheet-actions .button {
     flex: 0 0 auto;
@@ -1586,26 +1635,28 @@ p.warning code {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-/* A pane's own section switcher (Settings). Same look as the main `.tabs`, but
-   wrapping onto a second row instead of scrolling: seven sections are wider
-   than a phone, and a sideways-scrolling pane hid the ones past the edge. */
+/* A pane's own section switcher (Settings). Bordered chips, not the main
+   `.tabs` look: two identical tab bars stacked read as one level. Wraps onto a
+   second row instead of scrolling: the sections are wider than a phone, and a
+   sideways-scrolling pane hid the ones past the edge. */
 .section-tabs {
   flex-wrap: wrap;
-  gap: 2px;
-  padding: 6px 8px;
+  gap: 6px;
+  padding: 10px 12px;
 }
 .section-tabs button {
   background: none;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 0;
   color: var(--muted);
-  padding: 8px 10px;
-  font-size: 14px;
+  padding: 5px 10px;
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
 }
 .section-tabs button.active {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
   color: var(--text);
 }
 .pane-bar input {
@@ -1616,7 +1667,9 @@ p.warning code {
   border: 1px solid var(--border);
   border-radius: 0;
   padding: 8px 10px;
-  font: 16px / 1.3 inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.3;
 }
 .path {
   font-size: 12px;
@@ -1763,6 +1816,18 @@ p.warning code {
   gap: 8px;
   justify-content: space-between;
 }
+/* Chip above a long text, rather than squeezing it into a narrow column. */
+.task-head.stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.one-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .task-actions {
   display: flex;
   gap: 12px;
@@ -1775,15 +1840,15 @@ p.warning code {
   color: var(--bad);
 }
 
+/* Sentence case, like every other label: the app has one heading voice. */
 .field {
   display: flex;
   flex-direction: column;
   gap: 5px;
   margin-bottom: 14px;
-  font-size: 12px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
 }
 .field input,
 .field select,
@@ -1793,14 +1858,15 @@ p.warning code {
   border: 1px solid var(--border);
   border-radius: 0;
   padding: 10px;
-  font: 16px / 1.4 inherit;
-  text-transform: none;
-  letter-spacing: 0;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.4;
   resize: vertical;
 }
 .field .small {
-  text-transform: none;
-  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--muted);
 }
 
 .memory-editor {
@@ -1827,11 +1893,10 @@ p.warning code {
 }
 
 .section-note {
-  margin: 14px 12px 6px;
-  font-size: 12px;
+  margin: 18px 12px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 .row.static {
   cursor: default;
@@ -1855,9 +1920,10 @@ p.warning code {
   border: 1px solid var(--border);
   border-radius: 0;
   padding: 10px;
-  font: 16px / 1.4 inherit;
-  text-transform: none;
-  letter-spacing: 0;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 /* A response in progress with no row to mark — the agent's unlisted default
@@ -2341,7 +2407,8 @@ p.warning code {
   height: 20px;
   display: grid;
   place-items: center;
-  border: 2px solid var(--border);
+  /* --border vanishes against the row; an empty box has to read as a box. */
+  border: 2px solid color-mix(in srgb, var(--muted) 55%, transparent);
 }
 .menu-row-box.on {
   background: var(--accent);

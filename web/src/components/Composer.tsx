@@ -293,7 +293,9 @@ export function Composer({
                     /{command.id}
                     {command.args ? <span className="tag">{command.args}</span> : null}
                   </strong>
-                  {command.description ? <code>{command.description}</code> : null}
+                  {command.description ? (
+                    <span className="menu-row-desc">{command.description}</span>
+                  ) : null}
                 </button>
               </li>
             ))}

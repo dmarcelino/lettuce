@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { type CodexRunSummary, fetchCodexRuns, LIVE_POLL_MS, STATUS_LABELS } from "../lib/codex.ts";
+import { listDate } from "../lib/conversation-groups.ts";
+import { formatEntryTimeFull } from "../lib/timestamps.ts";
 import { CodexRunSheet } from "./CodexRunSheet.tsx";
+
+/** The status chip's tone: a finished run reads as done, a stopped one as failed. */
+const STATUS_TONES: Record<CodexRunSummary["status"], string> = {
+  running: "",
+  completed: " ok-tag",
+  aborted: " bad",
+  unknown: " muted",
+};
 
 /**
  * Recent Codex worker runs, newest first, each opening the full run.
@@ -50,14 +60,17 @@ export function CodexRunsList({ refreshKey }: { refreshKey: string }) {
           <li key={run.threadId} className="task">
             <button type="button" className="row" onClick={() => setOpenThread(run.threadId)}>
               <span className="grow-text">
-                <span className="task-head">
-                  <span className={`tag${run.status === "running" ? "" : " muted"}`}>
+                <span className="task-head stacked">
+                  <span className={`tag${STATUS_TONES[run.status]}`}>
                     {STATUS_LABELS[run.status]}
                   </span>
                   <span className="small">{run.prompt ?? "(no prompt recorded)"}</span>
                 </span>
-                <span className="muted small">
-                  {run.startedAt ? new Date(run.startedAt).toLocaleString() : ""}
+                <span
+                  className="muted small one-line"
+                  title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}
+                >
+                  {run.startedAt ? listDate(run.startedAt) : ""}
                   {run.cwd ? ` · ${run.cwd}` : ""}
                 </span>
               </span>

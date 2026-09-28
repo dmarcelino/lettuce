@@ -95,6 +95,7 @@ export function AgentEditor({ session, agents, agentId, onClose }: Props) {
     <Sheet
       title={creating ? "New agent" : "Edit agent"}
       onClose={onClose}
+      size="spacious"
       status={status}
       actions={
         deleting ? (
