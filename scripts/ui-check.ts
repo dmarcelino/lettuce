@@ -806,7 +806,7 @@ try {
     );
 
     // The sidebar's ⋯ beside the agent picker: the phone's agent menu, below it.
-    await page.locator('.sidebar button[aria-label^="More for"]').click();
+    await page.locator('.sidebar button[data-agent-more="sidebar"]').click();
     const deskMenu = page.locator(".agent-menu");
     const deskItems = (await deskMenu.locator("button").allInnerTexts()).map((t) => t.trim());
     check(
