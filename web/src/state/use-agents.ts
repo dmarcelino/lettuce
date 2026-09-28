@@ -1,3 +1,7 @@
+import {
+  DEFAULT_CREATE_AGENT_PERSONALITIES,
+  PERSONALITY_OPTIONS,
+} from "@letta-ai/letta-code/agent-presets";
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
@@ -10,9 +14,26 @@ export interface AgentSummary {
   name: string;
 }
 
-/** The only personalities `create_agent` accepts. There is no "default". */
-export const AGENT_PRESETS = ["memo", "tutorial", "blank", "linus", "kawaii"] as const;
+/**
+ * The personalities `create_agent` accepts, straight from letta-code's
+ * browser-safe `agent-presets` entry, so the dialog can never drift from what
+ * the backend actually seeds.
+ */
+export const AGENT_PRESETS = DEFAULT_CREATE_AGENT_PERSONALITIES;
 export type AgentPreset = (typeof AGENT_PRESETS)[number];
+
+const presetDescriptions = new Map<string, string>(
+  PERSONALITY_OPTIONS.map((option) => [option.id, option.description]),
+);
+
+/**
+ * The preset's own description, shown under the picker in the New agent
+ * dialog. Same string the created agent gets as its description. Empty if the
+ * pinned letta-code version doesn't know the preset.
+ */
+export function agentPresetDescription(preset: AgentPreset): string {
+  return presetDescriptions.get(preset) ?? "";
+}
 
 export interface AgentDetail {
   id: string;

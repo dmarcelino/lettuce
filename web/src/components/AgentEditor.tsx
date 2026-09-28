@@ -5,6 +5,7 @@ import {
   type AgentDraft,
   type AgentPreset,
   type AgentsApi,
+  agentPresetDescription,
 } from "../state/use-agents.ts";
 import { type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -80,6 +81,7 @@ export function AgentEditor({ session, agents, onClose }: Props) {
             </option>
           ))}
         </select>
+        <span className="small">{agentPresetDescription(preset)}</span>
       </label>
 
       <ModelField
