@@ -608,13 +608,20 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   screen's 7-day limit). workspace-mcp's error then tells the model to run `start_google_auth`,
   which we removed, so a model went hunting for it and gave up. Now `google/lost-access.ts`
   recognises the auth failure in both the curated tools and `mcp_call` on the Google server,
-  records `grant.lostAt` (`markLost`), and answers the agent with what to tell the user plus two
+  records `grant.lostAt` (`markLost`) — only on Google's own refusal (`invalid_grant`,
+  `Token Expired/Revoked`, no credentials): workspace-mcp appends "LLM: Try 'start_google_auth'"
+  to **every** 403, and matching that marked access lost on prod when the real error was
+  `accessNotConfigured` (Calendar and Tasks APIs switched off in the OAuth client's Cloud
+  project). That case gets its own answer — the API, the project, a link to its switch in the
+  API library, "do not reconnect" — and every other Google error just loses the misleading
+  hint (`googleErrorAnswer`). For a real loss it answers the agent with what to tell the user plus two
   links built on `PUBLIC_ORIGIN`: `/api/google/reconnect` (GET, session- and write-gated: mints a
   consent `state` and 302s straight to Google — one click from chat) and `/?settings=google`
   (the SPA opens Settings on that section; `lib/settings-link.ts`). The grant stays, so the tools
   stay registered and keep giving that answer, and Settings → Google leads with "Access lost for
   …" and a Reconnect button. Opening it also asks Google (`checkIfDue`, at most every 5 min), so
-  it shows a loss nobody has hit yet. A refresh that works again clears `lostAt`. The skill
+  it shows a loss nobody has hit yet — a grant already marked lost is re-checked too, so a
+  mistaken mark clears itself. A refresh that works again clears `lostAt`. The skill
   wrapper path (stdio, subagents) still gets workspace-mcp's raw text.
 
   **Agents use Google through native tools, not the skill** (`bff/src/google/tools.ts`, the

@@ -132,7 +132,9 @@ export class GoogleService {
    */
   async checkIfDue(maxAgeMs: number): Promise<void> {
     const settings = await this.load();
-    if (!settings.grant || settings.grant.lostAt) return;
+    // A grant marked lost is asked about too: a refresh that works clears it,
+    // so a loss recorded by mistake does not outlive the next visit here.
+    if (!settings.grant) return;
     if (this.now() - this.lastCheckedAt < maxAgeMs) return;
     this.lastCheckedAt = this.now();
     try {

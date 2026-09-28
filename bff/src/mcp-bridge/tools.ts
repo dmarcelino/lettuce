@@ -14,7 +14,7 @@
  * Standard/Strict). A tool with no hint counts as a write.
  */
 
-import { type LostAccessPort, lostAccessAnswer } from "../google/lost-access.ts";
+import { googleErrorAnswer, type LostAccessPort } from "../google/lost-access.ts";
 import { MODS_DIR } from "../internal-tools/mod.ts";
 import {
   capText,
@@ -149,7 +149,7 @@ export function bridgeHandlers(
         result.text ||
         (result.isError ? "The tool reported an error with no details." : "(no output)");
       if (result.isError && google && found.server.url === google.url) {
-        const lost = await lostAccessAnswer(google.lostAccess, text);
+        const lost = await googleErrorAnswer(google.lostAccess, text);
         if (lost) return lost;
       }
       return {

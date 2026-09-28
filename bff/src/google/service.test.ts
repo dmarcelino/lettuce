@@ -317,6 +317,15 @@ describe("disconnect and verify", () => {
     expect((await t.service.verify()).warning).toBeNull();
   });
 
+  test("opening Settings re-checks a grant marked lost, and clears a mistaken loss", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    await t.service.markLost("a 403 that was not about the sign-in");
+    await t.service.checkIfDue(0);
+    expect((await t.service.status()).grant?.lostAt).toBeUndefined();
+  });
+
   test("a token that works again clears the loss", async () => {
     const t = setup();
     await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
