@@ -189,6 +189,15 @@ WebSocket. A `channel_*` command sent over the app-server socket is parsed, matc
 nothing, and silently dropped. They are therefore excluded from the BFF's browser allowlist:
 a hang is worse than a refusal.
 
+**The gateway is opt-in: `channel-gateway` has `profiles: ["telegram"]`** (off since
+2026-09-28 — no channel was in use, and it idled at ~170 MiB). It runs only when
+`COMPOSE_PROFILES` includes `telegram` (e.g. `cloudflared,telegram`; `LETTA_MODE` matches
+`cloudflared` with `includes`, so extra profiles are safe). Removing the profile does **not**
+remove a running gateway — `up -d` merely stops managing it — so it must be stopped with
+`--profile telegram rm -sf channel-gateway`, and on prod that is a host-side step, since the
+dockhand skill cannot stop containers. With no gateway, agents simply have no `MessageChannel`
+tool.
+
 Telegram is set up once with the CLI inside the gateway container (see `docker/README.md`),
 the same way llama.cpp is set up with `letta connect`. The gateway then runs it, and the
 agent reaches it through the `MessageChannel` tool the gateway registers as an external tool.
@@ -765,7 +774,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run check-version-pin` | Assert every letta-code version literal agrees (runs inside `verify`) |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
-| `docker compose -f docker/compose.yml up -d` | App-server + BFF + channel gateway + searxng + ddg-mcp + google-mcp |
+| `docker compose -f docker/compose.yml up -d` | App-server + BFF + searxng + ddg-mcp + google-mcp; `cloudflared` and `channel-gateway` only with their profiles |
 | `git push origin main` | Release, part 1 — **ask for confirmation first, every time** |
 | `~/.claude/skills/dockhand-deploy/dockhand.sh plan letta letta-code-ui-prod` | Prod preflight: commits, compose diff, what gets recreated (read-only) |
 | `… deploy letta letta-code-ui-prod --confirm` | Release, part 2 — prod redeploy via Dockhand, same confirmation as the push |

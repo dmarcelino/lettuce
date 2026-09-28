@@ -285,7 +285,15 @@ services:
   # the app-server only dispatches channel_* commands when a gateway is
   # attached (message-router.ts: runtime.serviceCommandTypes), so without this
   # service every channel command returns silence.
+  #
+  # Opt-in, like `cloudflared`: created only when COMPOSE_PROFILES contains
+  # "telegram" (e.g. COMPOSE_PROFILES=cloudflared,telegram). Off by default
+  # because nothing here uses a channel yet and it costs ~170 MiB idle. Turning
+  # it off later does NOT remove an existing container — `up -d` just stops
+  # managing it — so stop it explicitly:
+  #   docker compose -f docker/compose.yml --profile telegram rm -sf channel-gateway
   channel-gateway:
+    profiles: ["telegram"]
     # Upstream's published image, used as-is — same image as the app-server.
     image: letta/letta:${LETTA_CODE_VERSION:-0.33.3}
     depends_on:

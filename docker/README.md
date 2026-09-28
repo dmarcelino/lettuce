@@ -304,6 +304,17 @@ docker compose -f docker/compose.yml exec app-server letta connect
 
 ## Telegram
 
+The gateway is **off by default**: `channel-gateway` sits behind the `telegram`
+compose profile. Turn it on by adding the profile to `COMPOSE_PROFILES` in
+`docker/.env` (or the Dockhand stack variables), keeping any profile already
+there — e.g. `COMPOSE_PROFILES=cloudflared,telegram` — then
+`docker compose -f docker/compose.yml up -d`. To turn it off again, remove the
+profile and stop the container yourself; `up -d` leaves an existing one running:
+
+```bash
+docker compose -f docker/compose.yml --profile telegram rm -sf channel-gateway
+```
+
 Channel configuration is not available in the web UI — the app-server has no path
 for it (see CLAUDE.md). Set it up once in the gateway container:
 
