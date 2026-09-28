@@ -5,6 +5,7 @@ import { statsOf, useAgentStats } from "../state/use-agent-stats.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { ConversationMenu } from "./ConversationMenu.tsx";
 import { Icon } from "./Icon.tsx";
 
 interface Props {
@@ -191,36 +192,13 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
                       <Icon name="more" />
                     </button>
                     {menuFor === conversation.id ? (
-                      <div className="switcher-menu" role="menu">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          disabled={busy}
-                          onClick={() => {
-                            setMenuFor(null);
-                            const next = prompt("Conversation name", conversation.summary);
-                            if (next && next !== conversation.summary) {
-                              void guard(() => agents.renameConversation(conversation.id, next));
-                            }
-                          }}
-                        >
-                          <Icon name="edit" /> Rename
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          disabled={busy}
-                          onClick={() => {
-                            setMenuFor(null);
-                            void guard(() =>
-                              agents.setArchived(conversation.id, !conversation.archived),
-                            );
-                          }}
-                        >
-                          <Icon name={conversation.archived ? "unarchive" : "archive"} />{" "}
-                          {conversation.archived ? "Unarchive" : "Archive"}
-                        </button>
-                      </div>
+                      <ConversationMenu
+                        agents={agents}
+                        conversation={conversation}
+                        busy={busy}
+                        guard={guard}
+                        onClose={() => setMenuFor(null)}
+                      />
                     ) : null}
                   </div>
                 );

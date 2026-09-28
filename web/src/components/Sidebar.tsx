@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import type { AgentsApi } from "../state/use-agents.ts";
+import { ConversationMenu } from "./ConversationMenu.tsx";
 import { Icon } from "./Icon.tsx";
 import { ToggleRow } from "./MenuRow.tsx";
 
@@ -28,6 +29,28 @@ export function Sidebar({
   const [showArchived, setShowArchived] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // An open ⋯ menu closes on Escape or a press anywhere outside it (its own
+  // button toggles it), and scrolls into view: the list clips it otherwise.
+  useEffect(() => {
+    if (!menuFor) return;
+    const row = listRef.current?.querySelector<HTMLElement>("li.menu-open");
+    row?.querySelector(".switcher-menu")?.scrollIntoView({ block: "nearest" });
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuFor(null);
+    };
+    const onPointer = (event: PointerEvent) => {
+      if (!row?.contains(event.target as Node)) setMenuFor(null);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointer);
+    };
+  }, [menuFor]);
 
   const activity = agentActivity(
     activeScopes,
@@ -146,7 +169,7 @@ export function Sidebar({
             />
           </label>
 
-          <ul className="conversations">
+          <ul className="conversations" ref={listRef}>
             {/* The default conversation is never listed and cannot be opened
               (see lib/activity.ts), so it can only be reported here. */}
             {activity.inDefault ? (
@@ -173,7 +196,13 @@ export function Sidebar({
                 return (
                   <li
                     key={conversation.id}
-                    className={conversation.id === agents.conversationId ? "active" : ""}
+                    className={[
+                      "conversation-row",
+                      conversation.id === agents.conversationId ? "active" : "",
+                      menuFor === conversation.id ? "menu-open" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                   >
                     <button
                       type="button"
@@ -198,35 +227,29 @@ export function Sidebar({
                       </span>
                     </button>
 
-                    <div className="conversation-actions">
-                      <button
-                        type="button"
-                        className="icon-button flat"
-                        title="Rename"
-                        disabled={busy}
-                        onClick={() => {
-                          const next = prompt("Conversation name", conversation.summary);
-                          if (next && next !== conversation.summary) {
-                            void guard(() => agents.renameConversation(conversation.id, next));
-                          }
-                        }}
-                        aria-label={`Rename ${conversation.summary}`}
-                      >
-                        <Icon name="edit" />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-button flat"
-                        title={archived ? "Unarchive" : "Archive"}
-                        disabled={busy}
-                        onClick={() =>
-                          void guard(() => agents.setArchived(conversation.id, !archived))
-                        }
-                        aria-label={`${archived ? "Unarchive" : "Archive"} ${conversation.summary}`}
-                      >
-                        <Icon name={archived ? "unarchive" : "archive"} />
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className="icon-button flat conversation-more"
+                      aria-label={`More for ${conversation.summary}`}
+                      aria-haspopup="menu"
+                      aria-expanded={menuFor === conversation.id}
+                      onClick={() =>
+                        setMenuFor((current) =>
+                          current === conversation.id ? null : conversation.id,
+                        )
+                      }
+                    >
+                      <Icon name="more" />
+                    </button>
+                    {menuFor === conversation.id ? (
+                      <ConversationMenu
+                        agents={agents}
+                        conversation={conversation}
+                        busy={busy}
+                        guard={guard}
+                        onClose={() => setMenuFor(null)}
+                      />
+                    ) : null}
                   </li>
                 );
               }),

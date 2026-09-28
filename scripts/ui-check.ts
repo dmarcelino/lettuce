@@ -1357,6 +1357,47 @@ try {
     );
     await context.close();
   }
+
+  // The desktop sidebar's rows: selected like a Settings chip, and one ⋯ menu
+  // (the phone switcher's) instead of rename/archive icons on every row.
+  section("Sidebar conversation menu");
+  {
+    const page = await open(browser, DESKTOP);
+    const active = page.locator(".sidebar .conversations li.conversation-row.active");
+    await active.waitFor();
+    const border = await active.evaluate((el) => getComputedStyle(el).borderTopColor);
+    const accent = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.color = "var(--accent)";
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+    check("the open conversation has the accent border", border === accent, { border, accent });
+    check(
+      "rows carry no rename/archive icons",
+      (await page.locator(".sidebar .conversations button[aria-label^='Rename']").count()) === 0,
+    );
+    await active.locator(".conversation-more").click();
+    const menu = active.locator(".switcher-menu");
+    check(
+      "⋯ opens Rename and Archive",
+      (await menu.isVisible()) &&
+        (await menu.locator("button", { hasText: "Rename" }).count()) === 1 &&
+        (await menu.locator("button", { hasText: /Archive|Unarchive/ }).count()) === 1,
+    );
+    await page.keyboard.press("Escape");
+    check("Escape closes it", (await page.locator(".sidebar .switcher-menu").count()) === 0);
+    await active.locator(".conversation-more").click();
+    await page.locator(".main").click({ position: { x: 400, y: 300 } });
+    check(
+      "a click elsewhere closes it",
+      (await page.locator(".sidebar .switcher-menu").count()) === 0,
+    );
+    await shot(page, "desktop-sidebar-menu");
+    await page.close();
+  }
 } finally {
   await browser.close();
 }

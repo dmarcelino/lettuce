@@ -204,8 +204,19 @@ pre {
   border-radius: 0;
   padding: 2px 4px;
 }
-.conversations li.active {
-  background: var(--surface-2);
+/* Selected like a Settings section chip; the border is always there, so
+   selecting a row does not shift its text. `position` anchors the ⋯ menu. */
+.conversations li.conversation-row {
+  position: relative;
+  border: 1px solid transparent;
+}
+.conversations li.conversation-row:hover,
+.conversations li.conversation-row.menu-open {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+.conversations li.conversation-row.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
 }
 .conversation-name {
   flex: 1;
@@ -244,24 +255,28 @@ pre {
   font-size: 14px;
   font-weight: 400;
 }
-/* Rename/archive on 34 rows at once was noise: they appear on the row being
-   pointed at, focused, or open, and take the date's place there. */
-.conversation-actions {
+/* A ⋯ on 34 rows at once was noise: it appears on the row being pointed at,
+   focused, open or showing its menu, and takes the date's place there. */
+.conversation-more {
   display: none;
-  gap: 2px;
 }
-.conversations li:hover .conversation-actions,
-.conversations li:focus-within .conversation-actions,
-.conversations li.active .conversation-actions {
-  display: flex;
+.conversation-more .icon {
+  stroke-width: 3;
 }
-/* The open row is already --surface-2, the flat button's hover colour. */
-.conversations li.active .icon-button.flat:hover {
-  background: var(--bg);
+.conversations li:hover .conversation-more,
+.conversations li:focus-within .conversation-more,
+.conversations li.active .conversation-more,
+.conversations li.menu-open .conversation-more {
+  display: inline-flex;
+}
+/* The flat button's hover is --surface-2; on a tinted row it needs contrast. */
+.conversations li.conversation-row .icon-button.flat:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 .conversations li:hover .conversation-date,
 .conversations li:focus-within .conversation-date,
-.conversations li.active .conversation-date {
+.conversations li.active .conversation-date,
+.conversations li.menu-open .conversation-date {
   display: none;
 }
 
@@ -1771,7 +1786,7 @@ p.warning code {
 
 /* Name and download side by side. The name button carries the row padding and
    grows; the action sits at the end, mirroring .conversation-name /
-   .conversation-actions rather than inventing a second vocabulary for it. */
+   .conversation-more rather than inventing a second vocabulary for it. */
 .file-row {
   display: flex;
   align-items: center;
