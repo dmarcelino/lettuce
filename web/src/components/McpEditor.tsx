@@ -134,9 +134,9 @@ export function McpEditor({ session }: { session: SessionApi }) {
       </div>
 
       <p className="muted small pad">
-        Shared by every agent. Agents use http and sse servers through their native{" "}
-        <code>mcp_search</code> / <code>mcp_call</code> tools; subagents, and stdio servers, go
-        through the <code>mcp-servers</code> skill.
+        Agents use http and sse servers through their native <code>mcp_search</code> /{" "}
+        <code>mcp_call</code> tools; subagents, and stdio servers, go through the{" "}
+        <code>mcp-servers</code> skill.
       </p>
 
       {status ? <p className="muted small pad">{status}</p> : null}
