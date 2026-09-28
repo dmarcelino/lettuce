@@ -569,7 +569,13 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
      exactly the levels' scopes, never `include_granted_scopes`. Invariant: the token never
      holds a scope the policy does not want — narrowing a level **revokes** it (Google would
      otherwise keep honouring the wider grant), a consent that comes back wider is revoked
-     unkept, and changing the OAuth client drops it. Widening waits for a reconnect; meanwhile
+     unkept, and changing the OAuth client drops it. **A revoke is grant-wide:** Google removes
+     the app's access to that account, killing every refresh token it issued this client —
+     including one minted a second ago. So a reconnect of the *same* account replaces the file
+     and revokes nothing (revoking the old token once killed the new one on prod 2026-09-28: the
+     first tool call after a widening reconnect got `invalid_grant`); only another account's
+     token is revoked, and a rejected too-wide consent also drops the stored same-account token.
+     Widening waits for a reconnect; meanwhile
      the sidecar runs at what the grant covers (`coveredPermissions`, which also handles scopes
      unticked on Google's consent screen).
   2. **workspace-mcp's `--permissions`**, which filters its tool list by the same scopes.

@@ -20,21 +20,30 @@ function memoryIo() {
   return { io, policy, creds };
 }
 
-/** A fake Google: grants whatever scopes `grant` says, records revokes. */
+/**
+ * A fake Google: grants whatever scopes `grant` says, records revokes. Like the
+ * real one, a revoke removes the account's whole grant: every refresh token
+ * that account was issued so far stops working, not just the one named.
+ */
 function fakeGoogle(opts: { grant?: (asked: string[]) => string[] } = {}) {
   const revoked: string[] = [];
+  const dead = new Set<string>();
+  const issuedTo = new Map<string, string>();
+  let account = "Me@Example.com";
   let tokenCount = 0;
   let lastAsked: string[] = [];
   const fetch = async (url: string, init?: RequestInit): Promise<Response> => {
     if (url === GOOGLE_TOKEN_URI) {
       const form = new URLSearchParams(String(init?.body));
       if (form.get("grant_type") === "refresh_token") {
-        if (revoked.includes(form.get("refresh_token") ?? "")) {
+        if (dead.has(form.get("refresh_token") ?? "")) {
           return Response.json({ error: "invalid_grant" }, { status: 400 });
         }
         return Response.json({ access_token: "a2", scope: lastAsked.join(" ") });
       }
       tokenCount += 1;
+      issuedTo.set(`refresh-${tokenCount}`, account);
+      issuedTo.set(`access-${tokenCount}`, account);
       const scopes = (opts.grant ?? ((asked) => asked))(lastAsked);
       return Response.json({
         access_token: `access-${tokenCount}`,
@@ -44,15 +53,27 @@ function fakeGoogle(opts: { grant?: (asked: string[]) => string[] } = {}) {
       });
     }
     if (url === GOOGLE_REVOKE_URI) {
-      revoked.push(new URLSearchParams(String(init?.body)).get("token") ?? "");
+      const token = new URLSearchParams(String(init?.body)).get("token") ?? "";
+      revoked.push(token);
+      const owner = issuedTo.get(token);
+      for (const [issued, to] of issuedTo) if (to === owner) dead.add(issued);
       return new Response("", { status: 200 });
     }
-    if (url === GOOGLE_USERINFO_URI) return Response.json({ email: "Me@Example.com" });
+    if (url === GOOGLE_USERINFO_URI) {
+      const auth = new Headers(init?.headers).get("authorization") ?? "";
+      return Response.json({ email: issuedTo.get(auth.replace(/^Bearer /, "")) ?? account });
+    }
     throw new Error(`unexpected fetch ${url}`);
   };
   return {
     fetch,
     revoked,
+    /** Refresh tokens Google no longer honours. */
+    dead,
+    /** The account the next consent signs in as. */
+    signInAs(email: string) {
+      account = email;
+    },
     ask(url: string) {
       lastAsked = (new URL(url).searchParams.get("scope") ?? "").split(" ");
       return new URL(url).searchParams.get("state") ?? "";
@@ -138,13 +159,47 @@ describe("connecting", () => {
     expect(t.sidecar().enabled).toBe(false);
   });
 
-  test("reconnecting revokes the replaced token and leaves one credential file", async () => {
+  test("reconnecting the same account keeps the new token working", async () => {
+    // Revoking the replaced token revoked the account's grant, and with it the
+    // token just issued: the first refresh after a reconnect got invalid_grant.
     const t = setup();
     await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
     await t.connect();
     await t.connect();
+    expect(t.google.revoked).toEqual([]);
+    expect([...t.creds.keys()]).toEqual(["me@example.com.json"]);
+    expect(t.google.dead.has("refresh-2")).toBe(false);
+    const { warning, settings } = await t.service.verify();
+    expect(warning).toBeNull();
+    expect(settings.grant?.email).toBe("me@example.com");
+  });
+
+  test("switching to another account revokes the old account's token only", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    t.google.signInAs("other@example.com");
+    const { email } = await t.connect();
+    expect(email).toBe("other@example.com");
     expect(t.google.revoked).toEqual(["refresh-1"]);
-    expect(t.creds.size).toBe(1);
+    expect([...t.creds.keys()]).toEqual(["other@example.com.json"]);
+    expect(t.google.dead.has("refresh-2")).toBe(false);
+    expect((await t.service.verify()).warning).toBeNull();
+  });
+
+  test("a too-wide reconnect of the same account drops the stored token too", async () => {
+    // The revoke of the rejected token takes the account's grant with it, so
+    // the stored token cannot be left in place looking connected.
+    let wide = false;
+    const t = setup({ grant: (asked) => (wide ? [...asked, `${G}gmail.send`] : asked) });
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    wide = true;
+    await expect(t.connect()).rejects.toThrow(/more than the current settings allow/);
+    expect(t.google.dead.has("refresh-1")).toBe(true);
+    expect(t.creds.size).toBe(0);
+    expect((await t.service.status()).grant).toBeNull();
+    expect(t.sidecar().enabled).toBe(false);
   });
 });
 
@@ -226,7 +281,7 @@ describe("disconnect and verify", () => {
     const t = setup();
     await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
     await t.connect();
-    t.google.revoked.push("refresh-1");
+    t.google.dead.add("refresh-1"); // revoked by the account owner, outside the app
     const { settings, warning } = await t.service.verify();
     expect(settings.grant).toBeNull();
     expect(warning).toMatch(/no longer accepts/);

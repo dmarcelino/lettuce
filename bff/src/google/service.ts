@@ -7,6 +7,11 @@
  * token outright (Google would otherwise keep honouring the wider grant for as
  * long as the refresh token lives) and a fresh consent is needed. Widening
  * keeps the token; the sidecar stays at what it covers until reconnected.
+ *
+ * **Google revokes a grant, not a token.** A revoke removes the app's access to
+ * that account, so every refresh token the account issued to this client dies
+ * with it — including one minted a moment ago. Never revoke one token of an
+ * account while keeping another of the same account.
  */
 
 import {
@@ -115,19 +120,26 @@ export class GoogleService {
     return this.serialized(async () => this.persist(await this.load()));
   }
 
-  private async readRefreshToken(): Promise<string | null> {
+  /** The stored token, with its file — named for its account (`credentialFileName`). */
+  private async readStoredCred(): Promise<{ name: string; refreshToken: string } | null> {
     for (const name of await this.deps.io.listCreds()) {
       if (!name.endsWith(".json")) continue;
       try {
         const parsed = JSON.parse((await this.deps.io.readCred(name)) ?? "") as {
           refresh_token?: unknown;
         };
-        if (typeof parsed.refresh_token === "string") return parsed.refresh_token;
+        if (typeof parsed.refresh_token === "string") {
+          return { name, refreshToken: parsed.refresh_token };
+        }
       } catch {
         // An unreadable file holds no token we can revoke.
       }
     }
     return null;
+  }
+
+  private async readRefreshToken(): Promise<string | null> {
+    return (await this.readStoredCred())?.refreshToken ?? null;
   }
 
   private async clearCreds(): Promise<void> {
@@ -247,22 +259,35 @@ export class GoogleService {
         codeVerifier: consent.verifier,
       });
 
+      const email = await fetchAccountEmail(this.deps.fetch, tokens.accessToken);
+      const previous = await this.readStoredCred();
+      const sameAccount = previous?.name === credentialFileName(email);
+
       // The policy may have been narrowed while the consent screen was open,
       // or Google may have folded in an older grant: either way this token can
-      // do more than is wanted now, so it is not kept.
+      // do more than is wanted now, so it is not kept. Revoking it revokes the
+      // account's grant, so a stored token of the same account is dead too and
+      // must not be left looking connected.
       const excess = this.excessScopes(settings, tokens.scopes);
       if (excess.length > 0) {
         await revokeToken(this.deps.fetch, tokens.refreshToken).catch(() => undefined);
+        if (sameAccount) {
+          await this.clearCreds();
+          settings.grant = null;
+          await this.persist(settings);
+        }
         throw new GoogleAccessError(
           `Google granted more than the current settings allow (${excess.join(", ")}); ` +
             "the token was revoked. Connect again.",
         );
       }
 
-      const email = await fetchAccountEmail(this.deps.fetch, tokens.accessToken);
-      const previous = await this.readRefreshToken();
-      if (previous && previous !== tokens.refreshToken) {
-        await revokeToken(this.deps.fetch, previous).catch((error) =>
+      // Another account's token belongs to another grant: revoke it. The same
+      // account's is simply replaced — revoking it would revoke the grant the
+      // new token belongs to (seen on prod 2026-09-28: a reconnect to widen
+      // access left a token that failed its first refresh with invalid_grant).
+      if (previous && !sameAccount) {
+        await revokeToken(this.deps.fetch, previous.refreshToken).catch((error) =>
           this.deps.log(`Google: could not revoke the replaced token: ${String(error)}`),
         );
       }
