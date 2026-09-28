@@ -614,6 +614,7 @@ try {
       "MCP",
       "Skills",
       "Codex",
+      "Google",
       "Secrets",
       "Reflection",
       "Notifications",
@@ -649,6 +650,25 @@ try {
     );
     const codexBox = await overflow(page);
     check("codex section has nothing clipped", codexBox.clipped.length === 0, codexBox);
+
+    // Google loads its status from the BFF (GET /api/google). Under dev bypass
+    // the form must also say it is locked, not just grey its inputs out.
+    await page.locator('.pane-bar button:text-is("Google")').click();
+    await page.waitForTimeout(800);
+    const googleText = await page.locator(".pane").innerText();
+    check(
+      "google section loads its status",
+      (await page.locator('label:has-text("Allow agents to use Google")').count()) === 1,
+      googleText,
+    );
+    const googleLocked = await page.locator('label:has-text("Gmail") select').isDisabled();
+    check(
+      "a locked google section says why",
+      !googleLocked || googleText.includes("Read-only here"),
+      googleText,
+    );
+    const googleBox = await overflow(page);
+    check("google section has nothing clipped", googleBox.clipped.length === 0, googleBox);
 
     await page.locator('.pane-bar button:text-is("Connection")').click();
     await page.waitForTimeout(300);
