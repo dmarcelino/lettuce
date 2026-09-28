@@ -16,6 +16,7 @@ import {
   verifyGoogle,
   wouldNarrow,
 } from "../lib/google.ts";
+import { ToggleRow } from "./MenuRow.tsx";
 
 interface Draft {
   enabled: boolean;
@@ -203,15 +204,13 @@ export function GoogleSection() {
           </ul>
         ) : null}
 
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={draft.enabled}
-            disabled={locked}
-            onChange={(event) => set({ enabled: event.target.checked })}
-          />
-          Allow agents to use Google
-        </label>
+        <ToggleRow
+          title="Allow agents to use Google"
+          description="With this off, the Google tool server does not run"
+          checked={draft.enabled}
+          disabled={locked}
+          onChange={(enabled) => set({ enabled })}
+        />
 
         {GOOGLE_SERVICES.map((service) => (
           <label key={service} className="field">

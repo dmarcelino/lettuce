@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
 import type { AgentsApi } from "../state/use-agents.ts";
 import { Icon } from "./Icon.tsx";
+import { ToggleRow } from "./MenuRow.tsx";
 
 interface Props {
   agents: AgentsApi;
@@ -204,14 +205,7 @@ export function Sidebar({
             {visible.length === 0 ? <li className="muted pad">No conversations</li> : null}
           </ul>
 
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(event) => setShowArchived(event.target.checked)}
-            />
-            Show archived
-          </label>
+          <ToggleRow title="Show archived" checked={showArchived} onChange={setShowArchived} />
         </div>
 
         {agents.error ? <p className="warning small">{agents.error}</p> : null}

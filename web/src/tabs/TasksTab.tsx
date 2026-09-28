@@ -5,6 +5,7 @@ import type {
 import { useCallback, useEffect, useState } from "react";
 import { CodexRunsList } from "../components/CodexRunsList.tsx";
 import { Icon } from "../components/Icon.tsx";
+import { ToggleRow } from "../components/MenuRow.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
 import { errorMessage } from "../lib/errors.ts";
@@ -262,6 +263,8 @@ export function TasksTab({
         >
           <Icon name="plus" /> Subagent
         </button>
+        <span className="spacer" />
+        <span className="muted small">{tasks.length} scheduled</span>
         <button
           type="button"
           className="link"
@@ -271,8 +274,6 @@ export function TasksTab({
         >
           <Icon name="refresh" />
         </button>
-        <span className="spacer" />
-        <span className="muted small">{tasks.length} scheduled</span>
       </div>
 
       {status ? <p className="muted small pad">{status}</p> : null}
@@ -526,14 +527,12 @@ export function TasksTab({
             />
           </label>
 
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={draft.recurring}
-              onChange={(event) => setDraft({ ...draft, recurring: event.target.checked })}
-            />
-            Repeating
-          </label>
+          <ToggleRow
+            title="Repeating"
+            description="Off runs it once, at the next match"
+            checked={draft.recurring}
+            onChange={(recurring) => setDraft({ ...draft, recurring })}
+          />
 
           <label className="field">
             Conversation it runs in

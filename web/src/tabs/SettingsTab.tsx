@@ -3,6 +3,7 @@ import { CodexSection } from "../components/CodexSection.tsx";
 import { GoogleSection } from "../components/GoogleSection.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { McpEditor } from "../components/McpEditor.tsx";
+import { MenuRow } from "../components/MenuRow.tsx";
 import { ReflectionSection } from "../components/ReflectionSection.tsx";
 import { SecretsSection } from "../components/SecretsSection.tsx";
 import { Sheet } from "../components/Sheet.tsx";
@@ -562,9 +563,8 @@ function SkillsSection({
 
   return (
     <>
-      {status ? <p className="muted small pad">{status}</p> : null}
-
-      <div className="row-between pad skills-summary">
+      <div className="pane-bar">
+        <span className="spacer" />
         <span className="muted small">
           {agentId ? (list ? summarizeSkills(skills) : "Loading skills…") : "Pick an agent first"}
         </span>
@@ -573,10 +573,13 @@ function SkillsSection({
           className="link"
           disabled={loading || !agentId}
           onClick={() => void load()}
+          title="Reload skills"
+          aria-label="Reload skills"
         >
-          Refresh
+          <Icon name="refresh" />
         </button>
       </div>
+      {status ? <p className="muted small pad">{status}</p> : null}
 
       {groupSkills(skills).map((group) => {
         const open = !collapsed.has(group.source);
@@ -825,18 +828,17 @@ function NotificationsSection() {
         </div>
       ) : null}
       {enabled && preferences ? (
-        <div className="pad-x">
+        <ul className="menu-list pad-x">
           {NOTIFICATION_EVENT_TYPES.map(({ key, label }) => (
-            <label className="checkbox" key={key}>
-              <input
-                type="checkbox"
-                checked={preferences[key]}
-                onChange={(event) => void togglePreference(key, event.target.checked)}
-              />
-              {label}
-            </label>
+            <MenuRow
+              key={key}
+              title={label}
+              mark="checkbox"
+              selected={preferences[key]}
+              onClick={() => void togglePreference(key, !preferences[key])}
+            />
           ))}
-        </div>
+        </ul>
       ) : null}
     </>
   );

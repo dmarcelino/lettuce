@@ -112,12 +112,18 @@ export function MemoryTab({ session, agentId }: Props) {
   return (
     <div className="pane">
       <div className="pane-bar">
-        <button type="button" className="link" onClick={() => void load()}>
-          <Icon name="refresh" /> Refresh
-        </button>
         {memfs === false ? <span className="tag">MemFS off</span> : null}
         <span className="spacer" />
         <span className="muted small">{entries.length} blocks</span>
+        <button
+          type="button"
+          className="link"
+          onClick={() => void load()}
+          title="Reload memory"
+          aria-label="Reload memory"
+        >
+          <Icon name="refresh" />
+        </button>
       </div>
 
       {status ? <p className="muted small pad">{status}</p> : null}

@@ -16,17 +16,18 @@ interface Props {
    */
   fill?: boolean;
   /**
-   * Resize floor, on desktop only (see `size` in styles.css): "compact" for a
-   * notice or a 1-3 field form, "spacious" for a document (usually paired with
-   * `fill`) or something as open-ended as a diff review. Omitted means
-   * "standard" — a picker list or an ordinary form — which is most callers.
+   * Width tier, on desktop only (see `.sheet-panel` in styles.css): "compact"
+   * (480px) for a notice or a 1-3 field form, "spacious" (880px, the content
+   * column) for a document (usually paired with `fill`) or something as
+   * open-ended as a diff review. Omitted means "standard" (560px) — a menu or
+   * an ordinary form — which is most callers.
    */
   size?: "compact" | "spacious";
   /**
    * The bottom button row, for a FORM (Save / Cancel). Omit it for a MENU —
-   * a list you pick from, where choices apply at once: the sheet then has a
-   * header with the title, `headerAction` and a ✕, and no footer. Every
-   * composer menu is one; see `MenuRow` for their rows.
+   * a list you pick from, where choices apply at once — or a notice: those
+   * have no footer. Every sheet has the same header either way: the title,
+   * `headerAction` and a ✕. See `MenuRow` for menu rows.
    */
   actions?: ReactNode;
   /** A menu's own extra action, beside the ✕ ("Show all", refresh). */
@@ -51,7 +52,6 @@ export function Sheet({
   headerAction,
   children,
 }: Props) {
-  const menu = actions === undefined;
   // The phone's Back closes this sheet, not the app — every sheet in the app
   // goes through here.
   useBackToClose(onClose);
@@ -75,21 +75,16 @@ export function Sheet({
         aria-modal="true"
         aria-label={title}
       >
-        {menu ? (
-          <header className="sheet-head">
-            <h2>{title}</h2>
-            {headerAction}
-            <button type="button" className="sheet-close" onClick={onClose} aria-label="Close">
-              <Icon name="close" />
-            </button>
-          </header>
-        ) : null}
-        <div className="sheet-body">
-          {menu ? null : <h2>{title}</h2>}
-          {children}
-        </div>
+        <header className="sheet-head">
+          <h2>{title}</h2>
+          {headerAction}
+          <button type="button" className="sheet-close" onClick={onClose} aria-label="Close">
+            <Icon name="close" />
+          </button>
+        </header>
+        <div className="sheet-body">{children}</div>
         {status ? <p className="sheet-status">{status}</p> : null}
-        {menu ? null : <div className="sheet-actions">{actions}</div>}
+        {actions === undefined ? null : <div className="sheet-actions">{actions}</div>}
       </div>
     </div>
   );

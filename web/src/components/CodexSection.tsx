@@ -7,6 +7,7 @@ import {
   type ReasoningEffort,
   saveCodexSettings,
 } from "../lib/codex.ts";
+import { ToggleRow } from "./MenuRow.tsx";
 
 interface Draft {
   enabled: boolean;
@@ -118,14 +119,12 @@ export function CodexSection() {
       {status ? <p className="muted small pad">{status}</p> : null}
 
       <div className="pad-x">
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={draft.enabled}
-            onChange={(event) => set({ enabled: event.target.checked })}
-          />
-          Allow Codex workers
-        </label>
+        <ToggleRow
+          title="Allow Codex workers"
+          description="Agents may hand coding work to a Codex subagent"
+          checked={draft.enabled}
+          onChange={(enabled) => set({ enabled })}
+        />
 
         <label className="field">
           Endpoint URL
@@ -160,14 +159,11 @@ export function CodexSection() {
           />
         </label>
         {settings.hasApiKey ? (
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={draft.clearApiKey}
-              onChange={(event) => set({ clearApiKey: event.target.checked, apiKey: "" })}
-            />
-            Remove the saved key
-          </label>
+          <ToggleRow
+            title="Remove the saved key"
+            checked={draft.clearApiKey}
+            onChange={(clearApiKey) => set({ clearApiKey, apiKey: "" })}
+          />
         ) : null}
 
         <label className="field">

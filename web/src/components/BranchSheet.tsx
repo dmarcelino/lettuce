@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
+import { Icon } from "./Icon.tsx";
 import { Sheet } from "./Sheet.tsx";
 
 interface GitBranchInfo {
@@ -24,6 +25,11 @@ function isRemote(branch: GitBranchInfo): boolean {
   return branch.is_remote === true || branch.is_remote === "true";
 }
 
+/** git's own wording when the directory has no repository above it. */
+export function isNotARepository(message: string): boolean {
+  return /not a git repository/i.test(message);
+}
+
 /**
  * Git branch switcher.
  *
@@ -42,6 +48,7 @@ export function BranchSheet({ session, cwd, onClose }: Props) {
   const [current, setCurrent] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = useCallback(
@@ -116,16 +123,26 @@ export function BranchSheet({ session, cwd, onClose }: Props) {
     // checkout produce a local tracking branch instead of failing.
     void runCheckout(branch.name, isRemote(branch));
 
-  return (
-    <Sheet
-      title="Branch"
-      onClose={onClose}
-      actions={
-        <button type="button" className="button ghost" onClick={onClose}>
-          Close
+  // Not a failure worth a stack of git stderr: most agent workspaces are plain
+  // directories. Say so, keep the raw text one tap away, and drop the search —
+  // there is nothing to search.
+  if (isNotARepository(status)) {
+    return (
+      <Sheet title="Branch" onClose={onClose}>
+        <p className="warning">
+          This folder isn&apos;t a git repository, so there are no branches to switch.
+        </p>
+        <button type="button" className="tool-head" onClick={() => setShowDetail((v) => !v)}>
+          <span className="tag">Details</span>
+          <Icon name={showDetail ? "chevron-down" : "chevron-right"} className="chevron" />
         </button>
-      }
-    >
+        {showDetail ? <pre className="tool-args">{status}</pre> : null}
+      </Sheet>
+    );
+  }
+
+  return (
+    <Sheet title="Branch" onClose={onClose}>
       {current ? (
         <p className="muted small">
           Current: <code>{current}</code>

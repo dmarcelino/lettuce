@@ -7,6 +7,7 @@ import {
   LIVE_POLL_MS,
   STATUS_LABELS,
 } from "../lib/codex.ts";
+import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Sheet } from "./Sheet.tsx";
 
@@ -38,6 +39,7 @@ function Step({ step }: { step: CodexRunStep }) {
   return (
     <details className="codex-step codex-command" open={failed || step.output === null}>
       <summary>
+        <Icon name="chevron-right" className="chevron" />
         <code>{step.command}</code>
         <span className={`small ${failed ? "bad" : "muted"}`}>
           {step.output === null

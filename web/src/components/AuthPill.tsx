@@ -30,16 +30,7 @@ export function AuthPill({ email }: Props) {
       </button>
 
       {open ? (
-        <Sheet
-          title="Unauthenticated (dev bypass)"
-          size="compact"
-          onClose={() => setOpen(false)}
-          actions={
-            <button type="button" className="button ghost" onClick={() => setOpen(false)}>
-              Close
-            </button>
-          }
-        >
+        <Sheet title="Unauthenticated (dev bypass)" size="compact" onClose={() => setOpen(false)}>
           <p className="warning">
             Developer sign-in is enabled. This does <strong>not</strong> authenticate anyone — any
             visitor becomes the configured user. Unset <code>DEV_BYPASS_EMAIL</code> to require

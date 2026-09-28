@@ -230,10 +230,13 @@ export function ApprovalSheet({ approval, onRespond, onAnswerQuestions }: Props)
     return (
       <div className="sheet">
         <div className="sheet-panel sheet-spacious" role="dialog" aria-modal="true">
-          <div className="sheet-body">
+          {/* The shared header, minus the ✕: an approval is answered, not escaped. */}
+          <header className="sheet-head">
             <h2>
               {questions.length > 1 ? "The agent has some questions" : "The agent has a question"}
             </h2>
+          </header>
+          <div className="sheet-body">
             <AskUserQuestionForm
               questions={questions}
               selections={selections}
@@ -262,9 +265,10 @@ export function ApprovalSheet({ approval, onRespond, onAnswerQuestions }: Props)
   return (
     <div className="sheet">
       <div className="sheet-panel sheet-spacious" role="dialog" aria-modal="true">
-        <div className="sheet-body">
+        <header className="sheet-head">
           <h2>Approve {approval.toolName}?</h2>
-
+        </header>
+        <div className="sheet-body">
           {approval.blockedPath ? (
             <p className="warning">
               Blocked path: <code>{approval.blockedPath}</code>

@@ -49,3 +49,36 @@ export function MenuRow({
     </li>
   );
 }
+
+/**
+ * An on/off setting outside a menu (a form, a settings pane, the sidebar): one
+ * `MenuRow` checkbox in its own list, so every toggle in the app is the same
+ * object as the Filter sheet's. Replaces the native checkbox, which rendered
+ * in the platform's style and colour and sat at a different size per browser.
+ */
+export function ToggleRow({
+  title,
+  description,
+  checked,
+  disabled = false,
+  onChange,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <ul className="menu-list toggle-row">
+      <MenuRow
+        title={title}
+        description={description}
+        mark="checkbox"
+        selected={checked}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+      />
+    </ul>
+  );
+}

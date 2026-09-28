@@ -223,14 +223,6 @@ pre {
   opacity: 1;
 }
 
-.checkbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 13px;
-}
 /* 12px: the one inline gutter every pane row, note and heading shares. */
 .pad {
   padding: 8px 12px;
@@ -925,7 +917,6 @@ pre {
 
 .composer textarea {
   width: 100%;
-  font-family: inherit;
   resize: none;
   background: none;
   color: var(--text);
@@ -2276,6 +2267,8 @@ p.warning code {
   flex: none;
   display: flex;
   align-items: center;
+  /* The ✕'s height, so a head without one (ApprovalSheet) matches. */
+  min-height: 48px;
   gap: 0;
   padding: 2px 2px 2px 14px;
   background: var(--surface);
@@ -2329,9 +2322,14 @@ p.warning code {
   opacity: 0.4;
   cursor: default;
 }
-/* Menus sit tighter than forms; with no footer, the body takes the inset. */
+/* One inset for menus and forms alike, on the app's 12px gutter. With no
+   footer below it (a menu, a notice), the body also takes the home-indicator
+   inset the footer would otherwise carry. */
 .sheet-head ~ .sheet-body {
-  padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+  padding: 10px 12px 12px;
+}
+.sheet-head ~ .sheet-body:last-child {
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 
 .menu-intro {
@@ -2418,6 +2416,23 @@ p.warning code {
 .menu-row-box .icon {
   width: 16px;
   height: 16px;
+}
+/* A lone toggle in a form or pane keeps the field rhythm below it. */
+.menu-list.toggle-row {
+  margin-bottom: 14px;
+}
+/* The sidebar's footer toggle is a filter, not a setting: row-sized, not card-sized. */
+.sidebar .toggle-row {
+  margin-bottom: 0;
+}
+.sidebar .toggle-row .menu-row {
+  min-height: 38px;
+  padding-block: 4px;
+}
+.sidebar .toggle-row .menu-row-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
 }
 .menu-list + .field,
 .field + .menu-list {
@@ -2613,13 +2628,45 @@ p.warning code {
   font-style: italic;
   white-space: pre-wrap;
 }
+/* The transcript's disclosure, not the browser's: a chevron Icon (turned when
+   open) in place of the platform ▶ marker. */
 .codex-command summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  list-style: none;
   cursor: pointer;
   padding: 6px 0;
 }
+.codex-command summary::-webkit-details-marker {
+  display: none;
+}
+.codex-command summary .chevron {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 3px;
+  transition: transform 0.15s;
+}
+.codex-command[open] > summary .chevron {
+  transform: rotate(90deg);
+}
 .codex-command summary code {
+  min-width: 0;
+  font-size: 13px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+.codex-command summary > .small {
+  flex: none;
+  white-space: nowrap;
+}
+/* A heredoc command is a whole script; closed, three lines say which step it is. */
+.codex-command:not([open]) summary code {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
 }
 .codex-command .tool-args {
   max-height: 40vh;
