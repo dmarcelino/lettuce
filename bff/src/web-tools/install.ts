@@ -1,16 +1,10 @@
 /**
- * Keeping the web-tools mod on disk and loaded, and the settings behind it.
- *
- * letta-code loads global mods once, on the first client connection, and
- * again only on the `reload` command — it does not watch the directory. So on
- * every upstream connect the BFF renders the mod, and only when the file on
- * disk differs does it write it and ask for a reload. An app-server restart
- * needs neither: the file is already there when the BFF's connection, the
- * first one, triggers the load.
+ * Settings → Web's switch, and the one-time retirement of the seeded
+ * duckduckgo MCP server. (Writing and reloading the mod itself is
+ * `internal-tools/install.ts`, shared with the other mods.)
  */
 
 import { loadMcpServers, type McpIo, saveMcpServers } from "../mcp/service.ts";
-import { renderWebToolsMod, WEB_TOOLS_MOD_PATH } from "./mod.ts";
 import {
   applyWebToolsSettingsUpdate,
   parseStoredWebToolsSettings,
@@ -19,18 +13,12 @@ import {
   type WebToolsSettings,
 } from "./settings.ts";
 
+/** The web-tools settings file lives on letta-home, read and written over the upstream connection. */
 export interface WebToolsIo {
   /** File contents, or null when the file does not exist. */
   read(path: string): Promise<string | null>;
   write(path: string, content: string): Promise<void>;
-  /**
-   * Ask the app-server to reload its mods (`execute_command reload`). The
-   * command needs an agent runtime, so this is false while no agent exists yet.
-   */
-  reloadMods(): Promise<boolean>;
 }
-
-export type ModSyncResult = "unchanged" | "reloaded" | "reload-pending";
 
 export async function loadWebToolsSettings(
   io: Pick<WebToolsIo, "read">,
@@ -38,30 +26,14 @@ export async function loadWebToolsSettings(
   return parseStoredWebToolsSettings(await io.read(WEB_TOOLS_SETTINGS_PATH));
 }
 
-/**
- * Write the mod if it differs from what is on disk, then reload. A reload that
- * could not run (no agent yet) is reported, so the caller can retry it.
- */
-export async function syncWebToolsMod(
-  io: WebToolsIo,
-  options: { enabled: boolean; port: number },
-): Promise<ModSyncResult> {
-  const wanted = renderWebToolsMod(options);
-  const current = await io.read(WEB_TOOLS_MOD_PATH);
-  if (current === wanted) return "unchanged";
-  await io.write(WEB_TOOLS_MOD_PATH, wanted);
-  return (await io.reloadMods()) ? "reloaded" : "reload-pending";
-}
-
-/** A browser update: save the switch, then bring the mod in line with it. */
+/** A browser update: save the switch. The caller then re-syncs the mods. */
 export async function saveWebToolsSettings(
   io: WebToolsIo,
   body: unknown,
-  port: number,
-): Promise<{ settings: WebToolsSettings; mod: ModSyncResult }> {
+): Promise<WebToolsSettings> {
   const settings = applyWebToolsSettingsUpdate(await loadWebToolsSettings(io), body);
   await io.write(WEB_TOOLS_SETTINGS_PATH, renderStoredWebToolsSettings(settings));
-  return { settings, mod: await syncWebToolsMod(io, { enabled: settings.enabled, port }) };
+  return settings;
 }
 
 /** The entry this repo used to seed into the shared MCP list. */

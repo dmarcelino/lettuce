@@ -1,0 +1,181 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { handleInternalTools, isLoopback } from "./http.ts";
+import { type ModsIo, syncMods } from "./install.ts";
+import { renderToolsMod } from "./mod.ts";
+import { capText, MAX_TOOL_TEXT, type ToolHandler, type ToolSpec } from "./types.ts";
+
+const handlers = (): ReadonlyMap<string, ToolHandler> =>
+  new Map<string, ToolHandler>([
+    ["web_search", async (args) => ({ text: `searched ${String(args.query)}`, isError: false })],
+    ["fetch_webpage", async () => ({ text: "page", isError: false })],
+    [
+      "boom",
+      async () => {
+        throw new Error("kaput");
+      },
+    ],
+  ]);
+
+const post = (path: string, body: unknown = { query: "q" }) =>
+  new Request(`http://127.0.0.1:8080${path}`, { method: "POST", body: JSON.stringify(body) });
+
+describe("the internal route", () => {
+  test("loopback means loopback", () => {
+    for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.53"])
+      expect(isLoopback(address)).toBe(true);
+    for (const address of ["172.18.0.1", "192.168.1.24", "::ffff:172.18.0.5", "", null, undefined])
+      expect(isLoopback(address)).toBe(false);
+  });
+
+  test("a browser (non-loopback) gets a 404; other paths are not ours", async () => {
+    expect(
+      (await handleInternalTools(post("/internal/tools/web_search"), "172.18.0.1", handlers))
+        ?.status,
+    ).toBe(404);
+    expect(await handleInternalTools(post("/api/status"), "127.0.0.1", handlers)).toBeNull();
+    expect(
+      (await handleInternalTools(post("/internal/tools/nope"), "127.0.0.1", handlers))?.status,
+    ).toBe(404);
+  });
+
+  test("a mod's call is dispatched by name and answered as JSON", async () => {
+    const response = await handleInternalTools(
+      post("/internal/tools/web_search"),
+      "127.0.0.1",
+      handlers,
+    );
+    expect(await response?.json()).toEqual({ text: "searched q", isError: false });
+  });
+
+  test("the first web-tools mod's paths still answer", async () => {
+    const response = await handleInternalTools(
+      post("/internal/web-tools/search"),
+      "127.0.0.1",
+      handlers,
+    );
+    expect(await response?.json()).toEqual({ text: "searched q", isError: false });
+    const fetchResponse = await handleInternalTools(
+      post("/internal/web-tools/fetch"),
+      "::1",
+      handlers,
+    );
+    expect(await fetchResponse?.json()).toEqual({ text: "page", isError: false });
+  });
+
+  test("a throwing handler becomes a tool error, not a 500", async () => {
+    const response = await handleInternalTools(post("/internal/tools/boom"), "127.0.0.1", handlers);
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ text: "The boom tool failed: kaput", isError: true });
+  });
+});
+
+describe("renderToolsMod", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tools-mod-"));
+  const specs: ToolSpec[] = [
+    {
+      name: "read_it",
+      description: "Reads.",
+      parameters: { type: "object", properties: {} },
+      approval: "auto",
+    },
+    {
+      name: "change_it",
+      description: "Changes.",
+      parameters: { type: "object", properties: {} },
+      approval: "ask",
+    },
+  ];
+
+  async function registered(source: string) {
+    const file = join(dir, `mod-${Math.random().toString(36).slice(2)}.mjs`);
+    writeFileSync(file, source);
+    const mod = (await import(file)) as { default: (letta: unknown) => unknown };
+    const tools: Record<string, unknown>[] = [];
+    mod.default({
+      capabilities: { tools: true },
+      tools: {
+        register(tool: Record<string, unknown>) {
+          tools.push(tool);
+          return () => {};
+        },
+      },
+    });
+    return tools;
+  }
+
+  test("auto tools never prompt; ask tools follow the permission mode", async () => {
+    const tools = await registered(renderToolsMod({ title: "t v1", tools: specs, port: 8080 }));
+    expect(
+      tools.map((t) => [t.name, t.requiresApproval, t.approvalPolicy, t.parallelSafe]),
+    ).toEqual([
+      ["read_it", false, undefined, true],
+      ["change_it", true, "ask", false],
+    ]);
+  });
+
+  test("no tools renders a mod that registers nothing", async () => {
+    expect(await registered(renderToolsMod({ title: "t v1", tools: [], port: 8080 }))).toEqual([]);
+  });
+
+  test("a tool call goes to /internal/tools/<name> on the configured port", async () => {
+    const source = renderToolsMod({ title: "t v1", tools: specs, port: 9090 });
+    expect(source).toContain('"http://127.0.0.1:9090/internal/tools"');
+    expect(source.split("\n")[0]).toBe(
+      "// t v1 — rendered by the letta-code-ui BFF (bff/src/internal-tools/mod.ts).",
+    );
+  });
+});
+
+describe("syncMods", () => {
+  function memory(agentExists = true) {
+    const files = new Map<string, string>();
+    const events: string[] = [];
+    const io: ModsIo = {
+      async read(path) {
+        return files.get(path) ?? null;
+      },
+      async write(path, content) {
+        files.set(path, content);
+        events.push(`write ${path}`);
+      },
+      async reloadMods() {
+        events.push("reload");
+        return agentExists;
+      },
+    };
+    return { io, events };
+  }
+
+  test("writes only what changed, and reloads once for the batch", async () => {
+    const { io, events } = memory();
+    const mods = [
+      { path: "/m/a.mjs", source: "a" },
+      { path: "/m/b.mjs", source: "b" },
+    ];
+    expect(await syncMods(io, mods)).toBe("reloaded");
+    expect(events).toEqual(["write /m/a.mjs", "write /m/b.mjs", "reload"]);
+    expect(await syncMods(io, mods)).toBe("unchanged");
+    expect(
+      await syncMods(io, [
+        { path: "/m/a.mjs", source: "a" },
+        { path: "/m/b.mjs", source: "b2" },
+      ]),
+    ).toBe("reloaded");
+    expect(events.slice(3)).toEqual(["write /m/b.mjs", "reload"]);
+  });
+
+  test("with no agent yet the reload is reported pending", async () => {
+    const { io } = memory(false);
+    expect(await syncMods(io, [{ path: "/m/a.mjs", source: "a" }])).toBe("reload-pending");
+  });
+});
+
+test("capText keeps text under the tool-return cap and says it cut", () => {
+  expect(capText("short")).toBe("short");
+  const cut = capText("x".repeat(MAX_TOOL_TEXT + 10), "ask for less");
+  expect(cut.length).toBeLessThan(MAX_TOOL_TEXT + 100);
+  expect(cut).toContain("ask for less");
+});

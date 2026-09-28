@@ -12,6 +12,7 @@
  * should read and work around, not a crashed request.
  */
 
+import { MAX_TOOL_TEXT, type ToolAnswer } from "../internal-tools/types.ts";
 import { type DdgCaller, isDdgEmpty } from "./ddg.ts";
 import {
   type SearchResult,
@@ -21,10 +22,7 @@ import {
   type TimeRange,
 } from "./searxng.ts";
 
-export interface ToolAnswer {
-  text: string;
-  isError: boolean;
-}
+export type { ToolAnswer };
 
 export interface WebToolsBackends {
   /** SearXNG base URL, or null when that backend is switched off. */
@@ -35,8 +33,7 @@ export interface WebToolsBackends {
   fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 }
 
-/** Below upstream's 32k tool-return cap, so our own continuation hint is never cut off. */
-export const MAX_PAGE_CHARS = 30_000;
+export const MAX_PAGE_CHARS = MAX_TOOL_TEXT;
 const DEFAULT_PAGE_CHARS = 12_000;
 const DEFAULT_RESULTS = 8;
 const MAX_RESULTS = 20;

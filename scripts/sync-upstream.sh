@@ -65,6 +65,10 @@ BEHAVIOR_FILES=(
   "src/websocket/listener/mod-adapter.ts"
   "src/websocket/listener/commands.ts"
   "src/tools/manager.ts"
+  # `approval: "ask"` on the Google write tools and mcp_call_write relies on
+  # approvalPolicy "ask" prompting in Standard/Strict and running in Unrestricted.
+  "src/permissions/checker.ts"
+  "src/permissions/mode.ts"
 )
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }

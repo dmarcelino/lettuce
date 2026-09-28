@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ModsIo } from "../internal-tools/install.ts";
 import type { McpIo } from "../mcp/service.ts";
 import {
   MCP_SETTINGS_PATH,
@@ -10,14 +11,8 @@ import {
   renderMcpSettings,
 } from "../mcp/settings.ts";
 import type { DdgCaller } from "./ddg.ts";
-import { handleInternalWebTools, isLoopback } from "./http.ts";
-import {
-  retireSeededDdgMcp,
-  saveWebToolsSettings,
-  syncWebToolsMod,
-  type WebToolsIo,
-} from "./install.ts";
-import { renderWebToolsMod, WEB_TOOLS_MOD_PATH } from "./mod.ts";
+import { retireSeededDdgMcp, saveWebToolsSettings } from "./install.ts";
+import { renderWebToolsMod } from "./mod.ts";
 import { normalizeSearxng } from "./searxng.ts";
 import { fetchWebpage, MAX_PAGE_CHARS, type WebToolsBackends, webSearch } from "./service.ts";
 import {
@@ -270,7 +265,7 @@ describe("the rendered mod", () => {
     const controller = new AbortController();
     expect(await run({ args: { query: "q" }, signal: controller.signal })).toBe("results!");
     expect(seen).toEqual([
-      { url: "http://127.0.0.1:8080/internal/web-tools/search", body: { query: "q" } },
+      { url: "http://127.0.0.1:8080/internal/tools/web_search", body: { query: "q" } },
     ]);
   });
 
@@ -309,7 +304,7 @@ describe("the rendered mod", () => {
 function memoryIo(initial: Record<string, string> = {}, agentExists = true) {
   const files = new Map(Object.entries(initial));
   const events: string[] = [];
-  const io: WebToolsIo & McpIo = {
+  const io: ModsIo & McpIo = {
     async read(path) {
       return files.get(path) ?? null;
     },
@@ -330,32 +325,6 @@ function memoryIo(initial: Record<string, string> = {}, agentExists = true) {
   };
   return { io, files, events };
 }
-
-describe("syncWebToolsMod", () => {
-  test("writes and reloads only when the file differs", async () => {
-    const { io, events } = memoryIo();
-    expect(await syncWebToolsMod(io, { enabled: true, port: 8080 })).toBe("reloaded");
-    expect(events).toEqual([`write ${WEB_TOOLS_MOD_PATH}`, "reload"]);
-    expect(await syncWebToolsMod(io, { enabled: true, port: 8080 })).toBe("unchanged");
-    expect(events).toHaveLength(2);
-    expect(await syncWebToolsMod(io, { enabled: false, port: 8080 })).toBe("reloaded");
-  });
-
-  test("with no agent yet the reload is reported pending", async () => {
-    const { io } = memoryIo({}, false);
-    expect(await syncWebToolsMod(io, { enabled: true, port: 8080 })).toBe("reload-pending");
-  });
-
-  test("saving the switch rewrites the mod", async () => {
-    const { io, files } = memoryIo();
-    const saved = await saveWebToolsSettings(io, { enabled: false }, 8080);
-    expect(saved).toEqual({ settings: { enabled: false, mcpDdgRetired: false }, mod: "reloaded" });
-    expect(files.get(WEB_TOOLS_MOD_PATH)).toContain("registers no tools");
-    await expect(saveWebToolsSettings(io, { enabled: "yes" }, 8080)).rejects.toThrow(
-      InvalidWebToolsSettingsError,
-    );
-  });
-});
 
 describe("retireSeededDdgMcp", () => {
   const seeded: McpServer = {
@@ -391,6 +360,20 @@ describe("retireSeededDdgMcp", () => {
 });
 
 describe("settings", () => {
+  test("saving the switch stores it and rejects a malformed one", async () => {
+    const { io, files } = memoryIo();
+    expect(await saveWebToolsSettings(io, { enabled: false })).toEqual({
+      enabled: false,
+      mcpDdgRetired: false,
+    });
+    expect(parseStoredWebToolsSettings(files.get(WEB_TOOLS_SETTINGS_PATH) ?? null).enabled).toBe(
+      false,
+    );
+    await expect(saveWebToolsSettings(io, { enabled: "yes" })).rejects.toThrow(
+      InvalidWebToolsSettingsError,
+    );
+  });
+
   test("parse is lenient and defaults to on", () => {
     expect(parseStoredWebToolsSettings(null)).toEqual({ enabled: true, mcpDdgRetired: false });
     expect(parseStoredWebToolsSettings("{nope")).toEqual({ enabled: true, mcpDdgRetired: false });
@@ -407,44 +390,6 @@ describe("settings", () => {
       mcpDdgRetired: true,
     });
     expect(() => applyWebToolsSettingsUpdate(current, null)).toThrow(InvalidWebToolsSettingsError);
-  });
-});
-
-describe("the internal route", () => {
-  const backends = (): WebToolsBackends => ({ searxngUrl: null, ddg: null });
-  const post = (path: string, body: unknown = { query: "q" }) =>
-    new Request(`http://127.0.0.1:8080${path}`, { method: "POST", body: JSON.stringify(body) });
-
-  test("loopback means loopback", () => {
-    for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.53"])
-      expect(isLoopback(address)).toBe(true);
-    for (const address of ["172.18.0.1", "192.168.1.24", "::ffff:172.18.0.5", "", null, undefined])
-      expect(isLoopback(address)).toBe(false);
-  });
-
-  test("a browser (non-loopback) gets a 404; other paths are not ours", async () => {
-    expect(
-      (await handleInternalWebTools(post("/internal/web-tools/search"), "172.18.0.1", backends))
-        ?.status,
-    ).toBe(404);
-    expect(await handleInternalWebTools(post("/api/status"), "127.0.0.1", backends)).toBeNull();
-    expect(
-      (await handleInternalWebTools(post("/internal/web-tools/other"), "127.0.0.1", backends))
-        ?.status,
-    ).toBe(404);
-  });
-
-  test("the mod's call is answered as JSON", async () => {
-    const response = await handleInternalWebTools(
-      post("/internal/web-tools/search"),
-      "127.0.0.1",
-      backends,
-    );
-    expect(response?.status).toBe(200);
-    expect(await response?.json()).toEqual({
-      text: "Web search is not configured on this server.",
-      isError: true,
-    });
   });
 });
 

@@ -44,11 +44,10 @@ rarely a reason to run it.
 ```
 browser ──WSS+cookie──> bff (Bun/Hono) ──ws + Bearer──> letta app-server (docker)
                                                               ├── llama.cpp /v1
-                                                              ├── MCP servers (google-mcp)
-                                                              └── mods: web_search / fetch_webpage
-                                                                    └─> bff /internal/web-tools
-                                                                        ├─> searxng (search)
-                                                                        └─> ddg-mcp (pages, fallback)
+                                                              └── mods (native tools) ─> bff /internal/tools/<name>
+                                                                    ├─ web_search / fetch_webpage ─> searxng, ddg-mcp
+                                                                    ├─ gmail_* / calendar_* / tasks_* ─> google-mcp
+                                                                    └─ mcp_search / mcp_call[_write] ─> shared MCP list
 ```
 
 ### The BFF is a session multiplexer, not a proxy
@@ -257,6 +256,17 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   A fresh install's list starts empty; nothing is seeded.
   Codex's `mcp: {inherit: true}` forwards that same empty list, so the Tasks form no longer
   offers it and `delegating-to-codex` tells agents to hand workers the wrapper instead.
+
+  **Most turns reach these servers through native tools, not the skill: the MCP bridge**
+  (`bff/src/mcp-bridge/`, the `letta-ui-mcp-bridge.mjs` mod). Four tools with small static
+  schemas — `mcp_search` (keyword-ranked, marks each hit read-only or writes), `mcp_describe`,
+  `mcp_call` (auto; **refuses** any tool the server does not mark `readOnlyHint` — unmarked counts
+  as a write) and `mcp_call_write` (`approval: "ask"`). Search-then-call rather than one native
+  tool per MCP tool keeps the per-turn prefill constant. The BFF is the MCP client (SDK, one
+  session per call) for **http and sse servers only** — a stdio server's command is written for
+  the app-server container, so it stays on the skill wrapper, as do subagents (no mod tools).
+  `McpCatalog` caches `tools/list` per server (connect, MCP save, Google change, 10-min TTL);
+  names are upstream's `mcp__<server>__<tool>`. The skill's description now says so.
   Browsers reach none of these files: `/api/mcp` reads and writes the list (an entry is a
   command line agent shells exec), and `settings.json` is no longer a readable exception.
 - **letta-code's filesystem sandbox is OFF, deliberately, and the image carries no bubblewrap.**
@@ -499,13 +509,17 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   (`tools/manager.ts` `capturePreparedToolExecutionContext`) — chats, crons and channel turns
   alike. **Subagents do not** (they run a providers-only capability profile), nor do Codex workers.
 
-  - **The mod is thin; the BFF does the work.** `bff/src/web-tools/mod.ts` renders
-    `letta-ui-web-tools.mjs` (plain ESM — mods cannot import npm packages): each tool POSTs its
-    args to `http://127.0.0.1:8080/internal/web-tools/{search,fetch}`. That route is handled in
-    `Bun.serve` before Hono and answers **only loopback clients** (`web-tools/http.ts`) — i.e. the
-    app-server namespace (the mod, agent shells, the gateway), which can reach the internet
-    anyway; a browser (published port, cloudflared) gets a 404. `requiresApproval: false`, or
-    "standard" mode would prompt and an unattended cron turn would stall.
+  - **Mods are thin; the BFF does the work** (`bff/src/internal-tools/`, shared by every mod we
+    ship). `renderToolsMod` emits plain ESM (mods cannot import npm packages) whose tools POST
+    their args to `http://127.0.0.1:8080/internal/tools/<name>`. That route is handled in
+    `Bun.serve` before Hono and answers **only loopback clients** (`internal-tools/http.ts`) —
+    i.e. the app-server namespace (mods, agent shells, the gateway), which can reach every
+    sidecar and the internet anyway; a browser (published port, cloudflared) gets a 404. The
+    first web-tools mod's `/internal/web-tools/{search,fetch}` paths stay as aliases. Each tool
+    is `approval: "auto"` (never prompts) or `"ask"` (`requiresApproval` + `approvalPolicy:
+    "ask"`: Standard/Strict prompt, Unrestricted runs — `permissions/checker.ts`). Reads are
+    `auto`; an `ask` tool in an unattended cron turn under Standard mode waits for an approval.
+    Three mods: `letta-ui-web-tools.mjs`, `letta-ui-google-tools.mjs`, `letta-ui-mcp-bridge.mjs`.
   - **Search:** the `searxng` sidecar (`docker/searxng`, pinned `SEARXNG_VERSION`, settings baked
     into the image *outside* `/etc/searxng` — that path is a declared VOLUME and compose carries
     an anonymous volume across recreates, so a settings change there would never land). Engines
@@ -520,10 +534,11 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     `ddg-mcp:8000` (its `--allowed-hosts` DNS-rebinding guard).
   - **Loading: no file watch.** Global mods load on the first client connection (the BFF's,
     `app-server.ts` `getStartupReady`) and again only on `execute_command reload`, which needs an
-    agent runtime (`listener/commands.ts`). So on every connect `web-tools/install.ts` renders
-    the mod, and only if the file differs writes it and sends `reload` in the first agent's
-    `default` conversation — retried every 30 s while no agent exists. An app-server restart
-    needs no reload: the file is already there when the BFF connects.
+    agent runtime (`listener/commands.ts`). So `resyncMods` (index.ts) renders all three mods,
+    writes only those that differ (`internal-tools/install.ts` `syncMods`) and sends **one**
+    `reload` in the first agent's `default` conversation — retried every 30 s while no agent
+    exists. It runs on connect, on a Settings → Web or → MCP save, and 4/12/30 s after any
+    Google change. An app-server restart needs no reload: the files are already there.
   - **Settings → Web** (`/api/web-tools/*`, `/root/.letta/web-tools/letta-ui.json`): a switch
     (off renders a mod that registers nothing — the protocol cannot delete a file), backend
     status, a test search, and mod load errors from letta-code's
@@ -566,6 +581,22 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   Limits by design: one policy for every agent (per-agent would need per-agent containers), and
   allowed tools still combine — Calendar `full` can invite any address, which mails them even
   with Gmail read-only, and email content is prompt-injection input.
+
+  **Agents use Google through native tools, not the skill** (`bff/src/google/tools.ts`, the
+  `letta-ui-google-tools.mjs` mod): `gmail_search`, `gmail_read`, `calendar_events`,
+  `calendar_freebusy`, `tasks_list` (reads, never ask) and `gmail_send`, `gmail_draft`,
+  `calendar_event`, `tasks_update` (writes, `approval: "ask"`). Each is a compact schema mapped
+  onto one workspace-mcp tool — its own schemas are large (`manage_event` has 32 parameters) and
+  would ride in every turn's prefill. **Access control is unchanged:** a curated tool is
+  registered only if the tool it maps to is in the sidecar's current `tools/list`, which
+  `--permissions` and the granted scopes already filter, so read-only Gmail never shows
+  `gmail_send`. `user_google_email` is left out: `--single-user` defaults it (and the bridge hides
+  it from schemas). The mappings are pinned by a recorded `tools/list`
+  (`bff/src/google/fixtures/workspace-mcp-<version>.{full,readonly}.json`, captured by running
+  the pinned image with `--single-user --permissions …` and a dummy OAuth client — listing needs
+  no token) and `google/tools.test.ts` checks every mapped tool, argument and read/write marking
+  against it. **Refresh the fixture on every `WORKSPACE_MCP_VERSION` bump.** Everything else
+  Google offers (labels, filters, focus time…) is reachable through the MCP bridge below.
 - **File protocol gotchas** (all verified against a running app-server):
   - `get_tree` returns paths **relative** to the root it was given; every other file command
     wants an absolute path, so the client must join them.

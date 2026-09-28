@@ -41,11 +41,16 @@ import { createGoogleFsIo } from "./google/fs-io.ts";
 import { GoogleOAuthError } from "./google/oauth.ts";
 import { GoogleAccessError, GoogleService } from "./google/service.ts";
 import { InvalidGoogleSettingsError } from "./google/settings.ts";
+import { availableGoogleTools, GOOGLE_TOOLS_MOD_PATH, googleHandlers } from "./google/tools.ts";
 import {
   DEFAULT_HTTP_CAPACITY,
   DEFAULT_HTTP_REFILL_PER_SECOND,
   HttpRateLimiter,
 } from "./http-rate-limit.ts";
+import { handleInternalTools } from "./internal-tools/http.ts";
+import { type ModsIo, type RenderedMod, syncMods } from "./internal-tools/install.ts";
+import { renderToolsMod } from "./internal-tools/mod.ts";
+import type { ToolHandler } from "./internal-tools/types.ts";
 import { ensureMcpServers, loadMcpServers, type McpIo, saveMcpServers } from "./mcp/service.ts";
 import {
   InvalidMcpServersError,
@@ -54,6 +59,9 @@ import {
   validateMcpServers,
 } from "./mcp/settings.ts";
 import { MCP_SKILL_NAME } from "./mcp/skill.ts";
+import { McpCatalog } from "./mcp-bridge/catalog.ts";
+import { mcpClient } from "./mcp-bridge/client.ts";
+import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
 import { AgentNames } from "./push/agent-names.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { configureWebPush, sendPush } from "./push/send.ts";
@@ -70,15 +78,13 @@ import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 import { ddgCaller } from "./web-tools/ddg.ts";
-import { handleInternalWebTools } from "./web-tools/http.ts";
 import {
   loadWebToolsSettings,
   retireSeededDdgMcp,
   saveWebToolsSettings,
-  syncWebToolsMod,
-  type WebToolsIo,
 } from "./web-tools/install.ts";
-import { type WebToolsBackends, webSearch } from "./web-tools/service.ts";
+import { renderWebToolsMod, WEB_TOOLS_MOD_PATH } from "./web-tools/mod.ts";
+import { fetchWebpage, type WebToolsBackends, webSearch } from "./web-tools/service.ts";
 import { InvalidWebToolsSettingsError } from "./web-tools/settings.ts";
 import { webToolsStatus } from "./web-tools/status.ts";
 
@@ -134,17 +140,18 @@ const upstream = new UpstreamConnection({
       void ensureMcpServers(mcpIo)
         .then((servers) => log(`MCP: ${servers.length} shared server(s) configured`))
         .catch((error) => log(`MCP: could not sync shared servers: ${errorMessage(error)}`))
-        .then(() => retireSeededDdgMcp(webToolsIo, mcpIo))
+        .then(() => retireSeededDdgMcp(codexIo, mcpIo))
         .then(
           (removed) => removed && log("MCP: removed duckduckgo — web search is a native tool now"),
         )
         .catch((error) => log(`MCP: could not retire duckduckgo: ${errorMessage(error)}`))
         .then(() => googleService.reapply())
-        .catch((error) => log(`Google: could not re-render config: ${errorMessage(error)}`));
+        .catch((error) => log(`Google: could not re-render config: ${errorMessage(error)}`))
+        .then(() => resyncMods("connected", { refreshCatalog: true }))
+        .catch(() => {});
       void reapplyCodexSettings(codexIo)
         .then((applied) => applied && log("Codex: re-rendered config from saved settings"))
         .catch((error) => log(`Codex: could not re-render config: ${errorMessage(error)}`));
-      void reapplyWebToolsMod();
     }
   },
   log,
@@ -269,13 +276,31 @@ const mcpIo: McpIo = {
   },
 };
 
-// Native web tools (see `web-tools/`): the mod that registers `web_search` /
-// `fetch_webpage` in the app-server, and the backends its calls land on.
+// ── Native tools: the BFF's letta-code mods ──────────────────────────────────
+// Three mods in the app-server's global mods directory register native tools
+// that call back into the BFF over loopback (`internal-tools/`): web search
+// and page reading (`web-tools/`), the curated Google tools (`google/tools.ts`)
+// and the generic MCP bridge (`mcp-bridge/`).
 const webToolsBackends = (): WebToolsBackends => ({
   searxngUrl: config.webTools.searxngUrl,
   ddg: config.webTools.ddgMcpUrl ? ddgCaller(config.webTools.ddgMcpUrl) : null,
 });
-const webToolsIo: WebToolsIo = {
+const mcpCatalog = new McpCatalog({
+  servers: () => loadMcpServers(mcpIo),
+  client: mcpClient,
+  log,
+});
+const toolHandlers: ReadonlyMap<string, ToolHandler> = new Map<string, ToolHandler>([
+  ["web_search", (args) => webSearch(args, webToolsBackends())],
+  ["fetch_webpage", (args) => fetchWebpage(args, webToolsBackends())],
+  ...bridgeHandlers(mcpCatalog, mcpClient),
+  ...googleHandlers({
+    catalog: () => mcpCatalog.current(),
+    googleUrl: config.google.mcpUrl,
+    client: mcpClient,
+  }),
+]);
+const modsIo: ModsIo = {
   read: codexIo.read,
   write: codexIo.write,
   // `reload` needs an agent runtime to run in; which agent does not matter —
@@ -283,7 +308,7 @@ const webToolsIo: WebToolsIo = {
   async reloadMods() {
     const list = await upstream.request<AgentListResponseMessage>({
       type: "agent_list",
-      request_id: `bff-web-tools-agents-${randomUUID()}`,
+      request_id: `bff-mods-agents-${randomUUID()}`,
       query: { limit: 1 },
     });
     const agentId = list.success ? list.agents[0]?.id : undefined;
@@ -291,43 +316,92 @@ const webToolsIo: WebToolsIo = {
     const response = await upstream.request<ExecuteCommandResponseMessage>({
       type: "execute_command",
       command_id: "reload",
-      request_id: `bff-web-tools-reload-${randomUUID()}`,
+      request_id: `bff-mods-reload-${randomUUID()}`,
       runtime: { agent_id: agentId, conversation_id: "default" },
     });
     if (!response.success) throw new Error(response.output || "reload failed");
     return true;
   },
 };
-/** Retries a reload that could not run yet (no agent existed) until one can. */
-let webToolsReloadRetry: ReturnType<typeof setInterval> | null = null;
-async function reapplyWebToolsMod(): Promise<void> {
-  try {
-    const settings = await loadWebToolsSettings(webToolsIo);
-    const result = await syncWebToolsMod(webToolsIo, {
-      enabled: settings.enabled,
-      port: config.port,
-    });
-    if (result !== "unchanged")
-      log(`Web tools: mod ${result} (${settings.enabled ? "on" : "off"})`);
-    if (result === "reload-pending") scheduleWebToolsReload();
-  } catch (error) {
-    log(`Web tools: could not install the mod: ${errorMessage(error)}`);
-  }
+
+/** Every mod as it should be now, from the saved switch and the last catalog. */
+async function renderAllMods(): Promise<RenderedMod[]> {
+  const web = await loadWebToolsSettings(codexIo);
+  const { tools } = mcpCatalog.snapshot();
+  return [
+    {
+      path: WEB_TOOLS_MOD_PATH,
+      source: renderWebToolsMod({ enabled: web.enabled, port: config.port }),
+    },
+    {
+      path: GOOGLE_TOOLS_MOD_PATH,
+      source: renderToolsMod({
+        title: "letta-ui google-tools v1",
+        tools: availableGoogleTools(tools, config.google.mcpUrl).specs,
+        port: config.port,
+      }),
+    },
+    {
+      path: MCP_BRIDGE_MOD_PATH,
+      source: renderToolsMod({
+        title: "letta-ui mcp-bridge v1",
+        tools: tools.length > 0 ? BRIDGE_TOOL_SPECS : [],
+        port: config.port,
+      }),
+    },
+  ];
 }
-function scheduleWebToolsReload(): void {
-  if (webToolsReloadRetry) return;
-  webToolsReloadRetry = setInterval(() => {
+
+// Serialised: a Google change, an MCP save and a reconnect can all land at once.
+let modsChain: Promise<unknown> = Promise.resolve();
+/** Retries a reload that could not run yet (no agent existed) until one can. */
+let modsReloadRetry: ReturnType<typeof setInterval> | null = null;
+
+function resyncMods(reason: string, options: { refreshCatalog: boolean }) {
+  const run = modsChain.then(async () => {
+    if (!upstream.isReady()) return "unchanged" as const;
+    if (options.refreshCatalog) await mcpCatalog.refresh();
+    const result = await syncMods(modsIo, await renderAllMods());
+    if (result !== "unchanged") log(`Native tools: mods ${result} (${reason})`);
+    if (result === "reload-pending") scheduleModsReload();
+    return result;
+  });
+  modsChain = run.catch((error) =>
+    log(`Native tools: could not sync mods (${reason}): ${errorMessage(error)}`),
+  );
+  return run;
+}
+
+function scheduleModsReload(): void {
+  if (modsReloadRetry) return;
+  modsReloadRetry = setInterval(() => {
     if (!upstream.isReady()) return;
-    void webToolsIo
+    void modsIo
       .reloadMods()
       .then((done) => {
-        if (!done || !webToolsReloadRetry) return;
-        clearInterval(webToolsReloadRetry);
-        webToolsReloadRetry = null;
-        log("Web tools: mod reloaded");
+        if (!done || !modsReloadRetry) return;
+        clearInterval(modsReloadRetry);
+        modsReloadRetry = null;
+        log("Native tools: mods reloaded");
       })
-      .catch((error) => log(`Web tools: reload failed: ${errorMessage(error)}`));
+      .catch((error) => log(`Native tools: reload failed: ${errorMessage(error)}`));
   }, 30_000);
+}
+
+/**
+ * After a Google change the sidecar restarts with its new permissions over a
+ * few seconds (supervisor.py polls every 2 s), so its tool list is re-read a
+ * few times rather than once.
+ */
+let googleRefreshTimers: ReturnType<typeof setTimeout>[] = [];
+function refreshToolsAfterGoogleChange(): void {
+  for (const timer of googleRefreshTimers) clearTimeout(timer);
+  googleRefreshTimers = [4_000, 12_000, 30_000].map((delay) =>
+    setTimeout(
+      () => void resyncMods("Google changed", { refreshCatalog: true }).catch(() => {}),
+      delay,
+    ),
+  );
 }
 
 // The symlink guard inspects the workspace through this process's own mount. If
@@ -604,13 +678,14 @@ app.put("/api/mcp", async (c) => {
     return c.text(errorMessage(error), 400);
   }
 
-  // No reload: nothing in the app-server process reads this file. The next
-  // `letta mcp` call and the next turn's skill listing both see it from disk.
+  // The file needs no reload — the next `letta mcp` call and the next turn's
+  // skill listing see it from disk — but the bridge's catalog and its mod do.
   try {
     await saveMcpServers(mcpIo, servers);
   } catch (error) {
     return c.text(errorMessage(error), 502);
   }
+  void resyncMods("Settings → MCP", { refreshCatalog: true }).catch(() => {});
   return c.json({ ok: true, servers });
 });
 
@@ -668,7 +743,7 @@ app.get("/api/web-tools/settings", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   try {
-    const settings = await loadWebToolsSettings(webToolsIo);
+    const settings = await loadWebToolsSettings(codexIo);
     return c.json({ settings: { enabled: settings.enabled } });
   } catch (error) {
     return c.text(errorMessage(error), 502);
@@ -680,9 +755,9 @@ app.put("/api/web-tools/settings", async (c) => {
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   const body = await c.req.json().catch(() => null);
   try {
-    const saved = await saveWebToolsSettings(webToolsIo, body, config.port);
-    if (saved.mod === "reload-pending") scheduleWebToolsReload();
-    return c.json({ settings: { enabled: saved.settings.enabled }, mod: saved.mod });
+    const saved = await saveWebToolsSettings(codexIo, body);
+    const mod = await resyncMods("Settings → Web", { refreshCatalog: false });
+    return c.json({ settings: { enabled: saved.enabled }, mod });
   } catch (error) {
     if (error instanceof InvalidWebToolsSettingsError) return c.text(error.message, 400);
     return c.text(errorMessage(error), 502);
@@ -707,6 +782,18 @@ app.post("/api/web-tools/test", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
   const body = (await c.req.json().catch(() => null)) as { query?: unknown } | null;
   return c.json(await webSearch({ query: body?.query, max_results: 5 }, webToolsBackends()));
+});
+
+// What agents currently have as native tools from the MCP side: the curated
+// Google tools the grant allows, and which servers the bridge reaches.
+app.get("/api/native-tools", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const { tools, failures } = mcpCatalog.snapshot();
+  const servers = [...new Set(tools.map((t) => t.server.name))];
+  return c.json({
+    google: availableGoogleTools(tools, config.google.mcpUrl).specs.map((s) => s.name),
+    bridge: { servers, tools: tools.length, failures: Object.fromEntries(failures) },
+  });
 });
 
 app.get("/api/codex/runs", async (c) => {
@@ -743,6 +830,9 @@ app.get("/api/codex/runs/:threadId", async (c) => {
 /** The shared MCP list is only how agents find the sidecar; access is decided there. */
 async function syncGoogleMcpEntry(serving: boolean): Promise<void> {
   if (!upstream.isReady()) return; // retried by `reapply` on the next connect
+  // Every Google change passes through here (save, connect, disconnect,
+  // reapply), and each can change which Google tools the sidecar offers.
+  refreshToolsAfterGoogleChange();
   const servers = await loadMcpServers(mcpIo);
   const listed = servers.some((server) => server.url === config.google.mcpUrl);
   if (serving === listed) return;
@@ -1049,10 +1139,10 @@ const server = Bun.serve<SocketData>({
     }
 
     // The web-tools mod's calls: loopback only, before Hono's session layer.
-    const internal = await handleInternalWebTools(
+    const internal = await handleInternalTools(
       request,
       bunServer.requestIP(request)?.address,
-      webToolsBackends,
+      () => toolHandlers,
     );
     if (internal) return internal;
 

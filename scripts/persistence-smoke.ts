@@ -567,6 +567,26 @@ section("Settings → Web");
     internal.status === 404,
     internal.status,
   );
+  for (const tool of ["web_search", "gmail_send", "mcp_call_write"]) {
+    const outside = await fetch(`${ORIGIN}/internal/tools/${tool}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    check(
+      `/internal/tools/${tool} is invisible from outside (404)`,
+      outside.status === 404,
+      outside.status,
+    );
+  }
+
+  const native = await fetch(`${ORIGIN}/api/native-tools`, { headers: { cookie } });
+  const nativeBody = native.ok ? await native.json() : null;
+  check(
+    "GET /api/native-tools reports Google tools and bridged servers",
+    Array.isArray(nativeBody?.google) && Array.isArray(nativeBody?.bridge?.servers),
+    nativeBody,
+  );
 
   const status = await fetch(`${ORIGIN}/api/web-tools/status`, { headers: { cookie } });
   check("GET /api/web-tools/status succeeds", status.ok, status.status);

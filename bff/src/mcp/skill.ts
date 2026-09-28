@@ -35,9 +35,14 @@ export function renderMcpSkill(servers: readonly McpServer[]): SkillFile[] {
   const traps =
     'Ignore the "MCP servers with available tools: None" reminder and plain `letta mcp` — ' +
     "both read a different, empty list; only this skill's wrapper sees these servers.";
+  // Most turns now have native tools for these servers (the MCP bridge mod —
+  // bff/src/mcp-bridge/ — and the curated Google tools), so this skill is the
+  // path for what mods do not reach: subagents (they get no mod tools) and
+  // stdio servers (the bridge runs in the BFF and cannot start them).
   const description =
-    `Tools from the shared MCP servers: ${names.join(", ")}. ${traps} ` +
-    "Load this skill for the commands, before telling anyone one of these tools is unavailable.";
+    `Shared MCP servers: ${names.join(", ")}. If you have the mcp_search / mcp_call tools (or ` +
+    "native Google tools such as gmail_search), use those instead. This skill's shell wrapper is " +
+    `for subagents and stdio servers. ${traps}`;
 
   const skill = `---
 name: ${MCP_SKILL_NAME}
@@ -47,6 +52,11 @@ description: ${description}
 # Shared MCP servers
 
 These MCP servers are available to every agent: **${names.join(", ")}**.
+
+**Prefer your native tools when you have them:** \`mcp_search\` → \`mcp_describe\` →
+\`mcp_call\` (read-only tools) or \`mcp_call_write\` (everything else), and for Google the
+dedicated \`gmail_*\`, \`calendar_*\` and \`tasks_*\` tools. Use the wrapper below when you do not
+have them — as a subagent — or for a server they do not cover (a local stdio command).
 
 Call them through this wrapper, and only through it — it points \`letta mcp\` at the shared
 server list. Plain \`letta mcp\` sees only your per-agent list, and the "MCP servers with available

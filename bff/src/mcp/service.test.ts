@@ -97,6 +97,12 @@ describe("renderMcpSkill", () => {
     expect(description).toContain("plain `letta mcp`");
   });
 
+  test("agents with native bridge tools are sent to them", () => {
+    const description = String(parseFrontmatterForTest(skill?.content ?? "").description);
+    expect(description).toContain("mcp_search / mcp_call");
+    expect(skill?.content).toContain("`mcp_call_write`");
+  });
+
   test("web search is sent to the native tools, never an MCP server", () => {
     expect(skill?.content).not.toContain("mcp__duckduckgo__search");
     expect(skill?.content).toContain("`web_search`");

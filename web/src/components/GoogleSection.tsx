@@ -16,6 +16,7 @@ import {
   verifyGoogle,
   wouldNarrow,
 } from "../lib/google.ts";
+import { describeGoogleTools, fetchNativeTools, type NativeTools } from "../lib/native-tools.ts";
 import { ToggleRow } from "./MenuRow.tsx";
 
 interface Draft {
@@ -56,6 +57,14 @@ export function GoogleSection() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [nativeTools, setNativeTools] = useState<NativeTools | null>(null);
+
+  // A status line, not a gate: a failure here leaves the section as it was.
+  const loadNativeTools = useCallback(() => {
+    fetchNativeTools()
+      .then(setNativeTools)
+      .catch(() => setNativeTools(null));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +72,7 @@ export function GoogleSection() {
       setStatus(loaded);
       setDraft(draftOf(loaded));
       setMessage(null);
+      loadNativeTools();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
@@ -80,6 +90,10 @@ export function GoogleSection() {
       setStatus(loaded);
       setDraft(draftOf(loaded));
       setMessage(result?.warning ?? done);
+      // The sidecar restarts with the new access over a few seconds, and the
+      // BFF re-reads its tools after it; look again once that has happened.
+      loadNativeTools();
+      setTimeout(loadNativeTools, 15_000);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -186,6 +200,9 @@ export function GoogleSection() {
               : "starting…"
             : "agents have no access"}
         </p>
+        {nativeTools ? (
+          <p className="small muted">{describeGoogleTools(nativeTools.google)}</p>
+        ) : null}
         {settings.needsReconnect ? (
           <p className="small bad">
             The token does not cover everything chosen below
