@@ -1,14 +1,16 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 /**
- * Pinned agents: listed first in the switcher and the sidebar, in the order
- * they were pinned. Ours, not upstream's — letta-code keeps a pinned list in
- * `settings.json` for its CLI picker, but the protocol can only set it when an
- * agent is created (`pin_global`), never for an existing one. Kept by the BFF
- * rather than the browser so a phone and a laptop agree. A preference, not
- * state anything depends on: a lost file only unpins everything.
+ * A list of agent ids the BFF keeps for the UI — which agents are pinned
+ * (listed first, in pin order) and which are archived (hidden until asked
+ * for). Ours, not upstream's: letta-code keeps a pinned list in
+ * `settings.json` for its CLI picker but the protocol only sets it at creation
+ * (`create_agent.pin_global`), and it has no archive at all — its agent
+ * `hidden` flag is what marks subagents. Kept by the BFF rather than the
+ * browser so a phone and a laptop agree. Preferences, not state anything
+ * depends on: a lost file only unpins or unarchives everything.
  */
-export class AgentPinStore {
+export class AgentIdList {
   private ids: string[] = [];
   private writeQueue: Promise<void> = Promise.resolve();
 
@@ -31,11 +33,11 @@ export class AgentPinStore {
     return [...this.ids];
   }
 
-  /** Pin (appended, so pin order is kept) or unpin. Returns the new list. */
-  set(agentId: string, pinned: boolean): string[] {
+  /** Add (appended, so order is kept) or remove. Returns the new list. */
+  set(agentId: string, present: boolean): string[] {
     if (!isAgentId(agentId)) throw new Error("Not an agent id");
     const without = this.ids.filter((id) => id !== agentId);
-    const next = pinned ? [...without, agentId] : without;
+    const next = present ? [...without, agentId] : without;
     if (next.length !== this.ids.length || next.some((id, i) => id !== this.ids[i])) {
       this.ids = next;
       this.persist();

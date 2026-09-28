@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import { statsOf, useAgentStats } from "../state/use-agent-stats.ts";
@@ -42,25 +42,15 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
   /** An agent's ⋯ menu, with the button it hangs from. */
   const [agentMenu, setAgentMenu] = useState<{ id: string; anchor: DOMRect } | null>(null);
   const [deleting, setDeleting] = useState<AgentSummary | null>(null);
+  /** Archived agents are hidden until asked for. */
+  const [showArchivedAgents, setShowArchivedAgents] = useState(false);
+  const closeAgentMenu = useCallback(() => setAgentMenu(null), []);
   const [busy, setBusy] = useState(false);
   // Back closes an open ⋯ menu first, then the switcher — never the app.
   useBackToClose(onClose);
   useBackToClose(() => setMenuFor(null), menuFor !== null);
-  useBackToClose(() => setAgentMenu(null), agentMenu !== null);
-
-  // The agent menu is fixed to the viewport, so it must not outlive a scroll
-  // or a press anywhere else. Its own ⋯ button toggles it, so presses there
-  // are left to the click.
-  useEffect(() => {
-    if (!agentMenu) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Element | null;
-      if (target?.closest(".switcher-menu.floating, [data-agent-more]")) return;
-      setAgentMenu(null);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [agentMenu]);
+  // An open agent menu closes itself on Back, Escape and presses elsewhere
+  // (`AgentMenu`); the Escape below only must not close the switcher too.
   const [switchedTo, setSwitchedTo] = useState<string | null>(null);
 
   const stats = useAgentStats(session.request, agents.agents, true);
@@ -245,84 +235,106 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
           {agents.error ? <p className="warning small">{agents.error}</p> : null}
         </div>
 
-        <section
-          className="switcher-agents"
-          aria-label="Agents"
-          onScroll={() => setAgentMenu(null)}
-        >
+        <section className="switcher-agents" aria-label="Agents" onScroll={closeAgentMenu}>
           <h3 className="switcher-group">Agents</h3>
           <button type="button" className="switcher-new" disabled={busy} onClick={onNewAgent}>
             <Icon name="plus" />
             <span>New agent</span>
           </button>
-          {agents.agents.map((agent) => {
-            const selected = agent.id === agents.agentId;
-            const { parts, lastActive } = agentLine(agent);
-            const responding = session.activeAgentIds.has(agent.id);
-            return (
-              <div key={agent.id} className={`switcher-card agent${selected ? " selected" : ""}`}>
-                <button
-                  type="button"
-                  className="switcher-card-main"
-                  onClick={() => pickAgent(agent)}
-                  aria-current={selected ? "true" : undefined}
+          {agents.agents
+            .filter((agent) => !agents.archivedAgents.has(agent.id))
+            .concat(
+              showArchivedAgents
+                ? agents.agents.filter((agent) => agents.archivedAgents.has(agent.id))
+                : [],
+            )
+            .map((agent) => {
+              const selected = agent.id === agents.agentId;
+              const archived = agents.archivedAgents.has(agent.id);
+              const { parts, lastActive } = agentLine(agent);
+              const responding = session.activeAgentIds.has(agent.id);
+              return (
+                <div
+                  key={agent.id}
+                  className={`switcher-card agent${selected ? " selected" : ""}${archived ? " archived" : ""}`}
                 >
-                  <span className="switcher-avatar" style={{ background: tintFor(agent.id) }}>
-                    {agent.name.trim().charAt(0).toUpperCase() || "?"}
-                  </span>
-                  <span className="switcher-agent-text">
-                    <span className="switcher-card-title">
-                      {agents.pinned.has(agent.id) ? (
-                        <Icon name="pin" className="switcher-pin" />
-                      ) : null}
-                      {agent.name}
+                  <button
+                    type="button"
+                    className="switcher-card-main"
+                    onClick={() => pickAgent(agent)}
+                    aria-current={selected ? "true" : undefined}
+                  >
+                    <span className="switcher-avatar" style={{ background: tintFor(agent.id) }}>
+                      {agent.name.trim().charAt(0).toUpperCase() || "?"}
                     </span>
-                    <span className="switcher-card-meta">
-                      {parts.join(" · ")}
-                      {responding ? (
-                        <span className="responding">
-                          {parts.length ? " · " : ""}responding now
-                        </span>
-                      ) : lastActive ? (
-                        `${parts.length ? " · " : ""}last active ${listDate(lastActive)}`
-                      ) : null}
+                    <span className="switcher-agent-text">
+                      <span className="switcher-card-title">
+                        {agents.pinned.has(agent.id) ? (
+                          <Icon name="pin" className="switcher-pin" />
+                        ) : null}
+                        {agent.name}
+                        {archived ? <span className="tag muted archived-tag">archived</span> : null}
+                      </span>
+                      <span className="switcher-card-meta">
+                        {parts.join(" · ")}
+                        {responding ? (
+                          <span className="responding">
+                            {parts.length ? " · " : ""}responding now
+                          </span>
+                        ) : lastActive ? (
+                          `${parts.length ? " · " : ""}last active ${listDate(lastActive)}`
+                        ) : null}
+                      </span>
                     </span>
-                  </span>
-                  {selected ? <Icon name="check" className="switcher-check" /> : null}
-                </button>
-                <button
-                  type="button"
-                  className="switcher-more"
-                  data-agent-more={agent.id}
-                  aria-label={`More for ${agent.name}`}
-                  aria-haspopup="menu"
-                  aria-expanded={agentMenu?.id === agent.id}
-                  onClick={(event) => {
-                    const anchor = event.currentTarget.getBoundingClientRect();
-                    setMenuFor(null);
-                    setAgentMenu((current) =>
-                      current?.id === agent.id ? null : { id: agent.id, anchor },
-                    );
-                  }}
-                >
-                  <Icon name="more" />
-                </button>
-                {agentMenu?.id === agent.id ? (
-                  <AgentMenu
-                    agentName={agent.name}
-                    pinned={agents.pinned.has(agent.id)}
-                    anchor={agentMenu.anchor}
-                    onEdit={() => onEditAgent(agent.id)}
-                    onTogglePin={() =>
-                      void agents.setPinned(agent.id, !agents.pinned.has(agent.id))
-                    }
-                    onDelete={() => setDeleting(agent)}
-                    onClose={() => setAgentMenu(null)}
-                  />
-                ) : null}
-              </div>
-            );
-          })}
+                    {selected ? <Icon name="check" className="switcher-check" /> : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="switcher-more"
+                    data-agent-more={agent.id}
+                    aria-label={`More for ${agent.name}`}
+                    aria-haspopup="menu"
+                    aria-expanded={agentMenu?.id === agent.id}
+                    onClick={(event) => {
+                      const anchor = event.currentTarget.getBoundingClientRect();
+                      setMenuFor(null);
+                      setAgentMenu((current) =>
+                        current?.id === agent.id ? null : { id: agent.id, anchor },
+                      );
+                    }}
+                  >
+                    <Icon name="more" />
+                  </button>
+                  {agentMenu?.id === agent.id ? (
+                    <AgentMenu
+                      agentName={agent.name}
+                      pinned={agents.pinned.has(agent.id)}
+                      archived={archived}
+                      anchor={agentMenu.anchor}
+                      placement="above"
+                      onEdit={() => onEditAgent(agent.id)}
+                      onTogglePin={() =>
+                        void agents.setPinned(agent.id, !agents.pinned.has(agent.id))
+                      }
+                      onToggleArchive={() => void agents.setAgentArchived(agent.id, !archived)}
+                      onDelete={() => setDeleting(agent)}
+                      onClose={closeAgentMenu}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+          {archivedAgentCount(agents) > 0 ? (
+            <button
+              type="button"
+              className="switcher-archived"
+              onClick={() => setShowArchivedAgents((v) => !v)}
+            >
+              {showArchivedAgents
+                ? "Hide archived agents"
+                : `Show archived agents (${archivedAgentCount(agents)})`}
+            </button>
+          ) : null}
         </section>
       </div>
       {deleting ? (
@@ -330,4 +342,9 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
       ) : null}
     </div>
   );
+}
+
+/** Archived agents that still exist: a stale id in the BFF's list is not one. */
+function archivedAgentCount(agents: AgentsApi): number {
+  return agents.agents.filter((agent) => agents.archivedAgents.has(agent.id)).length;
 }

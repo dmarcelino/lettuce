@@ -3,7 +3,12 @@ import {
   PERSONALITY_OPTIONS,
 } from "@letta-ai/letta-code/agent-presets";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchPinnedAgents, orderByPins, savePinnedAgent } from "../lib/agent-pins.ts";
+import {
+  fetchAgentFlags,
+  orderByPins,
+  saveArchivedAgent,
+  savePinnedAgent,
+} from "../lib/agent-flags.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
@@ -141,6 +146,12 @@ export interface AgentsApi {
   /** Agent ids pinned to the top of every agent list; `agents` is already in that order. */
   pinned: ReadonlySet<string>;
   setPinned: (agentId: string, pinned: boolean) => Promise<void>;
+  /**
+   * Agent ids hidden from the agent lists until asked for. Only the lists
+   * change: an archived agent's crons, memory and conversations carry on.
+   */
+  archivedAgents: ReadonlySet<string>;
+  setAgentArchived: (agentId: string, archived: boolean) => Promise<void>;
   createConversation: () => Promise<void>;
   adoptNewConversation: () => Promise<void>;
   renameConversation: (conversationId: string, summary: string) => Promise<void>;
@@ -211,32 +222,70 @@ export function useAgents(session: SessionApi): AgentsApi {
     if (ready) void refreshAgents();
   }, [ready, refreshAgents]);
 
-  // Pins are the BFF's (HTTP), not the app-server's: only the order depends
-  // on them, so a failed load just lists agents unpinned.
+  // Pins and the archive are the BFF's (HTTP), not the app-server's: only
+  // the lists depend on them, so a failed load lists every agent, unpinned.
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
-  useEffect(() => {
-    if (!ready) return;
-    fetchPinnedAgents()
-      .then(setPinnedIds)
-      .catch(() => {});
-  }, [ready]);
-
-  const setPinned = useCallback(async (target: string, pinned: boolean) => {
-    // Optimistic, so the row moves on tap; the server's answer is the truth.
-    setPinnedIds((current) => {
-      const without = current.filter((id) => id !== target);
-      return pinned ? [...without, target] : without;
-    });
-    try {
-      setPinnedIds(await savePinnedAgent(target, pinned));
-    } catch (cause) {
-      setError(errorMessage(cause));
-      setPinnedIds(await fetchPinnedAgents().catch(() => []));
-    }
+  const [archivedIds, setArchivedIds] = useState<string[]>([]);
+  const loadFlags = useCallback(async () => {
+    const flags = await fetchAgentFlags().catch(() => ({ pinned: [], archived: [] }));
+    setPinnedIds(flags.pinned);
+    setArchivedIds(flags.archived);
   }, []);
+  useEffect(() => {
+    if (ready) void loadFlags();
+  }, [ready, loadFlags]);
+
+  const setPinned = useCallback(
+    async (target: string, pinned: boolean) => {
+      // Optimistic, so the row moves on tap; the server's answer is the truth.
+      setPinnedIds((current) => {
+        const without = current.filter((id) => id !== target);
+        return pinned ? [...without, target] : without;
+      });
+      try {
+        setPinnedIds(await savePinnedAgent(target, pinned));
+      } catch (cause) {
+        setError(errorMessage(cause));
+        await loadFlags();
+      }
+    },
+    [loadFlags],
+  );
 
   const orderedAgents = useMemo(() => orderByPins(agents, pinnedIds), [agents, pinnedIds]);
   const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
+  const archivedSet = useMemo(() => new Set(archivedIds), [archivedIds]);
+
+  const setAgentArchived = useCallback(
+    async (target: string, archived: boolean) => {
+      setArchivedIds((current) => {
+        const without = current.filter((id) => id !== target);
+        return archived ? [...without, target] : without;
+      });
+      if (archived) setPinnedIds((current) => current.filter((id) => id !== target));
+      // Archiving the agent on screen moves to the first one still listed,
+      // rather than leaving the UI on an agent the lists no longer show.
+      if (archived && agentId === target) {
+        const next = orderedAgents.find(
+          (agent) => agent.id !== target && !archivedIds.includes(agent.id),
+        );
+        if (next) {
+          setAgentId(next.id);
+          setConversationId(null);
+          setConversations([]);
+        }
+      }
+      try {
+        const flags = await saveArchivedAgent(target, archived);
+        setPinnedIds(flags.pinned);
+        setArchivedIds(flags.archived);
+      } catch (cause) {
+        setError(errorMessage(cause));
+        await loadFlags();
+      }
+    },
+    [agentId, archivedIds, loadFlags, orderedAgents],
+  );
 
   useEffect(() => {
     if (ready && agentId) void refreshConversations(agentId);
@@ -440,6 +489,8 @@ export function useAgents(session: SessionApi): AgentsApi {
     deleteAgent,
     pinned: pinnedSet,
     setPinned,
+    archivedAgents: archivedSet,
+    setAgentArchived,
     createConversation,
     adoptNewConversation,
     renameConversation,

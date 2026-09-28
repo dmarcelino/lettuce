@@ -229,10 +229,16 @@ try {
     const menuItems = (await agentMenu.locator("button").allInnerTexts()).map((t) => t.trim());
     const wasPinned = menuItems[1] === "Unpin";
     check(
-      "agent ⋯ offers Edit, Pin and Delete",
+      "agent ⋯ offers Edit, Pin, Archive and Delete",
       JSON.stringify(menuItems) ===
-        JSON.stringify(["Edit", wasPinned ? "Unpin" : "Pin to top", "Delete…"]),
+        JSON.stringify(["Edit", wasPinned ? "Unpin" : "Pin to top", "Archive", "Delete…"]),
       menuItems,
+    );
+    const agentMenuWidth = (await agentMenu.boundingBox())?.width ?? 0;
+    check(
+      "the agent menu is sized to its items (150-260px)",
+      agentMenuWidth >= 150 && agentMenuWidth <= 260,
+      { agentMenuWidth },
     );
     const menuBox = await agentMenu.boundingBox();
     check(
@@ -281,6 +287,58 @@ try {
     );
     await deleteSheet.locator('button:text-is("Cancel")').click();
     check("Cancel keeps the switcher open", (await page.locator(".switcher").count()) === 1);
+
+    // Archive: on an agent that is not the one open, so nothing switches; the
+    // check unarchives it again. Archived agents are hidden until asked for.
+    const otherName = (
+      await page
+        .locator(".switcher-agents .switcher-card.agent:not(.selected) .switcher-card-title")
+        .first()
+        .innerText()
+        .catch(() => "")
+    ).trim();
+    if (!otherName) {
+      console.log("  SKIP  archiving an agent (only one agent)");
+    } else {
+      const otherCard = () =>
+        page.locator(".switcher-agents .switcher-card.agent", {
+          has: page.locator(".switcher-card-title", { hasText: otherName }),
+        });
+      await otherCard().locator(".switcher-more").click();
+      await page.locator('.agent-menu button:has-text("Archive")').click();
+      await page.waitForTimeout(600);
+      check("an archived agent leaves the list", (await otherCard().count()) === 0);
+      const reveal = page.locator(
+        '.switcher-agents .switcher-archived:has-text("Show archived agents")',
+      );
+      check("a link offers the archived agents", (await reveal.count()) === 1);
+      await reveal.click();
+      check(
+        "shown, it is dimmed and tagged",
+        (await otherCard().getAttribute("class"))?.includes("archived") === true &&
+          (await otherCard().locator(".archived-tag").count()) === 1,
+      );
+      await otherCard().locator(".switcher-more").click();
+      const archivedItems = (await page.locator(".agent-menu button").allInnerTexts()).map((t) =>
+        t.trim(),
+      );
+      check(
+        "an archived agent's menu offers Unarchive, not Pin",
+        JSON.stringify(archivedItems) === JSON.stringify(["Edit", "Unarchive", "Delete…"]),
+        archivedItems,
+      );
+      await shot(page, "phone-archived-agent");
+      await page.locator('.agent-menu button:has-text("Unarchive")').click();
+      await page.waitForTimeout(600);
+      check(
+        "unarchived, it is back and the link is gone",
+        (await otherCard().count()) === 1 &&
+          !((await otherCard().getAttribute("class")) ?? "").includes("archived") &&
+          (await page
+            .locator('.switcher-agents .switcher-archived:has-text("archived agents")')
+            .count()) === 0,
+      );
+    }
     await page.locator(".switcher-bar .sheet-close").click();
 
     await page.locator('.composer-row button[aria-label^="Filter"]').click();
@@ -746,6 +804,28 @@ try {
         return el ? el.getBoundingClientRect().left >= 0 : false;
       }),
     );
+
+    // The sidebar's ⋯ beside the agent picker: the phone's agent menu, below it.
+    await page.locator('.sidebar button[aria-label^="More for"]').click();
+    const deskMenu = page.locator(".agent-menu");
+    const deskItems = (await deskMenu.locator("button").allInnerTexts()).map((t) => t.trim());
+    check(
+      "desktop agent ⋯ offers the same actions",
+      deskItems.length === 4 && deskItems[0] === "Edit" && deskItems[2] === "Archive",
+      deskItems,
+    );
+    const deskBox = await deskMenu.boundingBox();
+    check(
+      "desktop agent menu is sized to its items and on screen",
+      deskBox !== null &&
+        deskBox.width >= 150 &&
+        deskBox.width <= 260 &&
+        deskBox.y + deskBox.height <= DESKTOP.height,
+      deskBox,
+    );
+    await shot(page, "desktop-agent-menu");
+    await page.keyboard.press("Escape");
+    check("Escape closes it", (await deskMenu.count()) === 0);
 
     await page.locator('.composer-row button[aria-label^="Filter"]').click();
     check("filters sheet opens", await page.locator(".sheet-panel").isVisible());

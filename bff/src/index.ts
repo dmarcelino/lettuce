@@ -15,7 +15,7 @@ import type { ServerWebSocket } from "bun";
 import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { installAgentSkills, readSkillTree } from "./agent-skills.ts";
-import { AgentPinStore, isAgentId } from "./agents/pins.ts";
+import { AgentIdList, isAgentId } from "./agents/id-list.ts";
 import { checkUpgradeOrigin } from "./auth/origin.ts";
 import { resolveSession } from "./auth/resolve-session.ts";
 import {
@@ -102,8 +102,11 @@ const pushStore = config.push
     )
   : null;
 if (config.push) configureWebPush(config.push);
-const agentPins = new AgentPinStore(config.pinnedAgentsFile, (error) =>
+const agentPins = new AgentIdList(config.pinnedAgentsFile, (error) =>
   log(`Pinned agents persist failed: ${errorMessage(error)}`),
+);
+const agentArchive = new AgentIdList(config.archivedAgentsFile, (error) =>
+  log(`Archived agents persist failed: ${errorMessage(error)}`),
 );
 // Push titles name the agent. Looked up through the permanent connection and
 // cached; a failed lookup falls back to "Letta" rather than delaying the push.
@@ -708,8 +711,26 @@ app.put("/api/mcp", async (c) => {
 // is evicted between turns — so the BFF discovers it itself. See
 // `skills/discovery.ts`.
 
-// ── Pinned agents ───────────────────────────────────────────────────────────
-// A list order the switcher and sidebar share; see `agents/pins.ts`.
+// ── Pinned and archived agents ──────────────────────────────────────────────
+// What the switcher and sidebar list first, and what they hide; see
+// `agents/id-list.ts`. One GET for both, so a list renders once.
+
+app.get("/api/agents/flags", (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  return c.json({ pinned: agentPins.list(), archived: agentArchive.list() });
+});
+
+// Archiving also unpins: a hidden agent has no business leading the list.
+app.put("/api/agents/archived/:agentId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const body = (await c.req.json().catch(() => null)) as { archived?: unknown } | null;
+  if (typeof body?.archived !== "boolean") return c.text("Body must be { archived: boolean }", 400);
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  const archived = agentArchive.set(agentId, body.archived);
+  const pinned = body.archived ? agentPins.set(agentId, false) : agentPins.list();
+  return c.json({ pinned, archived });
+});
 
 app.get("/api/agents/pins", (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);

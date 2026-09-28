@@ -3027,3 +3027,27 @@ p.warning code {
   color: var(--muted);
   vertical-align: -0.1em;
 }
+
+/* Every ⋯ menu — conversation or agent, phone or desktop — is as wide as its
+   longest item within one range, never stretched to its container: a fixed
+   menu given only `left` otherwise spans to the viewport edge. */
+.switcher-menu {
+  width: max-content;
+  min-width: 170px;
+  max-width: 260px;
+}
+
+/* An archived agent, shown on request: dimmed, tagged; its ⋯ stays full
+   strength, since that is where Unarchive is. */
+.switcher-card.agent.archived .switcher-card-main {
+  opacity: 0.62;
+}
+.archived-tag {
+  margin-left: 6px;
+  vertical-align: 0.1em;
+}
+.sidebar-archived-agents {
+  align-self: flex-start;
+  padding: 6px 0 0;
+  font-size: 12.5px;
+}

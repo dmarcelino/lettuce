@@ -652,12 +652,18 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   workaround; that was wrong.)
 - **Rename** = `conversation_update {body:{summary}}`. A fresh conversation has
   `summary: null`, so the UI supplies its own placeholder.
-- **Pinning an existing agent is not in the protocol, so pins are ours.** letta-code keeps a
-  pinned list in `settings.json` for its CLI picker, but the app-server only sets it at creation
-  (`create_agent.pin_global`). The switcher's agent ⋯ menu (Edit, Pin, Delete — `AgentMenu`,
-  fixed to the viewport because the agents' own scroll box clips an absolute menu) pins through
-  the BFF: `bff/src/agents/pins.ts`, `pinned-agents.json` on `bff-data`, `/api/agents/pins`.
-  `use-agents` returns `agents` already ordered pinned-first; the desktop picker groups them.
+- **Pinning and archiving an agent are not in the protocol, so both are ours.** letta-code
+  keeps a pinned list in `settings.json` for its CLI picker, but the app-server only sets it at
+  creation (`create_agent.pin_global`), and it has no agent archive — its `hidden` flag marks
+  subagents (and hidden agents leave `agent_list`), so it must not be borrowed. The BFF keeps two
+  id lists (`bff/src/agents/id-list.ts`: `pinned-agents.json`, `archived-agents.json` on
+  `bff-data`; `GET /api/agents/flags`, `PUT /api/agents/{pins,archived}/:id`; archiving also
+  unpins). Archive only hides: crons, memory and conversations carry on. One `AgentMenu` (Edit,
+  Pin, Archive, Delete) serves the phone switcher (opening above its ⋯) and the desktop sidebar
+  (the ⋯ beside the picker, opening below); it is fixed to the viewport because the switcher's
+  agent scroll box clips an absolute menu, and closes itself on Back, Escape and presses
+  elsewhere. `use-agents` returns `agents` pinned-first; both lists hide archived agents behind
+  "Show archived agents (N)", and the picker always keeps the open agent as an option.
 - **`create_agent` presets** are exactly `memo | tutorial | blank | linus | kawaii`. There is
   no `default`.
 

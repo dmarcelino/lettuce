@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { orderByPins } from "./agent-pins.ts";
+import { orderByPins } from "./agent-flags.ts";
 
 const a = (id: string) => ({ id });
 
