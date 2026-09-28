@@ -5,7 +5,11 @@ import { AuthPill } from "./components/AuthPill.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { ContextGauge, ContextSheet } from "./components/ContextGauge.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
-import { type GlobalSection, GlobalSettings } from "./components/GlobalSettings.tsx";
+import {
+  type GlobalSection,
+  GlobalSettings,
+  isGlobalSection,
+} from "./components/GlobalSettings.tsx";
 import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
@@ -17,6 +21,7 @@ import { userHistory } from "./lib/input-history.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { type RuntimeScope, scopeKey } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
+import { readSettingsDeepLink } from "./lib/settings-link.ts";
 import {
   readStructuredOutput,
   type StructuredOutputPreference,
@@ -183,7 +188,11 @@ function Workspace({ status }: { status: Status }) {
   /** The New agent sheet. Editing an agent is the Agent tab's General section. */
   const [creatingAgent, setCreatingAgent] = useState(false);
   /** Settings shared by every agent: `null` = closed, else the section to open on. */
-  const [globalSettings, setGlobalSettings] = useState<{ section?: GlobalSection } | null>(null);
+  const [globalSettings, setGlobalSettings] = useState<{ section?: GlobalSection } | null>(() => {
+    // `?settings=google` — the link an agent gives when Google access is lost.
+    const section = readSettingsDeepLink(isGlobalSection);
+    return section ? { section } : null;
+  });
   const [filters, setFilters] = useState<Set<FilterGroup>>(new Set());
   const [showTimestamps, setShowTimestamps] = useState(() => readShowTimestamps());
   /** Text an "Edit" put on its way to the composer; cleared once it lands. */

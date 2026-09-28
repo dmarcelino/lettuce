@@ -1311,6 +1311,21 @@ try {
   // Inputs, selects and buttons share one height (--control-h). They had drifted
   // to five — 36 to 44px — with fields at 16px text beside 14px buttons. Touch
   // keeps 16px text (iOS zooms a focused input below that) but not a taller box.
+  // `?settings=google` is the link an agent gives when Google access is lost:
+  // it must open Settings on Google and leave no param behind to reopen it.
+  section("Settings deep link");
+  {
+    const page = await open(browser, DESKTOP);
+    await page.goto(`${ORIGIN}/?settings=google`, { waitUntil: "networkidle" });
+    await page.locator(".settings-screen").waitFor({ timeout: 10_000 });
+    check(
+      "?settings=google opens Settings on Google",
+      (await page.locator(".settings-content-title").innerText()) === "Google",
+    );
+    check("the param is stripped", !page.url().includes("settings="), page.url());
+    await page.close();
+  }
+
   section("Form controls share one height");
   for (const [label, options] of [
     ["mouse", { viewport: DESKTOP }],

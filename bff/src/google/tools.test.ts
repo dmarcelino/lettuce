@@ -199,6 +199,69 @@ describe("googleHandlers", () => {
   });
 });
 
+describe("a lost Google sign-in", () => {
+  const AUTH_FAILURE =
+    "Error calling tool 'get_events': invalid_grant: Token has been expired or revoked.";
+  function failingClient(listing: ListedTool[]) {
+    const client: McpClientPort = {
+      async listTools() {
+        return listing;
+      },
+      async callTool() {
+        return { text: AUTH_FAILURE, isError: true };
+      },
+    };
+    return client;
+  }
+  const port = () => {
+    const lost: string[] = [];
+    return {
+      lost,
+      publicOrigin: "https://letta.example",
+      markLost: async (why: string) => {
+        lost.push(why);
+        return { email: "me@example.com" };
+      },
+    };
+  };
+
+  test("a curated tool tells the agent to send the user to reconnect", async () => {
+    const client = failingClient(full);
+    const catalog = new McpCatalog({ servers: async () => [google], client });
+    await catalog.refresh();
+    const lostAccess = port();
+    const answer = await googleHandlers({
+      catalog: () => catalog.current(),
+      googleUrl: GOOGLE_URL,
+      client,
+      lostAccess,
+    }).get("calendar_events")?.({});
+    expect(answer?.isError).toBe(true);
+    expect(answer?.text).toContain("https://letta.example/api/google/reconnect");
+    expect(lostAccess.lost).toHaveLength(1);
+  });
+
+  test("so does mcp_call on the Google server, but not on another server", async () => {
+    const other: McpServer = { name: "other", transport: "http", url: "http://other/mcp" };
+    const client = failingClient(full);
+    const catalog = new McpCatalog({ servers: async () => [google, other], client });
+    await catalog.refresh();
+    const lostAccess = port();
+    const handlers = bridgeHandlers(catalog, client, { url: GOOGLE_URL, lostAccess });
+    const onGoogle = await handlers.get("mcp_call")?.({
+      tool: "mcp__google__get_events",
+      arguments: {},
+    });
+    expect(onGoogle?.text).toContain("/api/google/reconnect");
+    const onOther = await handlers.get("mcp_call")?.({
+      tool: "mcp__other__get_events",
+      arguments: {},
+    });
+    expect(onOther?.text).toContain("invalid_grant");
+    expect(lostAccess.lost).toHaveLength(1);
+  });
+});
+
 describe("the MCP bridge", () => {
   test("names follow upstream's mcp__<server>__<tool>, and the account parameter is hidden", async () => {
     const { catalog } = await catalogOf(full);

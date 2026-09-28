@@ -277,14 +277,78 @@ describe("disconnect and verify", () => {
     expect(t.sidecar().enabled).toBe(false);
   });
 
-  test("verify notices a token revoked at Google", async () => {
+  test("verify marks a token Google refuses as lost, keeping the account", async () => {
     const t = setup();
     await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
     await t.connect();
     t.google.dead.add("refresh-1"); // revoked by the account owner, outside the app
     const { settings, warning } = await t.service.verify();
-    expect(settings.grant).toBeNull();
-    expect(warning).toMatch(/no longer accepts/);
-    expect(t.creds.size).toBe(0);
+    expect(settings.grant?.email).toBe("me@example.com");
+    expect(settings.grant?.lostAt).toBeString();
+    expect(settings.needsReconnect).toBe(true);
+    expect(warning).toMatch(/no longer accepts the token for me@example.com/);
+    // Still served, so a Google call tells the agent to send the user to reconnect.
+    expect(t.sidecar().enabled).toBe(true);
+  });
+
+  test("a tool's auth failure marks the grant lost, once", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    expect(await t.service.markLost("invalid_grant")).toEqual({ email: "me@example.com" });
+    const first = (await t.service.status()).grant?.lostAt;
+    expect(first).toBeString();
+    await t.service.markLost("invalid_grant again");
+    expect((await t.service.status()).grant?.lostAt).toBe(first);
+    expect(t.creds.size).toBe(1);
+  });
+
+  test("reconnecting after a loss clears it, and revokes nothing", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    t.google.dead.add("refresh-1");
+    await t.service.verify();
+    await t.connect();
+    const status = await t.service.status();
+    expect(status.grant?.lostAt).toBeUndefined();
+    expect(status.needsReconnect).toBe(false);
+    expect(t.google.revoked).toEqual([]);
+    expect((await t.service.verify()).warning).toBeNull();
+  });
+
+  test("a token that works again clears the loss", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    await t.service.markLost("a transient 401 that looked like one");
+    await t.service.verify();
+    expect((await t.service.status()).grant?.lostAt).toBeUndefined();
+  });
+
+  test("opening Settings checks with Google at most every few minutes", async () => {
+    let now = 1_000_000;
+    const t = setup();
+    // A service with a controllable clock over the same files and fake Google.
+    const service = new GoogleService({
+      io: t.io,
+      fetch: t.google.fetch,
+      redirectUri: "https://ui.example/api/google/oauth/callback",
+      syncMcpEntry: async () => {},
+      log: () => {},
+      now: () => now,
+    });
+    await service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    const state = t.google.ask(await service.startConnect());
+    await service.finishConnect({ state, code: "c" });
+
+    await service.checkIfDue(60_000);
+    t.google.dead.add("refresh-1");
+    now += 30_000;
+    await service.checkIfDue(60_000); // too soon: not asked
+    expect((await service.status()).grant?.lostAt).toBeUndefined();
+    now += 31_000;
+    await service.checkIfDue(60_000);
+    expect((await service.status()).grant?.lostAt).toBeString();
   });
 });

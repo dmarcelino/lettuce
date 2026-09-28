@@ -189,21 +189,47 @@ export function GoogleSection() {
       {message ? <p className="muted small pad">{message}</p> : null}
 
       <div className="pad-x">
-        <p className="small">
-          <strong>
-            {settings.grant ? `Connected as ${settings.grant.email}` : "Not connected"}
-          </strong>
-          {" · "}
-          {settings.serving
-            ? status.sidecarUp
-              ? "agents have access"
-              : "starting…"
-            : "agents have no access"}
-        </p>
+        {settings.grant?.lostAt ? (
+          // Google refused the token: found by a failed tool call or by the
+          // check this screen runs on open. Agents are told to send the user
+          // here, so the way out is the first thing on it.
+          <div className="google-lost">
+            <p className="small">
+              <strong className="bad">Access lost for {settings.grant.email}</strong>
+              {" · agents cannot use Google"}
+            </p>
+            <p className="small">
+              Google stopped accepting the sign-in on{" "}
+              {new Date(settings.grant.lostAt).toLocaleString()} — it was revoked, or expired
+              (unused for a long time, or a password change). Reconnect to give agents access again.
+            </p>
+            <button
+              type="button"
+              className="button"
+              disabled={!canConnect}
+              title={dirty ? "Save first" : undefined}
+              onClick={() => void connect()}
+            >
+              Reconnect Google
+            </button>
+          </div>
+        ) : (
+          <p className="small">
+            <strong>
+              {settings.grant ? `Connected as ${settings.grant.email}` : "Not connected"}
+            </strong>
+            {" · "}
+            {settings.serving
+              ? status.sidecarUp
+                ? "agents have access"
+                : "starting…"
+              : "agents have no access"}
+          </p>
+        )}
         {nativeTools ? (
           <p className="small muted">{describeGoogleTools(nativeTools.google)}</p>
         ) : null}
-        {settings.needsReconnect ? (
+        {settings.needsReconnect && !settings.grant?.lostAt ? (
           <p className="small bad">
             The token does not cover everything chosen below
             {settings.grant ? " — reconnect to grant the rest" : " — connect to grant it"}. Until

@@ -64,14 +64,14 @@ const SHARED_NOTE = "Shared by every agent. An agent's own settings are in its A
 const LAST_SECTION_KEY = "letta-ui:settings-section";
 const WIDE_QUERY = "(min-width: 900px)";
 
-function isSection(value: string | null): value is GlobalSection {
+export function isGlobalSection(value: string | null): value is GlobalSection {
   return ALL_SECTIONS.some((section) => section.id === value);
 }
 
 function readLastSection(): GlobalSection | null {
   try {
     const value = defaultStorage()?.getItem(LAST_SECTION_KEY) ?? null;
-    return isSection(value) ? value : null;
+    return isGlobalSection(value) ? value : null;
   } catch {
     return null;
   }

@@ -2996,3 +2996,14 @@ p.warning code {
 .section-note.agent-delete-head {
   margin: 24px 0 6px;
 }
+
+/* Settings → Google when Google refused the token: the way out comes first. */
+.google-lost {
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--bad);
+  background: color-mix(in srgb, var(--bad) 8%, transparent);
+}
+.google-lost p {
+  margin: 0 0 8px;
+}

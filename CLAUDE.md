@@ -603,6 +603,20 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   allowed tools still combine — Calendar `full` can invite any address, which mails them even
   with Gmail read-only, and email content is prompt-injection input.
 
+  **A token Google stops accepting is kept, marked lost — never silently dropped.** Tokens die
+  outside our control (revoked in the Google account, a password change, an unpublished consent
+  screen's 7-day limit). workspace-mcp's error then tells the model to run `start_google_auth`,
+  which we removed, so a model went hunting for it and gave up. Now `google/lost-access.ts`
+  recognises the auth failure in both the curated tools and `mcp_call` on the Google server,
+  records `grant.lostAt` (`markLost`), and answers the agent with what to tell the user plus two
+  links built on `PUBLIC_ORIGIN`: `/api/google/reconnect` (GET, session- and write-gated: mints a
+  consent `state` and 302s straight to Google — one click from chat) and `/?settings=google`
+  (the SPA opens Settings on that section; `lib/settings-link.ts`). The grant stays, so the tools
+  stay registered and keep giving that answer, and Settings → Google leads with "Access lost for
+  …" and a Reconnect button. Opening it also asks Google (`checkIfDue`, at most every 5 min), so
+  it shows a loss nobody has hit yet. A refresh that works again clears `lostAt`. The skill
+  wrapper path (stdio, subagents) still gets workspace-mcp's raw text.
+
   **Agents use Google through native tools, not the skill** (`bff/src/google/tools.ts`, the
   `letta-ui-google-tools.mjs` mod): `gmail_search`, `gmail_read`, `calendar_events`,
   `calendar_freebusy`, `tasks_list` (reads, never ask) and `gmail_send`, `gmail_draft`,

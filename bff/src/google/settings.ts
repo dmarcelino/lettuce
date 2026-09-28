@@ -37,6 +37,13 @@ export interface GoogleGrant {
   /** The levels the consent asked for. */
   requested: GooglePermissions;
   grantedAt: string;
+  /**
+   * When Google stopped accepting the token (revoked, expired, or a password
+   * change). The grant is kept rather than dropped so Settings can say what was
+   * lost and the Google tools stay registered: a call then tells the agent to
+   * send the user to reconnect, instead of the tools silently vanishing.
+   */
+  lostAt?: string;
 }
 
 export interface GoogleSettings {
@@ -78,6 +85,7 @@ function grantOf(value: unknown): GoogleGrant | null {
     scopes: raw.scopes.filter((scope): scope is string => typeof scope === "string"),
     requested: permissionsOf(raw.requested),
     grantedAt: typeof raw.grantedAt === "string" ? raw.grantedAt : "",
+    ...(typeof raw.lostAt === "string" ? { lostAt: raw.lostAt } : {}),
   };
 }
 
@@ -186,6 +194,7 @@ export function isServing(settings: GoogleSettings): boolean {
 /** The wanted levels are not all covered by the current grant: a consent is due. */
 export function needsReconnect(settings: GoogleSettings): boolean {
   if (!hasAnyService(settings.permissions)) return false;
+  if (settings.grant?.lostAt) return true;
   return !samePermissions(effectivePermissions(settings), settings.permissions);
 }
 

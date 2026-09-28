@@ -102,6 +102,46 @@ export class GoogleService {
     return toPublicGoogleSettings(await this.load());
   }
 
+  /** When `checkIfDue` last asked Google; in memory, so a restart checks again. */
+  private lastCheckedAt = 0;
+
+  /**
+   * Record that Google no longer accepts the token. Called when a tool call
+   * comes back with an auth failure — Google's own `invalid_grant`, so no
+   * second round trip is needed to believe it. Returns the account, for the
+   * message the agent gets; null when nothing is connected.
+   */
+  markLost(why: string): Promise<{ email: string } | null> {
+    return this.serialized(async () => {
+      const settings = await this.load();
+      if (!settings.grant) return null;
+      if (!settings.grant.lostAt) {
+        settings.grant = { ...settings.grant, lostAt: new Date(this.now()).toISOString() };
+        await this.persist(settings);
+        this.deps.log(`Google: access lost for ${settings.grant.email} (${why})`);
+      }
+      return { email: settings.grant.email };
+    });
+  }
+
+  /**
+   * Ask Google whether the token still works, at most every `maxAgeMs`: run
+   * when Settings → Google is opened, so it shows the truth rather than what
+   * Google said at consent. A network failure is not a verdict and changes
+   * nothing.
+   */
+  async checkIfDue(maxAgeMs: number): Promise<void> {
+    const settings = await this.load();
+    if (!settings.grant || settings.grant.lostAt) return;
+    if (this.now() - this.lastCheckedAt < maxAgeMs) return;
+    this.lastCheckedAt = this.now();
+    try {
+      await this.verify();
+    } catch {
+      // Unreachable Google, or no client saved: keep what is stored.
+    }
+  }
+
   /** Settings first, then the sidecar's config, then the MCP list. */
   private async persist(settings: GoogleSettings): Promise<void> {
     await this.deps.io.writePolicy(GOOGLE_SETTINGS_FILE, renderStoredGoogleSettings(settings));
@@ -345,7 +385,9 @@ export class GoogleService {
             clientSecret: settings.clientSecret,
             refreshToken,
           });
-          settings.grant = { ...settings.grant, scopes: live.scopes };
+          // It works: whatever was recorded as lost is no longer true.
+          const { lostAt: _, ...grant } = settings.grant;
+          settings.grant = { ...grant, scopes: live.scopes };
           if (this.excessScopes(settings, live.scopes).length > 0) {
             warning =
               (await this.dropGrant(settings, "token wider than the policy")) ??
@@ -353,9 +395,15 @@ export class GoogleService {
           }
         } catch (error) {
           if (!(error instanceof GoogleGrantRevokedError)) throw error;
-          await this.clearCreds();
-          settings.grant = null;
-          warning = "Google no longer accepts this token (revoked or expired). Connect again.";
+          // Kept, marked lost: Settings names the account to reconnect, and
+          // agents are told to send the user there rather than losing the
+          // tools without a word. The dead token stays until the reconnect
+          // replaces it — it grants nothing.
+          settings.grant = {
+            ...settings.grant,
+            lostAt: settings.grant.lostAt ?? new Date(this.now()).toISOString(),
+          };
+          warning = `Google no longer accepts the token for ${settings.grant.email} (revoked or expired). Reconnect.`;
         }
       }
       await this.persist(settings);

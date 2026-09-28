@@ -39,6 +39,8 @@ export interface GoogleGrant {
   scopes: string[];
   requested: GooglePermissions;
   grantedAt: string;
+  /** When Google stopped accepting the token: reconnect needed. */
+  lostAt?: string;
 }
 
 export interface GoogleSettings {

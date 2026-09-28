@@ -29,6 +29,7 @@ import {
 import type { McpServer } from "../mcp/settings.ts";
 import type { CatalogTool } from "../mcp-bridge/catalog.ts";
 import type { McpClientPort } from "../mcp-bridge/client.ts";
+import { type LostAccessPort, lostAccessAnswer } from "./lost-access.ts";
 
 export const GOOGLE_TOOLS_MOD_PATH = `${MODS_DIR}/letta-ui-google-tools.mjs`;
 
@@ -440,6 +441,8 @@ export function googleHandlers(options: {
   catalog: () => Promise<readonly CatalogTool[]>;
   googleUrl: string;
   client: McpClientPort;
+  /** Turns an auth failure into "the user must reconnect", and records it. */
+  lostAccess?: LostAccessPort;
 }): Map<string, ToolHandler> {
   const handlers = new Map<string, ToolHandler>();
   for (const curated of CURATED_GOOGLE_TOOLS) {
@@ -458,6 +461,10 @@ export function googleHandlers(options: {
         const text =
           result.text ||
           (result.isError ? "Google reported an error with no details." : "(no output)");
+        if (result.isError && options.lostAccess) {
+          const lost = await lostAccessAnswer(options.lostAccess, text);
+          if (lost) return lost;
+        }
         return { text: capText(text, "narrow the request"), isError: result.isError };
       } catch (error) {
         return {

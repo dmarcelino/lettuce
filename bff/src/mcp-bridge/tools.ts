@@ -14,6 +14,7 @@
  * Standard/Strict). A tool with no hint counts as a write.
  */
 
+import { type LostAccessPort, lostAccessAnswer } from "../google/lost-access.ts";
 import { MODS_DIR } from "../internal-tools/mod.ts";
 import {
   capText,
@@ -128,6 +129,8 @@ function argumentsOf(value: unknown): Record<string, unknown> | string {
 export function bridgeHandlers(
   catalog: McpCatalog,
   client: McpClientPort,
+  /** The Google sidecar's auth failures get the same answer as the curated tools'. */
+  google?: { url: string; lostAccess: LostAccessPort },
 ): Map<string, ToolHandler> {
   const call = async (args: Record<string, unknown>, allowWrites: boolean): Promise<ToolAnswer> => {
     const tools = await catalog.current();
@@ -145,6 +148,10 @@ export function bridgeHandlers(
       const text =
         result.text ||
         (result.isError ? "The tool reported an error with no details." : "(no output)");
+      if (result.isError && google && found.server.url === google.url) {
+        const lost = await lostAccessAnswer(google.lostAccess, text);
+        if (lost) return lost;
+      }
       return {
         text: capText(text, "ask the tool for less, e.g. a smaller page"),
         isError: result.isError,

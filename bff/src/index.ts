@@ -38,6 +38,7 @@ import { type BffConfig, googleWritesAllowed, isAllowedUser, loadConfig } from "
 import { errorMessage } from "./errors.ts";
 import { inlineContentType } from "./files/content-type.ts";
 import { createGoogleFsIo } from "./google/fs-io.ts";
+import { googleSettingsUrl, type LostAccessPort } from "./google/lost-access.ts";
 import { GoogleOAuthError } from "./google/oauth.ts";
 import { GoogleAccessError, GoogleService } from "./google/service.ts";
 import { InvalidGoogleSettingsError } from "./google/settings.ts";
@@ -290,14 +291,23 @@ const mcpCatalog = new McpCatalog({
   client: mcpClient,
   log,
 });
+// `googleService` is declared further down; the port only calls it at tool time.
+const googleLostAccess: LostAccessPort = {
+  publicOrigin: config.publicOrigin,
+  markLost: (why) => googleService.markLost(why),
+};
 const toolHandlers: ReadonlyMap<string, ToolHandler> = new Map<string, ToolHandler>([
   ["web_search", (args) => webSearch(args, webToolsBackends())],
   ["fetch_webpage", (args) => fetchWebpage(args, webToolsBackends())],
-  ...bridgeHandlers(mcpCatalog, mcpClient),
+  ...bridgeHandlers(mcpCatalog, mcpClient, {
+    url: config.google.mcpUrl,
+    lostAccess: googleLostAccess,
+  }),
   ...googleHandlers({
     catalog: () => mcpCatalog.current(),
     googleUrl: config.google.mcpUrl,
     client: mcpClient,
+    lostAccess: googleLostAccess,
   }),
 ]);
 const modsIo: ModsIo = {
@@ -889,6 +899,9 @@ function googleErrorResponse(c: Context, error: unknown): Response {
 app.get("/api/google", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
   try {
+    // Opening Settings → Google asks Google whether the token still works (at
+    // most every few minutes), so it shows the truth, not what consent said.
+    await googleService.checkIfDue(GOOGLE_STATUS_CHECK_MS);
     const [settings, sidecarUp] = await Promise.all([googleService.status(), googleSidecarUp()]);
     return c.json({
       settings,
@@ -909,6 +922,24 @@ app.put("/api/google", async (c) => {
     return c.json(await googleService.save(body));
   } catch (error) {
     return googleErrorResponse(c, error);
+  }
+});
+
+const GOOGLE_STATUS_CHECK_MS = 5 * 60 * 1000;
+
+// One click from a chat link to Google's consent screen: what an agent hands
+// the user when access is lost (`google/lost-access.ts`). A GET because it is a
+// link; it only mints a single-use `state` for the signed-in user and sends
+// them to Google, where nothing happens without their own consent. When it
+// cannot (signed out, read-only, no client saved) it lands on Settings → Google,
+// which says why.
+app.get("/api/google/reconnect", async (c) => {
+  const settingsPage = googleSettingsUrl(config.publicOrigin);
+  if (!c.get("session") || !googleWritesAllowed(config)) return c.redirect(settingsPage, 302);
+  try {
+    return c.redirect(await googleService.startConnect(), 302);
+  } catch {
+    return c.redirect(settingsPage, 302);
   }
 });
 
@@ -951,7 +982,7 @@ function googleResultPage(title: string, detail: string, status: number): Respon
     `<title>${escapeHtml(title)}</title>` +
     `<body style="font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem">` +
     `<h1 style="font-size:1.25rem">${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p>` +
-    `<p><a href="/">Back to the app</a> — Settings → Google shows what agents can do.</p>`;
+    `<p><a href="/?settings=google">Back to the app</a> — Settings → Google shows what agents can do.</p>`;
   return new Response(html, {
     status,
     headers: { "content-type": "text/html; charset=utf-8", ...hardened },
