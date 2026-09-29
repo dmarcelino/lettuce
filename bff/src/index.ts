@@ -88,6 +88,7 @@ import { drainActiveTurns } from "./shutdown.ts";
 import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
+import { readUiVersion } from "./version.ts";
 import { ddgCaller } from "./web-tools/ddg.ts";
 import {
   loadWebToolsSettings,
@@ -100,6 +101,8 @@ import { InvalidWebToolsSettingsError } from "./web-tools/settings.ts";
 import { webToolsStatus } from "./web-tools/status.ts";
 
 const config: BffConfig = loadConfig();
+/** This build's release tag (see the `VERSION` file and CLAUDE.md). */
+const uiVersion = readUiVersion();
 const secureCookies = config.publicOrigin.startsWith("https://");
 
 // Push is fully optional (see `config.push`'s doc comment) — null when the
@@ -548,6 +551,7 @@ app.get("/api/status", (c) => {
     authenticated: true,
     auth_mode,
     user: { email: session.email },
+    version: uiVersion,
     upstream: {
       state: upstream.getState(),
       info: upstream.getInfo(),

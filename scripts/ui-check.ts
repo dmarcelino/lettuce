@@ -1089,6 +1089,17 @@ try {
       googleText,
     );
 
+    // The release tag the BFF bakes in (VERSION → /api/status → About). Assert
+    // the shape, not a literal: the value is whatever the running image carries,
+    // and a stale image is deploy-check's problem, not this one's.
+    await openSection("About");
+    const aboutText = await page.locator(".settings-content").innerText();
+    check(
+      "about shows the letta-code-ui release tag",
+      /letta-code-ui\s+v\d+\.\d+\.\d+-letta_\d+\.\d+\.\d+/.test(aboutText),
+      aboutText,
+    );
+
     await openSection("Providers & models");
 
     // Models served: count in the heading, provider per row.

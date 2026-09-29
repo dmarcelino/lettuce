@@ -42,6 +42,8 @@ interface Status {
   authenticated: boolean;
   auth_mode: "cf-access" | "dev-bypass" | "none";
   user: { email: string } | null;
+  /** This build's release tag; present only when authenticated. */
+  version?: string;
 }
 
 const TABS = ["Chat", "Files", "Tasks", "Memory", "Agent"] as const;
@@ -477,6 +479,7 @@ function Workspace({ status }: { status: Status }) {
           skillsVersion={conversation.skillsVersion}
           user={status.user}
           authMode={status.auth_mode}
+          version={status.version}
           initialSection={globalSettings.section}
           onClose={closeGlobalSettings}
         />

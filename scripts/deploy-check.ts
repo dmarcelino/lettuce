@@ -51,6 +51,31 @@ const worktrees = git("worktree", "list").split("\n").filter(Boolean);
 check("no leftover feature worktrees", worktrees.length <= 1, worktrees.slice(1).join(" | "));
 
 /**
+ * `VERSION` carries the release tag this checkout claims (see CLAUDE.md
+ * "Versioning and tags"): it is bumped in the commit that gets tagged, and the
+ * bff image bakes it in for Settings → About. Before tagging it only has to be
+ * well-formed; once HEAD is tagged, the two must agree — that is what catches a
+ * release tagged without bumping the file.
+ */
+const versionText = await Bun.file(`${ROOT}VERSION`)
+  .text()
+  .catch(() => "");
+const version = versionText.trim();
+check(
+  "VERSION is a well-formed release tag",
+  /^v\d+\.\d+\.\d+-letta_\d+\.\d+\.\d+$/.test(version),
+  versionText || 'missing — see CLAUDE.md "Versioning and tags"',
+);
+const headTag = git("tag", "--points-at", "HEAD");
+if (headTag) {
+  check(
+    "VERSION matches the tag on HEAD",
+    version === headTag,
+    `tag ${headTag}, VERSION ${version}`,
+  );
+}
+
+/**
  * LETTA_STATE_DIR anchors every bind mount, and compose defaults it to `../..`
  * relative to the compose file. That default is a trap: from a worktree at
  * `letta-code-ui-worktrees/<feature>/docker/` it resolves to the worktrees

@@ -37,6 +37,10 @@ FROM deps AS runtime
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY bff/src            ./bff/src
 COPY bff/tsconfig.json  ./bff/tsconfig.json
+# This build's release tag, served at /api/status and shown in Settings → About.
+# A file rather than `git describe`: .dockerignore excludes .git and the image
+# has no git (see CLAUDE.md "Versioning and tags").
+COPY VERSION            ./VERSION
 # Skills the BFF installs into every agent's global skill directory on connect
 # (bff/src/agent-skills.ts). In the image, not a bind mount: under Dockhand a
 # relative mount source resolves inside Dockhand's container, not on the host.

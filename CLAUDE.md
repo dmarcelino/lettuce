@@ -813,9 +813,49 @@ reconnect.
 
 ## Git workflow
 
+### Branches
+
 Worktrees per feature, feature branches, fast-forward merge to `main`
 (`git merge --ff-only`, no merge commits), no PRs. Rebase the feature branch onto `main`
 first if it isn't already a fast-forward.
+
+**Every significant feature gets its own feature branch**: a user-visible capability, a
+new service or sidecar, or any change spanning more than one of `bff/`, `web/`, `docker/`.
+Small fixes and docs may land directly on `main`; they simply carry a PATCH tag when they
+ship.
+
+### Versioning and tags
+
+The repo's own releases are **annotated tags on `main`**:
+
+```
+v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
+```
+
+- Start at `v0.1.0-letta_0.33.7`; stay on `0.x` — MAJOR is reserved and effectively
+  unused for a single-user app.
+- **MINOR** (+1, PATCH resets to 0) = a completed significant feature. **PATCH** (+1) =
+  anything else that ships to prod on its own: a hotfix, a standalone `sync-upstream`
+  bump, a batch of small fixes.
+- The `letta_<version>` suffix is read from the pin at tag time (`docker/compose.yml`,
+  proven consistent by `check-version-pin`), never from memory. It never resets the
+  semver part; a letta bump riding along with a feature just changes that tag's suffix.
+- A tag is created **only after the prod deploy is verified** (Definition of done 7b)
+  and pushed with `git push origin <tag>`. A failed deploy is never tagged.
+- **`VERSION` at the repo root is the machine-readable record** — the full tag string,
+  one line, bumped in the same commit that is tagged. The bff image `COPY`s it and the
+  BFF serves it at `/api/status` (authenticated branch only — the route's
+  no-fingerprinting rule stands), which is how Settings → About shows
+  the "letta-code-ui" row. The image cannot derive it: `.dockerignore` excludes
+  `.git/` and the image carries no `git`, so `git describe` at build time is
+  impossible. `deploy-check` asserts `VERSION` agrees with the tag pointing at `HEAD`.
+- Tags and `VERSION` are the **only** version record. No `version` field in any
+  `package.json` — it would be a seventh drift-prone pin site that nothing renders.
+- Upstream's `v<x.y.z>` tags live in the **letta-code checkout**, a different repo —
+  no collision with these, and `sync-upstream` is unaffected.
+- `-letta_0.33.7` is not valid semver (underscore is not a legal prerelease character),
+  and strict semver tools would sort such a tag below a bare `v0.1.0`. Deliberate — we
+  never publish to a registry and never emit bare `v0.1.0`. Do not "fix" the format.
 
 ## Definition of done
 
@@ -834,9 +874,10 @@ Passing typecheck is not done. Passing tests is not done. **Running in the conta
 4. **Docker rebuilt from `main`** —
    `docker compose -f docker/compose.yml build bff && docker compose -f docker/compose.yml up -d bff`.
    The `build` is not optional; see the note below.
-5. **`bun run deploy-check` green** — asserts the tree is clean and on `main`, that the
-   bundle the container serves is byte-identical to the one in `web/dist`, and that
-   `/readyz` and the upstream app-server connection are healthy.
+ 5. **`bun run deploy-check` green** — asserts the tree is clean and on `main`, that the
+    bundle the container serves is byte-identical to the one in `web/dist`, that
+    `VERSION` agrees with the tag pointing at `HEAD`, and that `/readyz` and the
+    upstream app-server connection are healthy.
 5b. **`bun run ui-check` green** for any change touching `web/` — drives headless
    Chromium at phone and desktop widths and asserts what unit tests cannot see:
    nothing clipped off-screen, the composer controls present, sheets opening and
@@ -846,8 +887,14 @@ Passing typecheck is not done. Passing tests is not done. **Running in the conta
    paths. Not part of `verify`: it needs a live stack, it needs at least one agent to
    exist, and it mutates real state (writes `smoke-probe.md` into the agent cwd, edits
    and restores the shared MCP list, creates and deletes a cron task).
-7. **Released to prod — pushed to `origin`, then redeployed with Dockhand — but stop and ask
-   first.**
+ 7. **Released to prod — pushed to `origin`, then redeployed with Dockhand — but stop and ask
+    first.**
+ 7b. **Tagged** — once the prod deploy verifies, tag `main`'s HEAD with the tag `VERSION`
+    names (`git tag -a "$(cat VERSION)" -m "<feature>"`) and `git push origin <tag>`.
+    `VERSION` is bumped in the release commit itself (step 2), so the tag and the version
+    the deployed UI reports are the same string by construction. Part of the same
+    stop-and-ask confirmation as the release — never a separate approval, and never
+    before `dockhand verify` is green.
 
 ### Stop before releasing to prod
 
@@ -890,7 +937,8 @@ log alone cannot prove nothing is running.
 
 Order, once confirmed: `git push origin main` → `dockhand.sh deploy letta letta-code-ui-prod
 --confirm` → `dockhand.sh verify letta letta-code-ui-prod --since <printed time>` → the BFF log
-must show `Upstream connected: letta-code <pinned version>`. A version other than the pin means
+must show `Upstream connected: letta-code <pinned version>` → tag and push per step 7b.
+A version other than the pin means
 Dockhand's stored stack variables override it. On any failure, stop and report — no retry, no
 rollback, no restart without the user choosing it.
 

@@ -93,6 +93,8 @@ interface Props {
   skillsVersion: number;
   user: { email: string } | null;
   authMode: "cf-access" | "dev-bypass" | "none";
+  /** This build's release tag from `/api/status`; absent on an untagged dev run. */
+  version?: string;
   /** Open straight on a section, e.g. from the Agent tab's Skills link. */
   initialSection?: GlobalSection;
   onClose: () => void;
@@ -115,6 +117,7 @@ export function GlobalSettings({
   skillsVersion,
   user,
   authMode,
+  version,
   initialSection,
   onClose,
 }: Props) {
@@ -154,7 +157,9 @@ export function GlobalSettings({
       <GlobalSkills session={session} agentId={agentId} cwd={cwd} version={skillsVersion} />
     ),
     notifications: () => <NotificationsSection />,
-    about: () => <AboutSection session={session} user={user} authMode={authMode} />,
+    about: () => (
+      <AboutSection session={session} user={user} authMode={authMode} version={version} />
+    ),
   };
 
   return (
@@ -239,16 +244,19 @@ function AboutSection({
   session,
   user,
   authMode,
+  version,
 }: {
   session: SessionApi;
   user: Props["user"];
   authMode: Props["authMode"];
+  version?: string;
 }) {
   const info = session.appServerInfo;
   const rows: [string, ReactNode][] = [
     ["Signed in as", user?.email ?? "—"],
     ["Sign-in", AUTH_LABELS[authMode]],
     ["Connection", LINK_LABELS[session.link]],
+    ["letta-code-ui", version ?? "—"],
     ["letta-code", info ? `v${info.letta_code_version}` : "—"],
     ["Backend", info?.backend ?? "—"],
   ];
