@@ -42,4 +42,21 @@ describe("securityHeaders", () => {
     expect(headers["referrer-policy"]).toBe("no-referrer");
     expect(headers["content-security-policy"]).toContain("default-src 'self'");
   });
+
+  test("pins https with HSTS", () => {
+    const headers = securityHeaders({ publicOrigin: "https://letta.example.com" });
+    expect(headers["strict-transport-security"]).toBe("max-age=31536000; includeSubDomains");
+  });
+
+  test("sends no HSTS over plain http", () => {
+    // Pinning a host whose TLS may not work yet would lock the operator out of
+    // the deployment for a year, so the header is tied to the declared scheme.
+    const headers = securityHeaders({ publicOrigin: "http://localhost:8090" });
+    expect(headers["strict-transport-security"]).toBeUndefined();
+  });
+
+  test("recognises https regardless of case or stray space", () => {
+    const headers = securityHeaders({ publicOrigin: " HTTPS://Letta.Example.COM " });
+    expect(headers["strict-transport-security"]).toBeDefined();
+  });
 });

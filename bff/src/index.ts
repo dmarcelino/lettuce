@@ -39,6 +39,7 @@ import {
 import { InvalidCodexSettingsError, toPublicCodexSettings } from "./codex/settings.ts";
 import { type BffConfig, googleWritesAllowed, isAllowedUser, loadConfig } from "./config.ts";
 import { errorMessage } from "./errors.ts";
+import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
 import { createGoogleFsIo } from "./google/fs-io.ts";
 import { googleSettingsUrl, type LostAccessPort } from "./google/lost-access.ts";
@@ -1167,14 +1168,14 @@ app.get("/api/files/download", async (c) => {
   // reason — and this route already holds the base64 string from upstream plus
   // the decoded bytes.
   const bytes = Buffer.from(response.content, "base64");
-  const filename = (path.split("/").pop() || "download").replaceAll('"', "");
+  const filename = path.split("/").pop() || "download";
   // `?inline=1` (chat-message links) asks for a viewable response; only PDFs
   // and raster images actually get one — see `inlineContentType`.
   const inlineType = c.req.query("inline") != null ? inlineContentType(filename) : null;
   return new Response(bytes, {
     headers: {
       "content-type": inlineType ?? "application/octet-stream",
-      "content-disposition": `${inlineType ? "inline" : "attachment"}; filename="${filename}"`,
+      "content-disposition": contentDisposition(filename, inlineType ? "inline" : "attachment"),
       "content-length": String(bytes.length),
       // Spread last-but-one: the hardening set must survive, and `nosniff` in
       // particular matters here because this is the route that hands the

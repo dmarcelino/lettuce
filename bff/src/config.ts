@@ -116,6 +116,66 @@ function optionalNumber(name: string, fallback: number): number {
 }
 
 /**
+ * Minimum length for `SESSION_SECRET`, in characters.
+ *
+ * The secret is the only thing standing between an unauthenticated network
+ * position and a forged session for an allowlisted address: HMAC-SHA256 over
+ * `{email, exp}`, and the server trusts whatever verifies. A short or
+ * low-entropy secret is therefore brute-forceable offline, and once recovered
+ * it forges sessions for as long as it stays in place — there is no
+ * server-side session store to invalidate against.
+ *
+ * 32 characters is the floor, not the recommendation. `openssl rand -hex 32`
+ * (64 chars) clears it comfortably; a 32-char value is only acceptable if it
+ * is genuinely random, which the checks below try to catch for the obvious
+ * cases.
+ */
+const MIN_SESSION_SECRET_LENGTH = 32;
+
+/**
+ * Reject the secrets that are long enough to pass a length check but carry
+ * almost no entropy: one character repeated, or a short pattern tiled to fill.
+ *
+ * Deliberately narrow. Anything stricter starts rejecting legitimate random
+ * secrets and turns a security control into a support burden — the same trap
+ * as an over-eager email regex in `parseAllowedUsers`. The goal is to stop
+ * `"aaaaaaaa..."` and tiled placeholders from reaching a deployment unnoticed,
+ * not to grade the operator's RNG.
+ *
+ * Exported for tests; `loadConfig` is the only production caller.
+ */
+export function assertSessionSecretIsStrong(secret: string): void {
+  if (secret.length < MIN_SESSION_SECRET_LENGTH) {
+    throw new Error(
+      `SESSION_SECRET is too short (${secret.length} characters, minimum ` +
+        `${MIN_SESSION_SECRET_LENGTH}). It signs session cookies, so a guessable ` +
+        `value lets anyone forge one for any address in ALLOWED_USERS. ` +
+        `Generate a real secret with: openssl rand -hex 32`,
+    );
+  }
+
+  if (/^(.)\1*$/.test(secret)) {
+    throw new Error(
+      "SESSION_SECRET is one character repeated, which carries no entropy. " +
+        "Generate a real secret with: openssl rand -hex 32",
+    );
+  }
+
+  // A short pattern tiled to reach the minimum length ("abcabcabc...").
+  for (let unitLength = 1; unitLength <= 4; unitLength += 1) {
+    if (secret.length % unitLength !== 0) continue;
+    const unit = secret.slice(0, unitLength);
+    if (unit.repeat(secret.length / unitLength) === secret) {
+      throw new Error(
+        `SESSION_SECRET is a ${unitLength}-character pattern repeated to fill the ` +
+          `minimum length, which carries almost no entropy. Generate a real ` +
+          `secret with: openssl rand -hex 32`,
+      );
+    }
+  }
+}
+
+/**
  * Parses a comma-separated allowlist, naming `source` in every error so a
  * misconfiguration says which input to go and fix.
  *
@@ -222,6 +282,13 @@ function readMode(): "local" | "cloudflared" {
   return raw.includes("cloudflared") ? "cloudflared" : "local";
 }
 
+/** `SESSION_SECRET`, read and checked in one place so no path skips the floor. */
+function readSessionSecret(): string {
+  const secret = required("SESSION_SECRET");
+  assertSessionSecretIsStrong(secret);
+  return secret;
+}
+
 export function loadConfig(): BffConfig {
   const mode = readMode();
   const devBypassEmail = process.env.DEV_BYPASS_EMAIL?.trim() || null;
@@ -245,7 +312,7 @@ export function loadConfig(): BffConfig {
       : (process.env.CF_ACCESS_TEAM_DOMAIN ?? ""),
     cfAccessAud: needsCfAccess ? required("CF_ACCESS_AUD") : (process.env.CF_ACCESS_AUD ?? ""),
     cfAccessIssuer: process.env.CF_ACCESS_ISSUER?.trim() || null,
-    sessionSecret: required("SESSION_SECRET"),
+    sessionSecret: readSessionSecret(),
     sessionTtlSeconds: optionalNumber("SESSION_TTL_SECONDS", 60 * 60 * 24 * 30),
     allowedUsers: readAllowedUsers(needsCfAccess, devBypassEmail),
     frameBufferSize: optionalNumber("FRAME_BUFFER_SIZE", 5000),

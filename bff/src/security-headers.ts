@@ -71,13 +71,26 @@ export function contentSecurityPolicy({ publicOrigin }: SecurityHeaderOptions): 
  * reinterpret an `application/octet-stream` body as something executable.
  * `X-Frame-Options` is redundant next to `frame-ancestors` but costs nothing
  * and covers clients that only honour the legacy header.
+ *
+ * HSTS is emitted only on an `https` `PUBLIC_ORIGIN`. Sending it over plain
+ * http is ignored by browsers anyway, and pinning a host that has no working
+ * certificate would lock the operator out of their own deployment for a year.
  */
 export function securityHeaders(options: SecurityHeaderOptions): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     "content-security-policy": contentSecurityPolicy(options),
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
     "referrer-policy": "no-referrer",
     "cross-origin-opener-policy": "same-origin",
   };
+  if (isHttpsOrigin(options.publicOrigin)) {
+    headers["strict-transport-security"] = "max-age=31536000; includeSubDomains";
+  }
+  return headers;
+}
+
+/** Whether `publicOrigin` is an `https` URL, and so safe to pin with HSTS. */
+function isHttpsOrigin(publicOrigin: string): boolean {
+  return publicOrigin.trim().toLowerCase().startsWith("https://");
 }
