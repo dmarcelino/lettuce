@@ -1,24 +1,30 @@
-import { defaultStorage, type MaybeStorage } from "./storage.ts";
-
 /**
- * Token usage for one agent turn.
+ * Token usage for one agent turn, as the BFF serves it at `GET /api/turn-usage`
+ * (`bff/src/session/turn-usage.ts` builds this exact shape; the two packages
+ * cannot import from each other).
  *
- * The source is the `usage_statistics` stream delta: the local executor emits
- * one per model step (letta-code: backend/dev/provider-turn-executor.ts), and
- * the listener forwards it to every subscriber like any other chunk. It has no
- * `id`, so the transcript never keys it — this module is its only consumer.
+ * The BFF keeps it because upstream reports usage only live — one
+ * `usage_statistics` delta per model step — and stores none of it with the
+ * history. When each browser folded the deltas it happened to see, a phone
+ * that slept through the latest turns showed an old one, and two devices
+ * disagreed about the same conversation.
  *
- * `turn_finished.usage` (letta-code 0.32.19) would be the obvious source, but
- * the listener attaches it only when the conversation carries CLI
- * `execution_settings` (listener/turn.ts), and setting those to get it would
- * strip `MEMORY_DIR` from agent shells and impose tool allowlists. It is still
- * honoured when present, as the authoritative total.
+ * The prompt is split as the model server reports it: `promptTokens` is what
+ * was evaluated, `cachedTokens` what the prompt cache (llama.cpp's slot cache)
+ * supplied. A big context with a tiny evaluated prompt is a cache hit, not a
+ * contradiction.
  */
 export interface TurnUsage {
-  /** Prompt tokens summed over every step — the input the model processed. */
+  /** Prompt tokens the model actually evaluated, summed over every step. */
   promptTokens: number;
-  /** The latest step's prompt alone: how big one call to the model was. */
+  /** Prompt tokens served from the prompt cache, summed over every step. */
+  cachedTokens: number;
+  /** The latest step's whole prompt — evaluated plus cached. */
   lastPromptTokens: number;
+  /** Of `lastPromptTokens`, the part served from the cache. */
+  lastCachedTokens: number;
+  /** Whether the backend reported cache use at all (absent is not zero). */
+  cacheReported: boolean;
   completionTokens: number;
   /** Of `completionTokens`, the thinking part, when the model reports it. */
   reasoningTokens: number;
@@ -32,44 +38,36 @@ function count(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-/** The usage carried by one `usage_statistics` delta, or null for any other delta. */
-export function readUsageDelta(delta: unknown): TurnUsage | null {
-  if (!delta || typeof delta !== "object") return null;
-  const raw = delta as Record<string, unknown>;
-  if (raw.message_type !== "usage_statistics") return null;
-  const usage: TurnUsage = {
-    promptTokens: count(raw.prompt_tokens),
-    lastPromptTokens: count(raw.prompt_tokens),
-    completionTokens: count(raw.completion_tokens),
-    reasoningTokens: count(raw.reasoning_tokens),
-    // One chunk is one step unless it says otherwise.
-    steps: typeof raw.step_count === "number" ? count(raw.step_count) : 1,
+/** One usage object from the BFF, or null when it is not one. */
+export function readTurnUsage(raw: unknown): TurnUsage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const u = raw as Record<string, unknown>;
+  if (typeof u.promptTokens !== "number" || typeof u.completionTokens !== "number") return null;
+  return {
+    promptTokens: count(u.promptTokens),
+    cachedTokens: count(u.cachedTokens),
+    lastPromptTokens: count(u.lastPromptTokens),
+    lastCachedTokens: count(u.lastCachedTokens),
+    cacheReported: u.cacheReported === true,
+    completionTokens: count(u.completionTokens),
+    reasoningTokens: count(u.reasoningTokens),
+    steps: typeof u.steps === "number" ? count(u.steps) : 1,
+    ...(typeof u.contextTokens === "number" ? { contextTokens: u.contextTokens } : {}),
   };
-  if (typeof raw.context_tokens === "number") usage.contextTokens = raw.context_tokens;
-  return usage;
 }
 
-/** `turn_finished.usage`, in the listener's `UsageStatistics` shape, or null when absent. */
-export function readTurnFinishedUsage(frame: unknown): TurnUsage | null {
-  if (!frame || typeof frame !== "object") return null;
-  const usage = (frame as { usage?: unknown }).usage;
-  if (!usage || typeof usage !== "object") return null;
-  return readUsageDelta({ ...usage, message_type: "usage_statistics" });
+/**
+ * The usage to show from `GET /api/turn-usage`: the turn in flight when there
+ * is one (`current`), else the last finished one. Null when the BFF has none.
+ */
+export function pickTurnUsage(body: unknown): TurnUsage | null {
+  const b = (body && typeof body === "object" ? body : {}) as { last?: unknown; current?: unknown };
+  return readTurnUsage(b.current) ?? readTurnUsage(b.last);
 }
 
-/** Fold one step into a running turn total. Context is a level, not a sum: the latest wins. */
-export function addUsage(total: TurnUsage | null, step: TurnUsage): TurnUsage {
-  if (!total) return { ...step };
-  const next: TurnUsage = {
-    promptTokens: total.promptTokens + step.promptTokens,
-    lastPromptTokens: step.lastPromptTokens,
-    completionTokens: total.completionTokens + step.completionTokens,
-    reasoningTokens: total.reasoningTokens + step.reasoningTokens,
-    steps: total.steps + step.steps,
-  };
-  const context = step.contextTokens ?? total.contextTokens;
-  if (context !== undefined) next.contextTokens = context;
-  return next;
+/** Share of `part` in `whole` as a whole percent, 0 when there is no whole. */
+export function percentOf(part: number, whole: number): number {
+  return whole > 0 ? Math.round((part / whole) * 100) : 0;
 }
 
 /** 950 → "950", 12_345 → "12.3k", 1_234_567 → "1.2M". */
@@ -98,52 +96,4 @@ export function contextGauge(used: number, limit: number): ContextGauge {
     percent: Math.max(0, Math.min(100, Math.round(ratio * 100))),
     warn: ratio >= CONTEXT_WARN_RATIO,
   };
-}
-
-const USAGE_KEY = "letta-ui:usage";
-
-/**
- * The last usage seen per conversation, kept per browser. The app-server does
- * not store usage with the history, so without this the gauge vanished on
- * every reload until the next turn finished.
- */
-export function readStoredUsage(
-  conversationKey: string,
-  storage: MaybeStorage = defaultStorage(),
-): TurnUsage | null {
-  try {
-    const all = JSON.parse(storage?.getItem(USAGE_KEY) ?? "{}") as Record<string, unknown>;
-    const u = all[conversationKey] as Partial<TurnUsage> | undefined;
-    if (!u || typeof u.promptTokens !== "number" || typeof u.completionTokens !== "number") {
-      return null;
-    }
-    return {
-      promptTokens: u.promptTokens,
-      lastPromptTokens:
-        typeof u.lastPromptTokens === "number" ? u.lastPromptTokens : u.promptTokens,
-      completionTokens: u.completionTokens,
-      reasoningTokens: typeof u.reasoningTokens === "number" ? u.reasoningTokens : 0,
-      steps: typeof u.steps === "number" ? u.steps : 1,
-      ...(typeof u.contextTokens === "number" ? { contextTokens: u.contextTokens } : {}),
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function writeStoredUsage(
-  conversationKey: string,
-  usage: TurnUsage,
-  storage: MaybeStorage = defaultStorage(),
-): void {
-  try {
-    const all = JSON.parse(storage?.getItem(USAGE_KEY) ?? "{}") as Record<string, unknown>;
-    all[conversationKey] = usage;
-    // Bounded: the most recent 50 conversations.
-    const keys = Object.keys(all);
-    for (const key of keys.slice(0, Math.max(0, keys.length - 50))) delete all[key];
-    storage?.setItem(USAGE_KEY, JSON.stringify(all));
-  } catch {
-    // No memory is fine: the gauge reappears after the next turn.
-  }
 }

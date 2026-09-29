@@ -82,6 +82,7 @@ import { WORKSPACE_ROOT, workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { symlinkViolation } from "./session/symlink-guard.ts";
 import { TurnErrorLog } from "./session/turn-errors.ts";
+import { TurnUsageLog } from "./session/turn-usage.ts";
 import { drainActiveTurns } from "./shutdown.ts";
 import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
@@ -133,6 +134,7 @@ const agentNames = new AgentNames(async (agentId) => {
 const turnOutcomeWatcher = pushStore ? new TurnOutcomeWatcher(pushStore, log, agentNames) : null;
 const approvalWatcher = pushStore ? new ApprovalWatcher(pushStore, log, agentNames) : null;
 const turnErrors = new TurnErrorLog();
+const turnUsage = new TurnUsageLog();
 
 function log(message: string): void {
   console.log(`[bff] ${new Date().toISOString()} ${message}`);
@@ -145,6 +147,9 @@ function log(message: string): void {
 const upstream = new UpstreamConnection({
   url: config.appServerUrl,
   onFrame: (frame: WsProtocolMessage) => {
+    // Before the fan-out: a browser refetches usage when it sees a usage
+    // delta, and must find this step already counted.
+    turnUsage.observe(frame);
     registry.handleUpstreamFrame(frame);
     turnErrors.observe(frame);
     turnOutcomeWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
@@ -1108,6 +1113,16 @@ app.get("/api/turn-errors", (c) => {
   const conversationId = c.req.query("conversation_id");
   if (!agentId || !conversationId) return c.text("Missing agent_id or conversation_id", 400);
   return c.json({ errors: turnErrors.list(scopeKeyOf(agentId, conversationId)) });
+});
+
+// Token usage of the last turn and the one in flight, per conversation, so
+// every device shows the same gauge. See `session/turn-usage.ts`.
+app.get("/api/turn-usage", (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const agentId = c.req.query("agent_id");
+  const conversationId = c.req.query("conversation_id");
+  if (!agentId || !conversationId) return c.text("Missing agent_id or conversation_id", 400);
+  return c.json(turnUsage.get(scopeKeyOf(agentId, conversationId)));
 });
 
 // A real HTTP URL for a workspace file, so a chat-message link or the Files

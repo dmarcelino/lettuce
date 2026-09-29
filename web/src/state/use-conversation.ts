@@ -17,14 +17,7 @@ import {
 } from "../lib/messages.ts";
 import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
 import { type ResponseFormat, validateResponseFormat } from "../lib/structured-output.ts";
-import {
-  addUsage,
-  readStoredUsage,
-  readTurnFinishedUsage,
-  readUsageDelta,
-  type TurnUsage,
-  writeStoredUsage,
-} from "../lib/usage.ts";
+import { pickTurnUsage, type TurnUsage } from "../lib/usage.ts";
 import {
   agentWorkspace,
   isPermissionMode,
@@ -141,13 +134,9 @@ export interface ConversationApi {
    */
   stopMonitor: (processId: string) => void;
   /**
-   * Tokens spent by the most recent turn seen live in this tab, or null before
-   * one finishes. Not in history, so a reload starts blank. See `lib/usage.ts`.
-   */
-  /**
-   * Token usage: the turn in flight so far (updated after every model step),
-   * else the last finished turn — restored from this browser's memory after a
-   * reload, since the app-server keeps no usage with the history.
+   * Token usage: the turn in flight so far (refreshed after every model step),
+   * else the last finished turn. The BFF keeps it, so every device shows the
+   * same numbers; null until it has seen a turn. See `lib/usage.ts`.
    */
   turnUsage: TurnUsage | null;
 }
@@ -322,10 +311,10 @@ export function useConversation(
   const [availableToolsets, setAvailableToolsets] = useState<ToolsetSummary[]>([]);
   const [backgroundProcesses, setBackgroundProcesses] = useState<BackgroundProcessSummary[]>([]);
   const [turnUsage, setTurnUsage] = useState<TurnUsage | null>(null);
-  /** Steps of the turn in flight, folded until its `turn_finished`. */
-  const turnUsageRef = useRef<TurnUsage | null>(null);
-  /** Where this conversation's last usage is remembered; see `writeStoredUsage`. */
-  const usageKeyRef = useRef("");
+  /** The conversation `refreshUsage` fetches for; a stale answer is dropped. */
+  const usageScopeRef = useRef<RuntimeScope | null>(null);
+  /** One usage fetch at a time; a request during one runs once more after it. */
+  const usageFetchRef = useRef({ running: false, again: false });
   const transcriptRef = useRef<Transcript>(new Map());
   // Alias maps that hold a streamed message together; reset wherever the
   // transcript is, so a stale otid can never bind to a rebuilt transcript.
@@ -378,12 +367,41 @@ export function useConversation(
     [],
   );
 
+  /**
+   * Re-read this conversation's usage from the BFF, which folds every step on
+   * its permanent connection. Called on open, after a resync, and on each
+   * usage delta or turn end this tab sees — steps come seconds apart at most,
+   * so there is no need to fold locally as well.
+   */
+  const refreshUsage = useCallback(function refresh(): void {
+    const state = usageFetchRef.current;
+    if (state.running) {
+      state.again = true;
+      return;
+    }
+    const target = usageScopeRef.current;
+    if (!target) return;
+    state.running = true;
+    void fetchTurnUsage(target.agent_id, target.conversation_id)
+      .then((usage) => {
+        if (usage !== undefined && usageScopeRef.current === target) setTurnUsage(usage);
+      })
+      .finally(() => {
+        state.running = false;
+        if (state.again) {
+          state.again = false;
+          refresh();
+        }
+      });
+  }, []);
+
   const loadHistory = useCallback(
     async (afterResync = false) => {
       if (!conversationId) return;
       setError(null);
       // In parallel with the history request; see `mergeTurnErrors`.
       const turnErrors = agentId ? fetchTurnErrors(agentId, conversationId) : Promise.resolve([]);
+      refreshUsage();
       try {
         const response = await request<{ messages?: unknown[] }>("conversation_messages_list", {
           conversation_id: conversationId,
@@ -404,7 +422,7 @@ export function useConversation(
         setError(errorMessage(cause));
       }
     },
-    [agentId, conversationId, request, flush, markResynced],
+    [agentId, conversationId, request, flush, markResynced, refreshUsage],
   );
 
   // Start (or resume) the runtime for this conversation, then load its history.
@@ -421,9 +439,8 @@ export function useConversation(
     setQueue([]);
     setApprovals([]);
     setStopping(false);
-    turnUsageRef.current = null;
-    usageKeyRef.current = key;
-    setTurnUsage(readStoredUsage(key));
+    usageScopeRef.current = scope;
+    setTurnUsage(null);
 
     setScopes([scope]);
     void (async () => {
@@ -495,21 +512,17 @@ export function useConversation(
           // browser still subscribed to this one; this end marker carries the
           // scope captured before the runtime was re-pointed.
           if (isClearCompleted(delta)) clearedRef.current?.();
-          const step = readUsageDelta(delta);
-          if (step) {
-            turnUsageRef.current = addUsage(turnUsageRef.current, step);
-            setTurnUsage(turnUsageRef.current);
+          // A subagent's steps share this scope but are not this turn's.
+          if (
+            (delta as { message_type?: unknown } | null)?.message_type === "usage_statistics" &&
+            typeof subagentId !== "string"
+          ) {
+            refreshUsage();
           }
           break;
         }
         case "turn_finished": {
-          // The frame's own total wins when the listener attached one.
-          const usage = readTurnFinishedUsage(frame) ?? turnUsageRef.current;
-          turnUsageRef.current = null;
-          if (usage) {
-            setTurnUsage(usage);
-            if (usageKeyRef.current) writeStoredUsage(usageKeyRef.current, usage);
-          }
+          refreshUsage();
           settleStreaming(transcriptRef.current);
           setProcessing(false);
           // The turn has genuinely unwound now, whatever the app-server said
@@ -841,6 +854,24 @@ export function useConversation(
     stopMonitor,
     turnUsage,
   };
+}
+
+/**
+ * The usage the BFF holds for this conversation (`bff/src/session/turn-usage.ts`).
+ * Undefined when it could not be read, so the gauge keeps what it shows.
+ */
+async function fetchTurnUsage(
+  agentId: string,
+  conversationId: string,
+): Promise<TurnUsage | null | undefined> {
+  try {
+    const params = new URLSearchParams({ agent_id: agentId, conversation_id: conversationId });
+    const response = await fetch(`/api/turn-usage?${params}`);
+    if (!response.ok) return undefined;
+    return pickTurnUsage(await response.json());
+  } catch {
+    return undefined;
+  }
 }
 
 /**

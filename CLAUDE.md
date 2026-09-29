@@ -101,6 +101,18 @@ as a `loop_error` delta and `turn_finished.error`; neither is written to the mes
 `GET /api/turn-errors`, and `mergeTurnErrors` (`web/src/lib/messages.ts`) slots them back into
 the rebuilt transcript by date. The failure push also carries the error's first line.
 
+**Token usage is live-only too, so the BFF keeps it as well.** The context gauge's numbers
+come from one `usage_statistics` stream delta per model step (`turn_finished.usage` exists only
+with CLI `execution_settings`, which we never set). When each browser folded the deltas it saw
+and remembered them in `localStorage`, a phone that slept through the latest turns showed an
+old one and two devices disagreed about the same conversation.
+`bff/src/session/turn-usage.ts` folds every scope's steps (skipping `subagent_id` deltas, which
+share the parent's scope) and serves the last finished turn plus the one in flight at
+`GET /api/turn-usage`; the web refetches on each usage delta and `turn_finished`. It observes
+frames **before** the fan-out, so that refetch always finds the step. Note the split pi-ai
+makes: `prompt_tokens` is **net of the prompt cache**, which comes as `cached_input_tokens`
+(llama.cpp's slot cache) — an 85k context behind a 790-token prompt is a cache hit, not a bug.
+
 **A turn push waits for the agent to be done, not for `turn_finished`.** One request often spans
 several turns — a queued message runs next, a background subagent reports back later as a task
 notification with a turn of its own — and `turn_finished` fires for each, so pushing on it said

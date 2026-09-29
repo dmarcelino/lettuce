@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { contextGauge, formatTokens, type TurnUsage } from "../lib/usage.ts";
+import { contextGauge, formatTokens, percentOf, type TurnUsage } from "../lib/usage.ts";
 import {
   type ContextLimit,
   LETTA_DEFAULT_CONTEXT_LIMIT,
@@ -143,6 +143,17 @@ export function ContextSheet({
                 {usage.lastPromptTokens.toLocaleString()} <small>· last call</small>
               </span>
             </li>
+            {usage.cacheReported ? (
+              <li>
+                <span>Cache hit</span>
+                <span>
+                  {usage.lastCachedTokens.toLocaleString()}{" "}
+                  <small>
+                    · {percentOf(usage.lastCachedTokens, usage.lastPromptTokens)}% of prompt
+                  </small>
+                </span>
+              </li>
+            ) : null}
             <li>
               <span>Generated</span>
               <span>
@@ -159,9 +170,18 @@ export function ContextSheet({
             <li>
               <span>Input processed</span>
               <span>
-                {usage.promptTokens.toLocaleString()} <small>· all calls</small>
+                {usage.promptTokens.toLocaleString()}{" "}
+                <small>· {usage.cacheReported ? "evaluated, all calls" : "all calls"}</small>
               </span>
             </li>
+            {usage.cacheReported ? (
+              <li>
+                <span>From cache</span>
+                <span>
+                  {usage.cachedTokens.toLocaleString()} <small>· all calls</small>
+                </span>
+              </li>
+            ) : null}
           </ul>
         </>
       ) : null}
