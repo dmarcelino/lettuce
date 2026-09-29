@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
+import { initialOf, tintFor } from "../lib/agent-tint.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import { statsOf, useAgentStats } from "../state/use-agent-stats.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
@@ -16,15 +17,6 @@ interface Props {
   onClose: () => void;
   onNewAgent: () => void;
   onEditAgent: (agentId: string) => void;
-}
-
-/** Avatar tints, picked by agent id so a given agent keeps its colour. */
-const AVATAR_TINTS = ["var(--agent)", "var(--accent)", "#e0af68", "#bb9af7", "#7dcfff", "#f7768e"];
-
-function tintFor(id: string): string {
-  let hash = 0;
-  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return AVATAR_TINTS[Math.abs(hash) % AVATAR_TINTS.length] ?? "var(--accent)";
 }
 
 /**
@@ -265,7 +257,7 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
                     aria-current={selected ? "true" : undefined}
                   >
                     <span className="switcher-avatar" style={{ background: tintFor(agent.id) }}>
-                      {agent.name.trim().charAt(0).toUpperCase() || "?"}
+                      {initialOf(agent.name)}
                     </span>
                     <span className="switcher-agent-text">
                       <span className="switcher-card-title">

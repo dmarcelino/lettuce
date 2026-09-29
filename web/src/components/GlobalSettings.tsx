@@ -3,6 +3,7 @@ import type { LinkState } from "../lib/session-client.ts";
 import { defaultStorage } from "../lib/storage.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { useWide } from "../state/use-wide.ts";
 import { CodexSection } from "./CodexSection.tsx";
 import { ConnectionSection } from "./ConnectionSection.tsx";
 import { GoogleSection } from "./GoogleSection.tsx";
@@ -62,7 +63,6 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
 const ALL_SECTIONS = GLOBAL_SECTION_GROUPS.flatMap((group) => group.sections);
 const SHARED_NOTE = "Shared by every agent. An agent's own settings are in its Agent tab.";
 const LAST_SECTION_KEY = "letta-ui:settings-section";
-const WIDE_QUERY = "(min-width: 900px)";
 
 export function isGlobalSection(value: string | null): value is GlobalSection {
   return ALL_SECTIONS.some((section) => section.id === value);
@@ -83,19 +83,6 @@ function writeLastSection(section: GlobalSection): void {
   } catch {
     // A convenience only: the list still opens, just on the first section.
   }
-}
-
-/** The grouped list beside the section at the desktop breakpoint, chips above it below. */
-function useWide(): boolean {
-  const [wide, setWide] = useState(() => globalThis.matchMedia?.(WIDE_QUERY).matches ?? false);
-  useEffect(() => {
-    const query = globalThis.matchMedia?.(WIDE_QUERY);
-    if (!query) return;
-    const onChange = () => setWide(query.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
-  return wide;
 }
 
 interface Props {

@@ -805,8 +805,47 @@ try {
       }),
     );
 
-    // The sidebar's ⋯ beside the agent picker: the phone's agent menu, below it.
-    await page.locator('.sidebar button[data-agent-more="sidebar"]').click();
+    // The agents are a list on a panel of their own, not a dropdown, and look
+    // unlike the conversations under them.
+    check("no agent dropdown on desktop", (await page.locator(".sidebar select").count()) === 0);
+    const agentRowCount = await page.locator(".sidebar .agent-row").count();
+    check("agents are listed as rows", agentRowCount >= 1, { agentRowCount });
+    const panels = await page.evaluate(() => {
+      const bg = (sel: string) => {
+        const el = document.querySelector(sel);
+        return el ? getComputedStyle(el).backgroundColor : null;
+      };
+      return { agents: bg(".sidebar-agents"), sidebar: bg(".sidebar") };
+    });
+    check(
+      "the agents panel has its own background",
+      panels.agents !== null && panels.agents !== panels.sidebar,
+      panels,
+    );
+    check(
+      "agents carry an avatar, conversations do not",
+      (await page.locator(".sidebar .agent-row .agent-avatar").count()) === agentRowCount &&
+        (await page.locator(".sidebar .conversations .agent-avatar").count()) === 0,
+    );
+    const bars = await page.evaluate(() => {
+      const left = (sel: string) => {
+        const el = document.querySelector(sel);
+        return el ? getComputedStyle(el).borderLeftWidth : null;
+      };
+      return {
+        agent: left(".sidebar .agent-row.active"),
+        conversation: left(".sidebar .conversations li.conversation-row.active"),
+      };
+    });
+    check(
+      "the open agent and conversation are both marked by a left bar",
+      bars.agent === "3px" && (bars.conversation === null || bars.conversation === "3px"),
+      bars,
+    );
+
+    // Each agent row has its own ⋯: the phone's agent menu, opening below it.
+    await page.locator(".sidebar .agent-row.active").hover();
+    await page.locator(".sidebar .agent-row.active .agent-more").click();
     const deskMenu = page.locator(".agent-menu");
     const deskItems = (await deskMenu.locator("button").allInnerTexts()).map((t) => t.trim());
     check(
@@ -1234,20 +1273,22 @@ try {
     // whichever one agent_list returned first, which on a phone meant losing
     // your place every time the tab was reloaded.
     await page.locator('nav.tabs button:text-is("Chat")').click();
-    const agentSelect = page.locator("#agent-select");
-    const agentIds = (
-      await agentSelect
-        .locator("option")
-        .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value))
-    ).filter((value) => value !== "");
+    const agentIds = await page
+      .locator(".sidebar .agent-row")
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-agent-id") ?? ""));
+    const openAgent = () =>
+      page
+        .locator(".sidebar .agent-row.active")
+        .getAttribute("data-agent-id")
+        .catch(() => null);
 
     if (agentIds.length < 2) {
       // Nothing to switch to, so the assertion would pass for the wrong reason.
       console.log("  SKIP  selection survives a reload (needs two agents)");
     } else {
-      const before = await agentSelect.inputValue();
-      const target = agentIds.find((id) => id !== before) ?? before;
-      await agentSelect.selectOption(target);
+      const before = await openAgent();
+      const target = agentIds.find((id) => id !== before) ?? before ?? "";
+      await page.locator(`.sidebar .agent-row[data-agent-id="${target}"] .agent-row-main`).click();
       await page.waitForTimeout(1500);
       const conversationBefore = await page
         .locator(".conversations li.active .conversation-name")
@@ -1256,9 +1297,10 @@ try {
 
       await page.reload({ waitUntil: "networkidle" });
       await page.waitForTimeout(2000);
-      check("agent selection survives a reload", (await agentSelect.inputValue()) === target, {
+      const after = await openAgent();
+      check("agent selection survives a reload", after === target, {
         expected: target,
-        got: await agentSelect.inputValue(),
+        got: after,
       });
       if (conversationBefore) {
         const conversationAfter = await page
@@ -1291,7 +1333,11 @@ try {
     });
     await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
     await page.waitForTimeout(1500);
-    const agentId = await page.locator("#agent-select").inputValue();
+    // The sidebar stays mounted, hidden, on a phone, so this reads there too.
+    const agentId = await page
+      .locator(".sidebar .agent-row.active")
+      .getAttribute("data-agent-id")
+      .catch(() => null);
     const rows = page.locator(".conversations li:not(.activity-note)");
     if (!agentId || (await rows.count()) === 0 || !inject) {
       check(`${viewport.width}px: activity check has an agent and a conversation`, false);
@@ -1505,7 +1551,6 @@ try {
         select: measure(".field select"),
         // The pane's buttons: the sidebar's heading actions are compact by design.
         button: measure(".main .button:not(.compact)"),
-        sidebarSelect: measure(".sidebar select"),
       };
     });
     const heights = Object.values(sizes)

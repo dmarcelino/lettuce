@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
+import { initialOf, tintFor } from "../lib/agent-tint.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
+import { statsOf, useAgentStats } from "../state/use-agent-stats.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
+import type { SessionApi } from "../state/use-session.ts";
+import { useWide } from "../state/use-wide.ts";
 import { AgentMenu } from "./AgentMenu.tsx";
 import { ConversationMenu } from "./ConversationMenu.tsx";
 import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
@@ -17,6 +21,8 @@ interface Props {
   /** Scope keys of conversations with a response in progress; see `SessionApi.activeScopes`. */
   activeScopes: ReadonlySet<string>;
   activeAgentIds: ReadonlySet<string>;
+  /** For every agent's conversation count; see `useAgentStats`. */
+  request: SessionApi["request"];
 }
 
 export function Sidebar({
@@ -27,21 +33,32 @@ export function Sidebar({
   onEditAgent,
   activeScopes,
   activeAgentIds,
+  request,
 }: Props) {
   const [showArchived, setShowArchived] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
-  /** The selected agent's ⋯ menu, hung from its button. */
-  const [agentMenuAt, setAgentMenuAt] = useState<DOMRect | null>(null);
-  const closeAgentMenu = useCallback(() => setAgentMenuAt(null), []);
+  /** An agent row's ⋯ menu, hung from its button. */
+  const [agentMenu, setAgentMenu] = useState<{ agent: AgentSummary; anchor: DOMRect } | null>(null);
+  const closeAgentMenu = useCallback(() => setAgentMenu(null), []);
   const [deleting, setDeleting] = useState<AgentSummary | null>(null);
-  /** Archived agents are hidden from the picker until asked for. */
+  /** Archived agents are hidden until asked for. */
   const [showArchivedAgents, setShowArchivedAgents] = useState(false);
-  const currentAgent = agents.agents.find((agent) => agent.id === agents.agentId) ?? null;
   const archivedAgentCount = agents.agents.filter((agent) =>
     agents.archivedAgents.has(agent.id),
   ).length;
+  // Counts for every agent. Only fetched at the desktop width: the sidebar
+  // stays mounted, hidden, on a phone, where the switcher has its own.
+  const wide = useWide();
+  const stats = useAgentStats(request, agents.agents, wide);
+  const agentRows = agents.agents
+    .filter((agent) => !agents.archivedAgents.has(agent.id))
+    .concat(
+      showArchivedAgents
+        ? agents.agents.filter((agent) => agents.archivedAgents.has(agent.id))
+        : [],
+    );
   const listRef = useRef<HTMLUListElement>(null);
 
   // An open ⋯ menu closes on Escape or a press anywhere outside it (its own
@@ -115,79 +132,98 @@ export function Sidebar({
       ) : null}
 
       <aside className={`sidebar${open ? " open" : ""}`}>
-        <div className="sidebar-section">
+        {/* Agents on a panel of their own — round avatars, a count, a left
+            bar for the open one — so the list never reads as more
+            conversations. Each row has its own ⋯ (`AgentMenu`). */}
+        <div className="sidebar-section sidebar-agents">
           <div className="row-between">
-            <label htmlFor="agent-select">Agent</label>
-            <span className="row-actions">
-              {/* The same menu as the phone switcher's agent ⋯ (`AgentMenu`),
-                  for the agent selected below. */}
-              <button
-                type="button"
-                className="button ghost compact square"
-                title="Agent actions"
-                disabled={busy || !currentAgent}
-                data-agent-more="sidebar"
-                aria-label={currentAgent ? `More for ${currentAgent.name}` : "Agent actions"}
-                aria-haspopup="menu"
-                aria-expanded={agentMenuAt !== null}
-                onClick={(event) => {
-                  const anchor = event.currentTarget.getBoundingClientRect();
-                  setAgentMenuAt((current) => (current ? null : anchor));
-                }}
-              >
-                <Icon name="more" />
-              </button>
-              <button
-                type="button"
-                className="button ghost compact"
-                disabled={busy}
-                onClick={onNewAgent}
-                aria-label="New agent"
-              >
-                <Icon name="plus" /> New
-              </button>
-            </span>
+            <span className="section-label">Agents</span>
+            <button
+              type="button"
+              className="button ghost compact"
+              disabled={busy}
+              onClick={onNewAgent}
+              aria-label="New agent"
+            >
+              <Icon name="plus" /> New
+            </button>
           </div>
-          <select
-            id="agent-select"
-            value={agents.agentId ?? ""}
-            onChange={(event) => agents.selectAgent(event.target.value)}
-          >
-            {agents.agents.length === 0 ? <option value="">No agents</option> : null}
-            {(() => {
-              // A native option cannot hold markup, so the marker is text — and
-              // words rather than a dot glyph, which the UI does not use.
-              const option = (agent: AgentSummary) => (
-                <option key={agent.id} value={agent.id}>
-                  {activeAgentIds.has(agent.id) ? `${agent.name} — responding` : agent.name}
-                </option>
-              );
-              const isArchived = (agent: AgentSummary) => agents.archivedAgents.has(agent.id);
-              const active = agents.agents.filter((agent) => !isArchived(agent));
-              // Hidden until asked for — but the agent on screen is always an
-              // option, or the picker would show some other name.
-              const archived = agents.agents.filter(
-                (agent) => isArchived(agent) && (showArchivedAgents || agent.id === agents.agentId),
-              );
-              // Pinned agents lead the list already; with any pinned, the
-              // groups are labelled, since an option cannot carry the pin icon.
-              const pinned = active.filter((agent) => agents.pinned.has(agent.id));
-              if (pinned.length === 0 && archived.length === 0) return active.map(option);
+          <ul className="agent-list" onScroll={closeAgentMenu}>
+            {agents.agents.length === 0 ? <li className="muted small pad">No agents</li> : null}
+            {agentRows.map((agent) => {
+              const selected = agent.id === agents.agentId;
+              const archived = agents.archivedAgents.has(agent.id);
+              const responding = activeAgentIds.has(agent.id);
+              // The open agent's count comes from its own list, which is
+              // always current; the others from the last stats fetch.
+              const count = (selected ? statsOf(agents.conversations) : stats.get(agent.id))?.count;
+              const menuOpen = agentMenu?.agent.id === agent.id;
               return (
-                <>
-                  {pinned.length > 0 ? (
-                    <optgroup label="Pinned">{pinned.map(option)}</optgroup>
-                  ) : null}
-                  <optgroup label="Agents">
-                    {active.filter((agent) => !agents.pinned.has(agent.id)).map(option)}
-                  </optgroup>
-                  {archived.length > 0 ? (
-                    <optgroup label="Archived">{archived.map(option)}</optgroup>
-                  ) : null}
-                </>
+                <li
+                  key={agent.id}
+                  data-agent-id={agent.id}
+                  className={[
+                    "agent-row",
+                    selected ? "active" : "",
+                    archived ? "archived" : "",
+                    menuOpen ? "menu-open" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <button
+                    type="button"
+                    className="agent-row-main"
+                    aria-current={selected ? "true" : undefined}
+                    onClick={() => {
+                      if (!selected) agents.selectAgent(agent.id);
+                      onClose();
+                    }}
+                  >
+                    <span className="agent-avatar" style={{ background: tintFor(agent.id) }}>
+                      {initialOf(agent.name)}
+                    </span>
+                    <span className="agent-row-name">
+                      {agents.pinned.has(agent.id) ? (
+                        <Icon name="pin" className="switcher-pin" />
+                      ) : null}
+                      {agent.name}
+                    </span>
+                    {archived ? <span className="tag muted archived-tag">archived</span> : null}
+                    {responding ? (
+                      <span
+                        className="activity-dot"
+                        role="img"
+                        aria-label="Responding"
+                        title="Responding…"
+                      />
+                    ) : count !== undefined ? (
+                      <span className="agent-row-count" title={`${count} conversations`}>
+                        {count}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button flat agent-more"
+                    data-agent-more={agent.id}
+                    aria-label={`More for ${agent.name}`}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                    onClick={(event) => {
+                      const anchor = event.currentTarget.getBoundingClientRect();
+                      setMenuFor(null);
+                      setAgentMenu((current) =>
+                        current?.agent.id === agent.id ? null : { agent, anchor },
+                      );
+                    }}
+                  >
+                    <Icon name="more" />
+                  </button>
+                </li>
               );
-            })()}
-          </select>
+            })}
+          </ul>
           {archivedAgentCount > 0 ? (
             <button
               type="button"
@@ -199,24 +235,24 @@ export function Sidebar({
                 : `Show archived agents (${archivedAgentCount})`}
             </button>
           ) : null}
-          {agentMenuAt && currentAgent ? (
+          {agentMenu ? (
             <AgentMenu
-              agentName={currentAgent.name}
-              pinned={agents.pinned.has(currentAgent.id)}
-              archived={agents.archivedAgents.has(currentAgent.id)}
-              anchor={agentMenuAt}
+              agentName={agentMenu.agent.name}
+              pinned={agents.pinned.has(agentMenu.agent.id)}
+              archived={agents.archivedAgents.has(agentMenu.agent.id)}
+              anchor={agentMenu.anchor}
               placement="below"
-              onEdit={() => onEditAgent(currentAgent.id)}
+              onEdit={() => onEditAgent(agentMenu.agent.id)}
               onTogglePin={() =>
-                void agents.setPinned(currentAgent.id, !agents.pinned.has(currentAgent.id))
+                void agents.setPinned(agentMenu.agent.id, !agents.pinned.has(agentMenu.agent.id))
               }
               onToggleArchive={() =>
                 void agents.setAgentArchived(
-                  currentAgent.id,
-                  !agents.archivedAgents.has(currentAgent.id),
+                  agentMenu.agent.id,
+                  !agents.archivedAgents.has(agentMenu.agent.id),
                 )
               }
-              onDelete={() => setDeleting(currentAgent)}
+              onDelete={() => setDeleting(agentMenu.agent)}
               onClose={closeAgentMenu}
             />
           ) : null}

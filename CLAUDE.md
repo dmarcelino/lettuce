@@ -659,11 +659,18 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   id lists (`bff/src/agents/id-list.ts`: `pinned-agents.json`, `archived-agents.json` on
   `bff-data`; `GET /api/agents/flags`, `PUT /api/agents/{pins,archived}/:id`; archiving also
   unpins). Archive only hides: crons, memory and conversations carry on. One `AgentMenu` (Edit,
-  Pin, Archive, Delete) serves the phone switcher (opening above its ⋯) and the desktop sidebar
-  (the ⋯ beside the picker, opening below); it is fixed to the viewport because the switcher's
-  agent scroll box clips an absolute menu, and closes itself on Back, Escape and presses
-  elsewhere. `use-agents` returns `agents` pinned-first; both lists hide archived agents behind
-  "Show archived agents (N)", and the picker always keeps the open agent as an option.
+  Pin, Archive, Delete) serves the phone switcher (opening above its ⋯) and every row of the
+  desktop sidebar's agent list (opening below); it is fixed to the viewport because both agent
+  lists scroll in boxes of their own, which clip an absolute menu, and closes itself on Back,
+  Escape and presses elsewhere. `use-agents` returns `agents` pinned-first; both lists hide
+  archived agents behind "Show archived agents (N)".
+- **The desktop sidebar is two lists with one row language, told apart by where they sit.**
+  There is no agent dropdown: agents are rows (`.agent-row`: round avatar, name, conversation
+  count or a responding dot, ⋯) on a panel of their own (`.sidebar-agents`, `--surface-2`,
+  capped at a third of the height); conversations stay on the sidebar's background with dates.
+  Both mark the open row with a 3px left bar. Counts for other agents come from
+  `useAgentStats`, fetched only at the desktop width (`useWide`) — the sidebar stays mounted,
+  hidden, on a phone. ui-check reads the open agent from `.agent-row.active[data-agent-id]`.
 - **`create_agent` presets** are exactly `memo | tutorial | blank | linus | kawaii`. There is
   no `default`.
 

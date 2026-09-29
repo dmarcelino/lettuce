@@ -286,6 +286,7 @@ function Workspace({ status }: { status: Status }) {
         onEditAgent={editAgent}
         activeScopes={session.activeScopes}
         activeAgentIds={session.activeAgentIds}
+        request={session.request}
       />
 
       <div className="main">
