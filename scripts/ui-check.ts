@@ -1570,14 +1570,18 @@ try {
     await context.close();
   }
 
-  // The desktop sidebar's rows: selected like a Settings chip, and one ⋯ menu
-  // (the phone switcher's) instead of rename/archive icons on every row.
+  // The desktop sidebar's rows: the open one marked by a left accent bar, like
+  // the agent list's, and one ⋯ menu (the phone switcher's) instead of
+  // rename/archive icons on every row.
   section("Sidebar conversation menu");
   {
     const page = await open(browser, DESKTOP);
     const active = page.locator(".sidebar .conversations li.conversation-row.active");
     await active.waitFor();
-    const border = await active.evaluate((el) => getComputedStyle(el).borderTopColor);
+    const border = await active.evaluate((el) => ({
+      color: getComputedStyle(el).borderLeftColor,
+      width: getComputedStyle(el).borderLeftWidth,
+    }));
     const accent = await page.evaluate(() => {
       const probe = document.createElement("div");
       probe.style.color = "var(--accent)";
@@ -1586,7 +1590,11 @@ try {
       probe.remove();
       return color;
     });
-    check("the open conversation has the accent border", border === accent, { border, accent });
+    check(
+      "the open conversation has the accent left bar",
+      border.color === accent && border.width === "3px",
+      { border, accent },
+    );
     check(
       "rows carry no rename/archive icons",
       (await page.locator(".sidebar .conversations button[aria-label^='Rename']").count()) === 0,
