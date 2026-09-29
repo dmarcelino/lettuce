@@ -1080,6 +1080,14 @@ try {
       !googleLocked || googleText.includes("Read-only here"),
       googleText,
     );
+    // Every service has a level row; Contacts is one of them (workspace-mcp's
+    // People API), so its select must render with its two levels.
+    check(
+      "google lists a Contacts level row",
+      (await page.locator('label:has-text("Contacts") select').count()) === 1 &&
+        (await page.locator('label:has-text("Contacts") select option').count()) === 3,
+      googleText,
+    );
 
     await openSection("Providers & models");
 
