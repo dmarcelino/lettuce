@@ -356,10 +356,28 @@ export function useAgents(session: SessionApi): AgentsApi {
         );
       }
 
+      // A new agent opens on a conversation, ready to type in. It has none
+      // otherwise: its default conversation is never listed, so the UI used
+      // to land on an empty list with the composer disabled until "New"
+      // was pressed. A failure here still leaves the agent created.
+      let firstConversation: string | null = null;
+      try {
+        const opened = await request<{ conversation?: { id?: string } }>("conversation_create", {
+          body: { agent_id: created },
+        });
+        assertOk(opened, "Agent created, but its first conversation could not be");
+        firstConversation =
+          typeof opened?.conversation?.id === "string" ? opened.conversation.id : null;
+      } catch (cause) {
+        setError(errorMessage(cause));
+      }
+
       await refreshAgents();
       setAgentId(created);
-      setConversationId(null);
       setConversations([]);
+      // `refreshConversations` (run when the agent changes) keeps this
+      // selection, since the new conversation is in the list it fetches.
+      setConversationId(firstConversation);
     },
     [request, refreshAgents],
   );
