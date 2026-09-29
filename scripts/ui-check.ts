@@ -1408,13 +1408,34 @@ try {
   }
 
   // ── Context gauge ────────────────────────────────────────────────────────
-  // Usage only arrives mid-turn, so one `usage_statistics` delta is injected.
+  // Usage lives in the BFF (`GET /api/turn-usage`), which knows only real
+  // turns, so that route is stubbed with a cache-hit turn and one
+  // `usage_statistics` delta is injected to make the page fetch it.
   // Asserted: the gauge lands in the top bar (not the composer, where it did
-  // not fit on a phone), leaves the title room, and its sheet opens the limit
-  // editor. Nothing is saved — the limit is real agent state.
+  // not fit on a phone), leaves the title room, the sheet shows the whole
+  // prompt with its cache hit, and opens the limit editor. Nothing is saved —
+  // the limit is real agent state.
   section("Context gauge");
   for (const viewport of [DESKTOP, PHONE]) {
     const page = await browser.newPage({ viewport });
+    await page.route(/\/api\/turn-usage\?/, (route) =>
+      route.fulfill({
+        json: {
+          current: null,
+          last: {
+            promptTokens: 790,
+            cachedTokens: 24_655,
+            lastPromptTokens: 25_445,
+            lastCachedTokens: 24_655,
+            cacheReported: true,
+            completionTokens: 16,
+            reasoningTokens: 13,
+            steps: 1,
+            contextTokens: 25_461,
+          },
+        },
+      }),
+    );
     let inject: ((frame: string) => void) | null = null;
     await page.routeWebSocket(/\/ws$/, (ws) => {
       ws.connectToServer();
@@ -1464,6 +1485,11 @@ try {
         `${w}px: the sheet shows the prompt size`,
         text.includes("Prompt") && text.includes("25,445"),
         text.slice(0, 200),
+      );
+      check(
+        `${w}px: the sheet shows the cache hit`,
+        text.includes("Cache hit") && text.includes("24,655") && text.includes("97% of prompt"),
+        text.slice(0, 300),
       );
       const limitRow = page.locator(".kv-tap");
       await page
