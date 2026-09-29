@@ -454,6 +454,15 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 - **Every tool call arrives as `approval_request_message`**, approved or not. The real approval
   prompt is the `control_request` frame that drives `ApprovalSheet`; the message is just the
   call record, so the transcript labels it "Tool".
+- **Every model text part is an `assistant_message`, even `"\n"`.** Local models emit text
+  between tool calls — narration ("Scan done. Selecting the batch:") and, for some, a lone
+  newline per step (`[thinking, toolCall, "\n", toolCall]` in the pi-ai store). Rendered as
+  answers, that was a ladder of empty "Agent" panels and "3 steps" folds. `groupTranscript`
+  (`web/src/lib/messages.ts`) drops blank text, treats text that more work follows **within the
+  same turn** as narration (turn boundaries: your message, a task notification, an injected
+  reminder, a notice) and folds a turn's work into one run headed by its latest narration line;
+  only the turn's last text is an answer. Live, the newest text is an answer until a step
+  follows it.
 - **Provider errors reach the transcript as JSON.** `local-provider-errors.ts`
   `localProviderErrorDetail` joins the error message with `JSON.stringify()` of whichever of
   `responseBody`, `data`, `body`, `detail`, `code` the failure had, and the terminal `loop_error`

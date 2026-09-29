@@ -2,7 +2,12 @@ import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useS
 import { copyText } from "../lib/clipboard.ts";
 import { codexThreadInTaskText } from "../lib/codex.ts";
 import { collectFileTokens } from "../lib/file-links.ts";
-import { groupTranscript, type TranscriptEntry, type TranscriptItem } from "../lib/messages.ts";
+import {
+  groupTranscript,
+  isNarration,
+  type TranscriptEntry,
+  type TranscriptItem,
+} from "../lib/messages.ts";
 import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
@@ -61,6 +66,14 @@ function firstLine(text: string | undefined): string {
     if (trimmed) return trimmed;
   }
   return "";
+}
+
+/** A narration line as plain text for a one-line heading: no markdown marks. */
+function plainLine(text: string): string {
+  return firstLine(text)
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, "$1$2")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
 }
 
 /** Clip to n characters with an ellipsis. */
@@ -157,10 +170,11 @@ export function MessageList({
     return null;
   }, [entries]);
 
-  const renderEntry = (entry: TranscriptEntry) => (
+  const renderEntry = (entry: TranscriptEntry, inRun = false) => (
     <MessageItem
       key={entry.id}
       entry={entry}
+      narration={inRun && isNarration(entry)}
       retn={
         (entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId
           ? (returnByCall.get(entry.toolCallId) ?? null)
@@ -192,7 +206,7 @@ export function MessageList({
               onToggle={() => toggleSteps(item.id, open)}
               showTimestamps={showTimestamps}
             >
-              {open ? item.entries.map(renderEntry) : null}
+              {open ? item.entries.map((entry) => renderEntry(entry, true)) : null}
             </StepsGroup>
           );
         })}
@@ -235,6 +249,7 @@ const MessageItem = memo(function MessageItem({
   onOpenFile,
   showTimestamps,
   onEdit,
+  narration = false,
 }: {
   entry: TranscriptEntry;
   /** For a tool call: its matching return, folded into the same block. */
@@ -245,6 +260,8 @@ const MessageItem = memo(function MessageItem({
   showTimestamps: boolean;
   /** Set only on your latest message. */
   onEdit?: (text: string) => void;
+  /** The agent's text between steps: a caption inside the run, not a bubble. */
+  narration?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [codexOpen, setCodexOpen] = useState(false);
@@ -264,6 +281,15 @@ const MessageItem = memo(function MessageItem({
   const md = (text: string) => (
     <Markdown text={text} cwd={cwd} resolve={fileLinks.resolve} onOpenFile={onOpenFile} />
   );
+
+  if (narration) {
+    return (
+      <div className="entry narration">
+        <div className="bubble narration">{md(entry.text)}</div>
+        {showTimestamps ? <EntryTime date={entry.date} /> : null}
+      </div>
+    );
+  }
 
   if (entry.kind === "notice") {
     return (
@@ -495,18 +521,32 @@ function StepsGroup({
   showTimestamps: boolean;
   children: ReactNode;
 }) {
-  const total = item.entries.length;
+  const total = item.steps;
   const summary = item.counts
     .map(([label, count]) => (count > 1 ? `${label} ×${count}` : label))
     .join(" · ");
+  const counts = (
+    <>
+      <span className="steps-count">
+        {total} step{total === 1 ? "" : "s"}
+      </span>
+      {summary ? <span className="steps-summary">· {summary}</span> : null}
+    </>
+  );
+  const headline = item.headline ? plainLine(item.headline) : "";
   return (
-    <div className={`steps${open ? " open" : ""}`}>
+    <div className={`steps${open ? " open" : ""}${headline ? " headed" : ""}`}>
       <button type="button" className="steps-head" aria-expanded={open} onClick={onToggle}>
         <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
-        <span className="steps-count">
-          {total} step{total === 1 ? "" : "s"}
-        </span>
-        <span className="steps-summary">· {summary}</span>
+        {headline ? (
+          // The turn's latest narration names the run; the counts go under it.
+          <span className="steps-stack">
+            <span className="steps-headline">{headline}</span>
+            <span className="steps-line">{counts}</span>
+          </span>
+        ) : (
+          counts
+        )}
         {showTimestamps ? <EntryTime date={item.date} /> : null}
       </button>
       {children}

@@ -546,6 +546,17 @@ try {
       if (style.userRight !== null) check("your messages sit on the right", style.userRight, style);
       check("no uppercase labels in the transcript", style.uppercase === 0, style);
       check("the transcript does not scroll sideways", !style.overflow, style);
+      // A lone "\n" text part between tool calls used to draw an empty
+      // "Agent" panel per step; such text is dropped now.
+      const emptyAnswers = await page.evaluate(
+        () =>
+          [
+            ...document.querySelectorAll<HTMLElement>(
+              ".messages .entry.assistant:not(.subagent) > .bubble",
+            ),
+          ].filter((el) => !el.textContent?.trim()).length,
+      );
+      check("no empty agent message panels", emptyAnswers === 0, { emptyAnswers });
       const steps = page.locator(".messages .steps-head").first();
       if ((await steps.count()) > 0) {
         check("steps start collapsed", (await steps.getAttribute("aria-expanded")) === "false");

@@ -600,6 +600,56 @@ pre {
     display: none;
   }
 }
+/* A run headed by the agent's latest narration: that line on top, in the text
+   colour and clipped to one line, the counts muted under it. */
+.steps.headed > .steps-head {
+  align-items: flex-start;
+}
+.steps.headed > .steps-head > .chevron {
+  margin-top: 3px;
+}
+.steps-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.steps-headline {
+  color: var(--text);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.steps-line {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.steps-line .steps-count {
+  color: var(--muted);
+  font-weight: 400;
+}
+/* The agent's narration inside an open run: its own words, on the agent's
+   rail colour, without the panel an answer gets. */
+.entry.narration {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--agent);
+}
+.entry.narration .bubble {
+  flex: 1;
+  font-size: 14px;
+}
+.entry.narration time {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .step-name {
   font-size: 13px;
   color: var(--muted);

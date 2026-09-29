@@ -1015,6 +1015,79 @@ describe("groupTranscript", () => {
     expect(before[0]).toMatchObject({ kind: "steps", id: first.id, date: first.date });
     expect(after[0]).toMatchObject({ kind: "steps", id: first.id, date: first.date });
   });
+
+  test("blank agent text between tool calls is dropped and the runs join", () => {
+    // The stored shape: [thinking, toolCall, "\n", toolCall] per step.
+    const items = groupTranscript([
+      e("user"),
+      e("reasoning"),
+      e("tool_call", { toolName: "Read" }),
+      e("assistant", { text: "\n" }),
+      e("tool_call", { toolName: "Read" }),
+      e("reasoning"),
+      e("assistant", { text: "  " }),
+      e("tool_call", { toolName: "Read" }),
+      e("assistant", { text: "Done." }),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["message", "steps", "message"]);
+    const steps = items[1];
+    if (steps?.kind !== "steps") throw new Error("expected steps");
+    expect(steps.steps).toBe(5);
+    expect(steps.headline).toBeUndefined();
+  });
+
+  test("narration folds into the turn's one run, headed by the latest line", () => {
+    const first = e("assistant", { text: "Evidence loaded. Checking scan:" });
+    const second = e("assistant", { text: "Scan done. Selecting the batch:" });
+    const answer = e("assistant", { text: "Drafted two resumes." });
+    const items = groupTranscript([
+      e("user"),
+      e("reasoning"),
+      first,
+      e("tool_call", { toolName: "Bash" }),
+      second,
+      e("tool_call", { toolName: "Bash" }),
+      answer,
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["message", "steps", "message"]);
+    const steps = items[1];
+    if (steps?.kind !== "steps") throw new Error("expected steps");
+    expect(steps.entries.map((x) => x.id)).toContain(first.id);
+    expect(steps.steps).toBe(3);
+    expect(steps.counts).toEqual([
+      ["Thinking", 1],
+      ["Bash", 2],
+    ]);
+    expect(steps.headline).toBe("Scan done. Selecting the batch:");
+    expect(items[2]).toMatchObject({ kind: "message", entry: { id: answer.id } });
+  });
+
+  test("an answer stays an answer when the next turn starts with a task or reminder", () => {
+    for (const next of [e("task"), e("system", { reminder: true }), e("user")]) {
+      const answer = e("assistant", { text: "Awaiting scan." });
+      const items = groupTranscript([e("reasoning"), answer, next, e("reasoning")]);
+      expect(items.some((i) => i.kind === "message" && i.entry.id === answer.id)).toBe(true);
+    }
+  });
+
+  test("live, the newest text is an answer until a step follows it", () => {
+    const text = e("assistant", { text: "Fetching:" });
+    const live = groupTranscript([e("user"), e("reasoning"), text]);
+    expect(live.at(-1)).toMatchObject({ kind: "message", entry: { id: text.id } });
+    const later = groupTranscript([e("user"), e("reasoning"), text, e("tool_call")]);
+    expect(later.map((i) => i.kind)).toEqual(["message", "steps"]);
+  });
+
+  test("a subagent's reply is still a counted step, never narration", () => {
+    const items = groupTranscript([
+      e("assistant", { subagentId: "sub-1" }),
+      e("tool_call", { toolName: "Bash" }),
+    ]);
+    const steps = items[0];
+    if (steps?.kind !== "steps") throw new Error("expected steps");
+    expect(steps.steps).toBe(2);
+    expect(steps.headline).toBeUndefined();
+  });
 });
 
 describe("toggleShown (the Filter sheet: ticked = shown)", () => {

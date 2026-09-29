@@ -463,18 +463,79 @@ export type TranscriptItem =
       kind: "steps";
       /** The first step's id — stable while the run grows at its tail. */
       id: string;
+      /** Steps and narration, in order; narration is `isNarration`. */
       entries: TranscriptEntry[];
       /** Step count per label, in first-seen order ("Thinking" → 6, "Bash" → 5). */
       counts: [label: string, count: number][];
+      /** Number of steps — `entries` minus the narration. */
+      steps: number;
+      /** The run's latest narration line, its heading while folded. */
+      headline?: string;
       /** When the run began. */
       date: string;
     };
+
+/** The main agent speaking, as opposed to a subagent's reply (a step). */
+function isAgentText(entry: TranscriptEntry): boolean {
+  return entry.kind === "assistant" && !entry.subagentId;
+}
+
+/**
+ * Text the model emitted that says nothing. Some local models put a lone
+ * newline between two tool calls of one step (`[thinking, toolCall, "\n",
+ * toolCall]` in the store), and upstream turns every text part into an
+ * `assistant_message` — which drew an empty "Agent" bubble per step.
+ */
+function isBlankAgentText(entry: TranscriptEntry): boolean {
+  return isAgentText(entry) && entry.text.trim() === "";
+}
+
+/**
+ * Where one turn ends and the next begins, for telling narration from an
+ * answer: your message, background work reporting back (which starts a turn of
+ * its own), injected reminders (they open a cron- or channel-fired turn), and
+ * notices (often the error that ended one).
+ */
+function isTurnBoundary(entry: TranscriptEntry): boolean {
+  return (
+    entry.kind === "user" ||
+    entry.kind === "task" ||
+    entry.kind === "notice" ||
+    (entry.kind === "system" && entry.reminder === true)
+  );
+}
 
 /** The conversation proper: what you said and what the agent answered. */
 function isConversationMessage(entry: TranscriptEntry): boolean {
   if (entry.reminder) return false;
   if (entry.kind === "user") return true;
-  return entry.kind === "assistant" && !entry.subagentId;
+  return isAgentText(entry);
+}
+
+/**
+ * The main agent's text that more work followed within the same turn:
+ * "Scan done. Selecting the scoring batch:" before a tool call. It is the
+ * agent narrating its steps, not answering, so it folds in with them — only a
+ * turn's last text is its answer. The set is keyed by entry id.
+ */
+function narrationIds(entries: readonly TranscriptEntry[]): Set<string> {
+  const ids = new Set<string>();
+  let workFollows = false;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (!entry) continue;
+    if (isTurnBoundary(entry)) workFollows = false;
+    else if (isAgentText(entry)) {
+      if (isBlankAgentText(entry)) continue;
+      if (workFollows) ids.add(entry.id);
+    } else workFollows = true;
+  }
+  return ids;
+}
+
+/** Whether a steps-run entry is narration rather than a step. */
+export function isNarration(entry: TranscriptEntry): boolean {
+  return isAgentText(entry);
 }
 
 /** How a step is counted in its group's summary line. */
@@ -510,29 +571,43 @@ export function stepLabel(entry: TranscriptEntry): string {
  * and notices stay standalone — a notice is often the error that ended the
  * turn, and must never be hidden inside a fold. The caller removes tool returns
  * it renders folded into their call before grouping, so they are not counted.
+ *
+ * The agent's narration between steps ("Scan done. Selecting the batch:")
+ * belongs to the run, not between runs: splitting on it turned one turn into a
+ * ladder of bubble / "3 steps" pairs. So a whole turn's work is one run, headed
+ * by its latest narration, and only the turn's final text stands as the
+ * answer. Blank text is dropped outright. Live, the agent's newest text is an
+ * answer until a step follows it, then it folds into the run above.
  */
 export function groupTranscript(entries: readonly TranscriptEntry[]): TranscriptItem[] {
   const items: TranscriptItem[] = [];
+  const narration = narrationIds(entries);
   let run: Extract<TranscriptItem, { kind: "steps" }> | null = null;
   let counts = new Map<string, number>();
 
   for (const entry of entries) {
+    if (isBlankAgentText(entry)) continue;
     if (entry.kind === "notice") {
       items.push({ kind: "notice", entry });
       run = null;
       continue;
     }
-    if (isConversationMessage(entry)) {
+    if (isConversationMessage(entry) && !narration.has(entry.id)) {
       items.push({ kind: "message", entry });
       run = null;
       continue;
     }
     if (!run) {
       counts = new Map();
-      run = { kind: "steps", id: entry.id, entries: [], counts: [], date: entry.date };
+      run = { kind: "steps", id: entry.id, entries: [], counts: [], steps: 0, date: entry.date };
       items.push(run);
     }
     run.entries.push(entry);
+    if (narration.has(entry.id)) {
+      run.headline = entry.text.trim();
+      continue;
+    }
+    run.steps += 1;
     const label = stepLabel(entry);
     counts.set(label, (counts.get(label) ?? 0) + 1);
     run.counts = [...counts];
