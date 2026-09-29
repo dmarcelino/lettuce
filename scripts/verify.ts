@@ -19,6 +19,11 @@ interface Stage {
 
 const STAGES: Stage[] = [
   {
+    name: "worktree",
+    cmd: ["bun", "scripts/check-worktree.ts"],
+    why: "feature work happens in a worktree, not the main checkout",
+  },
+  {
     name: "version-pin",
     cmd: ["bun", "scripts/check-version-pin.ts"],
     why: "one letta-code release across images and types",

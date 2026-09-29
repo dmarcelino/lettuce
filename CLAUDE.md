@@ -819,6 +819,13 @@ Worktrees per feature, feature branches, fast-forward merge to `main`
 (`git merge --ff-only`, no merge commits), no PRs. Rebase the feature branch onto `main`
 first if it isn't already a fast-forward.
 
+**The main checkout stays on `main` with a clean tree — only merges happen there.** All
+feature work, including creating the branch and every commit on it, happens in a worktree
+(`git worktree add ../letta-code-ui-worktrees/<name> -b <branch>`). Branching inside the
+main checkout is not a stylistic slip: two sessions sharing it collide — one switched the
+checkout to its branch mid-work and `deploy-check`'s clean-tree and on-`main` assertions
+then failed on the other's uncommitted changes (observed 2026-09-29).
+
 **Every significant feature gets its own feature branch**: a user-visible capability, a
 new service or sidecar, or any change spanning more than one of `bff/`, `web/`, `docker/`.
 Small fixes and docs may land directly on `main`; they simply carry a PATCH tag when they
@@ -972,7 +979,7 @@ app-server request loop that `use-session.ts` documents).
 
 | Command | What it does |
 |---|---|
-| `bun run verify` | **The gate.** version-pin → lint → typecheck → test → build, fail-fast |
+| `bun run verify` | **The gate.** worktree → version-pin → lint → typecheck → test → build, fail-fast |
 | `bun run deploy-check` | Asserts the running container serves the merged code, and is healthy |
 | `bun run ui-check` | Layout/interaction assertions in a real browser; screenshots to `.ui-check/` |
 | `bun run lint` | Biome check (errors fail, warnings do not) |
