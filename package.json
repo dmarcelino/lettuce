@@ -20,7 +20,8 @@
     "deploy-check": "bun scripts/deploy-check.ts",
     "check-version-pin": "bun scripts/check-version-pin.ts",
     "migrate-state": "bash scripts/migrate-volumes-to-host.sh",
-    "sync-upstream": "bash scripts/sync-upstream.sh"
+    "sync-upstream": "bash scripts/sync-upstream.sh",
+    "screenshots": "bun scripts/screenshots.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",
