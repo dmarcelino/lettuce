@@ -249,7 +249,9 @@ export function loadConfig(): BffConfig {
     sessionTtlSeconds: optionalNumber("SESSION_TTL_SECONDS", 60 * 60 * 24 * 30),
     allowedUsers: readAllowedUsers(needsCfAccess, devBypassEmail),
     frameBufferSize: optionalNumber("FRAME_BUFFER_SIZE", 5000),
-    shutdownDrainTimeoutMs: optionalNumber("SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 15 * 60) * 1000,
+    // 9 min: under `stop_grace_period` (10m), and drain + image build under
+    // Dockhand's 900 s `compose up` timeout — see docker/compose.yml.
+    shutdownDrainTimeoutMs: optionalNumber("SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 9 * 60) * 1000,
     devBypassEmail,
     devBypassAllowRemote,
     push: readPushConfig(),

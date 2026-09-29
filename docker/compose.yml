@@ -197,11 +197,16 @@ services:
     network_mode: "service:app-server"
     # Stopping the BFF closes the one upstream connection, which cancels every
     # turn in flight — so on SIGTERM it first waits for running turns to end
-    # (bff/src/shutdown.ts), up to SHUTDOWN_DRAIN_TIMEOUT_SECONDS (default 15m).
+    # (bff/src/shutdown.ts), up to SHUTDOWN_DRAIN_TIMEOUT_SECONDS (default 9m).
     # Docker's default 10s grace would SIGKILL that drain, so this must stay
     # longer than the drain timeout. A redeploy while a turn runs therefore
     # takes up to this long to stop the old container.
-    stop_grace_period: 16m
+    #
+    # And the pair must fit inside Dockhand's `compose up` timeout (900 s,
+    # COMPOSE_TIMEOUT), which also covers the image build: at 15m/16m a deploy
+    # during a turn timed out, left the new container created but not started,
+    # and prod had no bff once the old one drained (2026-09-29).
+    stop_grace_period: 10m
     environment:
       PORT: "8080"
       SHUTDOWN_DRAIN_TIMEOUT_SECONDS: ${SHUTDOWN_DRAIN_TIMEOUT_SECONDS:-}

@@ -88,11 +88,19 @@ that is still busy, `send.ts` `maybeWaitForBlockingRun` waits out `BUSY_RUN_WAIT
 300000ms`. **Signature: an error push exactly five minutes after a BFF restart, then a
 "completed" push shortly after, and nothing in the transcript** (seen on prod 2026-09-25 with a
 two-hour cron turn). `bff/src/shutdown.ts` therefore holds SIGTERM until `ActivityTracker`
-reports no turn in progress, up to `SHUTDOWN_DRAIN_TIMEOUT_SECONDS` (default 15 min), while
-still serving browsers; a second signal skips the wait. `stop_grace_period: 16m` in
+reports no turn in progress, up to `SHUTDOWN_DRAIN_TIMEOUT_SECONDS` (default 9 min), while
+still serving browsers; a second signal skips the wait. `stop_grace_period: 10m` in
 `docker/compose.yml` is what lets it — Docker's default 10 s SIGKILLs the drain — and it must
 stay above the drain timeout. So a `bff` deploy during a turn now takes until that turn ends
 to stop the old container. A turn longer than the cap still dies.
+
+**Both must also fit inside Dockhand's `compose up` timeout: 900 s (`COMPOSE_TIMEOUT`), image
+build included.** At 15 min / 16m a deploy during a turn (2026-09-29) hit it: Dockhand gave up,
+the new `bff` stayed *created, not started*, and once the old one finished draining prod had no
+`bff` at all — down for six minutes until a second deploy (`--allow-unhealthy`, nothing left to
+drain) started it. The leftover container keeps compose's temporary name
+(`<hash>_letta-code-ui-prod-bff-1`) until the next deploy. Raising the drain means raising
+`COMPOSE_TIMEOUT` in Dockhand's stack variables first.
 
 **Turn errors are live-only upstream, so the BFF keeps them.** A failed turn reaches clients
 as a `loop_error` delta and `turn_finished.error`; neither is written to the message store, so
