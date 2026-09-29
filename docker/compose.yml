@@ -54,6 +54,14 @@ services:
         CODEX_VERSION: ${CODEX_VERSION:-0.157.1}
         GH_VERSION: ${GH_VERSION:-2.101.0}
     image: letta-app-server:${LETTA_CODE_VERSION:-0.33.3}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}
+    # An init process as PID 1, so exited orphans are reaped. Without it PID 1
+    # is `node … letta server`, which waits only on children it spawned: every
+    # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
+    # reparented to node and stays a zombie, counting against the cgroup's
+    # pids.max until the container restarts. Near that cap a subagent's spawn
+    # fails with EAGAIN, which letta-code reports only as "Subagent process
+    # exited with code unknown" (the errno is logged by spawn-diagnostics.cjs).
+    init: true
     command:
       - letta
       - server

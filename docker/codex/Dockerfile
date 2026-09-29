@@ -11,6 +11,13 @@ ARG CODEX_VERSION
 RUN npm install --global --prefix /opt/codex "@openai/codex@${CODEX_VERSION}" \
     && /opt/codex/bin/codex --version
 
+# Logs the real errno of a failed child spawn, which letta-code discards (a
+# subagent that could not start reports only "exited with code unknown"). In
+# ENV, not compose, so the variable can never point at a file this image lacks:
+# a missing --require target stops every node process in the container.
+COPY spawn-diagnostics.cjs /opt/letta-ui/spawn-diagnostics.cjs
+ENV NODE_OPTIONS="--require /opt/letta-ui/spawn-diagnostics.cjs"
+
 COPY shim-core.mjs codex-shim.mjs /opt/codex-shim/
 RUN chmod 755 /opt/codex-shim/codex-shim.mjs \
     && ln -s /opt/codex-shim/codex-shim.mjs /usr/local/bin/codex

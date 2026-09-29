@@ -535,6 +535,21 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   - Upstream drift to watch: the shim depends on letta's `turn/start` shape and the preflight
     command; re-verify both on every letta-code or Codex bump (`CODEX_VERSION` is pinned in
     compose, never floated).
+- **"Subagent process exited with code unknown before returning a result" = the spawn failed.**
+  Subagents are child `letta` processes (`executeSubagent`). On Node a null exit code *and*
+  signal comes only from the child's `error` event, and `spawnSubagentProcess` discards that
+  error, so stderr is empty and no errno survives. Two things of ours around it:
+  - `init: true` on `app-server`. Without it PID 1 is `node … letta server`, which never reaps
+    orphans, so everything an agent shell backgrounds and outlives stays a zombie counting
+    against the cgroup's `pids.max` until a recreate — near the cap, spawns fail with `EAGAIN`.
+    The suspected cause of frequent subagent failures on prod (2026-09-29, a day and a half into
+    an app-server uptime of heavy cron turns); the diagnostic below is what confirms or refutes it.
+  - `docker/codex/spawn-diagnostics.cjs`, preloaded into every node process in the image
+    (`ENV NODE_OPTIONS=--require …` in the Dockerfile, never compose: a missing `--require`
+    target kills every node process). It logs `[letta-ui spawn-diag] spawn failed: <errno>
+    file=… cwd=… pids=<current>/<max> zombies=<n>` to stderr, i.e. `docker logs` for the server
+    and the "stderr tail" of a failing child's parent. Observe-only: it wraps
+    `ChildProcess.prototype.emit` and never adds an `error` listener.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent**
   tab (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name,
