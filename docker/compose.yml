@@ -50,10 +50,10 @@ services:
     build:
       context: codex
       args:
-        LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.33.3}
+        LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.33.7}
         CODEX_VERSION: ${CODEX_VERSION:-0.157.1}
         GH_VERSION: ${GH_VERSION:-2.101.0}
-    image: letta-app-server:${LETTA_CODE_VERSION:-0.33.3}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}
+    image: letta-app-server:${LETTA_CODE_VERSION:-0.33.7}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -308,7 +308,7 @@ services:
   channel-gateway:
     profiles: ["telegram"]
     # Upstream's published image, used as-is — same image as the app-server.
-    image: letta/letta:${LETTA_CODE_VERSION:-0.33.3}
+    image: letta/letta:${LETTA_CODE_VERSION:-0.33.7}
     depends_on:
       app-server:
         condition: service_healthy
