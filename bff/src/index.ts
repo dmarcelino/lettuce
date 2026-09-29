@@ -16,6 +16,7 @@ import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { installAgentSkills, readSkillTree } from "./agent-skills.ts";
 import { AgentIdList, isAgentId } from "./agents/id-list.ts";
+import { AgentToolAccessStore, agentsWhere, parseToolAccess } from "./agents/tool-access.ts";
 import { checkUpgradeOrigin } from "./auth/origin.ts";
 import { resolveSession } from "./auth/resolve-session.ts";
 import {
@@ -24,6 +25,7 @@ import {
   encodeSession,
   type SessionPayload,
 } from "./auth/session-cookie.ts";
+import { AGENT_POLICY_MOD_PATH, renderAgentPolicyMod } from "./codex/policy-mod.ts";
 import { isCodexThreadId } from "./codex/rollout.ts";
 import {
   type CodexFileIo,
@@ -43,7 +45,12 @@ import { googleSettingsUrl, type LostAccessPort } from "./google/lost-access.ts"
 import { GoogleOAuthError } from "./google/oauth.ts";
 import { GoogleAccessError, GoogleService } from "./google/service.ts";
 import { InvalidGoogleSettingsError } from "./google/settings.ts";
-import { availableGoogleTools, GOOGLE_TOOLS_MOD_PATH, googleHandlers } from "./google/tools.ts";
+import {
+  availableGoogleTools,
+  GOOGLE_TOOLS_MOD_PATH,
+  googleHandlers,
+  googleToolsHiddenAt,
+} from "./google/tools.ts";
 import {
   DEFAULT_HTTP_CAPACITY,
   DEFAULT_HTTP_REFILL_PER_SECOND,
@@ -108,6 +115,12 @@ const agentPins = new AgentIdList(config.pinnedAgentsFile, (error) =>
 const agentArchive = new AgentIdList(config.archivedAgentsFile, (error) =>
   log(`Archived agents persist failed: ${errorMessage(error)}`),
 );
+const agentToolAccess = new AgentToolAccessStore(config.agentToolAccessFile, (error) =>
+  log(`Agent tool access persist failed: ${errorMessage(error)}`),
+);
+// A call with no agent id (an agent shell's curl) gets the default: this is availability, not a boundary.
+const googleAccessFor = (agentId: string | null) =>
+  agentId ? agentToolAccess.get(agentId).google : "full";
 // Push titles name the agent. Looked up through the permanent connection and
 // cached; a failed lookup falls back to "Letta" rather than delaying the push.
 const agentNames = new AgentNames(async (agentId) => {
@@ -309,12 +322,14 @@ const toolHandlers: ReadonlyMap<string, ToolHandler> = new Map<string, ToolHandl
   ...bridgeHandlers(mcpCatalog, mcpClient, {
     url: config.google.mcpUrl,
     lostAccess: googleLostAccess,
+    accessFor: googleAccessFor,
   }),
   ...googleHandlers({
     catalog: () => mcpCatalog.current(),
     googleUrl: config.google.mcpUrl,
     client: mcpClient,
     lostAccess: googleLostAccess,
+    accessFor: googleAccessFor,
   }),
 ]);
 const modsIo: ModsIo = {
@@ -345,6 +360,10 @@ const modsIo: ModsIo = {
 async function renderAllMods(): Promise<RenderedMod[]> {
   const web = await loadWebToolsSettings(codexIo);
   const { tools } = mcpCatalog.snapshot();
+  const access = agentToolAccess.all();
+  const googleHidden = Object.fromEntries(
+    Object.entries(access).map(([agentId, a]) => [agentId, googleToolsHiddenAt(a.google)]),
+  );
   return [
     {
       path: WEB_TOOLS_MOD_PATH,
@@ -356,6 +375,7 @@ async function renderAllMods(): Promise<RenderedMod[]> {
         title: "letta-ui google-tools v1",
         tools: availableGoogleTools(tools, config.google.mcpUrl).specs,
         port: config.port,
+        hidden: googleHidden,
       }),
     },
     {
@@ -365,6 +385,10 @@ async function renderAllMods(): Promise<RenderedMod[]> {
         tools: tools.length > 0 ? BRIDGE_TOOL_SPECS : [],
         port: config.port,
       }),
+    },
+    {
+      path: AGENT_POLICY_MOD_PATH,
+      source: renderAgentPolicyMod({ codexBlocked: agentsWhere(access, (a) => !a.codex) }),
     },
   ];
 }
@@ -744,6 +768,33 @@ app.put("/api/agents/pins/:agentId", async (c) => {
   const agentId = c.req.param("agentId");
   if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
   return c.json({ pinned: agentPins.set(agentId, body.pinned) });
+});
+
+// ── Per-agent tool access ───────────────────────────────────────────────────
+// Codex workers and Google, narrowed per agent (Agent → Tools); enforced by the
+// rendered mods, see `agents/tool-access.ts`.
+
+app.get("/api/agents/tool-access/:agentId", (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  return c.json(agentToolAccess.get(agentId));
+});
+
+app.put("/api/agents/tool-access/:agentId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  const access = parseToolAccess(await c.req.json().catch(() => null));
+  if (!access) {
+    return c.text('Body must be { codex: boolean, google: "full" | "read" | "off" }', 400);
+  }
+  if (agentToolAccess.set(agentId, access)) {
+    // Awaited so the answer says whether it is live; a new turn picks it up either way.
+    const mods = await resyncMods("Agent → Tools", { refreshCatalog: false }).catch(() => null);
+    return c.json({ ...agentToolAccess.get(agentId), mods: mods ?? "failed" });
+  }
+  return c.json({ ...agentToolAccess.get(agentId), mods: "unchanged" });
 });
 
 app.get("/api/skills", async (c) => {

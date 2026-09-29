@@ -509,12 +509,38 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent**
   tab (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name,
-  model, base system prompt, delete), Secrets, Reflection, and the Skills it sees. **Settings**,
+  model, base system prompt, delete), Tools, Secrets, Reflection, and the Skills it sees. **Settings**,
   the top bar's gear (`components/GlobalSettings.tsx`, full screen; wrapping chips with short
   names on a phone, the grouped list beside the section on desktop), holds what every agent shares — providers, web search, MCP servers,
   Google, Codex workers, global skills — plus this device's notifications and an About. A new
   setting goes where its backend key is: keyed by `agent_id` → Agent tab; a BFF file or an
   app-server-wide command → Settings; `runtime` scope → next to the conversation (composer).
+- **Per-agent tool access (Agent → Tools) narrows Codex and Google through the mods, with no
+  upstream change.** Settings → Codex workers and → Google decide what exists; each agent can be
+  cut down from there (Google full / read-only / off, Codex allowed / blocked). The BFF keeps it
+  in `agent-tool-access.json` on `bff-data` (`bff/src/agents/tool-access.ts`, only non-default
+  entries), and a save re-renders the mods and sends one `reload`. Three upstream hooks carry it
+  (0.33.3):
+  - **Hiding a tool:** `letta.tools.register({ isEnabled(ctx) })` is called per turn with the
+    listener's mod context, whose `ctx.agent.id` is the agent (`filterAvailableModToolsRegistry`).
+    `renderToolsMod`'s `hidden` map bakes agent → tool names in. A hidden tool is left out of that
+    turn's schemas.
+  - **Denying a call:** `letta.permissions.register({ check(event) })` sees `event.agentId` and
+    `event.args`. Its `deny` replaces the built-in decision in `checkPermissionWithHooks`, in
+    **every** permission mode, Unrestricted included. A Codex worker is not a tool of its own; it
+    is `subagent_type: "codex"` on Task/Agent, plus `SendAgentMessage` to `codex_<uuid>` for
+    follow-ups. So `letta-ui-agent-policy.mjs` (`bff/src/codex/policy-mod.ts`) matches on the
+    arguments, not the tool name.
+  - **Knowing the caller:** every mod call sends `x-letta-agent-id` from `ctx.agent.id`
+    (`internal-tools/mod.ts`), and handlers get it as `ToolCallContext`. The MCP bridge filters
+    its catalog per agent (`toolsForAgent`: off drops the Google server, read-only its writes),
+    and the curated Google handlers re-check in case a mod is stale. A call with no header gets
+    the default.
+
+  This is availability, not isolation. Agent shells are unconfined, so a blocked agent can
+  still reach `google-mcp:8000`, the `mcp-servers` skill wrapper, or `codex` on PATH. The skill
+  wrapper is also global and cannot be narrowed per agent. Entries of deleted agents are not
+  pruned, like pins; they are harmless.
 - **Web search and page reading are native tools, `web_search` and `fetch_webpage`, installed
   as a letta-code mod.** Upstream's own tools of those names are Letta-*server* tools, which our
   local backend (`serverSideToolManagement: false`) cannot have. A **mod** is upstream's supported
@@ -599,8 +625,9 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
   agent cannot mint a session. The OAuth callback is gated by its single-use `state`, not the
   cookie, so a `GOOGLE_OAUTH_REDIRECT_URI` on another origin (localhost) works.
 
-  Limits by design: one policy for every agent (per-agent would need per-agent containers), and
-  allowed tools still combine — Calendar `full` can invite any address, which mails them even
+  Limits by design: the sidecar holds one policy for every agent (a per-agent *boundary* would
+  need per-agent containers; Agent → Tools narrows who is *offered* what, see "Per-agent tool
+  access"), and allowed tools still combine — Calendar `full` can invite any address, which mails them even
   with Gmail read-only, and email content is prompt-injection input.
 
   **A token Google stops accepting is kept, marked lost — never silently dropped.** Tokens die

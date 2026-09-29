@@ -19,6 +19,7 @@
  * WORKSPACE_MCP_VERSION bump.
  */
 
+import type { GoogleAccess } from "../agents/tool-access.ts";
 import { MODS_DIR } from "../internal-tools/mod.ts";
 import {
   capText,
@@ -437,16 +438,37 @@ export function availableGoogleTools(
   };
 }
 
+/**
+ * Curated tool names an agent at `access` does not get: all of them when
+ * Google is off for it, the writes when it is read-only.
+ */
+export function googleToolsHiddenAt(access: GoogleAccess): string[] {
+  if (access === "full") return [];
+  return CURATED_GOOGLE_TOOLS.filter((c) => access === "off" || c.spec.approval === "ask").map(
+    (c) => c.spec.name,
+  );
+}
+
 export function googleHandlers(options: {
   catalog: () => Promise<readonly CatalogTool[]>;
   googleUrl: string;
   client: McpClientPort;
   /** Turns an auth failure into "the user must reconnect", and records it. */
   lostAccess?: LostAccessPort;
+  /** The calling agent's Google access (Agent → Tools); every agent is `full` without it. */
+  accessFor?: (agentId: string | null) => GoogleAccess;
 }): Map<string, ToolHandler> {
   const handlers = new Map<string, ToolHandler>();
   for (const curated of CURATED_GOOGLE_TOOLS) {
-    handlers.set(curated.spec.name, async (args): Promise<ToolAnswer> => {
+    handlers.set(curated.spec.name, async (args, context): Promise<ToolAnswer> => {
+      // The mod already hides these; this answers a call from a mod rendered before the change.
+      const access = options.accessFor?.(context?.agentId ?? null) ?? "full";
+      if (googleToolsHiddenAt(access).includes(curated.spec.name)) {
+        return {
+          text: `${curated.spec.name} is not available to this agent: its Google access in Agent → Tools is ${access === "off" ? "off" : "read-only"}.`,
+          isError: true,
+        };
+      }
       const { specs, server } = availableGoogleTools(await options.catalog(), options.googleUrl);
       if (!server || !specs.some((s) => s.name === curated.spec.name)) {
         return {

@@ -13,6 +13,8 @@
  * per-user throttle: a mod has no session, and its own cap is below.
  */
 
+import { isAgentId } from "../agents/id-list.ts";
+import { AGENT_ID_HEADER } from "./mod.ts";
 import type { ToolAnswer, ToolHandler } from "./types.ts";
 
 export const INTERNAL_PREFIX = "/internal/tools/";
@@ -77,7 +79,8 @@ export async function handleInternalTools(
   }
   inFlight += 1;
   try {
-    return json(await handler(args));
+    const agentId = request.headers.get(AGENT_ID_HEADER);
+    return json(await handler(args, { agentId: isAgentId(agentId) ? agentId : null }));
   } catch (error) {
     // Handlers are written not to throw; this is the backstop.
     return json({

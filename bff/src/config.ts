@@ -54,6 +54,8 @@ export interface BffConfig {
   /** Pinned and archived agents (`agents/id-list.ts`), on the `bff-data` volume. */
   pinnedAgentsFile: string;
   archivedAgentsFile: string;
+  /** Per-agent Codex and Google access (`agents/tool-access.ts`), on the `bff-data` volume. */
+  agentToolAccessFile: string;
   /**
    * Backends of the agents' native `web_search` / `fetch_webpage` tools (see
    * `web-tools/`): SearXNG answers searches, ddg-mcp reads pages and is the
@@ -254,6 +256,8 @@ export function loadConfig(): BffConfig {
     pinnedAgentsFile: process.env.PINNED_AGENTS_FILE?.trim() || "/app/data/pinned-agents.json",
     archivedAgentsFile:
       process.env.ARCHIVED_AGENTS_FILE?.trim() || "/app/data/archived-agents.json",
+    agentToolAccessFile:
+      process.env.AGENT_TOOL_ACCESS_FILE?.trim() || "/app/data/agent-tool-access.json",
     webTools: {
       searxngUrl: process.env.SEARXNG_URL?.trim() || null,
       ddgMcpUrl: process.env.DDG_MCP_URL?.trim() || null,

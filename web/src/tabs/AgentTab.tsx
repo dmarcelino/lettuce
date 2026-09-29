@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AgentGeneralSection } from "../components/AgentGeneralSection.tsx";
+import { AgentToolsSection } from "../components/AgentToolsSection.tsx";
 import { ReflectionSection } from "../components/ReflectionSection.tsx";
 import { SecretsSection } from "../components/SecretsSection.tsx";
 import { AgentSkills } from "../components/SkillsSections.tsx";
@@ -19,10 +20,11 @@ interface Props {
   onOpenGlobalSettings: (section?: "skills") => void;
 }
 
-export type AgentSection = "general" | "secrets" | "reflection" | "skills";
+export type AgentSection = "general" | "tools" | "secrets" | "reflection" | "skills";
 
 const SECTION_LABELS: Record<AgentSection, string> = {
   general: "General",
+  tools: "Tools",
   secrets: "Secrets",
   reflection: "Reflection",
   skills: "Skills",
@@ -83,6 +85,9 @@ export function AgentTab({
 
       {section === "general" ? (
         <AgentGeneralSection key={agentId} session={session} agents={agents} agentId={agentId} />
+      ) : null}
+      {section === "tools" ? (
+        <AgentToolsSection agentId={agentId} onOpenGlobalSettings={() => onOpenGlobalSettings()} />
       ) : null}
       {section === "secrets" ? <SecretsSection session={session} agentId={agentId} /> : null}
       {section === "reflection" ? (

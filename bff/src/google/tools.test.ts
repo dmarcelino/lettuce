@@ -8,10 +8,15 @@ import {
   toCatalogTools,
 } from "../mcp-bridge/catalog.ts";
 import type { ListedTool, McpClientPort } from "../mcp-bridge/client.ts";
-import { bridgeHandlers, resolveTool } from "../mcp-bridge/tools.ts";
+import { bridgeHandlers, resolveTool, toolsForAgent } from "../mcp-bridge/tools.ts";
 import fullFixture from "./fixtures/workspace-mcp-1.29.0.full.json";
 import readonlyFixture from "./fixtures/workspace-mcp-1.29.0.readonly.json";
-import { availableGoogleTools, CURATED_GOOGLE_TOOLS, googleHandlers } from "./tools.ts";
+import {
+  availableGoogleTools,
+  CURATED_GOOGLE_TOOLS,
+  googleHandlers,
+  googleToolsHiddenAt,
+} from "./tools.ts";
 
 const GOOGLE_URL = "http://google-mcp:8000/mcp";
 const google: McpServer = { name: "google", transport: "http", url: GOOGLE_URL };
@@ -368,5 +373,75 @@ describe("the MCP bridge", () => {
     expect(catalog.snapshot().tools).toEqual([]);
     expect(catalog.snapshot().failures.get("google")).toContain("ECONNREFUSED");
     expect(toCatalogTools(google, [])).toEqual([]);
+  });
+});
+
+describe("per-agent Google access", () => {
+  const accessFor = (agentId: string | null) =>
+    agentId === "agent-off" ? "off" : agentId === "agent-read" ? "read" : "full";
+
+  test("read-only hides exactly the curated writes; off hides them all", () => {
+    expect(googleToolsHiddenAt("full")).toEqual([]);
+    const writes = CURATED_GOOGLE_TOOLS.filter((c) => c.spec.approval === "ask").map(
+      (c) => c.spec.name,
+    );
+    expect(googleToolsHiddenAt("read")).toEqual(writes);
+    expect(googleToolsHiddenAt("read")).toContain("gmail_send");
+    expect(googleToolsHiddenAt("off")).toEqual(CURATED_GOOGLE_TOOLS.map((c) => c.spec.name));
+  });
+
+  test("a curated call from a blocked agent is refused before Google is called", async () => {
+    const { catalog, client, calls } = await catalogOf(full);
+    const handlers = googleHandlers({
+      catalog: () => catalog.current(),
+      googleUrl: GOOGLE_URL,
+      client,
+      accessFor,
+    });
+    const send = { to: "a@b.c", subject: "s", body: "b" };
+    const refused = await handlers.get("gmail_send")?.(send, { agentId: "agent-read" });
+    expect(refused?.isError).toBe(true);
+    expect(refused?.text).toContain("read-only");
+    expect(
+      (await handlers.get("gmail_search")?.({ query: "x" }, { agentId: "agent-off" }))?.isError,
+    ).toBe(true);
+    expect(calls).toEqual([]);
+    expect(
+      (await handlers.get("gmail_search")?.({ query: "x" }, { agentId: "agent-read" }))?.isError,
+    ).toBe(false);
+  });
+
+  test("the bridge shows an agent only the Google tools it may use", async () => {
+    const other: McpServer = { name: "notes", transport: "http", url: "http://notes/mcp" };
+    const { catalog, client, calls } = await catalogOf(full, [google, other]);
+    const tools = await catalog.current();
+    const googleCount = tools.filter((t) => t.server.url === GOOGLE_URL).length;
+    expect(toolsForAgent(tools, GOOGLE_URL, "full")).toHaveLength(tools.length);
+    expect(toolsForAgent(tools, GOOGLE_URL, "off")).toHaveLength(tools.length - googleCount);
+    expect(
+      toolsForAgent(tools, GOOGLE_URL, "read").every((t) => t.readOnly || t.server === other),
+    ).toBe(true);
+
+    const handlers = bridgeHandlers(catalog, client, {
+      url: GOOGLE_URL,
+      lostAccess: { publicOrigin: "https://x", markLost: async () => null },
+      accessFor,
+    });
+    const offCall = await handlers.get("mcp_call")?.(
+      { tool: "mcp__google__list_gmail_labels" },
+      { agentId: "agent-off" },
+    );
+    expect(offCall?.isError).toBe(true);
+    const readWrite = await handlers.get("mcp_call_write")?.(
+      { tool: "mcp__google__send_gmail_message", arguments: {} },
+      { agentId: "agent-read" },
+    );
+    expect(readWrite?.isError).toBe(true);
+    expect(calls).toEqual([]);
+    const readRead = await handlers.get("mcp_call")?.(
+      { tool: "mcp__google__list_gmail_labels" },
+      { agentId: "agent-read" },
+    );
+    expect(readRead).toEqual({ text: "ran list_gmail_labels", isError: false });
   });
 });

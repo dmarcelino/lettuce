@@ -179,3 +179,70 @@ test("capText keeps text under the tool-return cap and says it cut", () => {
   expect(cut.length).toBeLessThan(MAX_TOOL_TEXT + 100);
   expect(cut).toContain("ask for less");
 });
+
+describe("per-agent tools", () => {
+  const specs: ToolSpec[] = [
+    { name: "gmail_search", description: "d", parameters: { type: "object" }, approval: "auto" },
+    { name: "gmail_send", description: "d", parameters: { type: "object" }, approval: "ask" },
+  ];
+
+  interface Registered {
+    name: string;
+    isEnabled: (ctx: unknown) => boolean;
+    run: (ctx: unknown) => Promise<unknown>;
+  }
+
+  async function activate(source: string): Promise<Registered[]> {
+    const file = join(mkdtempSync(join(tmpdir(), "tools-mod-")), "mod.mjs");
+    writeFileSync(file, source);
+    const mod = (await import(file)) as { default: (letta: unknown) => unknown };
+    const registered: Registered[] = [];
+    mod.default({
+      capabilities: { tools: true },
+      tools: {
+        register(tool: Registered) {
+          registered.push(tool);
+          return () => {};
+        },
+      },
+    });
+    return registered;
+  }
+
+  test("a hidden tool is disabled for that agent only", async () => {
+    const tools = await activate(
+      renderToolsMod({ title: "t", tools: specs, port: 1, hidden: { "agent-b": ["gmail_send"] } }),
+    );
+    const enabled = (name: string, ctx: unknown) =>
+      tools.find((t) => t.name === name)?.isEnabled(ctx);
+    expect(enabled("gmail_send", { agent: { id: "agent-b" } })).toBe(false);
+    expect(enabled("gmail_search", { agent: { id: "agent-b" } })).toBe(true);
+    expect(enabled("gmail_send", { agent: { id: "agent-a" } })).toBe(true);
+    // No agent in the context (not a listener turn): nothing is hidden.
+    expect(enabled("gmail_send", {})).toBe(true);
+  });
+
+  test("the calling agent reaches the handler", async () => {
+    const seen: (string | null | undefined)[] = [];
+    const recording = () =>
+      new Map<string, ToolHandler>([
+        [
+          "gmail_search",
+          async (_args, context) => {
+            seen.push(context?.agentId);
+            return { text: "ok", isError: false };
+          },
+        ],
+      ]);
+    const request = (headers: Record<string, string>) =>
+      new Request("http://127.0.0.1:8080/internal/tools/gmail_search", {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+    await handleInternalTools(request({ "x-letta-agent-id": "agent-b" }), "127.0.0.1", recording);
+    await handleInternalTools(request({}), "127.0.0.1", recording);
+    await handleInternalTools(request({ "x-letta-agent-id": "a b" }), "127.0.0.1", recording);
+    expect(seen).toEqual(["agent-b", null, null]);
+  });
+});

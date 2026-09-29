@@ -14,11 +14,13 @@
  * Standard/Strict). A tool with no hint counts as a write.
  */
 
+import type { GoogleAccess } from "../agents/tool-access.ts";
 import { googleErrorAnswer, type LostAccessPort } from "../google/lost-access.ts";
 import { MODS_DIR } from "../internal-tools/mod.ts";
 import {
   capText,
   type ToolAnswer,
+  type ToolCallContext,
   type ToolHandler,
   type ToolSpec,
 } from "../internal-tools/types.ts";
@@ -126,14 +128,45 @@ function argumentsOf(value: unknown): Record<string, unknown> | string {
   return "`arguments` must be an object of the tool's parameters.";
 }
 
+/**
+ * The catalog as one agent may use it: an agent with Google off does not see
+ * the Google server, one with Google read-only sees only its read-only tools
+ * (Agent → Tools, `agents/tool-access.ts`).
+ */
+export function toolsForAgent(
+  tools: readonly CatalogTool[],
+  googleUrl: string,
+  access: GoogleAccess,
+): CatalogTool[] {
+  if (access === "full") return [...tools];
+  return tools.filter((t) => t.server.url !== googleUrl || (access === "read" && t.readOnly));
+}
+
 export function bridgeHandlers(
   catalog: McpCatalog,
   client: McpClientPort,
-  /** The Google sidecar's auth failures get the same answer as the curated tools'. */
-  google?: { url: string; lostAccess: LostAccessPort },
+  /**
+   * The Google sidecar's auth failures get the same answer as the curated
+   * tools', and its tools are narrowed to what the calling agent may use.
+   */
+  google?: {
+    url: string;
+    lostAccess: LostAccessPort;
+    accessFor?: (agentId: string | null) => GoogleAccess;
+  },
 ): Map<string, ToolHandler> {
-  const call = async (args: Record<string, unknown>, allowWrites: boolean): Promise<ToolAnswer> => {
+  const visible = async (context: ToolCallContext | undefined): Promise<CatalogTool[]> => {
     const tools = await catalog.current();
+    if (!google?.accessFor) return [...tools];
+    return toolsForAgent(tools, google.url, google.accessFor(context?.agentId ?? null));
+  };
+
+  const call = async (
+    args: Record<string, unknown>,
+    context: ToolCallContext | undefined,
+    allowWrites: boolean,
+  ): Promise<ToolAnswer> => {
+    const tools = await visible(context);
     const found = resolveTool(tools, String(args.tool ?? ""));
     if (typeof found === "string") return fail(found);
     if (!found.readOnly && !allowWrites) {
@@ -166,8 +199,8 @@ export function bridgeHandlers(
   return new Map<string, ToolHandler>([
     [
       "mcp_search",
-      async (args) => {
-        const tools = await catalog.current();
+      async (args, context) => {
+        const tools = await visible(context);
         if (tools.length === 0) return fail("No MCP servers are available right now.");
         const query = typeof args.query === "string" ? args.query : "";
         const server =
@@ -194,8 +227,8 @@ export function bridgeHandlers(
     ],
     [
       "mcp_describe",
-      async (args) => {
-        const found = resolveTool(await catalog.current(), String(args.tool ?? ""));
+      async (args, context) => {
+        const found = resolveTool(await visible(context), String(args.tool ?? ""));
         if (typeof found === "string") return fail(found);
         return {
           text: capText(
@@ -205,7 +238,7 @@ export function bridgeHandlers(
         };
       },
     ],
-    ["mcp_call", (args) => call(args, false)],
-    ["mcp_call_write", (args) => call(args, true)],
+    ["mcp_call", (args, context) => call(args, context, false)],
+    ["mcp_call_write", (args, context) => call(args, context, true)],
   ]);
 }

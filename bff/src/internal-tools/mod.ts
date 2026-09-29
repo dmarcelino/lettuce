@@ -20,11 +20,19 @@ import type { ToolSpec } from "./types.ts";
 
 export const MODS_DIR = "/root/.letta/mods";
 
+/** Header carrying the calling agent's id on every call (`ctx.agent.id`). */
+export const AGENT_ID_HEADER = "x-letta-agent-id";
+
 export function renderToolsMod(options: {
   /** First comment line — identifies the mod and its render version. */
   title: string;
   tools: readonly ToolSpec[];
   port: number;
+  /**
+   * Agent id → tool names hidden from that agent's turns (`isEnabled`, see
+   * `agents/tool-access.ts`). Omitted or empty: every agent sees every tool.
+   */
+  hidden?: Readonly<Record<string, readonly string[]>>;
 }): string {
   const header = `// ${options.title} — rendered by the letta-code-ui BFF (bff/src/internal-tools/mod.ts).
 // Edits here are overwritten on the BFF's next connect.`;
@@ -36,16 +44,30 @@ export default function activate() {}
 `;
   }
   const endpoint = `http://127.0.0.1:${options.port}/internal/tools`;
+  const hidden = Object.fromEntries(
+    Object.entries(options.hidden ?? {})
+      .filter(([, names]) => names.length > 0)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
   return `${header}
 const ENDPOINT = ${JSON.stringify(endpoint)};
 const TOOLS = ${JSON.stringify(options.tools, null, 2)};
+// Agent id -> tool names that agent does not get (Agent -> Tools).
+const HIDDEN = ${JSON.stringify(hidden)};
+
+function enabledFor(tool, ctx) {
+  const agentId = ctx?.agent?.id;
+  return !(agentId && HIDDEN[agentId]?.includes(tool));
+}
 
 async function callBff(tool, ctx) {
+  const headers = { "content-type": "application/json" };
+  if (ctx.agent?.id) headers[${JSON.stringify(AGENT_ID_HEADER)}] = ctx.agent.id;
   let response;
   try {
     response = await fetch(ENDPOINT + "/" + tool, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(ctx.args ?? {}),
       signal: ctx.signal,
     });
@@ -70,6 +92,7 @@ export default function activate(letta) {
       requiresApproval: tool.approval === "ask",
       ...(tool.approval === "ask" ? { approvalPolicy: "ask" } : {}),
       parallelSafe: tool.approval !== "ask",
+      isEnabled: (ctx) => enabledFor(tool.name, ctx),
       run: (ctx) => callBff(tool.name, ctx),
     }),
   );

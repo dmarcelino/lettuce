@@ -43,5 +43,9 @@ job — it resumes the same Codex session and still remembers the earlier work.
 that: tell the user, and do the work yourself meanwhile. Do not try to install, configure or
 log in to Codex yourself — the web UI owns its configuration and rewrites it.
 
+`Codex workers are turned off for this agent` is a per-agent choice the user made in the web
+UI (Agent → Tools). Tell the user and do the work yourself. Do not run `codex` from a shell
+to get around it.
+
 The user can watch every command a worker runs in the web UI (Tasks → Codex runs), so there is
 no need to paste its whole log back; summarise what it did and what it found.

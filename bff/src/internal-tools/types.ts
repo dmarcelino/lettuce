@@ -4,8 +4,18 @@ export interface ToolAnswer {
   isError: boolean;
 }
 
+/** Who is calling, as the mod reported it. */
+export interface ToolCallContext {
+  /** Null for a caller that sent no agent (an older mod, an agent shell's curl). */
+  agentId: string | null;
+}
+
 /** One native tool the BFF serves. Never throws: a failure is an answer the agent reads. */
-export type ToolHandler = (args: Record<string, unknown>) => Promise<ToolAnswer>;
+export type ToolHandler = (
+  args: Record<string, unknown>,
+  /** Absent in tests and for callers that need no identity. */
+  context?: ToolCallContext,
+) => Promise<ToolAnswer>;
 
 /**
  * How a tool is declared to letta-code. `ask` follows the permission mode
