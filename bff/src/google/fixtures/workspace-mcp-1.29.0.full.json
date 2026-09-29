@@ -190,7 +190,7 @@
           },
           "type": "array",
           "default": null,
-          "description": "Optional list of attachments. Each can have: 'url' (fetch from URL \u2014 works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR 'path' (file path, auto-encodes), OR 'content' (standard base64, not urlsafe) + 'filename'. Optional 'mime_type'. Optional 'content_id' (string) makes the attachment inline-rendered: it lands in a multipart/related part with `Content-ID: <content_id>` and `Content-Disposition: inline`, and the HTML body can reference it via `<img src=\"cid:<content_id>\">` (RFC 2392). Without `content_id` the attachment is a regular multipart/mixed attachment."
+          "description": "Optional list of attachments. Each can have: 'url' (fetch from URL — works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR 'path' (file path, auto-encodes), OR 'content' (standard base64, not urlsafe) + 'filename'. Optional 'mime_type'. Optional 'content_id' (string) makes the attachment inline-rendered: it lands in a multipart/related part with `Content-ID: <content_id>` and `Content-Disposition: inline`, and the HTML body can reference it via `<img src=\"cid:<content_id>\">` (RFC 2392). Without `content_id` the attachment is a regular multipart/mixed attachment."
         },
         "include_signature": {
           "default": true,
@@ -220,6 +220,95 @@
       "readOnlyHint": false,
       "destructiveHint": false,
       "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "get_contact",
+    "title": "Get Contact",
+    "description": "Get detailed information about a specific contact.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "contact_id": {
+          "type": "string",
+          "description": "The contact ID (e.g., \"c1234567890\" or full resource name \"people/c1234567890\")."
+        }
+      },
+      "required": ["contact_id"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "get_contact_group",
+    "title": "Get Contact Group",
+    "description": "Get details of a specific contact group including its members.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "group_id": {
+          "type": "string",
+          "description": "The contact group ID."
+        },
+        "max_members": {
+          "default": 100,
+          "type": "integer",
+          "description": "Maximum number of members to return (default: 100, max: 1000)."
+        }
+      },
+      "required": ["group_id"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
       "openWorldHint": true
     },
     "_meta": {
@@ -737,6 +826,107 @@
     }
   },
   {
+    "name": "list_contact_groups",
+    "title": "List Contact Groups",
+    "description": "List contact groups (labels) for the user.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "page_size": {
+          "default": 100,
+          "type": "integer",
+          "description": "Maximum number of groups to return (default: 100, max: 1000)."
+        },
+        "page_token": {
+          "type": "string",
+          "default": null,
+          "description": "Token for pagination."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "list_contacts",
+    "title": "List Contacts",
+    "description": "List contacts for the authenticated user.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "page_size": {
+          "default": 100,
+          "type": "integer",
+          "description": "Maximum number of contacts to return (default: 100, max: 1000)."
+        },
+        "page_token": {
+          "type": "string",
+          "default": null,
+          "description": "Token for pagination."
+        },
+        "sort_order": {
+          "type": "string",
+          "default": null,
+          "description": "Sort order: \"LAST_MODIFIED_ASCENDING\", \"LAST_MODIFIED_DESCENDING\", \"FIRST_NAME_ASCENDING\", or \"LAST_NAME_ASCENDING\"."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
     "name": "list_gmail_filters",
     "title": "List Gmail Filters",
     "description": "Lists all Gmail filters configured in the user's mailbox.",
@@ -973,6 +1163,909 @@
     }
   },
   {
+    "name": "manage_contact",
+    "title": "Manage Contact",
+    "description": "Create, update, or delete a contact. Consolidated tool replacing create_contact,\nupdate_contact, and delete_contact.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "action": {
+          "enum": ["create", "update", "delete"],
+          "type": "string",
+          "description": "The action to perform: \"create\", \"update\", or \"delete\"."
+        },
+        "contact_id": {
+          "type": "string",
+          "default": null,
+          "description": "The contact ID. Required for \"update\" and \"delete\" actions."
+        },
+        "given_name": {
+          "type": "string",
+          "default": null,
+          "description": "First name (for create/update)."
+        },
+        "family_name": {
+          "type": "string",
+          "default": null,
+          "description": "Last name (for create/update)."
+        },
+        "phones": {
+          "items": {
+            "additionalProperties": false,
+            "description": "Typed input for a phone entry.",
+            "properties": {
+              "number": {
+                "type": "string",
+                "default": null,
+                "description": "Phone number value."
+              },
+              "value": {
+                "type": "string",
+                "default": null,
+                "description": "Backward-compatible alias for the phone number value."
+              },
+              "type": {
+                "type": "string",
+                "default": null,
+                "description": "Phone type such as mobile, work, home, or internal."
+              }
+            },
+            "type": "object"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of phone dicts {number, type?}.\nSupported types: mobile, work, home, main, workMobile, internal, other, etc.\nUse type=\"internal\" for internal PBX/ATS short numbers (e.g. 250, 301) — stored\nas a standalone number without + prefix, displayed as \"Internal: 250\"."
+        },
+        "emails": {
+          "items": {
+            "additionalProperties": false,
+            "description": "Typed input for an email entry.",
+            "properties": {
+              "address": {
+                "type": "string",
+                "default": null,
+                "description": "Email address value."
+              },
+              "value": {
+                "type": "string",
+                "default": null,
+                "description": "Backward-compatible alias for the email address value."
+              },
+              "type": {
+                "type": "string",
+                "default": null,
+                "description": "Email type such as work, home, or other."
+              }
+            },
+            "type": "object"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of email dicts {address, type?}."
+        },
+        "organizations": {
+          "items": {
+            "additionalProperties": false,
+            "description": "Typed input for an organization entry.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "default": null,
+                "description": "Organization name."
+              },
+              "title": {
+                "type": "string",
+                "default": null,
+                "description": "Job title."
+              },
+              "department": {
+                "type": "string",
+                "default": null,
+                "description": "Department name."
+              },
+              "jobDescription": {
+                "type": "string",
+                "default": null,
+                "description": "Optional organization job description."
+              },
+              "type": {
+                "type": "string",
+                "default": null,
+                "description": "Organization type such as work or school."
+              }
+            },
+            "type": "object"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of org dicts {name?, title?, department?, jobDescription?, type?}."
+        },
+        "nicknames": {
+          "items": {
+            "additionalProperties": false,
+            "description": "Typed input for a nickname entry.",
+            "properties": {
+              "value": {
+                "description": "Nickname value. Used for bilingual contacts (e.g. Hebrew alternative form).",
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "default": null,
+                "description": "Nickname type such as default, alternate_name, maiden_name, initials, or other."
+              }
+            },
+            "required": ["value"],
+            "type": "object"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of nickname dicts {value, type?}.\nUseful for bilingual contacts (e.g. Hebrew/English alternative forms). Android dialer\nand WhatsApp search both index nicknames, enabling cross-script lookup.\nSupported types: default, alternate_name, maiden_name, initials, other, etc."
+        },
+        "urls": {
+          "items": {
+            "additionalProperties": false,
+            "description": "Typed input for a URL entry.",
+            "properties": {
+              "value": {
+                "description": "The URL value (e.g. https://example.com).",
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "default": null,
+                "description": "URL type such as homepage, blog, profile, work, ftp, reservations, or other. Custom values allowed."
+              }
+            },
+            "required": ["value"],
+            "type": "object"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of URL dicts {value, type?}.\nSupported types: homepage, blog, profile, work, ftp, reservations, other, etc."
+        },
+        "user_defined": {
+          "items": {
+            "additionalProperties": false,
+            "description": "Typed input for a userDefined custom field entry.",
+            "properties": {
+              "key": {
+                "description": "Custom field key (e.g. 'ID', 'Hebrew Birthday', 'Account Number').",
+                "type": "string"
+              },
+              "value": {
+                "default": "",
+                "description": "Custom field value. May be omitted when using remove mode (only the key is needed).",
+                "type": "string"
+              }
+            },
+            "required": ["key"],
+            "type": "object"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of custom field dicts {key, value}.\nUseful for structured data like account numbers, IDs, or custom dates."
+        },
+        "relations": {
+          "items": {
+            "additionalProperties": false,
+            "description": "Typed input for a relation entry (spouse, parent, child, etc.).",
+            "properties": {
+              "person": {
+                "description": "The related person's name (matched against contact names by Google Assistant).",
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "default": null,
+                "description": "Relation type: spouse, child, parent, father, mother, sister, brother, friend, manager, assistant, partner, sibling, domesticPartner, or custom."
+              }
+            },
+            "required": ["person"],
+            "type": "object"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of relation dicts {person, type?}.\nSupported types: spouse, child, parent, friend, manager, assistant, etc."
+        },
+        "notes": {
+          "type": "string",
+          "default": null,
+          "description": "Additional notes (for create/update)."
+        },
+        "address": {
+          "type": "string",
+          "default": null,
+          "description": "Street address (for create/update)."
+        },
+        "birthday": {
+          "type": "string",
+          "default": null,
+          "description": "Birthday as 'YYYY-MM-DD', 'MM-DD' (no year), or 'clear'/'' to remove."
+        },
+        "phones_mode": {
+          "default": "merge",
+          "enum": ["merge", "replace", "remove"],
+          "type": "string",
+          "description": "How to update phones on \"update\": \"merge\" (default), \"replace\", or \"remove\".\nmerge = read-modify-write with dedup by canonicalForm/normalized value.\nreplace = overwrite all phones with provided list.\nremove = delete phones matching provided numbers."
+        },
+        "emails_mode": {
+          "default": "merge",
+          "enum": ["merge", "replace", "remove"],
+          "type": "string",
+          "description": "How to update emails on \"update\": \"merge\" (default), \"replace\", or \"remove\"."
+        },
+        "organizations_mode": {
+          "default": "merge",
+          "enum": ["merge", "replace", "remove"],
+          "type": "string",
+          "description": "How to update orgs on \"update\": \"merge\" (default), \"replace\", or \"remove\"."
+        },
+        "nicknames_mode": {
+          "default": "merge",
+          "enum": ["merge", "replace", "remove"],
+          "type": "string",
+          "description": "How to update nicknames on \"update\": \"merge\" (default), \"replace\", or \"remove\"."
+        },
+        "urls_mode": {
+          "default": "merge",
+          "enum": ["merge", "replace", "remove"],
+          "type": "string",
+          "description": "How to update urls on \"update\": \"merge\" (default), \"replace\", or \"remove\".\nmerge dedups by normalized URL (lowercased, trailing slash stripped)."
+        },
+        "user_defined_mode": {
+          "default": "merge",
+          "enum": ["merge", "replace", "remove"],
+          "type": "string",
+          "description": "How to update custom fields on \"update\": \"merge\" (default), \"replace\", or \"remove\".\nmerge overrides value on matching key; new keys appended."
+        },
+        "relations_mode": {
+          "default": "merge",
+          "enum": ["merge", "replace", "remove"],
+          "type": "string",
+          "description": "How to update relations on \"update\": \"merge\" (default), \"replace\", or \"remove\"."
+        },
+        "phone": {
+          "type": "string",
+          "default": null,
+          "description": "[DEPRECATED] Single phone number. Use phones=[{\"number\":..., \"type\":\"mobile\"}]."
+        },
+        "email": {
+          "type": "string",
+          "default": null,
+          "description": "[DEPRECATED] Email address. Use emails=[{\"address\":..., \"type\":\"other\"}]."
+        },
+        "organization": {
+          "type": "string",
+          "default": null,
+          "description": "[DEPRECATED] Company name. Use organizations=[{\"name\":...}]."
+        },
+        "job_title": {
+          "type": "string",
+          "default": null,
+          "description": "[DEPRECATED] Job title. Use organizations=[{\"title\":...}]."
+        }
+      },
+      "required": ["action"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "manage_contact_group",
+    "title": "Manage Contact Group",
+    "description": "Create, update, delete a contact group, or modify its members. Consolidated tool\nreplacing create_contact_group, update_contact_group, delete_contact_group, and\nmodify_contact_group_members.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "action": {
+          "type": "string",
+          "description": "The action to perform: \"create\", \"update\", \"delete\", or \"modify_members\"."
+        },
+        "group_id": {
+          "type": "string",
+          "default": null,
+          "description": "The contact group ID. Required for \"update\", \"delete\",\nand \"modify_members\" actions."
+        },
+        "name": {
+          "type": "string",
+          "default": null,
+          "description": "The group name. Required for \"create\" and \"update\" actions."
+        },
+        "delete_contacts": {
+          "default": false,
+          "type": "boolean",
+          "description": "If True and action is \"delete\", also delete contacts in\nthe group (default: False)."
+        },
+        "add_contact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "default": null,
+          "description": "Contact IDs to add (for \"modify_members\")."
+        },
+        "remove_contact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "default": null,
+          "description": "Contact IDs to remove (for \"modify_members\")."
+        }
+      },
+      "required": ["action"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "manage_contacts_batch",
+    "title": "Manage Contacts Batch",
+    "description": "Batch create, update, or delete contacts. Consolidated tool replacing\nbatch_create_contacts, batch_update_contacts, and batch_delete_contacts.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "action": {
+          "enum": ["create", "update", "delete"],
+          "type": "string",
+          "description": "The action to perform: \"create\", \"update\", or \"delete\"."
+        },
+        "contacts": {
+          "items": {
+            "additionalProperties": false,
+            "description": "Typed batch-create input for a contact.",
+            "properties": {
+              "given_name": {
+                "type": "string",
+                "default": null
+              },
+              "family_name": {
+                "type": "string",
+                "default": null
+              },
+              "phones": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a phone entry.",
+                  "properties": {
+                    "number": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Phone number value."
+                    },
+                    "value": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Backward-compatible alias for the phone number value."
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Phone type such as mobile, work, home, or internal."
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "emails": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for an email entry.",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Email address value."
+                    },
+                    "value": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Backward-compatible alias for the email address value."
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Email type such as work, home, or other."
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "organizations": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for an organization entry.",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Organization name."
+                    },
+                    "title": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Job title."
+                    },
+                    "department": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Department name."
+                    },
+                    "jobDescription": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Optional organization job description."
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Organization type such as work or school."
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "nicknames": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a nickname entry.",
+                  "properties": {
+                    "value": {
+                      "description": "Nickname value. Used for bilingual contacts (e.g. Hebrew alternative form).",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Nickname type such as default, alternate_name, maiden_name, initials, or other."
+                    }
+                  },
+                  "required": ["value"],
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "urls": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a URL entry.",
+                  "properties": {
+                    "value": {
+                      "description": "The URL value (e.g. https://example.com).",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "URL type such as homepage, blog, profile, work, ftp, reservations, or other. Custom values allowed."
+                    }
+                  },
+                  "required": ["value"],
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "user_defined": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a userDefined custom field entry.",
+                  "properties": {
+                    "key": {
+                      "description": "Custom field key (e.g. 'ID', 'Hebrew Birthday', 'Account Number').",
+                      "type": "string"
+                    },
+                    "value": {
+                      "default": "",
+                      "description": "Custom field value. May be omitted when using remove mode (only the key is needed).",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["key"],
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "relations": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a relation entry (spouse, parent, child, etc.).",
+                  "properties": {
+                    "person": {
+                      "description": "The related person's name (matched against contact names by Google Assistant).",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Relation type: spouse, child, parent, father, mother, sister, brother, friend, manager, assistant, partner, sibling, domesticPartner, or custom."
+                    }
+                  },
+                  "required": ["person"],
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "notes": {
+                "type": "string",
+                "default": null
+              },
+              "address": {
+                "type": "string",
+                "default": null
+              },
+              "birthday": {
+                "type": "string",
+                "default": null,
+                "description": "Birthday as 'YYYY-MM-DD', 'MM-DD' (no year), or 'clear'/'' to remove."
+              },
+              "phone": {
+                "type": "string",
+                "default": null
+              },
+              "email": {
+                "type": "string",
+                "default": null
+              },
+              "organization": {
+                "type": "string",
+                "default": null
+              },
+              "job_title": {
+                "type": "string",
+                "default": null
+              }
+            },
+            "type": "object"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of contact dicts for \"create\" action.\nEach dict may contain: given_name, family_name, phones, emails, organizations,\nnotes, address. Deprecated: phone, email, organization, job_title."
+        },
+        "updates": {
+          "items": {
+            "additionalProperties": false,
+            "description": "Typed batch-update input for a contact.",
+            "properties": {
+              "given_name": {
+                "type": "string",
+                "default": null
+              },
+              "family_name": {
+                "type": "string",
+                "default": null
+              },
+              "phones": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a phone entry.",
+                  "properties": {
+                    "number": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Phone number value."
+                    },
+                    "value": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Backward-compatible alias for the phone number value."
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Phone type such as mobile, work, home, or internal."
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "emails": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for an email entry.",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Email address value."
+                    },
+                    "value": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Backward-compatible alias for the email address value."
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Email type such as work, home, or other."
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "organizations": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for an organization entry.",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Organization name."
+                    },
+                    "title": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Job title."
+                    },
+                    "department": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Department name."
+                    },
+                    "jobDescription": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Optional organization job description."
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Organization type such as work or school."
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "nicknames": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a nickname entry.",
+                  "properties": {
+                    "value": {
+                      "description": "Nickname value. Used for bilingual contacts (e.g. Hebrew alternative form).",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Nickname type such as default, alternate_name, maiden_name, initials, or other."
+                    }
+                  },
+                  "required": ["value"],
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "urls": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a URL entry.",
+                  "properties": {
+                    "value": {
+                      "description": "The URL value (e.g. https://example.com).",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "URL type such as homepage, blog, profile, work, ftp, reservations, or other. Custom values allowed."
+                    }
+                  },
+                  "required": ["value"],
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "user_defined": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a userDefined custom field entry.",
+                  "properties": {
+                    "key": {
+                      "description": "Custom field key (e.g. 'ID', 'Hebrew Birthday', 'Account Number').",
+                      "type": "string"
+                    },
+                    "value": {
+                      "default": "",
+                      "description": "Custom field value. May be omitted when using remove mode (only the key is needed).",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["key"],
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "relations": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Typed input for a relation entry (spouse, parent, child, etc.).",
+                  "properties": {
+                    "person": {
+                      "description": "The related person's name (matched against contact names by Google Assistant).",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "default": null,
+                      "description": "Relation type: spouse, child, parent, father, mother, sister, brother, friend, manager, assistant, partner, sibling, domesticPartner, or custom."
+                    }
+                  },
+                  "required": ["person"],
+                  "type": "object"
+                },
+                "type": "array",
+                "default": null
+              },
+              "notes": {
+                "type": "string",
+                "default": null
+              },
+              "address": {
+                "type": "string",
+                "default": null
+              },
+              "birthday": {
+                "type": "string",
+                "default": null,
+                "description": "Birthday as 'YYYY-MM-DD', 'MM-DD' (no year), or 'clear'/'' to remove."
+              },
+              "phone": {
+                "type": "string",
+                "default": null
+              },
+              "email": {
+                "type": "string",
+                "default": null
+              },
+              "organization": {
+                "type": "string",
+                "default": null
+              },
+              "job_title": {
+                "type": "string",
+                "default": null
+              },
+              "contact_id": {
+                "description": "Contact ID like \"c123\" or full resource name like \"people/c123\".",
+                "type": "string"
+              }
+            },
+            "required": ["contact_id"],
+            "type": "object"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of update dicts for \"update\" action.\nEach dict must contain contact_id and may contain the same fields as contacts."
+        },
+        "contact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "default": null,
+          "description": "List of contact IDs for \"delete\" action."
+        },
+        "field": {
+          "enum": [
+            "names",
+            "phoneNumbers",
+            "emailAddresses",
+            "organizations",
+            "nicknames",
+            "urls",
+            "userDefined",
+            "relations",
+            "biographies",
+            "addresses",
+            "birthdays"
+          ],
+          "type": "string",
+          "default": null,
+          "description": "For \"update\" action — the single People API field to update across\nall contacts in this batch. Required. Must be one of: names, phoneNumbers,\nemailAddresses, organizations, nicknames, urls, userDefined, relations,\nbiographies, addresses, birthdays. Using a single field per batch call prevents\nunintentional data loss from a union updateMask overwriting unrelated fields."
+        }
+      },
+      "required": ["action"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
     "name": "manage_event",
     "title": "Manage Event",
     "description": "Manages calendar events. Supports creating, updating, deleting, and RSVP.",
@@ -1145,7 +2238,7 @@
         "response": {
           "type": "string",
           "default": null,
-          "description": "RSVP response \u2014 \"accepted\", \"declined\", \"tentative\", or \"needsAction\" (rsvp action only)."
+          "description": "RSVP response — \"accepted\", \"declined\", \"tentative\", or \"needsAction\" (rsvp action only)."
         },
         "rsvp_comment": {
           "type": "string",
@@ -1155,7 +2248,7 @@
         "send_updates": {
           "type": "string",
           "default": null,
-          "description": "Notification behavior for create, update, delete, and rsvp \u2014 \"all\" (default), \"externalOnly\", or \"none\"."
+          "description": "Notification behavior for create, update, delete, and rsvp — \"all\" (default), \"externalOnly\", or \"none\"."
         },
         "start_timezone": {
           "type": "string",
@@ -1813,6 +2906,53 @@
     }
   },
   {
+    "name": "search_contacts",
+    "title": "Search Contacts",
+    "description": "Search contacts by name, email, phone number, or other fields.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "query": {
+          "type": "string",
+          "description": "Search query string (searches names, emails, phone numbers)."
+        },
+        "page_size": {
+          "default": 30,
+          "type": "integer",
+          "description": "Maximum number of results to return (default: 30, max: 30)."
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
     "name": "search_gmail_messages",
     "title": "Search Gmail Messages",
     "description": "Searches messages in a user's Gmail account based on a query.\nReturns both Message IDs and Thread IDs for each found message, along with Gmail web interface links for manual verification.\nSupports pagination via page_token parameter.",
@@ -1954,7 +3094,7 @@
           },
           "type": "array",
           "default": null,
-          "description": "Optional list of attachments. Each can have: \"url\" (fetch from URL \u2014 works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR \"path\" (file path, auto-encodes), OR \"content\" (standard base64, not urlsafe) + \"filename\". Optional \"mime_type\". Optional \"content_id\" (string) makes the attachment inline-rendered: it lands in a multipart/related part with `Content-ID: <content_id>` and `Content-Disposition: inline`, and the HTML body can reference it via `<img src=\"cid:<content_id>\">` (RFC 2392). Without `content_id` the attachment is a regular multipart/mixed attachment. Example: [{\"url\": \"https://host/attachments/abc-123\", \"filename\": \"report.pdf\"}]"
+          "description": "Optional list of attachments. Each can have: \"url\" (fetch from URL — works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR \"path\" (file path, auto-encodes), OR \"content\" (standard base64, not urlsafe) + \"filename\". Optional \"mime_type\". Optional \"content_id\" (string) makes the attachment inline-rendered: it lands in a multipart/related part with `Content-ID: <content_id>` and `Content-Disposition: inline`, and the HTML body can reference it via `<img src=\"cid:<content_id>\">` (RFC 2392). Without `content_id` the attachment is a regular multipart/mixed attachment. Example: [{\"url\": \"https://host/attachments/abc-123\", \"filename\": \"report.pdf\"}]"
         },
         "include_signature": {
           "default": true,

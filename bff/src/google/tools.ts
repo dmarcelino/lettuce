@@ -416,6 +416,112 @@ export const CURATED_GOOGLE_TOOLS: readonly CuratedGoogleTool[] = [
       };
     },
   },
+  {
+    spec: {
+      name: "contacts_list",
+      description:
+        "The user's Google Contacts: pass `query` to match a name, email or phone, or leave it out to list contacts. Gives contact IDs for contacts_get and contacts_update.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Name, email or phone to search for (optional — lists all without it).",
+          },
+          max_results: { type: "integer", minimum: 1, maximum: 100, description: "Default 30." },
+        },
+        additionalProperties: false,
+      },
+      approval: "auto",
+    },
+    needs: ["list_contacts", "search_contacts"],
+    build: (args) => {
+      const query = str(args, "query");
+      return query
+        ? {
+            tool: "search_contacts",
+            arguments: { query, page_size: int(args, "max_results", 30, 30) },
+          }
+        : { tool: "list_contacts", arguments: { page_size: int(args, "max_results", 100, 1000) } };
+    },
+  },
+  {
+    spec: {
+      name: "contacts_get",
+      description:
+        "Read one Google Contact in full (addresses, birthdays, organisations) by its contact_id, from contacts_list.",
+      parameters: {
+        type: "object",
+        properties: {
+          contact_id: {
+            type: "string",
+            description: "Contact ID, e.g. 'c123' (from contacts_list).",
+          },
+        },
+        required: ["contact_id"],
+        additionalProperties: false,
+      },
+      approval: "auto",
+    },
+    needs: ["get_contact"],
+    build: (args) => {
+      const contactId = str(args, "contact_id");
+      if (!contactId) return "`contact_id` is required (find it with contacts_list).";
+      return { tool: "get_contact", arguments: { contact_id: contactId } };
+    },
+  },
+  {
+    spec: {
+      name: "contacts_update",
+      description:
+        "Create, update or delete a Google Contact (contact IDs come from contacts_list). On update, emails/phones merge into what the contact already has. The user may be asked to approve the change.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["create", "update", "delete"] },
+          contact_id: { type: "string", description: "Required for update and delete." },
+          given_name: { type: "string", description: "First name." },
+          family_name: { type: "string", description: "Last name." },
+          email: { type: "string", description: "Email address." },
+          phone: { type: "string", description: "Phone number." },
+          organization: { type: "string", description: "Company or organisation name." },
+          job_title: { type: "string", description: "Job title at the organisation." },
+          notes: { type: "string", description: "Free-text note on the contact." },
+        },
+        required: ["action"],
+        additionalProperties: false,
+      },
+      approval: "ask",
+    },
+    needs: ["manage_contact"],
+    build: (args) => {
+      const action = str(args, "action");
+      if (action !== "create" && action !== "update" && action !== "delete") {
+        return '`action` must be "create", "update" or "delete".';
+      }
+      const contactId = str(args, "contact_id");
+      if (action !== "create" && !contactId)
+        return "`contact_id` is required (find it with contacts_list).";
+      const email = str(args, "email");
+      const phone = str(args, "phone");
+      const organization = str(args, "organization");
+      const jobTitle = str(args, "job_title");
+      const body = defined({
+        action,
+        contact_id: contactId,
+        given_name: str(args, "given_name"),
+        family_name: str(args, "family_name"),
+        notes: str(args, "notes"),
+        emails: email ? [{ address: email }] : undefined,
+        phones: phone ? [{ number: phone }] : undefined,
+        organizations:
+          organization || jobTitle ? [defined({ name: organization, title: jobTitle })] : undefined,
+      });
+      if (action === "create" && Object.keys(body).length === 1)
+        return "Creating a contact needs at least a name, email, phone or organisation.";
+      return { tool: "manage_contact", arguments: body };
+    },
+  },
 ];
 
 /** The Google server's tools in the bridge catalog, identified by its sidecar URL. */

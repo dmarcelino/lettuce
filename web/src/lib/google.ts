@@ -3,7 +3,7 @@
  * two packages cannot import from each other.
  */
 
-export const GOOGLE_SERVICES = ["gmail", "calendar", "tasks"] as const;
+export const GOOGLE_SERVICES = ["gmail", "calendar", "tasks", "contacts"] as const;
 export type GoogleService = (typeof GOOGLE_SERVICES)[number];
 
 export type GooglePermissions = Record<GoogleService, string | null>;
@@ -26,12 +26,17 @@ export const GOOGLE_LEVELS: Record<GoogleService, { level: string; label: string
     { level: "manage", label: "Create and update tasks, no deleting" },
     { level: "full", label: "Create, update and delete tasks" },
   ],
+  contacts: [
+    { level: "readonly", label: "Read contacts" },
+    { level: "full", label: "Create, change and delete contacts" },
+  ],
 };
 
 export const SERVICE_LABELS: Record<GoogleService, string> = {
   gmail: "Gmail",
   calendar: "Calendar",
   tasks: "Tasks",
+  contacts: "Contacts",
 };
 
 export interface GoogleGrant {

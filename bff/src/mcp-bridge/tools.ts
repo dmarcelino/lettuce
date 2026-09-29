@@ -36,7 +36,7 @@ export const BRIDGE_TOOL_SPECS: readonly ToolSpec[] = [
   {
     name: "mcp_search",
     description:
-      "Find tools on the connected MCP servers (for example Google: Gmail, Calendar, Tasks) by describing what you want to do. Returns tool names with one-line descriptions, each marked read-only or writes. Then use mcp_describe for a tool's parameters and mcp_call (read-only tools) or mcp_call_write (everything else) to run it.",
+      "Find tools on the connected MCP servers (for example Google: Gmail, Calendar, Tasks, Contacts) by describing what you want to do. Returns tool names with one-line descriptions, each marked read-only or writes. Then use mcp_describe for a tool's parameters and mcp_call (read-only tools) or mcp_call_write (everything else) to run it.",
     parameters: {
       type: "object",
       properties: {

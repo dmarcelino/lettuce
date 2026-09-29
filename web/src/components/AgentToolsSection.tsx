@@ -89,7 +89,7 @@ export function AgentToolsSection({ agentId, onOpenGlobalSettings }: Props) {
     <>
       <div className="pad-x">
         <label className="field">
-          Google (Gmail, Calendar, Tasks)
+          Google (Gmail, Calendar, Tasks, Contacts)
           <select
             value={access.google}
             onChange={(event) =>

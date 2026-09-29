@@ -630,7 +630,7 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
     `/root/.letta/mods/diagnostics/latest.json` (errors only — a clean load writes nothing).
   - **duckduckgo left the shared MCP list** in a one-time migration (`retireSeededDdgMcp`,
     recorded as `mcpDdgRetired`), so a user who adds it back keeps it.
-- **Google (Gmail / Calendar / Tasks) is a sidecar whose access no agent can change.** Agents
+- **Google (Gmail / Calendar / Tasks / Contacts) is a sidecar whose access no agent can change.** Agents
   reach `http://google-mcp:8000/mcp` (`docker/google-mcp`: taylorwilsdon/google_workspace_mcp,
   pinned `WORKSPACE_MCP_VERSION`, under `supervisor.py`), listed in the shared MCP list while it
   serves. Reaching it is not the control — agent shells reach everything. What it may do is
@@ -697,8 +697,9 @@ agent reaches it through the `MessageChannel` tool the gateway registers as an e
 
   **Agents use Google through native tools, not the skill** (`bff/src/google/tools.ts`, the
   `letta-ui-google-tools.mjs` mod): `gmail_search`, `gmail_read`, `calendar_events`,
-  `calendar_freebusy`, `tasks_list` (reads, never ask) and `gmail_send`, `gmail_draft`,
-  `calendar_event`, `tasks_update` (writes, `approval: "ask"`). Each is a compact schema mapped
+  `calendar_freebusy`, `tasks_list`, `contacts_list`, `contacts_get` (reads, never ask) and
+  `gmail_send`, `gmail_draft`, `calendar_event`, `tasks_update`, `contacts_update` (writes,
+  `approval: "ask"`). Each is a compact schema mapped
   onto one workspace-mcp tool — its own schemas are large (`manage_event` has 32 parameters) and
   would ride in every turn's prefill. **Access control is unchanged:** a curated tool is
   registered only if the tool it maps to is in the sidecar's current `tools/list`, which

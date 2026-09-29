@@ -50,7 +50,7 @@ Other profiles add sidecars and are orthogonal to the mode:
 
 | Profile | Adds |
 |---|---|
-| `google` | the Gmail / Calendar / Tasks sidecar |
+| `google` | the Gmail / Calendar / Tasks / Contacts sidecar |
 | `search` | SearXNG + `ddg-mcp`, behind the agents' web tools |
 | `telegram` | the messaging channel gateway |
 
@@ -147,7 +147,7 @@ backend status and a test search.
 Without the profile the tools stay registered and every call fails with the
 backend's error, so switch them off in Settings → Web.
 
-## Google (Gmail, Calendar, Tasks)
+## Google (Gmail, Calendar, Tasks, Contacts)
 
 Needs the `google` profile. The client ID/secret and the per-service
 permission levels are entered in **Settings → Google**, not here.

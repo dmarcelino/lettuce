@@ -76,7 +76,7 @@ before exposing anything.
 
 - **Web search and page reading** as native tools, backed by a self-hosted
   SearXNG with a DuckDuckGo fallback. No API key, no per-search cost.
-- **Gmail, Calendar and Tasks** through your own Google OAuth grant, with a
+- **Gmail, Calendar, Tasks and Contacts** through your own Google OAuth grant, with a
   permission level per service (e.g. mail read-only, calendar read-write).
   Turning a level down revokes the token.
 - **GitHub pull-request watching** through the GitHub CLI.

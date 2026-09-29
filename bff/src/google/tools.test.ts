@@ -91,6 +91,22 @@ describe("curated Google tools against workspace-mcp 1.29.0", () => {
         { action: "create", title: "t", notes: "n", due: "2026-10-01T00:00:00Z" },
         { action: "complete", task_id: "k" },
       ],
+      contacts_list: [{}, { query: "alice", max_results: 5 }],
+      contacts_get: [{ contact_id: "c1" }],
+      contacts_update: [
+        {
+          action: "create",
+          given_name: "A",
+          family_name: "B",
+          email: "a@b.c",
+          phone: "+15551234",
+          organization: "Acme",
+          job_title: "CEO",
+          notes: "n",
+        },
+        { action: "update", contact_id: "c1", phone: "+15559999" },
+        { action: "delete", contact_id: "c1" },
+      ],
     };
     for (const curated of CURATED_GOOGLE_TOOLS) {
       for (const args of samples[curated.spec.name] ?? []) {
@@ -144,6 +160,8 @@ describe("availableGoogleTools", () => {
       "calendar_events",
       "calendar_freebusy",
       "tasks_list",
+      "contacts_list",
+      "contacts_get",
     ]);
   });
 

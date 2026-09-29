@@ -1,9 +1,9 @@
 /**
  * Settings → Google: which Google services agents may use, and how far.
  *
- * Agents reach Gmail, Calendar and Tasks through the `google-mcp` sidecar
- * (docker/google-mcp), a pinned workspace-mcp run with `--permissions`. The
- * levels below are workspace-mcp's own (auth/permissions.py), and so is the
+ * Agents reach Gmail, Calendar, Tasks and Contacts through the `google-mcp`
+ * sidecar (docker/google-mcp), a pinned workspace-mcp run with `--permissions`.
+ * The levels below are workspace-mcp's own (auth/permissions.py), and so is the
  * level → OAuth scope table: the sidecar filters its tools by the scopes a
  * level implies, and the BFF asks Google for exactly those scopes. That makes
  * the policy hold in two places an agent cannot reach — the token itself
@@ -14,13 +14,13 @@
  * Levels are cumulative, lowest first. `null` means the service is off.
  */
 
-export const GOOGLE_SERVICES = ["gmail", "calendar", "tasks"] as const;
+export const GOOGLE_SERVICES = ["gmail", "calendar", "tasks", "contacts"] as const;
 export type GoogleService = (typeof GOOGLE_SERVICES)[number];
 
 const G = "https://www.googleapis.com/auth/";
 
 /**
- * workspace-mcp 1.29.0 `SERVICE_PERMISSION_LEVELS`, restricted to the three
+ * workspace-mcp 1.29.0 `SERVICE_PERMISSION_LEVELS`, restricted to the four
  * services exposed here. Each entry lists the scopes that level ADDS. Re-check
  * on every WORKSPACE_MCP_VERSION bump: a drifted table means the sidecar hides
  * tools the token could use, or — worse — offers tools the token cannot.
@@ -44,6 +44,10 @@ export const PERMISSION_LEVELS = {
     ["manage", [`${G}tasks`]],
     ["full", []],
   ],
+  contacts: [
+    ["readonly", [`${G}contacts.readonly`]],
+    ["full", [`${G}contacts`]],
+  ],
 } as const satisfies Record<GoogleService, readonly (readonly [string, readonly string[]])[]>;
 
 export type GoogleLevel<S extends GoogleService = GoogleService> =
@@ -52,7 +56,12 @@ export type GoogleLevel<S extends GoogleService = GoogleService> =
 /** Per service: its level, or null for off. */
 export type GooglePermissions = { [S in GoogleService]: GoogleLevel<S> | null };
 
-export const NO_PERMISSIONS: GooglePermissions = { gmail: null, calendar: null, tasks: null };
+export const NO_PERMISSIONS: GooglePermissions = {
+  gmail: null,
+  calendar: null,
+  tasks: null,
+  contacts: null,
+};
 
 /**
  * Asked for on every consent alongside the service scopes: the account's

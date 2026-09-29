@@ -30,6 +30,7 @@ const API_IDS: Record<string, string> = {
   "Gmail API": "gmail.googleapis.com",
   "Google Calendar API": "calendar-json.googleapis.com",
   "Google Tasks API": "tasks.googleapis.com",
+  "Google People API": "people.googleapis.com",
 };
 
 export interface DisabledApi {
@@ -84,8 +85,8 @@ export function googleSettingsUrl(publicOrigin: string): string {
 export function lostAccessMessage(email: string | null, publicOrigin: string): string {
   return [
     `Google access has stopped working${email ? ` for ${email}` : ""}: Google no longer accepts ` +
-      "the saved sign-in (it expired or was revoked). Gmail, Calendar and Tasks will fail until " +
-      "the user reconnects.",
+      "the saved sign-in (it expired or was revoked). Gmail, Calendar, Tasks and Contacts will " +
+      "fail until the user reconnects.",
     "You cannot fix this yourself: agents have no sign-in tool, by design. Do not look for " +
       "start_google_auth and do not retry.",
     "Tell the user, and give them this link — it opens Google's sign-in directly:",

@@ -24,7 +24,12 @@ describe("scopes", () => {
   });
 
   test("read-only Gmail never asks for a sending scope", () => {
-    const scopes = scopesForPermissions({ gmail: "readonly", calendar: "full", tasks: "manage" });
+    const scopes = scopesForPermissions({
+      gmail: "readonly",
+      calendar: "full",
+      tasks: "manage",
+      contacts: null,
+    });
     expect(scopes).not.toContain(`${G}gmail.send`);
     expect(scopes).not.toContain(`${G}gmail.compose`);
     expect(scopes).not.toContain(`${G}gmail.modify`);
@@ -36,10 +41,15 @@ describe("scopes", () => {
   test("tasks manage and full need the same scope", () => {
     expect(scopesForLevel("tasks", "manage")).toEqual(scopesForLevel("tasks", "full"));
   });
+
+  test("contacts full adds the write scope to the read scope", () => {
+    expect(scopesForLevel("contacts", "readonly")).toEqual([`${G}contacts.readonly`]);
+    expect(scopesForLevel("contacts", "full")).toEqual([`${G}contacts.readonly`, `${G}contacts`]);
+  });
 });
 
 describe("coveredPermissions", () => {
-  const wanted = { gmail: "send", calendar: "full", tasks: "full" } as const;
+  const wanted = { gmail: "send", calendar: "full", tasks: "full", contacts: null } as const;
 
   test("everything granted runs at the wanted levels", () => {
     expect(coveredPermissions(wanted, scopesForPermissions(wanted))).toEqual(wanted);
@@ -60,15 +70,18 @@ describe("coveredPermissions", () => {
 });
 
 test("narrows", () => {
-  const current = { gmail: "send", calendar: null, tasks: "manage" } as const;
+  const current = { gmail: "send", calendar: null, tasks: "manage", contacts: "full" } as const;
   expect(narrows(current, { ...current, gmail: "readonly" })).toBe(true);
   expect(narrows(current, { ...current, tasks: null })).toBe(true);
   expect(narrows(current, { ...current, calendar: "full" })).toBe(false);
+  expect(narrows(current, { ...current, contacts: "readonly" })).toBe(true);
 });
 
 test("permissionArgs lists enabled services only", () => {
-  expect(permissionArgs({ gmail: "readonly", calendar: null, tasks: "manage" })).toEqual([
-    "gmail:readonly",
-    "tasks:manage",
-  ]);
+  expect(
+    permissionArgs({ gmail: "readonly", calendar: null, tasks: "manage", contacts: null }),
+  ).toEqual(["gmail:readonly", "tasks:manage"]);
+  expect(
+    permissionArgs({ gmail: "readonly", calendar: null, tasks: "manage", contacts: "full" }),
+  ).toEqual(["gmail:readonly", "tasks:manage", "contacts:full"]);
 });

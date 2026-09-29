@@ -83,6 +83,14 @@ describe("an API switched off in the Cloud project", () => {
     expect(disabledApi(TASKS_OFF)?.enableUrl).toBe(
       "https://console.cloud.google.com/apis/library/tasks.googleapis.com?project=208111488297",
     );
+    const peopleOff =
+      "Error calling tool 'list_contacts': API error: <HttpError 403 when requesting https://people.googleapis.com/v1/people/me/connections?alt=json returned \"Google People API has not been used in project 208111488297 before or it is disabled.\" Details: \"[{'domain': 'usageLimits', 'reason': 'accessNotConfigured'}]\">";
+    expect(disabledApi(peopleOff)).toEqual({
+      name: "Google People API",
+      project: "208111488297",
+      enableUrl:
+        "https://console.cloud.google.com/apis/library/people.googleapis.com?project=208111488297",
+    });
     expect(disabledApi("Event not found")).toBeNull();
   });
 

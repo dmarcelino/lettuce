@@ -48,9 +48,9 @@ function isDirty(draft: Draft, status: GoogleStatus): boolean {
 }
 
 /**
- * Settings → Google: which of Gmail, Calendar and Tasks agents may use, and
- * how far. Enforced by the `google-mcp` sidecar and by the OAuth token's own
- * scopes, both kept where no agent can reach them (bff/src/google/).
+ * Settings → Google: which of Gmail, Calendar, Tasks and Contacts agents may
+ * use, and how far. Enforced by the `google-mcp` sidecar and by the OAuth
+ * token's own scopes, both kept where no agent can reach them (bff/src/google/).
  */
 export function GoogleSection() {
   const [status, setStatus] = useState<GoogleStatus | null>(null);
@@ -173,10 +173,10 @@ export function GoogleSection() {
   return (
     <>
       <p className="muted small pad">
-        Lets every agent — chats, crons and Telegram alike — use Gmail, Calendar and Tasks as one
-        Google account. The levels below are enforced twice, out of any agent&apos;s reach: Google
-        grants the token only the scopes they need, and the Google tool server only offers the
-        matching tools.
+        Lets every agent — chats, crons and Telegram alike — use Gmail, Calendar, Tasks and Contacts
+        as one Google account. The levels below are enforced twice, out of any agent&apos;s reach:
+        Google grants the token only the scopes they need, and the Google tool server only offers
+        the matching tools.
       </p>
 
       {!status.writable ? (

@@ -1,5 +1,94 @@
 [
   {
+    "name": "get_contact",
+    "title": "Get Contact",
+    "description": "Get detailed information about a specific contact.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "contact_id": {
+          "type": "string",
+          "description": "The contact ID (e.g., \"c1234567890\" or full resource name \"people/c1234567890\")."
+        }
+      },
+      "required": ["contact_id"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "get_contact_group",
+    "title": "Get Contact Group",
+    "description": "Get details of a specific contact group including its members.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "group_id": {
+          "type": "string",
+          "description": "The contact group ID."
+        },
+        "max_members": {
+          "default": 100,
+          "type": "integer",
+          "description": "Maximum number of members to return (default: 100, max: 1000)."
+        }
+      },
+      "required": ["group_id"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
     "name": "get_events",
     "title": "Get Events",
     "description": "Retrieves events from a specified Google Calendar. Can retrieve a single event by ID or multiple events within a time range.\nYou can also search for events by keyword by supplying the optional \"query\" param.",
@@ -508,6 +597,107 @@
     }
   },
   {
+    "name": "list_contact_groups",
+    "title": "List Contact Groups",
+    "description": "List contact groups (labels) for the user.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "page_size": {
+          "default": 100,
+          "type": "integer",
+          "description": "Maximum number of groups to return (default: 100, max: 1000)."
+        },
+        "page_token": {
+          "type": "string",
+          "default": null,
+          "description": "Token for pagination."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "list_contacts",
+    "title": "List Contacts",
+    "description": "List contacts for the authenticated user.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "page_size": {
+          "default": 100,
+          "type": "integer",
+          "description": "Maximum number of contacts to return (default: 100, max: 1000)."
+        },
+        "page_token": {
+          "type": "string",
+          "default": null,
+          "description": "Token for pagination."
+        },
+        "sort_order": {
+          "type": "string",
+          "default": null,
+          "description": "Sort order: \"LAST_MODIFIED_ASCENDING\", \"LAST_MODIFIED_DESCENDING\", \"FIRST_NAME_ASCENDING\", or \"LAST_NAME_ASCENDING\"."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
     "name": "list_gmail_labels",
     "title": "List Gmail Labels",
     "description": "Lists labels in the user's Gmail account.",
@@ -745,6 +935,53 @@
         }
       },
       "required": ["time_min", "time_max"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "search_contacts",
+    "title": "Search Contacts",
+    "description": "Search contacts by name, email, phone number, or other fields.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "query": {
+          "type": "string",
+          "description": "Search query string (searches names, emails, phone numbers)."
+        },
+        "page_size": {
+          "default": 30,
+          "type": "integer",
+          "description": "Maximum number of results to return (default: 30, max: 30)."
+        }
+      },
+      "required": ["query"],
       "additionalProperties": false
     },
     "outputSchema": {
