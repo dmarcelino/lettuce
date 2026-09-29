@@ -127,7 +127,7 @@ const agentToolAccess = new AgentToolAccessStore(config.agentToolAccessFile, (er
 const googleAccessFor = (agentId: string | null) =>
   agentId ? agentToolAccess.get(agentId).google : "full";
 // Push titles name the agent. Looked up through the permanent connection and
-// cached; a failed lookup falls back to "Letta" rather than delaying the push.
+// cached; a failed lookup falls back to "Lettuce" rather than delaying the push.
 const agentNames = new AgentNames(async (agentId) => {
   const response = await upstream.request<AgentRetrieveResponseMessage>(
     { type: "agent_retrieve", request_id: `bff-agent-name-${randomUUID()}`, agent_id: agentId },
@@ -680,7 +680,7 @@ app.post("/push/test", async (c) => {
 
   try {
     const result = await sendPush(record, {
-      title: "Letta",
+      title: "Lettuce",
       body: "Test notification — push is working on this device.",
       url: "/",
     });

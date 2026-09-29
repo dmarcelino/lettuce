@@ -1,4 +1,4 @@
-# letta-code-ui — Project Guide
+# lettuce — Project Guide
 
 Self-hosted personal assistant: a local Letta agent (memory, crons, skills) driven from a
 mobile-first web UI we own end to end. No Letta Cloud, no cloud LLM providers.
@@ -8,11 +8,12 @@ mobile-first web UI we own end to end. No Letta Cloud, no cloud LLM providers.
 ```
 /home/dima/work/letta/
   letta-code/      plain clone of letta-ai/letta-code at the pinned release tag — read-only
-  letta-code-ui/   this repo — everything we own
+  lettuce/         this repo — everything we own (the app is **Lettuce**; the local checkout
+                   dir may still carry the old `letta-code-ui` name until renamed)
 ```
 
 **The upstream clone is dev tooling, not a build input.** Nothing in `letta-code/` is compiled into any
-image and nothing outside `letta-code-ui/` is in any build context. The channel-gateway runs
+image and nothing outside `lettuce/` is in any build context. The channel-gateway runs
 upstream's published `letta/letta:<version>` as-is; the app-server runs a thin image built
 `FROM` it that only adds the Codex CLI and our `codex` shim (`docker/codex/`, see "Codex
 workers"); the UI consumes
@@ -165,7 +166,7 @@ $LETTA_STATE_DIR/
 
 It defaults to `../..` relative to the compose file, which reproduces the original layout
 beside the two repos; prod sets an absolute path. **The default is a trap in a worktree** —
-`../..` from `letta-code-ui-worktrees/<feature>/docker/` resolves to the worktrees directory,
+`../..` from `lettuce-worktrees/<feature>/docker/` resolves to the worktrees directory,
 not to the real state. Set `LETTA_STATE_DIR` absolutely in `docker/.env` so a compose command
 run from anywhere hits the same state, and always do container work from the main checkout.
 
@@ -821,7 +822,7 @@ first if it isn't already a fast-forward.
 
 **The main checkout stays on `main` with a clean tree — only merges happen there.** All
 feature work, including creating the branch and every commit on it, happens in a worktree
-(`git worktree add ../letta-code-ui-worktrees/<name> -b <branch>`). Branching inside the
+(`git worktree add ../lettuce-worktrees/<name> -b <branch>`). Branching inside the
 main checkout is not a stylistic slip: two sessions sharing it collide — one switched the
 checkout to its branch mid-work and `deploy-check`'s clean-tree and on-`main` assertions
 then failed on the other's uncommitted changes (observed 2026-09-29).
@@ -853,7 +854,7 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
   one line, bumped in the same commit that is tagged. The bff image `COPY`s it and the
   BFF serves it at `/api/status` (authenticated branch only — the route's
   no-fingerprinting rule stands), which is how Settings → About shows
-  the "letta-code-ui" row. The image cannot derive it: `.dockerignore` excludes
+  the "lettuce" row (About no longer shows a letta-code version row). The image cannot derive it: `.dockerignore` excludes
   `.git/` and the image carries no `git`, so `git describe` at build time is
   impossible. `deploy-check` asserts `VERSION` agrees with the tag pointing at `HEAD`.
 - Tags and `VERSION` are the **only** version record. No `version` field in any
@@ -916,7 +917,8 @@ It comes last, after `deploy-check`, so nothing reaches `origin` that has not be
 to run in the container first.
 
 **Prod is deployed from `origin`, not from this machine.** Dockhand (http://192.168.1.24:3000)
-builds the stack from `dmarchevsky/letta-code-ui` `main` at the moment of the deploy, so the push
+builds the stack from `dmarchevsky/lettuce` `main` at the moment of the deploy (Dockhand's
+stored stack URL must be updated when the repo is renamed), so the push
 must land first and an unpushed commit never reaches prod. Use the `dockhand-deploy` skill
 (`~/.claude/skills/dockhand-deploy/`) for every step — `plan`, `deploy --confirm`, `verify` — never
 ad-hoc API calls and never the Dockhand stop/down/delete/exec endpoints.
@@ -949,7 +951,8 @@ A version other than the pin means
 Dockhand's stored stack variables override it. On any failure, stop and report — no retry, no
 rollback, no restart without the user choosing it.
 
-`origin` is `dmarchevsky/letta-code-ui`, private, and was empty until the first push. There
+`origin` is `dmarchevsky/lettuce` (renamed from `letta-code-ui`; update local remotes with
+`git remote set-url origin`), private, and was empty until the first push. There
 is no `main` upstream to track on a fresh clone — the first push of a branch needs
 `git push -u origin main`. `.gitignore` covers `docker/.env` and `docker/secrets/`; neither is
 tracked, and no secret values are in history. Re-check that before pushing anything new that

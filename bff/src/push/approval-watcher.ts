@@ -34,7 +34,7 @@ export class ApprovalWatcher {
       const name = agentId ? ((await this.names?.name(agentId)) ?? null) : null;
       await this.notify(
         this.store,
-        { title: name ?? "Letta", body: `Approval needed: run ${tool}?`, url },
+        { title: name ?? "Lettuce", body: `Approval needed: run ${tool}?`, url },
         "approval",
         this.log,
       );

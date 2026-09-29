@@ -34,7 +34,7 @@ export function renderToolsMod(options: {
    */
   hidden?: Readonly<Record<string, readonly string[]>>;
 }): string {
-  const header = `// ${options.title} — rendered by the letta-code-ui BFF (bff/src/internal-tools/mod.ts).
+  const header = `// ${options.title} — rendered by the lettuce BFF (bff/src/internal-tools/mod.ts).
 // Edits here are overwritten on the BFF's next connect.`;
   if (options.tools.length === 0) {
     // The protocol cannot delete a file, so "no tools" is a mod that registers nothing.

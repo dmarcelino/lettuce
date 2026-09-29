@@ -1,4 +1,4 @@
-# Letta Code UI
+# Lettuce
 
 A self-hosted personal AI assistant you can actually live in. Agents keep real
 memory, run scheduled tasks, use your tools, and work from your phone — with
@@ -27,7 +27,7 @@ consequences are familiar — the assistant forgets you between threads, its
 "tools" are simulated, and anything useful you built lives behind an export
 button you hope works.
 
-Letta Code UI inverts all three:
+Lettuce inverts all three:
 
 - **Memory is a database, not a prompt.** Each agent has a versioned memory
   store. It remembers you across conversations, and you can read exactly what
@@ -134,8 +134,8 @@ from the container. The app does not ship a model.
 ## Quickstart
 
 ```bash
-git clone https://github.com/dmarchevsky/letta-code-ui.git
-cd letta-code-ui
+git clone https://github.com/dmarchevsky/lettuce.git
+cd lettuce
 
 cp docker/.env.example docker/.env
 # Then edit docker/.env — at minimum:

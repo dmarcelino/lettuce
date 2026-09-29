@@ -124,7 +124,7 @@ describe("renderToolsMod", () => {
     const source = renderToolsMod({ title: "t v1", tools: specs, port: 9090 });
     expect(source).toContain('"http://127.0.0.1:9090/internal/tools"');
     expect(source.split("\n")[0]).toBe(
-      "// t v1 — rendered by the letta-code-ui BFF (bff/src/internal-tools/mod.ts).",
+      "// t v1 — rendered by the lettuce BFF (bff/src/internal-tools/mod.ts).",
     );
   });
 });

@@ -117,7 +117,7 @@ export function App() {
     // no indication that the server was unreachable rather than still working.
     return (
       <main className="shell center">
-        <h1>Letta</h1>
+        <h1>Lettuce</h1>
         <p className="warning">Could not reach the server: {state.reason}</p>
         <p className="muted small">
           {attempt < STATUS_MAX_AUTO_RETRIES
@@ -139,7 +139,7 @@ export function App() {
 function SignIn({ status }: { status: Status }) {
   return (
     <main className="shell center">
-      <h1>Letta</h1>
+      <h1>Lettuce</h1>
       {status.auth_mode === "dev-bypass" ? (
         <>
           <p className="warning">
@@ -258,7 +258,7 @@ function Workspace({ status }: { status: Status }) {
   );
 
   const title =
-    agents.conversations.find((c) => c.id === agents.conversationId)?.summary ?? "Letta";
+    agents.conversations.find((c) => c.id === agents.conversationId)?.summary ?? "Lettuce";
   const agentName = agents.agents.find((a) => a.id === agents.agentId)?.name ?? null;
 
   const editAgent = (id: string) => {

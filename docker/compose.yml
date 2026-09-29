@@ -1,7 +1,7 @@
 # Everything this stack builds comes from THIS repo — the sibling letta-code
 # fork is dev tooling (drift reporting via scripts/sync-upstream.sh), not a
 # build input. A host needs only `git` and `docker` to deploy:
-#   docker compose -f letta-code-ui/docker/compose.yml up -d
+#   docker compose -f lettuce/docker/compose.yml up -d
 #
 # ── Durable state lives under one host root ──────────────────────────────────
 # LETTA_STATE_DIR anchors every bind mount. Relative values resolve against

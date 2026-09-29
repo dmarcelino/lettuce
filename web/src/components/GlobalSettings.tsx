@@ -256,8 +256,7 @@ function AboutSection({
     ["Signed in as", user?.email ?? "—"],
     ["Sign-in", AUTH_LABELS[authMode]],
     ["Connection", LINK_LABELS[session.link]],
-    ["letta-code-ui", version ?? "—"],
-    ["letta-code", info ? `v${info.letta_code_version}` : "—"],
+    ["lettuce", version ?? "—"],
     ["Backend", info?.backend ?? "—"],
   ];
   return (

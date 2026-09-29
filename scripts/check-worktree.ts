@@ -18,7 +18,7 @@
  * Usage: bun scripts/check-worktree.ts
  */
 
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
@@ -53,11 +53,11 @@ if (gitDir !== null && commonDir !== null && gitDir !== commonDir) {
 }
 
 const name = branch.replaceAll("/", "-");
-const dir = `../letta-code-ui-worktrees/${name}`;
+const dir = `../lettuce-worktrees/${name}`;
 console.error(`  on "${branch}" in the MAIN checkout — feature work goes in a worktree.`);
 console.error("");
 console.error(`  New work:      git worktree add ${dir} -b ${branch}`);
 console.error(`  This branch:   git worktree add ${dir} ${branch}`);
-console.error(`                 (after the main checkout returns to main: git checkout main)`)
+console.error(`                 (after the main checkout returns to main: git checkout main)`);
 console.error(`  Then cd into the worktree and re-run bun run verify; remove it after the merge.`);
 process.exit(1);

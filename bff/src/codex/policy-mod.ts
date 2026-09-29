@@ -22,7 +22,7 @@ export const CODEX_BLOCKED_REASON =
   "Codex workers are turned off for this agent (Agent → Tools in the UI). Tell the user; do not try to run Codex another way.";
 
 export function renderAgentPolicyMod(options: { codexBlocked: readonly string[] }): string {
-  const header = `// letta-ui agent-policy v1 — rendered by the letta-code-ui BFF (bff/src/codex/policy-mod.ts).
+  const header = `// letta-ui agent-policy v1 — rendered by the lettuce BFF (bff/src/codex/policy-mod.ts).
 // Edits here are overwritten on the BFF's next connect.`;
   if (options.codexBlocked.length === 0) {
     // The protocol cannot delete a file, so "nothing blocked" registers nothing.

@@ -82,7 +82,7 @@ not an MCP server.
 `;
 
   const wrapper = `#!/bin/sh
-# Rendered by the letta-code-ui BFF from Settings -> MCP; edits here are overwritten.
+# Rendered by the lettuce BFF from Settings -> MCP; edits here are overwritten.
 HOME=${MCP_HOME} exec letta mcp "$@" --agent ${GLOBAL_MCP_AGENT}
 `;
 

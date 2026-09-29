@@ -1,5 +1,5 @@
 {
-  "name": "letta-code-ui",
+  "name": "lettuce",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.0",

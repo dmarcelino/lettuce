@@ -1095,8 +1095,8 @@ try {
     await openSection("About");
     const aboutText = await page.locator(".settings-content").innerText();
     check(
-      "about shows the letta-code-ui release tag",
-      /letta-code-ui\s+v\d+\.\d+\.\d+-letta_\d+\.\d+\.\d+/.test(aboutText),
+      "about shows the lettuce release tag",
+      /lettuce\s+v\d+\.\d+\.\d+-letta_\d+\.\d+\.\d+/.test(aboutText),
       aboutText,
     );
 
@@ -1160,11 +1160,6 @@ try {
     );
     await shot(page, "desktop-notifications");
 
-    await openSection("About");
-    check(
-      "about names the letta-code version",
-      /v\d+\.\d+\.\d+/.test(await page.locator(".settings-content").innerText()),
-    );
     await shot(page, "desktop-settings");
     await page.locator('.settings-screen button[aria-label="Close"]').click();
 

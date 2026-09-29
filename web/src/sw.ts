@@ -40,7 +40,7 @@ self.addEventListener("push", (event) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(payload.title ?? "Letta", {
+    self.registration.showNotification(payload.title ?? "Lettuce", {
       body: payload.body ?? "",
       // Without an explicit `icon`/`badge`, Android's status bar falls back to
       // a generic bell: the small-icon silhouette it needs comes from `badge`

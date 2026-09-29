@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "letta-code-ui",
+      "name": "lettuce",
       "devDependencies": {
         "@biomejs/biome": "^2.5.9",
         "@letta-ai/letta-code": "0.33.7",

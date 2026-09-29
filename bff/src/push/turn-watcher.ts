@@ -154,7 +154,7 @@ export class TurnOutcomeWatcher {
     await this.notify(
       this.store,
       {
-        title: name ?? "Letta",
+        title: name ?? "Lettuce",
         body: error ? failureBody(error) : "Finished its turn.",
         url: conversationUrl(key),
       },

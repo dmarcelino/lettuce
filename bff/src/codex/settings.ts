@@ -177,7 +177,7 @@ function tomlString(value: string): string {
 /** Codex's own config. Regenerated on every save and every upstream connect. */
 export function renderCodexConfigToml(settings: CodexSettings): string {
   const lines = [
-    "# Written by letta-code-ui (Settings → Codex). Edits here are overwritten.",
+    "# Written by lettuce (Settings → Codex). Edits here are overwritten.",
     `model = ${tomlString(settings.model)}`,
     `model_provider = "letta-ui"`,
   ];
@@ -188,7 +188,7 @@ export function renderCodexConfigToml(settings: CodexSettings): string {
   lines.push(
     "",
     "[model_providers.letta-ui]",
-    `name = "letta-code-ui"`,
+    `name = "lettuce"`,
     `base_url = ${tomlString(settings.baseUrl)}`,
     `wire_api = "responses"`,
   );
@@ -207,7 +207,7 @@ export function renderCodexConfigToml(settings: CodexSettings): string {
  * worker uses that provider: `letta-ui` above authenticates with its own
  * `experimental_bearer_token`, or not at all.
  */
-export const CODEX_PLACEHOLDER_KEY = "letta-code-ui-placeholder-not-an-openai-key";
+export const CODEX_PLACEHOLDER_KEY = "lettuce-placeholder-not-an-openai-key";
 
 export function renderCodexAuthJson(): string {
   return `${JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: CODEX_PLACEHOLDER_KEY }, null, 2)}\n`;

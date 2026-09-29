@@ -78,7 +78,7 @@ if (headTag) {
 /**
  * LETTA_STATE_DIR anchors every bind mount, and compose defaults it to `../..`
  * relative to the compose file. That default is a trap: from a worktree at
- * `letta-code-ui-worktrees/<feature>/docker/` it resolves to the worktrees
+ * `lettuce-worktrees/<feature>/docker/` it resolves to the worktrees
  * directory rather than the real state, so the stack comes up healthy against
  * an empty (or wrong) set of agent memory, conversations and settings.
  *

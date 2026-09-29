@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Letta",
-  "short_name": "Letta",
+  "name": "Lettuce",
+  "short_name": "Lettuce",
   "description": "Self-hosted personal assistant — memory, crons and skills, driven from a mobile-first web UI.",
   "start_url": "/",
   "scope": "/",

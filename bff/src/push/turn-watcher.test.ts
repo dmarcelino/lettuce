@@ -175,12 +175,12 @@ describe("TurnOutcomeWatcher", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
-  test("no name available falls back to Letta", async () => {
+  test("no name available falls back to Lettuce", async () => {
     const { see, advance, payload } = setup(false, null);
     see(finished());
     advance(SETTLE_MS);
     await flush();
-    expect(payload().title).toBe("Letta");
+    expect(payload().title).toBe("Lettuce");
   });
 
   test("ignores frames without a scope", async () => {
