@@ -888,7 +888,7 @@ try {
     // The Agent tab holds the selected agent's settings and nothing shared.
     await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.waitForTimeout(500);
-    const expectedChips = ["General", "Secrets", "Reflection", "Skills"];
+    const expectedChips = ["General", "Tools", "Secrets", "Reflection", "Skills"];
     const chipLabels = (await page.locator(".section-tabs button").allInnerTexts()).map((t) =>
       t.trim(),
     );
@@ -928,6 +928,15 @@ try {
       const box = await overflow(page);
       check(`agent ${chip.toLowerCase()} has nothing clipped`, box.clipped.length === 0, box);
     }
+
+    // Agent → Tools: the per-agent Codex and Google access loads from the BFF.
+    await page.locator('.section-tabs button:text-is("Tools")').click();
+    await page.locator('.pane label:has-text("Codex workers") select').waitFor({ timeout: 10_000 });
+    check(
+      "agent tools shows Google and Codex access, Save idle until changed",
+      (await page.locator('.pane label:has-text("Google") select').count()) === 1 &&
+        (await page.locator('.pane button:text-is("Save")').isDisabled()),
+    );
 
     // Agent → Skills: the list comes from the BFF's own discovery, so it is
     // populated with no turn running (bundled skills alone are ~20). Bundled
