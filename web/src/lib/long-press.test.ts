@@ -86,6 +86,25 @@ describe("createLongPress", () => {
     expect(calls).toEqual(["long"]);
   });
 
+  test("a hold longer than the claim window still swallows its trailing click", async () => {
+    // The window is measured from the release, not from the press: a 40ms
+    // hold against a 20ms window would otherwise let the click queue a
+    // message on top of stopping the turn.
+    const calls: string[] = [];
+    const c = createLongPress({
+      enabled: () => true,
+      onShort: () => calls.push("short"),
+      onLong: () => calls.push("long"),
+      ms: 5,
+      clickWindowMs: 20,
+    });
+    c.pointerDown();
+    await sleep(40); // long fires at 5ms; the hold outlives the window
+    c.pointerUp();
+    c.click();
+    expect(calls).toEqual(["long"]);
+  });
+
   test("a stale gesture (no trailing click ever arrived) does not swallow a later click", async () => {
     const calls: string[] = [];
     const c = createLongPress({

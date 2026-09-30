@@ -84,6 +84,11 @@ export function createLongPress(options: {
       }, ms);
     },
     pointerUp() {
+      // The trailing click follows the release by milliseconds, whatever the
+      // hold lasted — so the claim window is measured from here, not from
+      // pointerdown. A hold longer than the window must still swallow its
+      // click, or a long press would also perform the short action.
+      if (gestureAt !== null) gestureAt = Date.now();
       if (timer === null) {
         // Either never enabled, or the long action already fired — release
         // after a fired hold does nothing. The gesture stays claimable: the
