@@ -15,6 +15,7 @@ export type IconName =
   | "menu"
   | "send"
   | "stop"
+  | "stop-solid"
   | "filter"
   | "shield"
   | "slash"
@@ -47,11 +48,16 @@ export type IconName =
   | "pin"
   | "trash";
 
-/** Path data on a 24×24 grid; stroked, never filled. */
+/** Path data on a 24×24 grid; stroked, except where `filled` is passed. */
 const PATHS: Record<IconName, string> = {
   menu: "M4 7h16M4 12h16M4 17h16",
-  send: "M12 19V5M6 11l6-6 6 6",
+  // Paper plane: the send verb everywhere it is one — the composer's send
+  // button and the queue half of its split variant.
+  send: "M22 2 11 13M22 2 15 22l-4-9-9-4Z",
   stop: "M7 7h10v10H7z",
+  // The same square, filled: the split button's stop corner is 8px, where a
+  // 1.75-stroke outline dissolves. The only filled icon, for that reason.
+  "stop-solid": "M6.5 6.5h11v11h-11z",
   filter: "M4 6h16M7 12h10M10 18h4",
   shield: "M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z",
   slash: "M9 19l6-14",
@@ -106,15 +112,17 @@ interface Props {
   name: IconName;
   /** Extra classes; `icon` is always applied. */
   className?: string;
+  /** Paint the path instead of outlining it. Only `stop-solid` needs it. */
+  filled?: boolean;
 }
 
-export function Icon({ name, className }: Props) {
+export function Icon({ name, className, filled }: Props) {
   return (
     <svg
       className={className ? `icon ${className}` : "icon"}
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
+      fill={filled ? "currentColor" : "none"}
+      stroke={filled ? "none" : "currentColor"}
       strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"

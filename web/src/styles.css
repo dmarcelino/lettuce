@@ -922,7 +922,7 @@ pre {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--agent);
   animation: pulse 1.2s ease-in-out infinite;
 }
 .dot:nth-child(2) {
@@ -958,6 +958,34 @@ pre {
 
 /* ── Queue + composer ────────────────────────────────────────────────────── */
 
+/* Why the button is split: three agent-green dots and a label, above the box
+   where the thumb is, so it stays visible even scrolled up the transcript. */
+.working-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.working-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.working-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--agent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.working-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.working-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
 .queue {
   display: flex;
   gap: 6px;
@@ -968,17 +996,28 @@ pre {
 }
 /* A queued message: one chip, two actions — remove (the text) and force-send
    (user items only). The chip is the container; the buttons inside are
-   transparent so the pill reads as a single object. */
+   transparent so it reads as a single object. Square, like everything else. */
 .queued {
   display: inline-flex;
   align-items: stretch;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
   color: var(--muted);
   font-size: 12px;
   overflow: hidden;
   flex-shrink: 0;
+}
+/* Amber while it will drain, muted once an interrupt parked it. */
+.queued-dot {
+  width: 6px;
+  height: 6px;
+  align-self: center;
+  margin-left: 10px;
+  flex-shrink: 0;
+  background: var(--warn);
+}
+.queued.paused .queued-dot {
+  background: var(--muted);
 }
 .queued-remove {
   display: inline-flex;
@@ -988,7 +1027,7 @@ pre {
   border: 0;
   color: inherit;
   font: inherit;
-  padding: 4px 6px 4px 10px;
+  padding: 4px 6px 4px 8px;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -1251,7 +1290,7 @@ pre {
   /* Almost square — a small radius, not a circle. */
   border-radius: 4px;
   background: var(--accent);
-  color: #0b1020;
+  color: #000;
   font-size: 17px;
   display: grid;
   place-items: center;
@@ -1264,12 +1303,55 @@ pre {
 .icon-button.stop {
   background: var(--bad);
 }
-/* Hold-to-stop feedback: while the long-press counts down on the queue button,
-   it turns the stop colour — release now and it queues, keep holding and it
-   stops. */
-.icon-button.send.hold {
+/* The queue button: one square, two hit areas. The stop button is clipped to
+   the red triangle and clip-path clips hit-testing with it, so presses on the
+   blue field fall through to the queue button underneath. */
+.send-split {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--accent);
+  position: sticky;
+  right: 0;
+}
+.send-split .split-queue {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0 1px 0 0;
+  background: none;
+  color: #000;
+  font-size: 14px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.send-split .split-stop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0 3px 3px 0;
   background: var(--bad);
-  color: #1a0a0a;
+  color: #000;
+  clip-path: polygon(100% 0, 100% 100%, 38% 100%);
+  display: grid;
+  place-items: end end;
+  cursor: pointer;
+}
+.send-split .split-stop .icon {
+  width: 8px;
+  height: 8px;
+}
+/* Hairline along the diagonal, in the composer's own background. */
+.send-split::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  clip-path: polygon(100% 0, 100% 7%, 45% 100%, 38% 100%);
+  pointer-events: none;
 }
 /* A long press must not select text or raise the callout menu on mobile. */
 .composer-row .icon-button {
@@ -1606,6 +1688,23 @@ p.warning code {
     width: 52px;
     height: 44px;
     font-size: 17px;
+  }
+  /* The split queue button is a composer control too: same fingertip box, and
+     the bigger square gives the stop corner a pressable triangle. */
+  .send-split {
+    width: 52px;
+    height: 44px;
+  }
+  .send-split .split-queue {
+    font-size: 17px;
+  }
+  .send-split .split-queue .icon {
+    width: 22px;
+    height: 22px;
+  }
+  .send-split .split-stop .icon {
+    width: 10px;
+    height: 10px;
   }
   .composer-row .icon-button .icon {
     width: 22px;

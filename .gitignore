@@ -6,4 +6,5 @@ docker/secrets/
 *.log
 .DS_Store
 .ui-check/
+.mockups/
 .kilo/

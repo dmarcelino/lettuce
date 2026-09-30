@@ -8,11 +8,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [v0.1.4-letta_0.33.7] - 2026-09-30
 
 ### Added
-- Queue-aware send button: hold to stop, force-send while the agent is working.
+- Queue-aware send button: while the agent works, press queues your message and the red corner of the split button stops it.
+- Queued messages show as chips above the composer with remove and force-send; a green "Agent is working" line sits above the input.
 
 ### Fixed
 - The working indicator stays lit across queued turns and the force-send seam.
-- Pressing the queue button no longer aborts the current turn on release.
 
 ## [v0.1.3-letta_0.33.7] - 2026-09-29
 

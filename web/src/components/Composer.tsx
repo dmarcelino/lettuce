@@ -8,7 +8,6 @@ import {
   historyUp,
 } from "../lib/input-history.ts";
 import { enterSends } from "../lib/input-mode.ts";
-import { useLongPress } from "../lib/long-press.ts";
 import type { FilterGroup } from "../lib/messages.ts";
 import { parseResponseFormat, type ResponseFormat } from "../lib/structured-output.ts";
 import {
@@ -277,16 +276,12 @@ export function Composer({
   };
 
   /**
-   * While a turn runs, the one button is both actions at once: press queues
-   * what is typed (upstream queues anything that arrives mid-turn), hold stops
-   * the agent. With nothing typed there is nothing to queue, so press stops.
+   * While a turn runs and there is text, the button is split: the blue field
+   * queues what is typed (upstream queues anything that arrives mid-turn), the
+   * red corner stops the agent. Both are real buttons — no long-press gesture,
+   * so keyboard users get both actions and a queue press can never abort.
    */
   const queueMode = processing && !stopping && value.trim().length > 0;
-  const longPress = useLongPress({
-    enabled: queueMode,
-    onShort: submit,
-    onLong: onAbort,
-  });
 
   const modeLabel =
     PERMISSION_MODES.find((mode) => mode.id === permissionMode)?.label ?? "Permissions";
@@ -297,10 +292,6 @@ export function Composer({
         className="composer"
         onSubmit={(event) => {
           event.preventDefault();
-          // A hold-to-stop whose turn ended before the release swaps this form
-          // onto the plain submit branch; the release's click must not then
-          // send what was typed. See long-press.ts.
-          if (longPress.consumeGesture()) return;
           submit();
         }}
       >
@@ -334,6 +325,19 @@ export function Composer({
               </li>
             ))}
           </ul>
+        ) : null}
+
+        {processing ? (
+          // Above the box, not in the transcript: the transcript's own dots
+          // scroll away, this one explains why the button is split.
+          <div className="working-line" role="status">
+            <span className="working-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            Agent is working
+          </div>
         ) : null}
 
         <div className="composer-box">
@@ -527,33 +531,36 @@ export function Composer({
                   <Icon name="stop" />
                 </button>
               ) : queueMode ? (
-                <button
-                  type="button"
-                  className={`icon-button send${longPress.held ? " hold" : ""}`}
-                  onPointerDown={longPress.onPointerDown}
-                  onPointerUp={longPress.onPointerUp}
-                  onPointerCancel={longPress.onPointerCancel}
-                  onClick={longPress.onClick}
-                  onContextMenu={longPress.onContextMenu}
-                  title="Send — hold to stop the agent"
-                  aria-label="Send message — hold to stop the agent"
-                >
-                  <Icon name="send" />
-                </button>
+                // One 28px square, two hit areas. The stop button is clipped to
+                // the red triangle, and clip-path clips hit-testing too — so
+                // presses on the blue field fall through to the queue button
+                // underneath. Both are real buttons: tab reaches each, and a
+                // queue press can never abort by accident.
+                <span className="send-split">
+                  <button
+                    type="button"
+                    className="split-queue"
+                    onClick={submit}
+                    title="Queue this message"
+                    aria-label="Queue this message"
+                  >
+                    <Icon name="send" />
+                  </button>
+                  <button
+                    type="button"
+                    className="split-stop"
+                    onClick={onAbort}
+                    title="Stop the agent"
+                    aria-label="Stop the agent"
+                  >
+                    <Icon name="stop-solid" filled />
+                  </button>
+                </span>
               ) : (
                 <button
                   type="button"
                   className="icon-button stop"
-                  // The queue press empties the box on pointerup, which swaps
-                  // this button in on the same DOM node before the trailing
-                  // click dispatches — so a click that belongs to that
-                  // gesture must not abort. See long-press.ts.
-                  onPointerUp={longPress.onPointerUp}
-                  onPointerCancel={longPress.onPointerCancel}
-                  onClick={() => {
-                    if (longPress.consumeGesture()) return;
-                    onAbort();
-                  }}
+                  onClick={onAbort}
                   title="Stop"
                   aria-label="Stop generating"
                 >
@@ -565,11 +572,6 @@ export function Composer({
                 type="submit"
                 className="icon-button send"
                 disabled={disabled || !value.trim()}
-                // A gesture that started on the queue button can end here —
-                // the turn finished mid-hold — so its release must keep the
-                // claim alive for the form's submit guard. See long-press.ts.
-                onPointerUp={longPress.onPointerUp}
-                onPointerCancel={longPress.onPointerCancel}
                 title="Send"
                 aria-label="Send message"
               >

@@ -393,7 +393,8 @@ function Workspace({ status }: { status: Status }) {
                   </button>
                 ) : null}
                 {conversation.queue.map((item) => (
-                  <span key={item.id} className="queued">
+                  <span key={item.id} className={`queued${item.paused ? " paused" : ""}`}>
+                    <span className="queued-dot" aria-hidden="true" />
                     <button
                       type="button"
                       className="queued-remove"
