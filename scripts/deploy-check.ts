@@ -81,6 +81,32 @@ if (headTag) {
 }
 
 /**
+ * `CHANGELOG.md` carries the user-facing entries for each release (see CLAUDE.md
+ * "Versioning and tags" → changelog rules): the release commit that bumps
+ * `VERSION` renames `## [Unreleased]` to `## [v<new-tag>] - <date>`, so the
+ * newest released section must equal `VERSION` by construction — before tagging
+ * this is the VERSION↔changelog check, after tagging it transitively matches
+ * the tag. It catches a bump that renamed the changelog without bumping the
+ * file, or a bump that forgot to rename it.
+ */
+const changelogText = await Bun.file(`${ROOT}CHANGELOG.md`)
+  .text()
+  .catch(() => "");
+check(
+  "CHANGELOG.md exists and has an [Unreleased] section",
+  changelogText.includes("## [Unreleased]"),
+  changelogText === ""
+    ? 'missing — see CLAUDE.md "Versioning and tags"'
+    : 'no "## [Unreleased]" heading',
+);
+const newestRelease = changelogText.match(/^## \[(v[^\]]+)\]/m)?.[1];
+check(
+  "newest CHANGELOG.md release section matches VERSION",
+  newestRelease === version,
+  `changelog newest is ${newestRelease ?? "none"}, VERSION is ${version}`,
+);
+
+/**
  * LETTA_STATE_DIR anchors every bind mount, and compose defaults it to `../..`
  * relative to the compose file. That default is a trap: from a worktree at
  * `lettuce-worktrees/<feature>/docker/` it resolves to the worktrees

@@ -1,0 +1,46 @@
+# Changelog
+
+All notable user-facing changes to lettuce, newest first. Version tags and
+`VERSION` are defined in CLAUDE.md ("Versioning and tags").
+
+## [Unreleased]
+
+## [v0.1.3-letta_0.33.7] - 2026-09-29
+
+### Added
+- Run every container in a configurable timezone.
+
+## [v0.1.2-letta_0.33.7] - 2026-09-29
+
+### Added
+- Edit text and markdown files, and create new files, from the Files tab.
+
+## [v0.1.1-letta_0.33.7] - 2026-09-29
+
+### Changed
+- The app is now Lettuce: rebranded UI, BFF strings and docs; About no longer shows a letta-code version row.
+
+## [v0.1.0-letta_0.33.7] - 2026-09-29
+
+### Added
+- Mobile-first web UI for a self-hosted local Letta agent: chat with transcript grouping, tool approvals, message queue and task-notification cards.
+- Manage agents from the UI: create, edit, pin, archive and delete, on phone and desktop.
+- Files, Memory and Tasks tabs: browse the agent workspace, download files, preview markdown, read agent memory and background runs.
+- Global Settings screen: providers, web search, MCP servers, Google, Codex workers, global skills, notifications and About.
+- Sign in through Cloudflare Access, or a local dev bypass when running without it.
+- Installable PWA with web push notifications when a finished turn is not being watched.
+- Google integration (Gmail, Calendar, Tasks, Contacts) at access levels only the user can set, with reconnect links when access is lost.
+- Native `web_search` and `fetch_webpage` tools for every agent, with a SearXNG sidecar and DuckDuckGo fallback.
+- Per-agent tool access (Agent → Tools): cut Google down to read-only or off, and allow or block Codex workers per agent.
+- One shared MCP list managed from Settings, reachable by agents through `mcp_search` / `mcp_call` native tools.
+- Codex workers: delegate a task to a Codex CLI worker and watch its run from the Tasks tab.
+- Telegram channel support, opt-in behind the `telegram` compose profile.
+- Shared MCP list plus DuckDuckGo search as its first server.
+- Give the local LLM up to 30 minutes to start responding, configurable per provider.
+- Come back to the agent and conversation you left; conversations are auto-titled.
+
+### Fixed
+- Reconnecting Google no longer revokes the token it just obtained.
+- A Google API switched off in its Cloud project is reported as such, not as a lost sign-in.
+- Stop reports honestly, and each tool call shows one result row.
+- The context gauge shows one usage per conversation, counting the prompt cache.
