@@ -290,6 +290,14 @@ export function useConversation(
   const queueRef = useRef<QueuedItem[]>([]);
   /** Mirror of `processing`, so `forceSend` can decide whether to abort. */
   const processingRef = useRef(false);
+  /**
+   * Set while force-send aborts a turn it is about to replace. The aborted
+   * turn's `turn_finished` lands after the resend is already in flight and
+   * the queue is empty (the resend started directly, it was never queued),
+   * so the queue check cannot tell this boundary from a real end of work —
+   * the flag says the next `turn_finished` is the seam into the resent turn.
+   */
+  const expectResentTurnRef = useRef(false);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
@@ -431,6 +439,7 @@ export function useConversation(
     setEntries([]);
     setQueue([]);
     queueRef.current = [];
+    expectResentTurnRef.current = false;
     setApprovals([]);
     setStopping(false);
     usageScopeRef.current = scope;
@@ -518,11 +527,17 @@ export function useConversation(
         case "turn_finished": {
           refreshUsage();
           settleStreaming(transcriptRef.current);
-          // A ready queued item means the pump starts the next turn the moment
-          // this one unwinds — the working dots must not blink off in between.
-          // Paused items (parked by an interrupt) will not start, so they do
-          // not hold the indicator on.
-          setProcessing(queueRef.current.some((item) => !item.paused));
+          if (expectResentTurnRef.current) {
+            // The seam between an aborted turn and its force-sent replacement:
+            // processing continues into the resent turn.
+            expectResentTurnRef.current = false;
+          } else {
+            // A ready queued item means the pump starts the next turn the
+            // moment this one unwinds — the working dots must not blink off
+            // in between. Paused items (parked by an interrupt) will not
+            // start, so they do not hold the indicator on.
+            setProcessing(queueRef.current.some((item) => !item.paused));
+          }
           // The turn has genuinely unwound now, whatever the app-server said
           // when it accepted the abort. Our own note was about the gap between
           // those two moments, so it goes; the app-server's "Interrupted"
@@ -675,6 +690,7 @@ export function useConversation(
 
       setProcessing(true);
       setStopping(false);
+      expectResentTurnRef.current = false;
       clearLocalNotice(transcriptRef.current, STOP_NOTICE_ID);
       try {
         sendContent(text, text, responseFormat);
@@ -838,7 +854,10 @@ export function useConversation(
         });
       }
       for (const item of plan.removed) dropLocalEcho(item.clientMessageId);
-      if (processingRef.current) await abort();
+      if (processingRef.current) {
+        expectResentTurnRef.current = true;
+        await abort();
+      }
       try {
         // Optimistic, like `sendMessage`: the queue was just emptied, so the
         // abort's `turn_finished` would otherwise drop the working indicator
@@ -847,6 +866,7 @@ export function useConversation(
         setStopping(false);
         for (const next of plan.resend) sendContent(next.raw, next.content);
       } catch (cause) {
+        expectResentTurnRef.current = false;
         setProcessing(false);
         setError(errorMessage(cause));
       }
