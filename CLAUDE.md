@@ -743,6 +743,14 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
   semver part; a letta bump riding along with a feature just changes that tag's suffix.
 - A tag is created **only after the prod deploy is verified** (Definition of done 7b)
   and pushed with `git push origin <tag>`. A failed deploy is never tagged.
+- **`bun run release --minor|--patch`** (`scripts/release.ts`) is the whole release as one
+  gated command: it asserts `main` is clean and untagged, computes the next tag from
+  `VERSION` + the compose pin, makes the release commit on `main`, runs `deploy-check`,
+  prints the Dockhand plan, asks for the one confirmation (type the tag exactly; a
+  non-interactive caller sets `RELEASE_CONFIRM=<tag>` after asking the human), then
+  push → deploy → verify → upstream-log check → tag → push tag, stopping on any failure
+  with no rollback. Doing it by hand is still allowed — this is the same order — but the
+  hand version is what forgot the VERSION bump once.
 - **`VERSION` at the repo root is the machine-readable record** — the full tag string,
   one line, bumped in the same commit that is tagged. The bff image `COPY`s it and the
   BFF serves it at `/api/status` (authenticated branch only — the route's
@@ -775,6 +783,12 @@ to this repo's tag scheme:
   `## [v<new-tag>] - <YYYY-MM-DD>` (date of that commit) and starts a fresh empty
   `[Unreleased]` above it. This keeps `VERSION` and the changelog consistent by construction
   even if the deploy later fails and the tag is never created.
+- **The release commit is made on `main`, never on a feature branch** — by
+  `bun run release`, after every merge for that release and before the push. Parallel
+  worktrees cannot know the next version: two MINOR features merged together are **one**
+  MINOR release, and two branches each bumping `VERSION` would both claim the same tag.
+  Between releases `main` sits at the last tag with entries accumulating under
+  `[Unreleased]`, which `deploy-check` passes — nothing forces the bump early.
 - **No links section** — private repo, no GitHub releases; do not add Keep-a-Changelog link
   references.
 - `deploy-check` asserts `CHANGELOG.md` has `## [Unreleased]` and that its newest
@@ -790,10 +804,12 @@ Passing typecheck is not done. Passing tests are not done. **Running in the cont
 
 1. **`bun run verify` green** — lint, typecheck, tests, build. Fails fast; later stages
    do not run once one fails.
-2. **Committed** on a feature branch and fast-forwarded into `main`
+ 2. **Committed** on a feature branch and fast-forwarded into `main`
    (`git merge --ff-only`). A user-visible change carries its `CHANGELOG.md` `[Unreleased]`
-   entry in the same commit; a release commit bumps `VERSION` and renames `[Unreleased]` per
-   "Versioning and tags" → changelog.
+   entry in the same commit. The **release commit** — the `VERSION` bump and the
+   `[Unreleased]` rename — is never made on a feature branch: it is made on `main` at
+   release time, after every merge for that release, by `bun run release` (see
+   "Versioning and tags").
 3. **Worktree lifecycle is owned by Kilo Code Agent Manager** — do not run
    `git worktree remove` or `git branch -d` yourself. Concurrent agents may have live
    worktrees; removing one that is not yours destroys another session's uncommitted work.
@@ -913,6 +929,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run dev` | BFF + Vite dev server |
 | `bun run smoke` | Live acceptance suite against a running stack — mutates state |
 | `bun run sync-upstream v<x.y.z>` | Move the upstream checkout to a release, report drift, re-pin |
+| `bun run release --minor\|--patch` | The whole release: release commit on `main`, then gated push → deploy → verify → tag |
 | `bun run check-version-pin` | Assert every letta-code version literal agrees (runs inside `verify`) |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
