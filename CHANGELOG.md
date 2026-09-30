@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.1.5-letta_0.33.7] - 2026-09-30
+
 ### Added
 - Pulsing status dot lists responding conversations and jumps to any of them.
 
