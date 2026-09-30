@@ -562,11 +562,11 @@ export function useConversation(
               };
             }
           ).device_status;
-          if (expectResentTurnRef.current && status?.is_processing !== true) {
-            // The seam of a force-send: the abort's own status frames say
-            // "not processing" while the replacement turn is being staged.
-          } else {
-            if (status?.is_processing === true) expectResentTurnRef.current = false;
+          // The seam of a force-send: the abort's own status frames say "not
+          // processing" while the replacement turn is staged, and the
+          // replacement's own start frames can arrive before the aborted
+          // turn's turn_finished — so only turn_finished ends the seam.
+          if (!expectResentTurnRef.current || status?.is_processing === true) {
             setProcessing(status?.is_processing === true);
           }
           if (typeof status?.current_working_directory === "string") {
@@ -608,10 +608,7 @@ export function useConversation(
           const loopStatus = loop?.status;
           const loopBusy = typeof loopStatus === "string" && loopStatus !== "WAITING_ON_INPUT";
           // Same force-send seam as in the device-status case above.
-          if (!expectResentTurnRef.current || loopBusy) {
-            if (loopBusy) expectResentTurnRef.current = false;
-            setProcessing(loopBusy);
-          }
+          if (!expectResentTurnRef.current || loopBusy) setProcessing(loopBusy);
           break;
         }
         case "update_queue": {
