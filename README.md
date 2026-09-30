@@ -41,7 +41,7 @@ Lettuce inverts all three:
 - **You own the whole stack.** One directory holds everything durable. Copy
   it, and you have backed up your assistant.
 
-The trade-off is honest and stated up front: this is infrastructure you run.
+The trade-off is honest and stated up front: you run this infrastructure.
 You pick the model, you keep it running, and you read the security section
 before exposing anything.
 
@@ -148,22 +148,13 @@ docker compose -f docker/compose.yml up -d --build
 
 Open `http://localhost:8090`.
 
-By default the stack runs in **local mode**, which has no authentication —
-read the next section before putting it anywhere other than your own machine.
+By default, the stack runs in **local mode**, which has no authentication — read the next section before putting it anywhere other than your own machine.
 
-### Point it at a model
+To configure the model endpoint, go to Settings → Providers & models and configure an OpenAI-compatible endpoint or select a cloud provider.
 
-With llama.cpp running on the host:
+For details on configuration, see [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
 
-```bash
-docker compose -f docker/compose.yml exec app-server letta connect
-# choose "llama.cpp (local)", base URL http://host.docker.internal:8080/v1
-```
-
-Any OpenAI-compatible endpoint works the same way, and a hosted provider can
-be connected in Settings → Providers & models if you want one. Nothing has to.
-
-## Two ways to run it
+## Two running modes
 
 One setting, `COMPOSE_PROFILES`, decides which mode you are in and which
 optional containers exist.
@@ -219,12 +210,6 @@ Back that one directory up and you have everything.
 | Settings | Scheduled tasks |
 |---|---|
 | ![Settings](docs/images/desktop-settings.png) | ![Tasks](docs/images/mobile-tasks.png) |
-
-These are generated from synthetic fixtures, not a live install:
-
-```bash
-bun run build && bun run screenshots
-```
 
 ## Development
 
