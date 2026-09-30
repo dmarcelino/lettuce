@@ -818,13 +818,13 @@ export function useConversation(
       const plan = planForceSend(queueRef.current, itemId);
       if (!plan) return;
 
-      // Stop the current turn first (this also pauses the queue upstream, so
-      // nothing drains while we reshuffle it), then empty the user items out
-      // of the queue and resend them with the target at the head. With the
-      // queue empty the target either starts at once or sits at the head of a
-      // queue that is still unwinding — upstream has no promote command, so
-      // this remove-and-resend is the only way to run an item out of order.
-      if (processingRef.current) await abort();
+      // Take the user items out of the queue FIRST: if the turn ended while we
+      // waited, the pump would otherwise dequeue the target itself and the
+      // resend below would run it a second time. Only then stop the turn, and
+      // then resend with the target at the head. With the queue empty the
+      // target either starts at once or sits at the head of a queue that is
+      // still unwinding — upstream has no promote command, so this
+      // remove-and-resend is the only way to run an item out of order.
       for (const id of plan.remove) {
         send({
           type: "remove_queue_item",
@@ -834,6 +834,7 @@ export function useConversation(
         });
       }
       for (const item of plan.removed) dropLocalEcho(item.clientMessageId);
+      if (processingRef.current) await abort();
       try {
         for (const next of plan.resend) sendContent(next.raw, next.content);
       } catch (cause) {
