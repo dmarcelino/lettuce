@@ -91,6 +91,22 @@ unset: together they open a second door that bypasses Access and
 | `BFF_BIND` | `0.0.0.0` | Host interface the published port listens on. Set `127.0.0.1` in cloudflared mode — the tunnel reaches the BFF over Docker's internal network, so a LAN-reachable port is a door nobody needs open. |
 | `PORT` | `8080` | The BFF's own listen port, inside the container. Rarely worth changing. |
 
+## Timezone
+
+Every container runs in one timezone, set with `TZ`. It drives the cron
+scheduler (so "brief me at 7" fires at 7 *there*), the timestamps on
+conversations and memory, and the clock on every container's logs. Docker's
+default is UTC; this stack defaults to **Pacific**.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `TZ` | `America/Los_Angeles` | IANA timezone name for every container, e.g. `Europe/Berlin`, `Asia/Tokyo`. |
+
+Every image in the stack ships `tzdata`, so the value takes effect everywhere.
+Changing it recreates the containers it is set on — including `app-server`,
+which drops the BFF's upstream connection, so run
+`docker compose -f docker/compose.yml up -d` unscoped.
+
 ## Session and tuning
 
 | Variable | Default | Effect |

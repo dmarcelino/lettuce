@@ -73,6 +73,13 @@ services:
     # visible on the host. Agents get /work/<agent-id>; /work is the shared level.
     working_dir: /work
     environment:
+      # Container timezone. Docker defaults to UTC; this makes the cron
+      # scheduler (so "brief me at 7" fires at 7 there), the timestamps on
+      # conversations and memory, and every container's logs agree on one local
+      # time. Override TZ in docker/.env with any IANA name (e.g.
+      # Europe/Berlin). Every image in this stack ships tzdata, so the value
+      # takes effect; the same TZ is set on each service below.
+      TZ: ${TZ:-America/Los_Angeles}
       # No Letta Cloud: agents, conversations and transcripts stay on disk here.
       LETTA_LOCAL_BACKEND_EXPERIMENTAL: "true"
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
@@ -216,6 +223,7 @@ services:
     # and prod had no bff once the old one drained (2026-09-29).
     stop_grace_period: 10m
     environment:
+      TZ: ${TZ:-America/Los_Angeles}
       PORT: "8080"
       SHUTDOWN_DRAIN_TIMEOUT_SECONDS: ${SHUTDOWN_DRAIN_TIMEOUT_SECONDS:-}
       LETTA_APP_SERVER_URL: ws://127.0.0.1:4500
@@ -324,6 +332,7 @@ services:
     # different directory from a browser-initiated one.
     working_dir: /work
     environment:
+      TZ: ${TZ:-America/Los_Angeles}
       LETTA_LOCAL_BACKEND_EXPERIMENTAL: "true"
       LETTA_LOCAL_BACKEND_DIR: /data/local-backend
       USER_CWD: /work
@@ -358,6 +367,8 @@ services:
       args:
         SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
     image: letta-searxng:${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
+    environment:
+      TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
 
   # DuckDuckGo via duckduckgo-mcp-server (see docker/ddg-mcp/Dockerfile for why
@@ -374,6 +385,7 @@ services:
         DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
     image: letta-ddg-mcp:${DDG_MCP_VERSION:-0.7.0}
     environment:
+      TZ: ${TZ:-America/Los_Angeles}
       DDG_REGION: ${DDG_REGION:-us-en}
       DDG_SAFE_SEARCH: ${DDG_SAFE_SEARCH:-OFF}
       # Long result URLs normally come back as ref:// tokens meant for an agent
@@ -402,6 +414,8 @@ services:
       args:
         WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-1.29.0}
     image: letta-google-mcp:${WORKSPACE_MCP_VERSION:-1.29.0}
+    environment:
+      TZ: ${TZ:-America/Los_Angeles}
     volumes:
       - google-policy:/policy:ro
       # Read-write: workspace-mcp stores the refreshed access token here.
@@ -433,6 +447,7 @@ services:
     command: tunnel --no-autoupdate run
     profiles: ["cloudflared"]
     environment:
+      TZ: ${TZ:-America/Los_Angeles}
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       app-server:
