@@ -297,6 +297,10 @@ export function Composer({
         className="composer"
         onSubmit={(event) => {
           event.preventDefault();
+          // A hold-to-stop whose turn ended before the release swaps this form
+          // onto the plain submit branch; the release's click must not then
+          // send what was typed. See long-press.ts.
+          if (longPress.consumeGesture()) return;
           submit();
         }}
       >
@@ -544,6 +548,8 @@ export function Composer({
                   // this button in on the same DOM node before the trailing
                   // click dispatches — so a click that belongs to that
                   // gesture must not abort. See long-press.ts.
+                  onPointerUp={longPress.onPointerUp}
+                  onPointerCancel={longPress.onPointerCancel}
                   onClick={() => {
                     if (longPress.consumeGesture()) return;
                     onAbort();
@@ -559,6 +565,11 @@ export function Composer({
                 type="submit"
                 className="icon-button send"
                 disabled={disabled || !value.trim()}
+                // A gesture that started on the queue button can end here —
+                // the turn finished mid-hold — so its release must keep the
+                // claim alive for the form's submit guard. See long-press.ts.
+                onPointerUp={longPress.onPointerUp}
+                onPointerCancel={longPress.onPointerCancel}
                 title="Send"
                 aria-label="Send message"
               >
