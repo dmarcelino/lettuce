@@ -8,6 +8,12 @@
  * still goes through `read_file` over the multiplexed WS session — the bytes
  * have to reach JS to build a data URL or show text — while the Download button
  * hands off to the BFF's HTTP route.
+ *
+ * Text files are also editable here: Edit swaps the view for a textarea and
+ * Save writes the whole content back with `write_file` (allowlisted and
+ * workspace-clamped BFF-side). There is no mtime or etag check upstream, so a
+ * save silently wins over any change the agent made between open and save —
+ * single-user, small window, accepted.
  */
 import { useEffect, useRef, useState } from "react";
 import {
@@ -20,6 +26,7 @@ import {
 } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Sheet } from "./Sheet.tsx";
 
@@ -31,18 +38,33 @@ interface ReadResponse {
 
 const basename = (path: string) => path.split("/").pop() || path;
 
+/**
+ * Whether this file can be edited as text. Decided from the name, exactly like
+ * the preview decision: a binary file never reaches edit mode anyway — a
+ * non-UTF-8 read auto-downloads and closes the sheet.
+ */
+export function isEditableFile(name: string): boolean {
+  return !isImageFile(name);
+}
+
 export function FileViewer({
   session,
   path,
   onClose,
+  onSaved,
 }: {
   session: SessionApi;
   path: string;
   onClose: () => void;
+  /** Called after a successful save so the caller can refresh its listing. */
+  onSaved?: () => void;
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [image, setImage] = useState<string | null>(null);
   const [status, setStatus] = useState("Loading…");
+  const [mode, setMode] = useState<"view" | "edit">("view");
+  const [draft, setDraft] = useState("");
+  const [preview, setPreview] = useState(false);
 
   // Inline handlers from the caller change identity every render; keep the
   // effect keyed on `path` alone so it does not re-read the file each time.
@@ -54,6 +76,9 @@ export function FileViewer({
     const name = basename(path);
     setContent(null);
     setImage(null);
+    setMode("view");
+    setDraft("");
+    setPreview(false);
     setStatus("Loading…");
 
     void (async () => {
@@ -89,32 +114,122 @@ export function FileViewer({
     };
   }, [session, path]);
 
+  const dirty = mode === "edit" && draft !== content;
+
+  /** Every close path (✕, scrim, Back, Escape) goes through this guard. */
+  const requestClose = () => {
+    if (dirty && !window.confirm("Discard unsaved changes?")) return;
+    onClose();
+  };
+
+  const startEdit = () => {
+    if (content === null) return;
+    setDraft(content);
+    setPreview(false);
+    setMode("edit");
+    setStatus("");
+  };
+
+  const save = async () => {
+    setStatus("Saving…");
+    try {
+      const response = await session.request<{ success?: boolean; error?: string }>("write_file", {
+        path,
+        content: draft,
+      });
+      if (response?.success === false) {
+        setStatus(response.error ?? "Save failed");
+        return;
+      }
+      setContent(draft);
+      setMode("view");
+      setStatus("Saved");
+      onSaved?.();
+    } catch (cause) {
+      setStatus(errorMessage(cause));
+    }
+  };
+
   const name = basename(path);
+  const markdown = isMarkdownFile(name);
   return (
     <Sheet
       title={name}
       fill
       size="spacious"
       status={status || null}
-      onClose={onClose}
+      onClose={requestClose}
       actions={
-        <>
-          <button
-            type="button"
-            className="button"
-            onClick={() => triggerDownload(downloadUrl(path))}
-          >
-            Download
-          </button>
-          <button type="button" className="button ghost" onClick={onClose}>
-            Close
-          </button>
-        </>
+        mode === "edit" ? (
+          <>
+            <button
+              type="button"
+              className="button ghost"
+              onClick={() => {
+                setMode("view");
+                setPreview(false);
+                setStatus("");
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button"
+              disabled={draft === content}
+              onClick={() => void save()}
+            >
+              Save
+            </button>
+          </>
+        ) : (
+          <>
+            {content !== null && isEditableFile(name) ? (
+              <button type="button" className="button" onClick={startEdit}>
+                <Icon name="edit" /> Edit
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="button"
+              onClick={() => triggerDownload(downloadUrl(path))}
+            >
+              Download
+            </button>
+            <button type="button" className="button ghost" onClick={requestClose}>
+              Close
+            </button>
+          </>
+        )
       }
     >
-      {image !== null ? (
+      {mode === "edit" ? (
+        <>
+          {markdown ? (
+            <button
+              type="button"
+              className="link file-preview-toggle"
+              onClick={() => setPreview((on) => !on)}
+            >
+              {preview ? "Edit source" : "Preview"}
+            </button>
+          ) : null}
+          {preview ? (
+            <div className="md-document">
+              <Markdown text={draft} />
+            </div>
+          ) : (
+            <textarea
+              className="file-editor"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              spellCheck={false}
+            />
+          )}
+        </>
+      ) : image !== null ? (
         <img className="file-preview" src={image} alt={name} />
-      ) : content !== null && isMarkdownFile(name) ? (
+      ) : content !== null && markdown ? (
         // Not `.tool-args`: that is the monospace box for tool output, with
         // `white-space: pre-wrap`, and react-markdown puts a newline text node
         // between every block — pre-wrap drew each one as a blank line, an

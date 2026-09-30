@@ -1707,6 +1707,7 @@ p.warning code {
    item refuses to shrink below its content and the overflow moves back up to
    the body, restoring the nesting this is meant to remove. */
 .sheet-panel.fill .memory-editor,
+.sheet-panel.fill .file-editor,
 .sheet-panel.fill .tool-args,
 .sheet-panel.fill .md-document {
   flex: 1;
@@ -2124,6 +2125,30 @@ p.warning code {
     Menlo,
     monospace;
   resize: vertical;
+}
+
+/* The file editor in FileViewer and the New file sheet: same monospace block
+   as the memory editor, so editing a file and editing a memory block read the
+   same. */
+.file-editor {
+  width: 100%;
+  min-height: 40vh;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 12px;
+  font:
+    13px / 1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  resize: vertical;
+}
+
+/* The markdown Preview / Edit source toggle above the editor. */
+.file-preview-toggle {
+  align-self: flex-start;
 }
 
 .match-text {

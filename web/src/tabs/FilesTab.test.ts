@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parentDirectory, resolve } from "./FilesTab.tsx";
+import { isEditableFile } from "../components/FileViewer.tsx";
+import { newFilePath, parentDirectory, resolve } from "./FilesTab.tsx";
 
 const ROOT = "/work";
 const AGENT = "/work/agent-local-e596ee28-7374-4a66-b410-f4f8cab1abdf";
@@ -32,5 +33,35 @@ describe("Files navigation", () => {
 
   test("an already-absolute entry path passes through", () => {
     expect(resolve(AGENT, `${AGENT}/notes.md`)).toBe(`${AGENT}/notes.md`);
+  });
+});
+
+describe("New file", () => {
+  test("a plain filename joins onto the current directory", () => {
+    expect(newFilePath(AGENT, "notes.md")).toBe(`${AGENT}/notes.md`);
+    expect(newFilePath(ROOT, "todo.txt")).toBe("/work/todo.txt");
+    expect(newFilePath(AGENT, "  spaced name.md  ")).toBe(`${AGENT}/spaced name.md`);
+  });
+
+  test("path separators and traversal are refused", () => {
+    // write_file mkdir -p's the parent, so an unchecked "a/b" would build "a".
+    expect(newFilePath(AGENT, "a/b")).toBeNull();
+    expect(newFilePath(AGENT, "a\\b")).toBeNull();
+    expect(newFilePath(AGENT, "../escape")).toBeNull();
+    expect(newFilePath(AGENT, "..")).toBeNull();
+    expect(newFilePath(AGENT, ".")).toBeNull();
+    expect(newFilePath(AGENT, "/etc/passwd")).toBeNull();
+    expect(newFilePath(AGENT, "")).toBeNull();
+    expect(newFilePath(AGENT, "   ")).toBeNull();
+  });
+});
+
+describe("editable files", () => {
+  test("text files are editable, images are not", () => {
+    expect(isEditableFile("notes.md")).toBe(true);
+    expect(isEditableFile("README")).toBe(true);
+    expect(isEditableFile(".gitignore")).toBe(true);
+    expect(isEditableFile("photo.png")).toBe(false);
+    expect(isEditableFile("photo.jpeg")).toBe(false);
   });
 });

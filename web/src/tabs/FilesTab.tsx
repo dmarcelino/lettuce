@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BranchSheet } from "../components/BranchSheet.tsx";
 import { FileViewer } from "../components/FileViewer.tsx";
 import { Icon } from "../components/Icon.tsx";
+import { Sheet } from "../components/Sheet.tsx";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { downloadUrl, formatBytes, triggerDownload } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
@@ -52,6 +53,29 @@ export function parentDirectory(path: string): string | null {
   return parent.length >= WORKSPACE_ROOT.length ? parent : WORKSPACE_ROOT;
 }
 
+/**
+ * The absolute path for a "New file" name typed into the sheet, or null when
+ * the name is not a plain filename. The sheet creates a file in the CURRENT
+ * directory — nested paths are made by navigating first — so any separator,
+ * traversal component or absolute path is refused here rather than silently
+ * creating directories the user did not ask for. (`write_file` does `mkdir -p`
+ * on the parent, so an unchecked `a/b` would happily build `a`.)
+ */
+export function newFilePath(root: string, name: string): string | null {
+  const trimmed = name.trim();
+  if (
+    trimmed === "" ||
+    trimmed === "." ||
+    trimmed === ".." ||
+    trimmed.startsWith("/") ||
+    trimmed.includes("/") ||
+    trimmed.includes("\\")
+  ) {
+    return null;
+  }
+  return resolve(root, trimmed);
+}
+
 interface Props {
   session: SessionApi;
   /** Working directory of the active runtime; the tree is rooted here. */
@@ -70,6 +94,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [branchesOpen, setBranchesOpen] = useState(false);
+  const [newFileOpen, setNewFileOpen] = useState(false);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -199,6 +224,14 @@ export function FilesTab({ session, cwd, agentId }: Props) {
           title="Switch git branch"
         >
           <Icon name="branch" /> Branch
+        </button>
+        <button
+          type="button"
+          className="link"
+          onClick={() => setNewFileOpen(true)}
+          title="Create a text file here"
+        >
+          <Icon name="plus" /> New file
         </button>
       </div>
 
@@ -347,7 +380,22 @@ export function FilesTab({ session, cwd, agentId }: Props) {
           session={session}
           path={selected}
           onClose={() => setSelected(null)}
+          onSaved={() => void load(root)}
           key={selected}
+        />
+      ) : null}
+
+      {newFileOpen ? (
+        <NewFileSheet
+          root={root}
+          existing={entries.filter((entry) => entry.type === "file").map((entry) => entry.path)}
+          session={session}
+          onClose={() => setNewFileOpen(false)}
+          onCreated={(path) => {
+            setNewFileOpen(false);
+            void load(root);
+            setSelected(path);
+          }}
         />
       ) : null}
 
@@ -355,6 +403,102 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         <BranchSheet session={session} cwd={root} onClose={() => setBranchesOpen(false)} />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Create one text file in the current directory. `write_file` overwrites, so
+ * an existing name is refused client-side before the request — the sheet is
+ * not the place to lose a file by accident.
+ */
+function NewFileSheet({
+  root,
+  existing,
+  session,
+  onClose,
+  onCreated,
+}: {
+  root: string;
+  existing: string[];
+  session: SessionApi;
+  onClose: () => void;
+  onCreated: (path: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [content, setContent] = useState("");
+  const [status, setStatus] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const create = async () => {
+    const path = newFilePath(root, name);
+    if (!path) {
+      setStatus("Enter a plain filename — no path separators.");
+      return;
+    }
+    if (existing.includes(name.trim())) {
+      setStatus(`${name.trim()} already exists here.`);
+      return;
+    }
+    setSaving(true);
+    setStatus("Creating…");
+    try {
+      const response = await session.request<{ success?: boolean; error?: string }>("write_file", {
+        path,
+        content,
+      });
+      if (response?.success === false) {
+        setStatus(response.error ?? "Create failed");
+        return;
+      }
+      onCreated(path);
+    } catch (cause) {
+      setStatus(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Sheet
+      title="New file"
+      status={status || null}
+      onClose={onClose}
+      actions={
+        <>
+          <button type="button" className="button ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={saving || !name.trim()}
+            onClick={() => void create()}
+          >
+            Create
+          </button>
+        </>
+      }
+    >
+      <label className="field">
+        File name
+        <input
+          value={name}
+          placeholder="notes.md"
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void create();
+          }}
+        />
+      </label>
+      <p className="muted small">Created in {root}</p>
+      <textarea
+        className="file-editor"
+        placeholder="(empty file)"
+        value={content}
+        onChange={(event) => setContent(event.target.value)}
+        spellCheck={false}
+      />
+    </Sheet>
   );
 }
 
