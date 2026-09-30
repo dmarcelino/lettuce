@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivitySheet } from "./components/ActivitySheet.tsx";
 import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
 import { AuthPill } from "./components/AuthPill.tsx";
@@ -182,6 +183,8 @@ function Workspace({ status }: { status: Status }) {
   const [contextOpen, setContextOpen] = useState(false);
 
   const [tab, setTab] = useState<Tab>("Chat");
+  /** The responding-conversations list behind the pulsing status dot. */
+  const [activityOpen, setActivityOpen] = useState(false);
   /** The agents-and-conversations menu (phone); see `Switcher`. */
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
@@ -244,6 +247,8 @@ function Workspace({ status }: { status: Status }) {
   // menu badge is for turns running somewhere you are not looking.
   const respondingElsewhere =
     session.activeScopes.size - (scope && session.activeScopes.has(scopeKey(scope)) ? 1 : 0);
+  // Any active scope at all makes the status dot a way into the list.
+  const respondingCount = session.activeScopes.size;
 
   // Lifted so the composer button and the picker share one source of truth —
   // switching model in the picker updates the button without a reload.
@@ -320,7 +325,12 @@ function Workspace({ status }: { status: Status }) {
             }}
           />
           {bypass ? <AuthPill email={status.user?.email} /> : null}
-          <LinkPill link={session.link} />
+          <LinkPill
+            link={session.link}
+            busy={respondingCount > 0}
+            count={respondingCount}
+            onOpen={() => setActivityOpen(true)}
+          />
           {/* Settings shared by every agent. The selected agent's own are its
               Agent tab; this is the one way into the rest, at every width. */}
           <button
@@ -500,6 +510,10 @@ function Workspace({ status }: { status: Status }) {
         />
       ) : null}
 
+      {activityOpen ? (
+        <ActivitySheet session={session} agents={agents} onClose={() => setActivityOpen(false)} />
+      ) : null}
+
       {conversation.approvals.length > 0 ? (
         <ApprovalSheet
           // Keyed by request id so a fresh approval always mounts fresh —
@@ -572,9 +586,21 @@ function Workspace({ status }: { status: Status }) {
  * reconnecting, red offline — the label is the tooltip and the accessible
  * name. It used to be a text pill, which cost the top bar the room it now
  * uses to say which agent and conversation you are in. Signed out stays
- * words and a button: it is the one state that needs you to act.
+ * words and a button: it is the one state that needs you to act. While any
+ * conversation is responding it pulses and becomes a button into the list of
+ * what is running; with nothing running it is the same passive dot as ever.
  */
-function LinkPill({ link }: { link: LinkState }) {
+function LinkPill({
+  link,
+  busy,
+  count,
+  onOpen,
+}: {
+  link: LinkState;
+  busy: boolean;
+  count: number;
+  onOpen: () => void;
+}) {
   const map: Record<LinkState, { label: string; tone: string }> = {
     live: { label: "Live", tone: "ok" },
     connecting: { label: "Connecting…", tone: "warn" },
@@ -586,12 +612,25 @@ function LinkPill({ link }: { link: LinkState }) {
   const { label, tone } = map[link];
   // Signed out is the one state a tap can fix: a reload goes through the
   // login. Reached when the automatic reload already ran recently, or the
-  // page was hidden when the login expired.
+  // page was hidden when the login expired. It outranks busy: a dead session
+  // has nothing worth listing.
   if (link === "signed-out") {
     return (
       <button type="button" className={`pill as-button ${tone}`} onClick={() => location.reload()}>
         {label}
       </button>
+    );
+  }
+  if (busy) {
+    const busyLabel = `${count} conversation${count === 1 ? "" : "s"} responding — show`;
+    return (
+      <button
+        type="button"
+        className={`link-dot ${tone} busy`}
+        onClick={onOpen}
+        aria-label={busyLabel}
+        title={busyLabel}
+      />
     );
   }
   return (

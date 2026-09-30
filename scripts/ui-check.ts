@@ -1428,6 +1428,61 @@ try {
       const badge = await painted(".topbar .badge-dot");
       check("phone: the menu badge is painted", badge.found && Boolean(badge.visible), badge);
     }
+
+    // The status dot doubles as the way into the list of responding
+    // conversations: while any scope is active it is a button, and clicking a
+    // row switches to that conversation.
+    const busyDot = page.locator(".topbar button.link-dot.busy");
+    check(
+      `${viewport.width}px: the status dot is a button while turns run`,
+      (await busyDot.count()) === 1,
+    );
+    // A second conversation to switch to, taken from the sidebar list.
+    const otherId = await page.evaluate((open) => {
+      for (const row of document.querySelectorAll(".conversations li.conversation-row")) {
+        const id = row.getAttribute("data-conversation-id");
+        if (id && id !== open) return id;
+      }
+      return null;
+    }, openId);
+    if (otherId) {
+      send(
+        JSON.stringify({
+          type: "__bff_activity",
+          active: [
+            { agent_id: agentId, conversation_id: "default" },
+            ...(openId ? [{ agent_id: agentId, conversation_id: openId }] : []),
+            { agent_id: agentId, conversation_id: otherId },
+          ],
+        }),
+      );
+      await page.waitForTimeout(200);
+      await busyDot.click();
+      const sheet = page.locator('.sheet-panel[aria-label="Responding now"]');
+      await sheet.waitFor({ state: "visible", timeout: 3000 });
+      check(`${viewport.width}px: the dot opens the responding list`, true);
+      check(
+        `${viewport.width}px: the default conversation shows as a note`,
+        (await sheet.locator(".activity-note").count()) === 1,
+      );
+      // The open conversation first (marked as current), then the other one.
+      const sheetRows = sheet.locator(".menu-row");
+      const expectedRows = openId ? 2 : 1;
+      check(
+        `${viewport.width}px: the sheet lists the responding conversations`,
+        (await sheetRows.count()) === expectedRows,
+        { expected: expectedRows },
+      );
+      await shot(page, `activity-sheet-${viewport.width}`);
+      await sheetRows.nth(openId ? 1 : 0).click();
+      await sheet.waitFor({ state: "hidden", timeout: 3000 });
+      const after = await page.evaluate(() => localStorage.getItem("letta-ui:selection"));
+      check(
+        `${viewport.width}px: clicking a row switches to that conversation`,
+        after !== null && JSON.parse(after).conversationId === otherId,
+        { expected: otherId, got: after },
+      );
+    }
     await shot(page, `activity-${viewport.width}`);
     await page.close();
   }

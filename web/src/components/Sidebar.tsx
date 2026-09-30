@@ -313,6 +313,7 @@ export function Sidebar({
                 return (
                   <li
                     key={conversation.id}
+                    data-conversation-id={conversation.id}
                     className={[
                       "conversation-row",
                       conversation.id === agents.conversationId ? "active" : "",

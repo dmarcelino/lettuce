@@ -71,6 +71,11 @@ export function scopeKey(scope: RuntimeScope): string {
   return `${scope.agent_id}::${scope.conversation_id}`;
 }
 
+/** Inverse of `scopeKey`, mirroring the BFF's `parseScopeKey` in `session/buffer.ts`. */
+export function parseScopeKey(key: string): [agentId: string, conversationId: string] {
+  return key.split("::") as [string, string];
+}
+
 /** Capability-discovery handshake, narrowed from the `unknown` wire payload. */
 export interface AppServerInfo {
   backend: "local" | "api";

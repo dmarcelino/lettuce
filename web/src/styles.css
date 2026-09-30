@@ -2309,6 +2309,10 @@ p.warning code {
   align-items: center;
   padding: 6px;
 }
+/* The activity sheet after the last turn finished: it stays open, saying so. */
+.activity-sheet-empty {
+  margin: 6px 2px;
+}
 
 /* ── Top bar: where you are ──────────────────────────────────────────────── */
 
@@ -2373,8 +2377,25 @@ p.warning code {
     transform: rotate(360deg);
   }
 }
+/* Busy: a turn is running somewhere, so the dot is a button into the list.
+   Same 10px footprint as the span — the button reset strips only the chrome
+   the tone classes do not set themselves (warn keeps its spinner border).
+   The pulse is the one every activity dot already uses. */
+button.link-dot.busy {
+  cursor: pointer;
+  appearance: none;
+  padding: 0;
+  animation: activity-pulse 1.4s ease-in-out infinite;
+}
+button.link-dot.busy:not(.warn) {
+  border: none;
+}
+button.link-dot.busy.warn {
+  background: transparent;
+}
 @media (prefers-reduced-motion: reduce) {
-  .link-dot.spinning {
+  .link-dot.spinning,
+  button.link-dot.busy {
     animation: none;
   }
 }
