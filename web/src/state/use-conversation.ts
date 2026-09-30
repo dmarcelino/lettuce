@@ -562,7 +562,13 @@ export function useConversation(
               };
             }
           ).device_status;
-          setProcessing(status?.is_processing === true);
+          if (expectResentTurnRef.current && status?.is_processing !== true) {
+            // The seam of a force-send: the abort's own status frames say
+            // "not processing" while the replacement turn is being staged.
+          } else {
+            if (status?.is_processing === true) expectResentTurnRef.current = false;
+            setProcessing(status?.is_processing === true);
+          }
           if (typeof status?.current_working_directory === "string") {
             setCwd(status.current_working_directory);
           }
@@ -600,7 +606,12 @@ export function useConversation(
           // composer permanently stuck showing "stop".
           const loop = (frame as { loop_status?: { status?: unknown } }).loop_status;
           const loopStatus = loop?.status;
-          setProcessing(typeof loopStatus === "string" && loopStatus !== "WAITING_ON_INPUT");
+          const loopBusy = typeof loopStatus === "string" && loopStatus !== "WAITING_ON_INPUT";
+          // Same force-send seam as in the device-status case above.
+          if (!expectResentTurnRef.current || loopBusy) {
+            if (loopBusy) expectResentTurnRef.current = false;
+            setProcessing(loopBusy);
+          }
           break;
         }
         case "update_queue": {
