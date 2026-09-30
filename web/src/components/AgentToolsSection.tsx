@@ -10,7 +10,7 @@ import { errorMessage } from "../lib/errors.ts";
 
 interface Props {
   agentId: string;
-  /** Codex and Google themselves are set up for every agent in Settings. */
+  /** Codex, Claude Code and Google themselves are set up for every agent in Settings. */
   onOpenGlobalSettings: () => void;
 }
 
@@ -83,7 +83,11 @@ export function AgentToolsSection({ agentId, onOpenGlobalSettings }: Props) {
     return <p className="muted pad">{status || "Loading tool access…"}</p>;
   }
 
-  const dirty = !saved || saved.codex !== access.codex || saved.google !== access.google;
+  const dirty =
+    !saved ||
+    saved.codex !== access.codex ||
+    saved.claude !== access.claude ||
+    saved.google !== access.google;
 
   return (
     <>
@@ -120,6 +124,22 @@ export function AgentToolsSection({ agentId, onOpenGlobalSettings }: Props) {
             {access.codex
               ? "The agent may hand coding tasks to Codex workers."
               : "Starting or messaging a Codex worker is refused, in every permission mode."}
+          </span>
+        </label>
+
+        <label className="field">
+          Claude Code workers
+          <select
+            value={access.claude ? "on" : "off"}
+            onChange={(event) => setAccess({ ...access, claude: event.target.value === "on" })}
+          >
+            <option value="on">Allowed</option>
+            <option value="off">Blocked</option>
+          </select>
+          <span className="muted small">
+            {access.claude
+              ? "The agent may hand coding tasks to Claude Code workers."
+              : "Starting or messaging a Claude Code worker is refused, in every permission mode."}
           </span>
         </label>
 

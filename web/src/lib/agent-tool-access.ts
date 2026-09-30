@@ -1,12 +1,14 @@
 /**
- * Which shared tool families one agent may use — Codex workers and Google.
- * Kept and enforced by the BFF (`bff/src/agents/tool-access.ts`).
+ * Which shared tool families one agent may use — Codex workers, Claude Code
+ * workers and Google. Kept and enforced by the BFF
+ * (`bff/src/agents/tool-access.ts`).
  */
 
 export type GoogleAccess = "full" | "read" | "off";
 
 export interface AgentToolAccess {
   codex: boolean;
+  claude: boolean;
   google: GoogleAccess;
 }
 

@@ -4,6 +4,7 @@ import { defaultStorage } from "../lib/storage.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { useWide } from "../state/use-wide.ts";
+import { ClaudeSection } from "./ClaudeSection.tsx";
 import { CodexSection } from "./CodexSection.tsx";
 import { ConnectionSection } from "./ConnectionSection.tsx";
 import { GoogleSection } from "./GoogleSection.tsx";
@@ -20,6 +21,7 @@ export type GlobalSection =
   | "mcp"
   | "google"
   | "codex"
+  | "claude"
   | "skills"
   | "notifications"
   | "about";
@@ -44,6 +46,7 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
       { id: "mcp", label: "MCP servers", short: "MCP" },
       { id: "google", label: "Google", short: "Google" },
       { id: "codex", label: "Codex workers", short: "Codex" },
+      { id: "claude", label: "Claude Code workers", short: "Claude" },
     ],
   },
   {
@@ -153,6 +156,7 @@ export function GlobalSettings({
     mcp: () => <McpEditor session={session} />,
     google: () => <GoogleSection />,
     codex: () => <CodexSection />,
+    claude: () => <ClaudeSection />,
     skills: () => (
       <GlobalSkills session={session} agentId={agentId} cwd={cwd} version={skillsVersion} />
     ),

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CODEX_BLOCKED_REASON, renderAgentPolicyMod } from "./policy-mod.ts";
+import { CLAUDE_BLOCKED_REASON, CODEX_BLOCKED_REASON, renderAgentPolicyMod } from "./policy-mod.ts";
 
 interface Registered {
   id: string;
@@ -29,7 +29,9 @@ async function activate(source: string): Promise<Registered[]> {
 
 describe("the agent-policy mod", () => {
   test("nothing blocked registers nothing", async () => {
-    expect(await activate(renderAgentPolicyMod({ codexBlocked: [] }))).toEqual([]);
+    expect(await activate(renderAgentPolicyMod({ codexBlocked: [], claudeBlocked: [] }))).toEqual(
+      [],
+    );
   });
 
   test("a blocked agent cannot start or message a Codex worker", async () => {
@@ -51,5 +53,26 @@ describe("the agent-policy mod", () => {
     expect(check("agent-b", "Bash", { command: "ls" })).toBeUndefined();
     expect(check("agent-a", "Task", { subagent_type: "codex" })).toBeUndefined();
     expect(check(null, "Task", { subagent_type: "codex" })).toBeUndefined();
+    // A Codex block is not a Claude block.
+    expect(check("agent-b", "Task", { subagent_type: "claude-code" })).toBeUndefined();
+  });
+
+  test("a blocked agent cannot start or message a Claude Code worker", async () => {
+    const [permission] = await activate(
+      renderAgentPolicyMod({ codexBlocked: [], claudeBlocked: ["agent-c"] }),
+    );
+    const check = (agentId: string | null, toolName: string, args: Record<string, unknown>) =>
+      permission?.check({ agentId, toolName, args });
+    const deny = { decision: "deny", reason: CLAUDE_BLOCKED_REASON };
+
+    expect(check("agent-c", "Task", { subagent_type: "claude-code", prompt: "x" })).toEqual(deny);
+    expect(
+      check("agent-c", "SendAgentMessage", {
+        agent_id: "claude_3218941e-1e45-471c-af5f-37f91e709f7a",
+      }),
+    ).toEqual(deny);
+    expect(check("agent-c", "Task", { subagent_type: "codex" })).toBeUndefined();
+    expect(check("agent-c", "Bash", { command: "ls" })).toBeUndefined();
+    expect(check("agent-a", "Task", { subagent_type: "claude-code" })).toBeUndefined();
   });
 });

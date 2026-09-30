@@ -1,6 +1,6 @@
-# The app-server image: upstream's letta/letta, unmodified, plus the Codex CLI
-# that letta-code's `codex` subagent workers run and the GitHub CLI its
-# `WatchPR` tool shells out to. Build context is this
+# The app-server image: upstream's letta/letta, unmodified, plus the Codex and
+# Claude Code CLIs that letta-code's external coding workers run and the GitHub
+# CLI its `WatchPR` tool shells out to. Build context is this
 # directory only (see compose.yml), so nothing else from the repo — least of
 # all docker/.env — ever reaches the daemon.
 ARG LETTA_CODE_VERSION
@@ -10,6 +10,13 @@ FROM letta/letta:${LETTA_CODE_VERSION}
 ARG CODEX_VERSION
 RUN npm install --global --prefix /opt/codex "@openai/codex@${CODEX_VERSION}" \
     && /opt/codex/bin/codex --version
+
+# Same arrangement for Claude Code (`subagent_type: "claude-code"`): the real
+# CLI off PATH, `claude` on PATH is the shim (claude-shim.mjs), which injects
+# the Anthropic-compatible endpoint settings as env and refuses when disabled.
+ARG CLAUDE_CODE_VERSION
+RUN npm install --global --prefix /opt/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+    && /opt/claude-code/bin/claude --version
 
 # Logs the real errno of a failed child spawn, which letta-code discards (a
 # subagent that could not start reports only "exited with code unknown"). In
@@ -21,6 +28,10 @@ ENV NODE_OPTIONS="--require /opt/letta-ui/spawn-diagnostics.cjs"
 COPY shim-core.mjs codex-shim.mjs /opt/codex-shim/
 RUN chmod 755 /opt/codex-shim/codex-shim.mjs \
     && ln -s /opt/codex-shim/codex-shim.mjs /usr/local/bin/codex
+
+COPY claude-shim-core.mjs claude-shim.mjs /opt/claude-shim/
+RUN chmod 755 /opt/claude-shim/claude-shim.mjs \
+    && ln -s /opt/claude-shim/claude-shim.mjs /usr/local/bin/claude
 
 # GitHub CLI for WatchPR (letta-code 0.33.3+ runs `gh api …`). The base image
 # has no apt, gzip or git, so this is the release tarball, checked against the

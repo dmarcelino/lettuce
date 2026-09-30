@@ -437,6 +437,34 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
   - Upstream drift to watch: the shim depends on letta's `turn/start` shape and the preflight
     command; re-verify both on every letta-code or Codex bump (`CODEX_VERSION` is pinned in
     compose, never floated).
+- **Claude Code workers: the same arrangement, minus the sandbox rewrite.** Since 0.33 upstream
+  also accepts `subagent_type: "claude-code"` and spawns `claude --print --input-format
+  stream-json --output-format stream-json …` with the prompt on stdin
+  (`tools/impl/claude-stream-session.ts`). The image installs the real CLI under
+  `/opt/claude-code` and puts `docker/codex/claude-shim.mjs` on PATH as `claude`; the shim
+  rewrites nothing (argv and stdin pass through verbatim) — its whole job is env injection and
+  the switch.
+  - **Claude Code speaks only the Anthropic Messages API**, which llama.cpp does not serve:
+    Settings → Claude Code takes a user-supplied Anthropic-compatible base URL (a LiteLLM-style
+    proxy or any Anthropic-API gateway), a model id, and an optional auth token. There is no
+    config file to render — the shim injects `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` and
+    `ANTHROPIC_AUTH_TOKEN` from `letta-ui.json` in `CLAUDE_CONFIG_DIR=/root/.letta/claude`
+    (on the letta-home mount), each only if not already in the env.
+  - **The preflight is `claude auth status --json`** and needs `{"loggedIn": true}` on stdout
+    with exit 0 — measured on 2.1.285, any `ANTHROPIC_AUTH_TOKEN` value satisfies it, so the
+    shim injects a placeholder when none was configured (a proxy that checks the token fails
+    honestly at request time). Disabled workers: the shim refuses every call with our message,
+    which the task reports as "claude-code authentication is not ready: …".
+  - **Runs live in Claude's own transcripts**, `$CLAUDE_CONFIG_DIR/projects/<cwd-slug>/
+    <session-id>.jsonl` (slug = absolute cwd, non-alphanumerics → `-`), appended live. Session
+    ids are plain UUIDv4 — not Codex's UUIDv7 — and the listing has no mtimes, so recency comes
+    from each file's newest entry timestamp and "running" is a 5-minute-since-last-entry
+    heuristic. `GET /api/claude/runs[/:sessionId]` parse it leniently (`claude/transcript.ts`;
+    the format is internal to Claude Code and may change between versions). The task
+    notification carries `agent_id=claude_<session id>`.
+  - Pin site: `CLAUDE_CODE_VERSION` in compose (build arg + image tag), like `CODEX_VERSION` —
+    separate from `LETTA_CODE_VERSION` and not checked by `check-version-pin`. The shim depends
+    on the preflight shape and the stream-json flags; re-verify on every bump.
 - **"Subagent process exited with code unknown before returning a result" = the spawn failed.**
   Subagents are child `letta` processes (`executeSubagent`); on Node a null exit code *and*
   signal comes only from the child's `error` event, and `spawnSubagentProcess` discards that
@@ -460,9 +488,10 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
   skills — plus this device's notifications and an About. A new setting goes where its backend
   key is: keyed by `agent_id` → Agent tab; a BFF file or an app-server-wide command → Settings;
   `runtime` scope → next to the conversation (composer).
-- **Per-agent tool access (Agent → Tools) narrows Codex and Google through the mods, with no
-  upstream change.** Settings → Codex workers and → Google decide what exists; each agent can
-  be cut down from there (Google full / read-only / off, Codex allowed / blocked). The BFF
+- **Per-agent tool access (Agent → Tools) narrows Codex, Claude Code and Google through the
+  mods, with no upstream change.** Settings → Codex workers, → Claude Code workers and → Google
+  decide what exists; each agent can be cut down from there (Google full / read-only / off,
+  Codex and Claude Code allowed / blocked). The BFF
   keeps it in `agent-tool-access.json` on `bff-data` (`bff/src/agents/tool-access.ts`, only
   non-default entries), and a save re-renders the mods and sends one `reload`. Three upstream
   hooks carry it (0.33.3):
@@ -474,7 +503,8 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
     `event.args`. Its `deny` replaces the built-in decision in `checkPermissionWithHooks`, in
     **every** permission mode, Unrestricted included. A Codex worker is not a tool of its own;
     it is `subagent_type: "codex"` on Task/Agent, plus `SendAgentMessage` to `codex_<uuid>` for
-    follow-ups. So `letta-ui-agent-policy.mjs` (`bff/src/codex/policy-mod.ts`) matches on the
+    follow-ups (same shape for Claude Code with `"claude-code"` and `claude_<uuid>`). So
+    `letta-ui-agent-policy.mjs` (`bff/src/codex/policy-mod.ts`) matches on the
     arguments, not the tool name.
   - **Knowing the caller:** every mod call sends `x-letta-agent-id` from `ctx.agent.id`
     (`internal-tools/mod.ts`), and handlers get it as `ToolCallContext`. The MCP bridge filters
@@ -483,7 +513,8 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
     the default.
 
   This is availability, not isolation. Agent shells are unconfined, so a blocked agent can
-  still reach `google-mcp:8000`, the `mcp-servers` skill wrapper, or `codex` on PATH. The skill
+  still reach `google-mcp:8000`, the `mcp-servers` skill wrapper, or `codex` / `claude` on PATH.
+  The skill
   wrapper is also global and cannot be narrowed per agent. Entries of deleted agents are not
   pruned, like pins; they are harmless.
 - **Web search and page reading are native tools, `web_search` and `fetch_webpage`, installed

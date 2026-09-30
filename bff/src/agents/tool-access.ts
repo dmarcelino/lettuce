@@ -2,31 +2,34 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isAgentId } from "./id-list.ts";
 
 /**
- * Which of the shared tool families each agent may use — Codex workers and
- * Google. Settings → Codex workers and Settings → Google decide what exists
- * for everyone; this narrows it per agent (Agent → Tools).
+ * Which of the shared tool families each agent may use — Codex workers,
+ * Claude Code workers and Google. Settings → Codex workers, → Claude Code
+ * workers and → Google decide what exists for everyone; this narrows it per
+ * agent (Agent → Tools).
  *
  * Enforced inside letta-code through the mods the BFF renders, with no
  * upstream change: Google tools carry an `isEnabled(ctx)` that hides them from
  * a blocked agent's turn, and a mod permission denies a blocked agent's
- * `subagent_type: "codex"` launch and `codex_…` follow-ups (a mod `deny` wins
- * over every permission mode, Unrestricted included). The BFF re-checks at
- * call time from the agent id the mods send.
+ * `subagent_type: "codex"` / `"claude-code"` launch and `codex_…` / `claude_…`
+ * follow-ups (a mod `deny` wins over every permission mode, Unrestricted
+ * included). The BFF re-checks at call time from the agent id the mods send.
  *
  * Availability, not isolation: agent shells are unconfined in the container,
- * so a blocked agent could still reach google-mcp or `codex` from Bash. Real
- * isolation needs one app-server container per agent.
+ * so a blocked agent could still reach google-mcp, `codex` or `claude` from
+ * Bash. Real isolation needs one app-server container per agent.
  */
 
 export type GoogleAccess = "full" | "read" | "off";
 
 export interface AgentToolAccess {
   codex: boolean;
+  claude: boolean;
   google: GoogleAccess;
 }
 
 export const DEFAULT_TOOL_ACCESS: Readonly<AgentToolAccess> = Object.freeze({
   codex: true,
+  claude: true,
   google: "full",
 });
 
@@ -36,12 +39,24 @@ export function parseToolAccess(value: unknown): AgentToolAccess | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   if (typeof record.codex !== "boolean") return null;
+  // `claude` arrived later than the other two: a stored entry (or an old
+  // browser) without it means the default, not a broken entry — dropping it
+  // would silently lift that agent's other blocks.
+  if ("claude" in record && typeof record.claude !== "boolean") return null;
   if (!GOOGLE_ACCESS.includes(record.google as GoogleAccess)) return null;
-  return { codex: record.codex, google: record.google as GoogleAccess };
+  return {
+    codex: record.codex,
+    claude: record.claude !== false,
+    google: record.google as GoogleAccess,
+  };
 }
 
 function isDefault(access: AgentToolAccess): boolean {
-  return access.codex === DEFAULT_TOOL_ACCESS.codex && access.google === DEFAULT_TOOL_ACCESS.google;
+  return (
+    access.codex === DEFAULT_TOOL_ACCESS.codex &&
+    access.claude === DEFAULT_TOOL_ACCESS.claude &&
+    access.google === DEFAULT_TOOL_ACCESS.google
+  );
 }
 
 /** Only agents that differ from the default are stored; an unknown agent gets the default. */
@@ -79,7 +94,12 @@ export class AgentToolAccessStore {
   set(agentId: string, access: AgentToolAccess): boolean {
     if (!isAgentId(agentId)) throw new Error("Not an agent id");
     const current = this.get(agentId);
-    if (current.codex === access.codex && current.google === access.google) return false;
+    if (
+      current.codex === access.codex &&
+      current.claude === access.claude &&
+      current.google === access.google
+    )
+      return false;
     if (isDefault(access)) this.entries.delete(agentId);
     else this.entries.set(agentId, { ...access });
     this.persist();

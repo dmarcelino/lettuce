@@ -1,4 +1,5 @@
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { claudeSessionInTaskText } from "../lib/claude.ts";
 import { copyText } from "../lib/clipboard.ts";
 import { codexThreadInTaskText } from "../lib/codex.ts";
 import { collectFileTokens } from "../lib/file-links.ts";
@@ -12,6 +13,7 @@ import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { ClaudeRunSheet } from "./ClaudeRunSheet.tsx";
 import { CodexRunSheet } from "./CodexRunSheet.tsx";
 import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
@@ -262,6 +264,7 @@ const MessageItem = memo(function MessageItem({
 }) {
   const [open, setOpen] = useState(false);
   const [codexOpen, setCodexOpen] = useState(false);
+  const [claudeOpen, setClaudeOpen] = useState(false);
   const label = KIND_LABEL[entry.kind] ?? entry.kind;
 
   // Look up every filename this entry mentions so `Markdown` can link the real
@@ -411,6 +414,8 @@ const MessageItem = memo(function MessageItem({
     // A Codex worker's report is only its last message; the run itself —
     // every command and its output — is in Codex's rollout (CodexRunSheet).
     const codexThread = codexThreadInTaskText(entry.text);
+    // Same for a Claude Code worker, whose transcript Claude Code keeps itself.
+    const claudeSession = claudeSessionInTaskText(entry.text);
     return (
       <div className="entry task">
         <button
@@ -439,6 +444,14 @@ const MessageItem = memo(function MessageItem({
         ) : null}
         {codexThread && codexOpen ? (
           <CodexRunSheet threadId={codexThread} onClose={() => setCodexOpen(false)} />
+        ) : null}
+        {claudeSession ? (
+          <button type="button" className="link small pad-x" onClick={() => setClaudeOpen(true)}>
+            Show Claude run
+          </button>
+        ) : null}
+        {claudeSession && claudeOpen ? (
+          <ClaudeRunSheet sessionId={claudeSession} onClose={() => setClaudeOpen(false)} />
         ) : null}
       </div>
     );

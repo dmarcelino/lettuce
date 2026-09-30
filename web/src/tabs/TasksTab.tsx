@@ -3,10 +3,12 @@ import type {
   LaunchSubagentResponse,
 } from "@letta-ai/letta-code/app-server-protocol";
 import { useCallback, useEffect, useState } from "react";
+import { ClaudeRunsList } from "../components/ClaudeRunsList.tsx";
 import { CodexRunsList } from "../components/CodexRunsList.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { ToggleRow } from "../components/MenuRow.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { CLAUDE_SUBAGENT_TYPE } from "../lib/claude.ts";
 import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { describeCron } from "../lib/cron-describe.ts";
@@ -65,7 +67,14 @@ interface Props {
  * reflection, memory) are harness internals.
  */
 // `codex` runs the Codex CLI instead of a Letta subagent — enabled in Settings → Codex.
-const SUBAGENT_TYPES = ["general-purpose", "recall", "history-analyzer", CODEX_SUBAGENT_TYPE];
+// `claude-code` runs the Claude Code CLI — enabled in Settings → Claude Code.
+const SUBAGENT_TYPES = [
+  "general-purpose",
+  "recall",
+  "history-analyzer",
+  CODEX_SUBAGENT_TYPE,
+  CLAUDE_SUBAGENT_TYPE,
+];
 
 const BLANK_SUBAGENT = { type: "general-purpose", description: "", prompt: "" };
 
@@ -316,6 +325,13 @@ export function TasksTab({
           .join(",")}
       />
 
+      <ClaudeRunsList
+        refreshKey={backgroundProcesses
+          .filter((process) => process.kind === "agent_task")
+          .map((process) => process.processId)
+          .join(",")}
+      />
+
       <ul className="list">
         {tasks.map((task) => (
           <li key={task.id} className="task">
@@ -446,6 +462,13 @@ export function TasksTab({
             <p className="muted small">
               A Codex worker, set up in the Codex section of Settings. Its full run appears under
               Codex runs.
+            </p>
+          ) : null}
+
+          {subagent.type.trim() === CLAUDE_SUBAGENT_TYPE ? (
+            <p className="muted small">
+              A Claude Code worker, set up in the Claude Code section of Settings. Its full run
+              appears under Claude runs.
             </p>
           ) : null}
 

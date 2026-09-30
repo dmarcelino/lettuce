@@ -25,6 +25,16 @@ import {
   encodeSession,
   type SessionPayload,
 } from "./auth/session-cookie.ts";
+import {
+  type ClaudeFileIo,
+  getClaudeRun,
+  listClaudeRuns,
+  loadClaudeSettings,
+  reapplyClaudeSettings,
+  saveClaudeSettings,
+} from "./claude/service.ts";
+import { InvalidClaudeSettingsError, toPublicClaudeSettings } from "./claude/settings.ts";
+import { isClaudeSessionId } from "./claude/transcript.ts";
 import { AGENT_POLICY_MOD_PATH, renderAgentPolicyMod } from "./codex/policy-mod.ts";
 import { isCodexThreadId } from "./codex/rollout.ts";
 import {
@@ -182,6 +192,9 @@ const upstream = new UpstreamConnection({
       void reapplyCodexSettings(codexIo)
         .then((applied) => applied && log("Codex: re-rendered config from saved settings"))
         .catch((error) => log(`Codex: could not re-render config: ${errorMessage(error)}`));
+      void reapplyClaudeSettings(claudeIo)
+        .then((applied) => applied && log("Claude Code: re-rendered config from saved settings"))
+        .catch((error) => log(`Claude Code: could not re-render config: ${errorMessage(error)}`));
     }
   },
   log,
@@ -243,6 +256,24 @@ const codexIo: CodexFileIo = {
       request_id: `bff-codex-list-${randomUUID()}`,
     });
     if (response.success) return response.files ?? [];
+    if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
+    throw new Error(response.error ?? `Could not list ${dir}`);
+  },
+};
+
+// Claude Code workers' files, over the same channel as Codex's — plus the
+// folder half of `list_in_directory`, which is how `claude/` finds the project
+// directories under `projects/`. See `claude/service.ts`.
+const claudeIo: ClaudeFileIo = {
+  ...codexIo,
+  async listDirs(dir) {
+    const response = await upstream.request<ListInDirectoryResponseMessage>({
+      type: "list_in_directory",
+      path: dir,
+      include_files: true,
+      request_id: `bff-claude-list-dirs-${randomUUID()}`,
+    });
+    if (response.success) return response.folders ?? [];
     if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
     throw new Error(response.error ?? `Could not list ${dir}`);
   },
@@ -397,7 +428,10 @@ async function renderAllMods(): Promise<RenderedMod[]> {
     },
     {
       path: AGENT_POLICY_MOD_PATH,
-      source: renderAgentPolicyMod({ codexBlocked: agentsWhere(access, (a) => !a.codex) }),
+      source: renderAgentPolicyMod({
+        codexBlocked: agentsWhere(access, (a) => !a.codex),
+        claudeBlocked: agentsWhere(access, (a) => !a.claude),
+      }),
     },
   ];
 }
@@ -797,7 +831,10 @@ app.put("/api/agents/tool-access/:agentId", async (c) => {
   if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
   const access = parseToolAccess(await c.req.json().catch(() => null));
   if (!access) {
-    return c.text('Body must be { codex: boolean, google: "full" | "read" | "off" }', 400);
+    return c.text(
+      'Body must be { codex: boolean, claude: boolean, google: "full" | "read" | "off" }',
+      400,
+    );
   }
   if (agentToolAccess.set(agentId, access)) {
     // Awaited so the answer says whether it is live; a new turn picks it up either way.
@@ -929,6 +966,58 @@ app.get("/api/codex/runs/:threadId", async (c) => {
   try {
     const run = await getCodexRun(codexIo, threadId);
     return run ? c.json({ run }) : c.text("No such Codex run", 404);
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+// ── Claude Code workers ─────────────────────────────────────────────────────
+// Settings → Claude Code, and the run viewer. See `claude/` for what the files
+// are; the io plumbing is the same `codexIo` — one app-server file channel.
+
+app.get("/api/claude/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  try {
+    return c.json({ settings: toPublicClaudeSettings(await loadClaudeSettings(claudeIo)) });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.put("/api/claude/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const body = await c.req.json().catch(() => null);
+  try {
+    const saved = await saveClaudeSettings(claudeIo, body);
+    return c.json({ settings: toPublicClaudeSettings(saved) });
+  } catch (error) {
+    if (error instanceof InvalidClaudeSettingsError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.get("/api/claude/runs", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
+  try {
+    return c.json({ runs: await listClaudeRuns(claudeIo, limit) });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.get("/api/claude/runs/:sessionId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const sessionId = c.req.param("sessionId");
+  // The id becomes part of a file lookup; only a real Claude session id gets that far.
+  if (!isClaudeSessionId(sessionId)) return c.text("Not a Claude session id", 400);
+  try {
+    const run = await getClaudeRun(claudeIo, sessionId);
+    return run ? c.json({ run }) : c.text("No such Claude run", 404);
   } catch (error) {
     return c.text(errorMessage(error), 502);
   }

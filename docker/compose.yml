@@ -25,8 +25,9 @@ name: letta
 
 services:
   app-server:
-    # Upstream's published image plus the Codex CLI and our `codex` shim
-    # (docker/codex/Dockerfile) — nothing of upstream's is modified. Pinned to
+    # Upstream's published image plus the Codex and Claude Code CLIs and our
+    # shims for them (docker/codex/Dockerfile) — nothing of upstream's is
+    # modified. Pinned to
     # a published release, never `latest`: the UI is compiled against this
     # exact release's protocol types (see CLAUDE.md), so the running app-server
     # must match. `scripts/check-version-pin.ts` asserts every copy of this
@@ -35,7 +36,9 @@ services:
     #
     # Codex is pinned separately (CODEX_VERSION): letta-code drives it over
     # `codex app-server`, whose protocol the shim rewrites one field of, so a
-    # Codex bump is re-verified like a letta-code bump, never floated.
+    # Codex bump is re-verified like a letta-code bump, never floated. Claude
+    # Code likewise (CLAUDE_CODE_VERSION): the shim depends on its
+    # `auth status --json` preflight shape and stream-json flags.
     #
     # The GitHub CLI (GH_VERSION) is there for letta-code's WatchPR tool. Its
     # login lives in GH_CONFIG_DIR, under the persisted /root/.letta, so it
@@ -53,7 +56,8 @@ services:
         LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.33.7}
         CODEX_VERSION: ${CODEX_VERSION:-0.157.1}
         GH_VERSION: ${GH_VERSION:-2.101.0}
-    image: letta-app-server:${LETTA_CODE_VERSION:-0.33.7}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.285}
+    image: letta-app-server:${LETTA_CODE_VERSION:-0.33.7}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}-claude${CLAUDE_CODE_VERSION:-2.1.285}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -168,6 +172,13 @@ services:
       # auth.json and letta-ui.json there from Settings → Codex; the shim
       # refuses to run until that says enabled.
       CODEX_HOME: /root/.letta/codex
+      # Claude Code subagent workers (`subagent_type: "claude-code"`). Same
+      # rationale as CODEX_HOME: its `projects/` transcripts live on the
+      # letta-home bind mount so they survive a recreate and the BFF can read
+      # them for the run viewer. The BFF writes letta-ui.json there from
+      # Settings → Claude Code; the shim reads it for the switch and injects
+      # the endpoint settings as env (Claude Code has no config file for them).
+      CLAUDE_CONFIG_DIR: /root/.letta/claude
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data
