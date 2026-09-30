@@ -6,3 +6,4 @@ docker/secrets/
 *.log
 .DS_Store
 .ui-check/
+.kilo/
