@@ -48,15 +48,17 @@ export type IconName =
   | "pin"
   | "trash";
 
-/** Path data on a 24×24 grid; stroked, except where `filled` is passed. */
+/** Path data on a 24×24 grid; stroked, except the icons in `FILLED`. */
 const PATHS: Record<IconName, string> = {
   menu: "M4 7h16M4 12h16M4 17h16",
-  // Paper plane: the send verb everywhere it is one — the composer's send
-  // button and the queue half of its split variant.
-  send: "M22 2 11 13M22 2 15 22l-4-9-9-4Z",
+  // Paper plane, filled: the send verb everywhere it is one — the composer's
+  // send button, the queue half of its split variant, the queue chip's
+  // force-send. Filled so it carries the same visual weight as the stop
+  // square it shares the split button with.
+  send: "M22 2 15 22l-4-9-9-4Z",
   stop: "M7 7h10v10H7z",
-  // The same square, filled: the split button's stop corner is 8px, where a
-  // 1.75-stroke outline dissolves. The only filled icon, for that reason.
+  // The same square, filled: the split button's stop corner is 10px, where a
+  // 1.75-stroke outline dissolves.
   "stop-solid": "M6.5 6.5h11v11h-11z",
   filter: "M4 6h16M7 12h10M10 18h4",
   shield: "M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z",
@@ -108,15 +110,17 @@ const PATHS: Record<IconName, string> = {
   search: "M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4",
 };
 
+/** Icons painted solid rather than outlined — see the notes on their paths. */
+const FILLED: ReadonlySet<IconName> = new Set<IconName>(["send", "stop-solid"]);
+
 interface Props {
   name: IconName;
   /** Extra classes; `icon` is always applied. */
   className?: string;
-  /** Paint the path instead of outlining it. Only `stop-solid` needs it. */
-  filled?: boolean;
 }
 
-export function Icon({ name, className, filled }: Props) {
+export function Icon({ name, className }: Props) {
+  const filled = FILLED.has(name);
   return (
     <svg
       className={className ? `icon ${className}` : "icon"}

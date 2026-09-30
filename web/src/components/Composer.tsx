@@ -553,7 +553,7 @@ export function Composer({
                     title="Stop the agent"
                     aria-label="Stop the agent"
                   >
-                    <Icon name="stop-solid" filled />
+                    <Icon name="stop-solid" />
                   </button>
                 </span>
               ) : (

@@ -913,24 +913,8 @@ pre {
   opacity: 0.6;
 }
 
-.working {
-  flex-direction: row;
-  gap: 5px;
-  padding: 6px 4px;
-}
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--agent);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-.dot:nth-child(2) {
-  animation-delay: 0.15s;
-}
-.dot:nth-child(3) {
-  animation-delay: 0.3s;
-}
+/* The transcript's own working dots are gone — the composer's "Agent is
+   working" line is the single indicator — but its pulse lives on here. */
 @keyframes pulse {
   0%,
   60%,
@@ -1320,13 +1304,18 @@ pre {
   position: absolute;
   inset: 0;
   border: 0;
-  padding: 0 1px 0 0;
+  /* Shift the plane up-left: at 28px its bounding box would otherwise reach
+     into the stop corner, and the two glyphs would touch. */
+  padding: 0 5px 5px 0;
   background: none;
   color: #000;
-  font-size: 14px;
   display: grid;
   place-items: center;
   cursor: pointer;
+}
+.send-split .split-queue .icon {
+  width: 14px;
+  height: 14px;
 }
 .send-split .split-stop {
   position: absolute;
@@ -1341,17 +1330,8 @@ pre {
   cursor: pointer;
 }
 .send-split .split-stop .icon {
-  width: 8px;
-  height: 8px;
-}
-/* Hairline along the diagonal, in the composer's own background. */
-.send-split::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--bg);
-  clip-path: polygon(100% 0, 100% 7%, 45% 100%, 38% 100%);
-  pointer-events: none;
+  width: 10px;
+  height: 10px;
 }
 /* A long press must not select text or raise the callout menu on mobile. */
 .composer-row .icon-button {
@@ -1696,15 +1676,15 @@ p.warning code {
     height: 44px;
   }
   .send-split .split-queue {
-    font-size: 17px;
+    padding: 0 4px 4px 0;
   }
   .send-split .split-queue .icon {
     width: 22px;
     height: 22px;
   }
   .send-split .split-stop .icon {
-    width: 10px;
-    height: 10px;
+    width: 13px;
+    height: 13px;
   }
   .composer-row .icon-button .icon {
     width: 22px;

@@ -211,11 +211,8 @@ export function MessageList({
           );
         })}
 
-        {processing ? (
-          <div className="entry working">
-            <span className="dot" /> <span className="dot" /> <span className="dot" />
-          </div>
-        ) : null}
+        {/* No working dots here: the composer's "Agent is working" line is the
+            one indicator, and unlike these it does not scroll away. */}
       </div>
 
       {!stuck ? (
