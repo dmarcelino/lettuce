@@ -518,7 +518,11 @@ export function useConversation(
         case "turn_finished": {
           refreshUsage();
           settleStreaming(transcriptRef.current);
-          setProcessing(false);
+          // A ready queued item means the pump starts the next turn the moment
+          // this one unwinds — the working dots must not blink off in between.
+          // Paused items (parked by an interrupt) will not start, so they do
+          // not hold the indicator on.
+          setProcessing(queueRef.current.some((item) => !item.paused));
           // The turn has genuinely unwound now, whatever the app-server said
           // when it accepted the abort. Our own note was about the gap between
           // those two moments, so it goes; the app-server's "Interrupted"
@@ -836,8 +840,14 @@ export function useConversation(
       for (const item of plan.removed) dropLocalEcho(item.clientMessageId);
       if (processingRef.current) await abort();
       try {
+        // Optimistic, like `sendMessage`: the queue was just emptied, so the
+        // abort's `turn_finished` would otherwise drop the working indicator
+        // until the resent turn's own start-of-turn status frame lands.
+        setProcessing(true);
+        setStopping(false);
         for (const next of plan.resend) sendContent(next.raw, next.content);
       } catch (cause) {
+        setProcessing(false);
         setError(errorMessage(cause));
       }
     },
