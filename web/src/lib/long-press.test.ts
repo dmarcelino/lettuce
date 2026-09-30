@@ -68,6 +68,40 @@ describe("createLongPress", () => {
     expect(c.contextMenu()).toBe(false);
   });
 
+  test("consumeGesture claims the trailing click once — the swapped-in handler swallows it, a later click gets through", () => {
+    const { c, calls } = controller();
+    c.pointerDown();
+    c.pointerUp(); // the short press fires and swaps the button's branch
+    expect(c.consumeGesture()).toBe(true); // the stop handler must not abort
+    expect(c.consumeGesture()).toBe(false); // a genuine later click passes
+    expect(calls).toEqual(["short"]);
+  });
+
+  test("the trailing click after a fired hold is swallowed, not a second short action", async () => {
+    const { c, calls } = controller();
+    c.pointerDown();
+    await sleep(60);
+    c.pointerUp();
+    c.click();
+    expect(calls).toEqual(["long"]);
+  });
+
+  test("a stale gesture (no trailing click ever arrived) does not swallow a later click", async () => {
+    const calls: string[] = [];
+    const c = createLongPress({
+      enabled: () => true,
+      onShort: () => calls.push("short"),
+      onLong: () => calls.push("long"),
+      ms: 5,
+      clickWindowMs: 20,
+    });
+    c.pointerDown();
+    await sleep(60); // long fires; the button goes disabled, no click follows
+    await sleep(30); // the claim window passes
+    c.click(); // a later genuine click on whatever is mounted now
+    expect(calls).toEqual(["long", "short"]);
+  });
+
   test("a disabled controller ignores everything", () => {
     const calls: string[] = [];
     const c = createLongPress({

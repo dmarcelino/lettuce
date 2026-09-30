@@ -540,7 +540,14 @@ export function Composer({
                 <button
                   type="button"
                   className="icon-button stop"
-                  onClick={onAbort}
+                  // The queue press empties the box on pointerup, which swaps
+                  // this button in on the same DOM node before the trailing
+                  // click dispatches — so a click that belongs to that
+                  // gesture must not abort. See long-press.ts.
+                  onClick={() => {
+                    if (longPress.consumeGesture()) return;
+                    onAbort();
+                  }}
                   title="Stop"
                   aria-label="Stop generating"
                 >

@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
  */
 
 const DEFAULT_MS = 500;
+const DEFAULT_CLICK_WINDOW_MS = 600;
 
 export interface LongPressController {
   pointerDown(): void;
@@ -21,6 +22,19 @@ export interface LongPressController {
    * never fires twice; a keyboard click still performs the short action.
    */
   click(): void;
+  /**
+   * Claim the trailing click of the most recent pointer gesture, from a
+   * handler other than `click()` — the one now mounted on the same button
+   * after the branch swapped. The composer's button changes branch, and with
+   * it its click handler, inside the pointerup action itself (queueing
+   * empties the box, so the button becomes the stop button), and React
+   * re-renders before the click dispatches — so the click lands on the
+   * *next* action's handler, which must be able to ask "was this my click, or
+   * the previous gesture's?". True once per gesture; a stale gesture (no
+   * click ever arrived, e.g. the button went disabled) does not swallow a
+   * later genuine click.
+   */
+  consumeGesture(): boolean;
   /** True when a hold is in progress and the context menu must be suppressed. */
   contextMenu(): boolean;
   dispose(): void;
@@ -31,12 +45,16 @@ export function createLongPress(options: {
   onShort(): void;
   onLong(): void;
   ms?: number;
+  /** How long a gesture's trailing click may arrive and still be claimed. */
+  clickWindowMs?: number;
   onHeldChange?(held: boolean): void;
 }): LongPressController {
   const ms = options.ms ?? DEFAULT_MS;
+  const clickWindow = options.clickWindowMs ?? DEFAULT_CLICK_WINDOW_MS;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let fired = false;
-  let gesture = false;
+  /** Timestamp of the last pointerdown, until its trailing click claims it. */
+  let gestureAt: number | null = null;
 
   const clear = () => {
     if (timer !== null) {
@@ -45,11 +63,18 @@ export function createLongPress(options: {
     }
   };
 
+  const consumeGesture = () => {
+    if (gestureAt === null) return false;
+    const fresh = Date.now() - gestureAt < clickWindow;
+    gestureAt = null;
+    return fresh;
+  };
+
   return {
     pointerDown() {
       if (!options.enabled()) return;
       fired = false;
-      gesture = true;
+      gestureAt = Date.now();
       options.onHeldChange?.(true);
       timer = setTimeout(() => {
         timer = null;
@@ -61,7 +86,9 @@ export function createLongPress(options: {
     pointerUp() {
       if (timer === null) {
         // Either never enabled, or the long action already fired — release
-        // after a fired hold does nothing.
+        // after a fired hold does nothing. The gesture stays claimable: the
+        // trailing click still has to be swallowed, by whoever is mounted
+        // when it lands.
         return;
       }
       clear();
@@ -72,16 +99,14 @@ export function createLongPress(options: {
       clear();
       options.onHeldChange?.(false);
       // No click follows a cancelled gesture; do not leave one swallowed.
-      gesture = false;
+      gestureAt = null;
     },
     click() {
-      if (gesture) {
-        gesture = false;
-        return;
-      }
+      if (consumeGesture()) return;
       if (!options.enabled()) return;
       options.onShort();
     },
+    consumeGesture,
     contextMenu() {
       return timer !== null;
     },
@@ -97,6 +122,8 @@ export interface LongPressHandlers {
   onPointerCancel: () => void;
   onClick: () => void;
   onContextMenu: (event: { preventDefault(): void }) => void;
+  /** See `LongPressController.consumeGesture`. */
+  consumeGesture: () => boolean;
   /** True while a hold is counting down — for a pressed visual state. */
   held: boolean;
 }
@@ -132,6 +159,7 @@ export function useLongPress(options: {
     onContextMenu: (event) => {
       if (controller.contextMenu()) event.preventDefault();
     },
+    consumeGesture: () => controller.consumeGesture(),
     held,
   };
 }
