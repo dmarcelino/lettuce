@@ -966,22 +966,51 @@ pre {
   overflow-x: auto;
   flex-shrink: 0;
 }
+/* A queued message: one chip, two actions — remove (the text) and force-send
+   (user items only). The chip is the container; the buttons inside are
+   transparent so the pill reads as a single object. */
 .queued {
+  display: inline-flex;
+  align-items: stretch;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted);
   font-size: 12px;
-  padding: 4px 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.queued-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  padding: 4px 6px 4px 10px;
   white-space: nowrap;
+  cursor: pointer;
+}
+.queued-force {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--border);
+  color: var(--accent);
+  padding: 4px 8px;
+  cursor: pointer;
 }
 .resume-queue {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  padding: 4px 10px;
   color: var(--accent);
   border-color: var(--accent);
   font-weight: 600;
+  cursor: pointer;
 }
 
 /* The composer frame: a top border and safe-area padding around the slash
@@ -1234,6 +1263,20 @@ pre {
 }
 .icon-button.stop {
   background: var(--bad);
+}
+/* Hold-to-stop feedback: while the long-press counts down on the queue button,
+   it turns the stop colour — release now and it queues, keep holding and it
+   stops. */
+.icon-button.send.hold {
+  background: var(--bad);
+  color: #1a0a0a;
+}
+/* A long press must not select text or raise the callout menu on mobile. */
+.composer-row .icon-button {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
 /* Stopping is a state, not a disabled control that failed — keep it legible
    rather than letting the generic :disabled fade hide it. */

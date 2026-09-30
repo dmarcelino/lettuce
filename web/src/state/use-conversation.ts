@@ -16,6 +16,7 @@ import {
   transcriptFromHistory,
 } from "../lib/messages.ts";
 import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
+import { planForceSend, type QueuedItem, readQueue } from "../lib/queue-actions.ts";
 import { type ResponseFormat, validateResponseFormat } from "../lib/structured-output.ts";
 import { pickTurnUsage, type TurnUsage } from "../lib/usage.ts";
 import {
@@ -61,12 +62,7 @@ export interface BackgroundProcessSummary {
   stoppable: boolean;
 }
 
-export interface QueuedItem {
-  id: string;
-  content: string;
-  /** Parked by abort_message/Esc; needs resume_queue or a new message to drain. */
-  paused: boolean;
-}
+export type { QueuedItem } from "../lib/queue-actions.ts";
 
 export interface ConversationApi {
   entries: TranscriptEntry[];
@@ -107,6 +103,12 @@ export interface ConversationApi {
     answers: Record<string, string>,
   ) => void;
   removeQueued: (itemId: string) => void;
+  /**
+   * Make one queued user message the next thing that runs: stop the current
+   * turn, take every user item out of the queue, and resend them with the
+   * target first. Upstream has no promote command — see `planForceSend`.
+   */
+  forceSend: (itemId: string) => Promise<void>;
   /** Releases items parked by an interrupt so they start the next turn. */
   resumeQueue: () => void;
   runCommand: (commandId: string, args?: string) => void;
@@ -158,23 +160,6 @@ function isClearCompleted(delta: unknown): boolean {
     message.command_id === "clear" &&
     message.success !== false
   );
-}
-
-function readQueue(raw: unknown): QueuedItem[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const entry = item as { id?: unknown; content?: unknown; paused?: unknown };
-    if (typeof entry.id !== "string") return [];
-    const content = entry.content;
-    return [
-      {
-        id: entry.id,
-        content: typeof content === "string" ? content : JSON.stringify(content ?? ""),
-        paused: entry.paused === true,
-      },
-    ];
-  });
 }
 
 function readToolsets(raw: unknown): ToolsetSummary[] {
@@ -301,6 +286,10 @@ export function useConversation(
   const [processing, setProcessing] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [queue, setQueue] = useState<QueuedItem[]>([]);
+  /** Mirror of `queue` for callbacks that must read the live snapshot. */
+  const queueRef = useRef<QueuedItem[]>([]);
+  /** Mirror of `processing`, so `forceSend` can decide whether to abort. */
+  const processingRef = useRef(false);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
@@ -355,6 +344,10 @@ export function useConversation(
     }
     setEntries(sortedEntries(transcriptRef.current));
   }, []);
+
+  useEffect(() => {
+    processingRef.current = processing;
+  }, [processing]);
 
   // Do not leave a frame scheduled against an unmounted conversation.
   useEffect(
@@ -437,6 +430,7 @@ export function useConversation(
     seqRef.current = 0;
     setEntries([]);
     setQueue([]);
+    queueRef.current = [];
     setApprovals([]);
     setStopping(false);
     usageScopeRef.current = scope;
@@ -591,7 +585,9 @@ export function useConversation(
           break;
         }
         case "update_queue": {
-          setQueue(readQueue((frame as { queue?: unknown }).queue));
+          const items = readQueue((frame as { queue?: unknown }).queue);
+          queueRef.current = items;
+          setQueue(items);
           break;
         }
         case "control_request": {
@@ -611,6 +607,54 @@ export function useConversation(
     });
   }, [onFrame, scope?.conversation_id, flush, flushSync]);
 
+  /**
+   * One user message out the door, with its local echo. `raw` is the content
+   * as the protocol wants it (string or content parts); `display` is what the
+   * echo shows. Returns the fresh `client_message_id` — a message must never
+   * be resent under an id the listener already acknowledged, which it would
+   * silently swallow.
+   */
+  const sendContent = useCallback(
+    (raw: unknown, display: string, responseFormat?: ResponseFormat | null): string => {
+      if (!scope) throw new Error("No conversation is open");
+      const clientMessageId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      // Render it ourselves: the app-server echoes a user message back only
+      // when it was queued behind a busy agent, so on the ordinary path no
+      // frame ever arrives and the transcript would show the reply without the
+      // question. The id doubles as the otid, so a queued echo merges into this
+      // entry rather than duplicating it.
+      seqRef.current += 1;
+      addLocalUserMessage(
+        transcriptRef.current,
+        streamIndexRef.current,
+        clientMessageId,
+        display,
+        seqRef.current,
+        Boolean(responseFormat),
+      );
+      flushSync();
+
+      send({
+        type: "input",
+        runtime: scope,
+        payload: {
+          kind: "create_message",
+          messages: [
+            {
+              role: "user",
+              content: raw,
+              client_message_id: clientMessageId,
+            },
+          ],
+          ...(responseFormat ? { response_format: responseFormat } : {}),
+        },
+      });
+      return clientMessageId;
+    },
+    [scope, send, flushSync],
+  );
+
   const sendMessage = useCallback(
     async (text: string, responseFormat?: ResponseFormat | null) => {
       if (!scope || !text.trim()) return;
@@ -628,46 +672,32 @@ export function useConversation(
       setProcessing(true);
       setStopping(false);
       clearLocalNotice(transcriptRef.current, STOP_NOTICE_ID);
-      const clientMessageId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-      // Render it ourselves: the app-server echoes a user message back only
-      // when it was queued behind a busy agent, so on the ordinary path no
-      // frame ever arrives and the transcript would show the reply without the
-      // question. The id doubles as the otid, so a queued echo merges into this
-      // entry rather than duplicating it.
-      seqRef.current += 1;
-      addLocalUserMessage(
-        transcriptRef.current,
-        streamIndexRef.current,
-        clientMessageId,
-        text,
-        seqRef.current,
-        Boolean(responseFormat),
-      );
-      flushSync();
-
       try {
-        send({
-          type: "input",
-          runtime: scope,
-          payload: {
-            kind: "create_message",
-            messages: [
-              {
-                role: "user",
-                content: text,
-                client_message_id: clientMessageId,
-              },
-            ],
-            ...(responseFormat ? { response_format: responseFormat } : {}),
-          },
-        });
+        sendContent(text, text, responseFormat);
       } catch (cause) {
         setProcessing(false);
         setError(errorMessage(cause));
       }
     },
-    [scope, send, flush],
+    [scope, sendContent],
+  );
+
+  /**
+   * Erase our optimistic line for a message that will now never arrive as
+   * itself — removed from the queue, or superseded by a force-send resend.
+   * Only ever the local echo: once the app-server has echoed the message back
+   * (it dequeued), the entry is the real record and stays.
+   */
+  const dropLocalEcho = useCallback(
+    (clientMessageId: string) => {
+      if (!clientMessageId) return;
+      const entry = transcriptRef.current.get(clientMessageId);
+      if (!entry || !entry.local) return;
+      transcriptRef.current.delete(clientMessageId);
+      streamIndexRef.current.byOtid.delete(clientMessageId);
+      flushSync();
+    },
+    [flushSync],
   );
 
   const abort = useCallback(async () => {
@@ -767,14 +797,50 @@ export function useConversation(
   const removeQueued = useCallback(
     (itemId: string) => {
       if (!scope) return;
+      const item = queueRef.current.find((q) => q.id === itemId);
       send({
         type: "remove_queue_item",
         runtime: scope,
         request_id: `dequeue-${Date.now()}`,
         item_id: itemId,
       });
+      // A cancelled queued message was never sent, so its optimistic line has
+      // to go with it — otherwise it sits in the transcript as a message that
+      // never reached the agent.
+      if (item) dropLocalEcho(item.clientMessageId);
     },
-    [scope, send],
+    [scope, send, dropLocalEcho],
+  );
+
+  const forceSend = useCallback(
+    async (itemId: string) => {
+      if (!scope) return;
+      const plan = planForceSend(queueRef.current, itemId);
+      if (!plan) return;
+
+      // Stop the current turn first (this also pauses the queue upstream, so
+      // nothing drains while we reshuffle it), then empty the user items out
+      // of the queue and resend them with the target at the head. With the
+      // queue empty the target either starts at once or sits at the head of a
+      // queue that is still unwinding — upstream has no promote command, so
+      // this remove-and-resend is the only way to run an item out of order.
+      if (processingRef.current) await abort();
+      for (const id of plan.remove) {
+        send({
+          type: "remove_queue_item",
+          runtime: scope,
+          request_id: `force-${Date.now()}`,
+          item_id: id,
+        });
+      }
+      for (const item of plan.removed) dropLocalEcho(item.clientMessageId);
+      try {
+        for (const next of plan.resend) sendContent(next.raw, next.content);
+      } catch (cause) {
+        setError(errorMessage(cause));
+      }
+    },
+    [scope, send, abort, dropLocalEcho, sendContent],
   );
 
   const resumeQueue = useCallback(() => {
@@ -842,6 +908,7 @@ export function useConversation(
     respondToApproval,
     answerQuestions,
     removeQueued,
+    forceSend,
     resumeQueue,
     runCommand,
     skillsVersion,

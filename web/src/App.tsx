@@ -393,17 +393,31 @@ function Workspace({ status }: { status: Status }) {
                   </button>
                 ) : null}
                 {conversation.queue.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="queued"
-                    title="Remove from queue"
-                    onClick={() => conversation.removeQueued(item.id)}
-                    aria-label={`Remove queued message: ${item.content.slice(0, 40)}`}
-                  >
-                    {item.content.slice(0, 40)}
-                    <Icon name="close" />
-                  </button>
+                  <span key={item.id} className="queued">
+                    <button
+                      type="button"
+                      className="queued-remove"
+                      title="Remove from queue"
+                      onClick={() => conversation.removeQueued(item.id)}
+                      aria-label={`Remove queued message: ${item.content.slice(0, 40)}`}
+                    >
+                      {item.content.slice(0, 40)}
+                      <Icon name="close" />
+                    </button>
+                    {item.source === "user" ? (
+                      // Upstream has no promote command; this stops the turn
+                      // and resends the queue with this message at the head.
+                      <button
+                        type="button"
+                        className="queued-force"
+                        title="Stop and send this now"
+                        onClick={() => void conversation.forceSend(item.id)}
+                        aria-label={`Force send queued message: ${item.content.slice(0, 40)}`}
+                      >
+                        <Icon name="send" />
+                      </button>
+                    ) : null}
+                  </span>
                 ))}
               </div>
             ) : null}

@@ -8,6 +8,7 @@ import {
   historyUp,
 } from "../lib/input-history.ts";
 import { enterSends } from "../lib/input-mode.ts";
+import { useLongPress } from "../lib/long-press.ts";
 import type { FilterGroup } from "../lib/messages.ts";
 import { parseResponseFormat, type ResponseFormat } from "../lib/structured-output.ts";
 import {
@@ -275,6 +276,18 @@ export function Composer({
     reset();
   };
 
+  /**
+   * While a turn runs, the one button is both actions at once: press queues
+   * what is typed (upstream queues anything that arrives mid-turn), hold stops
+   * the agent. With nothing typed there is nothing to queue, so press stops.
+   */
+  const queueMode = processing && !stopping && value.trim().length > 0;
+  const longPress = useLongPress({
+    enabled: queueMode,
+    onShort: submit,
+    onLong: onAbort,
+  });
+
   const modeLabel =
     PERMISSION_MODES.find((mode) => mode.id === permissionMode)?.label ?? "Permissions";
 
@@ -499,16 +512,41 @@ export function Composer({
               // A second abort while the first is still unwinding is a guaranteed
               // no-op upstream (`handleAbortMessageInput` returns early once the
               // turn lifecycle is `cancelling`), so the button stops offering it.
-              <button
-                type="button"
-                className={`icon-button stop${stopping ? " pending" : ""}`}
-                onClick={onAbort}
-                disabled={stopping}
-                title={stopping ? "Stopping…" : "Stop"}
-                aria-label={stopping ? "Stopping" : "Stop generating"}
-              >
-                <Icon name="stop" />
-              </button>
+              stopping ? (
+                <button
+                  type="button"
+                  className="icon-button stop pending"
+                  disabled
+                  title="Stopping…"
+                  aria-label="Stopping"
+                >
+                  <Icon name="stop" />
+                </button>
+              ) : queueMode ? (
+                <button
+                  type="button"
+                  className={`icon-button send${longPress.held ? " hold" : ""}`}
+                  onPointerDown={longPress.onPointerDown}
+                  onPointerUp={longPress.onPointerUp}
+                  onPointerCancel={longPress.onPointerCancel}
+                  onClick={longPress.onClick}
+                  onContextMenu={longPress.onContextMenu}
+                  title="Send — hold to stop the agent"
+                  aria-label="Send message — hold to stop the agent"
+                >
+                  <Icon name="send" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="icon-button stop"
+                  onClick={onAbort}
+                  title="Stop"
+                  aria-label="Stop generating"
+                >
+                  <Icon name="stop" />
+                </button>
+              )
             ) : (
               <button
                 type="submit"
