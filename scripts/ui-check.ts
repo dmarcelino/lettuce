@@ -733,7 +733,7 @@ try {
 
     // Settings for every agent: the top bar's gear. On a phone, the Agent
     // tab's wrapping chips with short names over the open section — no list
-    // to back out of. All eight must be on screen with no sideways scroll.
+    // to back out of. All nine must be on screen with no sideways scroll.
     await page.locator('.topbar button[aria-label="Settings"]').click();
     await page.locator(".settings-screen").waitFor();
     const phoneChips = (
@@ -745,6 +745,7 @@ try {
       "MCP",
       "Google",
       "Codex",
+      "Claude",
       "Skills",
       "Push",
       "About",
@@ -940,12 +941,14 @@ try {
       check(`agent ${chip.toLowerCase()} has nothing clipped`, box.clipped.length === 0, box);
     }
 
-    // Agent → Tools: the per-agent Codex and Google access loads from the BFF.
+    // Agent → Tools: the per-agent Codex, Claude Code and Google access loads
+    // from the BFF.
     await page.locator('.section-tabs button:text-is("Tools")').click();
     await page.locator('.pane label:has-text("Codex workers") select').waitFor({ timeout: 10_000 });
     check(
-      "agent tools shows Google and Codex access, Save idle until changed",
+      "agent tools shows Google, Codex and Claude access, Save idle until changed",
       (await page.locator('.pane label:has-text("Google") select').count()) === 1 &&
+        (await page.locator('.pane label:has-text("Claude Code workers") select').count()) === 1 &&
         (await page.locator('.pane button:text-is("Save")').isDisabled()),
     );
 
@@ -1020,6 +1023,7 @@ try {
       "MCP servers",
       "Google",
       "Codex workers",
+      "Claude Code workers",
       "Global skills",
       "Notifications",
       "About",
@@ -1062,6 +1066,14 @@ try {
     check(
       "codex section loads its settings",
       (await page.locator('.menu-row:has-text("Allow Codex workers")').count()) === 1,
+      await page.locator(".settings-content").innerText(),
+    );
+
+    // Same for Claude Code (GET /api/claude/settings).
+    await openSection("Claude Code workers");
+    check(
+      "claude section loads its settings",
+      (await page.locator('.menu-row:has-text("Allow Claude Code workers")').count()) === 1,
       await page.locator(".settings-content").innerText(),
     );
 
