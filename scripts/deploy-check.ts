@@ -47,8 +47,13 @@ check("working tree is clean", dirty === "", dirty.split("\n").slice(0, 5).join(
 const branch = git("rev-parse", "--abbrev-ref", "HEAD");
 check("on main", branch === "main", `on "${branch}"`);
 
-const worktrees = git("worktree", "list").split("\n").filter(Boolean);
-check("no leftover feature worktrees", worktrees.length <= 1, worktrees.slice(1).join(" | "));
+// No worktree-count precondition here on purpose. The deploy builds from the
+// main checkout, whose correctness is already asserted by "working tree is
+// clean" and "on main" above; other worktrees do not affect what the container
+// serves. Kilo Code Agent Manager owns worktree lifecycle and runs concurrent
+// agents, so more than one worktree is the normal state — an earlier version
+// that failed on `worktrees.length > 1` forced whoever ran the gate to delete
+// every other agent's live worktree (observed 2026-09-29).
 
 /**
  * `VERSION` carries the release tag this checkout claims (see CLAUDE.md

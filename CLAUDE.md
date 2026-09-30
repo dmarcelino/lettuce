@@ -827,6 +827,10 @@ main checkout is not a stylistic slip: two sessions sharing it collide — one s
 checkout to its branch mid-work and `deploy-check`'s clean-tree and on-`main` assertions
 then failed on the other's uncommitted changes (observed 2026-09-29).
 
+Under Agent Manager, worktrees are created and removed by the manager, not by the agent.
+An agent must never remove a worktree or delete a branch it did not create in its own
+session. "Worktrees per feature" describes where work happens, not a cleanup duty.
+
 **Every significant feature gets its own feature branch**: a user-visible capability, a
 new service or sidecar, or any change spanning more than one of `bff/`, `web/`, `docker/`.
 Small fixes and docs may land directly on `main`; they simply carry a PATCH tag when they
@@ -878,7 +882,10 @@ Passing typecheck is not done. Passing tests is not done. **Running in the conta
    do not run once one fails.
 2. **Committed** on a feature branch and fast-forwarded into `main`
    (`git merge --ff-only`).
-3. **Worktree cleaned up** — `git worktree remove <path>`, feature branch deleted.
+3. **Worktree lifecycle is owned by Kilo Code Agent Manager** — do not run
+   `git worktree remove` or `git branch -d` yourself. Concurrent agents may have live
+   worktrees; removing one that is not yours destroys another session's uncommitted work.
+   `deploy-check` no longer requires a single worktree.
 4. **Docker rebuilt from `main`** —
    `docker compose -f docker/compose.yml build bff && docker compose -f docker/compose.yml up -d bff`.
    The `build` is not optional; see the note below.

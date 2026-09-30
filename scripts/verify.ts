@@ -60,7 +60,7 @@ console.log(`
   This is NOT done yet. Still required (see CLAUDE.md → Definition of done):
 
     2. commit on a feature branch, merge to main
-    3. git worktree remove <path> && git branch -d <branch>
+    3. worktree cleanup is Agent Manager's — do not remove worktrees yourself
     4. docker compose -f docker/compose.yml build bff && ... up -d bff
     5. bun run deploy-check
     6. bun run smoke        (only if BFF session/protocol/settings changed)

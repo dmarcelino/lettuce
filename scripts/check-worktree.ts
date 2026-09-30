@@ -59,5 +59,5 @@ console.error("");
 console.error(`  New work:      git worktree add ${dir} -b ${branch}`);
 console.error(`  This branch:   git worktree add ${dir} ${branch}`);
 console.error(`                 (after the main checkout returns to main: git checkout main)`);
-console.error(`  Then cd into the worktree and re-run bun run verify; remove it after the merge.`);
+console.error(`  Then cd into the worktree and re-run bun run verify.`);
 process.exit(1);
