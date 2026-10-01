@@ -1,3 +1,7 @@
+import {
+  type AskUserQuestionResponse,
+  prepareAskUserQuestionNotif,
+} from "@letta-ai/letta-code/ask-user-question";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { errorMessage } from "../lib/errors.ts";
@@ -96,20 +100,14 @@ export interface ConversationApi {
   abort: () => Promise<void>;
   respondToApproval: (requestId: string, approve: boolean, reason?: string) => void;
   /**
-   * `AskUserQuestion` gets no special protocol treatment — it arrives as an
-   * ordinary `approval_request_message`, and plain allow/deny re-runs the
-   * tool with its original `input`, which has no way to carry the user's
-   * answers back in. `updated_input` is the generic escape hatch every
-   * allow decision already supports (see `ApprovalResponseAllowDecision` in
-   * the fork's protocol_v2.ts); the Telegram gateway answers this same tool
-   * the same way (`channels/interactive.ts`, `buildAllowResponse` with
-   * `updated_input: {...input, answers}}`).
+   * Answer (or dismiss) an async `AskUserQuestion` — letta-code 0.34.1+, where
+   * the tool returns an immediate receipt and no longer blocks on an approval.
+   * The answer rides ordinary `create_message` delivery as a `<task-notification>`
+   * user message built by upstream's own `prepareAskUserQuestionNotif`, so it
+   * queues behind a busy turn exactly like a typed message and reaches the
+   * agent whenever the person gets to it.
    */
-  answerQuestions: (
-    requestId: string,
-    input: Record<string, unknown>,
-    answers: Record<string, string>,
-  ) => void;
+  answerQuestions: (response: AskUserQuestionResponse) => void;
   removeQueued: (itemId: string) => void;
   /**
    * Make one queued user message the next thing that runs: stop the current
@@ -834,20 +832,13 @@ export function useConversation(
   );
 
   const answerQuestions = useCallback(
-    (requestId: string, input: Record<string, unknown>, answers: Record<string, string>) => {
-      if (!scope) return;
-      send({
-        type: "input",
-        runtime: scope,
-        payload: {
-          kind: "approval_response",
-          request_id: requestId,
-          decision: { behavior: "allow", updated_input: { ...input, answers } },
-        },
-      });
-      setApprovals((current) => current.filter((a) => a.requestId !== requestId));
+    (response: AskUserQuestionResponse) => {
+      // A question answer is just a message: same send path, same queueing,
+      // same optimistic echo — `splitInjectedBlocks` renders the echo as the
+      // answered state of the card, not as a raw XML bubble.
+      void sendMessage(prepareAskUserQuestionNotif(response));
     },
-    [scope, send],
+    [sendMessage],
   );
 
   const removeQueued = useCallback(

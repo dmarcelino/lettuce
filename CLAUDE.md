@@ -320,7 +320,13 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
     `buildDeviceStatus` sends `[]`. No protocol command lists skills. `bff/src/skills/`
     re-implements discovery (roots, override order, the frontmatter parser,
     `disable-model-invocation`, the bundled skills hidden from local agents; memfs `skills/`
-    counts as `agent`) and serves `GET /api/skills?agent_id=&cwd=`. Bundled skills live only in
+    counts as `agent`) and serves `GET /api/skills?agent_id=&cwd=`. The hidden set is
+    `LOCAL_AGENT_EXCLUDED_BUNDLED_SKILLS` (`image-generation`, `managing-shared-memory`,
+    `working-across-computers`, and since 0.34 the Cloud-only Memory Palace's
+    `curating-memory-palace`); since 0.34.1 upstream applies it as a filter at the end of
+    `discoverSkills` (`isSkillAvailableForAgent` — a `bundled` skill with a hidden id only for
+    local agents, so a local agent's OWN copy of that id in a higher scope survives), and the
+    mirror matches that structure. Bundled skills live only in
     the app-server image and are read over the upstream connection (cached per connect); every
     other root comes from the BFF's **read-only mounts** of `letta-home` and
     `letta-data/local-backend/memfs` at the app-server's own paths — not the protocol, because
@@ -398,6 +404,31 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
 - **Every tool call arrives as `approval_request_message`**, approved or not. The real approval
   prompt is the `control_request` frame that drives `ApprovalSheet`; the message is just the
   call record, so the transcript labels it "Tool".
+- **`AskUserQuestion` is asynchronous since 0.34.1 — an opt-in question card, not an approval.**
+  Upstream (LET-13511) replaced the blocking tool with `AskUserQuestionAsync` (model-facing name
+  still `AskUserQuestion`), removed it from every default toolset, and removed its interactive
+  approval classification entirely — it never raises a `control_request`, so `ApprovalSheet` is
+  pure approvals now. The tool is offered only when the client opts in with
+  `input.payload.client_preferences.toolset.include` (typed addition to
+  `InputCreateMessagePayload`; omitted = inherit, supplied = **replaces** the per-conversation
+  snapshot persisted in settings.json, `{}` clears; the include list is additive to the base
+  toolset and validated against upstream's bundled tool names). The BFF stamps
+  `include: ["AskUserQuestion"]` on every browser create_message relay
+  (`session/protocol.ts` `withWebClientPreferences`) — same value every message, so the sticky
+  snapshot never drifts; the BFF's own syncs and the sweep carry no preferences. The tool does
+  **not** block: its return is an immediate receipt `{type:"ask_user_question",version:2,
+  toolCallId,questions}` and is persisted like any tool return, so a pending question survives
+  tab-away, reconnect and history rebuild. `web/src/lib/messages.ts` promotes every parsed
+  receipt to a standalone `question` transcript entry (parsed and answered with the
+  browser-safe npm module `@letta-ai/letta-code/ask-user-question` — same code both sides of
+  our wire), `groupTranscript` never folds it into a steps run, and `QuestionCard` renders the
+  form; Skip is `status:"dismissed"` with no answers. The answer returns as an **ordinary
+  user message** built by upstream's `prepareAskUserQuestionNotif` (a `<task-notification>`
+  block — `taskEntry` lifts the `<ask-user-question-response>` back out into
+  `entry.questionResponse`, which is what flips the card read-only) and goes through the
+  normal send path, so it can arrive whenever the user gets to it — from any device, or even
+  as a Telegram message. The turn push says "Asked a question and is waiting for your answer"
+  when the last turn's stream carried a receipt (`bff/src/push/turn-watcher.ts`).
 - **Every model text part is an `assistant_message`, even `"\n"`.** Local models emit text
   between tool calls — narration and, for some, a lone newline per step (`[thinking, toolCall,
   "\n", toolCall]` in the pi-ai store). `groupTranscript`
@@ -726,6 +757,9 @@ Protocol drift shows up two ways:
      GitHub CLI (pinned `GH_VERSION`, installed from the release tarball — the base image has
      no apt, gzip or git). Its login is in `GH_CONFIG_DIR=/root/.letta/gh`, persisted and
      readable by every agent shell; setup is in `docker/README.md`.
+     0.34.1 removed `AskUserQuestion` from every featured toolset — the async question tool is
+     offered only through `client_preferences.toolset.include`, which our BFF stamps on every
+     browser message (see the AskUserQuestion bullet above).
 
 ### Version pinning
 

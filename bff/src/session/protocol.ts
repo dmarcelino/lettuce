@@ -275,6 +275,45 @@ export function executeCommandViolation(
 }
 
 /**
+ * The model-facing name of the async AskUserQuestion tool (letta-code 0.34.1,
+ * internal `AskUserQuestionAsync`). It is in no default toolset — a client
+ * that can render the question must opt in per message via
+ * `client_preferences.toolset.include`, which upstream validates against its
+ * bundled tool definitions and persists per conversation until replaced.
+ */
+export const WEB_ASK_USER_QUESTION_TOOL = "AskUserQuestion";
+
+/**
+ * Opt every browser conversation into the async AskUserQuestion tool by
+ * stamping `client_preferences` onto every create_message relay.
+ *
+ * Injected here rather than sent by the web app: the opt-in is a property of
+ * what this BFF can render, not of whatever SPA version happens to be loaded,
+ * and the stamp is idempotent — upstream replaces the conversation snapshot
+ * with the same value on every message. Only browser-originated frames pass
+ * through this relay; the BFF's own syncs and the scope sweep keep upstream's
+ * inherit semantics untouched.
+ */
+export function withWebClientPreferences(
+  command: Record<string, unknown> & { type: string },
+): Record<string, unknown> {
+  if (command.type !== "input") return command;
+  const payload = command.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return command;
+  const kind = (payload as { kind?: unknown }).kind;
+  if (kind !== "create_message") return command;
+  if ((payload as { client_preferences?: unknown }).client_preferences !== undefined)
+    return command;
+  return {
+    ...command,
+    payload: {
+      ...(payload as Record<string, unknown>),
+      client_preferences: { toolset: { include: [WEB_ASK_USER_QUESTION_TOOL] } },
+    },
+  };
+}
+
+/**
  * Root every file operation is confined to.
  *
  * The app-server applies NO root of its own: `read_file` with

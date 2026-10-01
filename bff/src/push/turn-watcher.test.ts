@@ -183,6 +183,72 @@ describe("TurnOutcomeWatcher", () => {
     expect(payload().title).toBe("Lettuce");
   });
 
+  test("a turn that ended on an AskUserQuestion receipt says so", async () => {
+    const { notify, see, advance, payload } = setup();
+    const receipt = JSON.stringify({
+      type: "ask_user_question",
+      version: 2,
+      toolCallId: "call-1",
+      questions: [
+        {
+          question: "Which one?",
+          header: "One",
+          options: [
+            { label: "A", description: "a" },
+            { label: "B", description: "b" },
+          ],
+        },
+      ],
+    });
+    see(processing(true));
+    see({
+      type: "stream_delta",
+      runtime,
+      delta: {
+        type: "message",
+        message_type: "tool_return_message",
+        id: "r1",
+        tool_call_id: "call-1",
+        status: "success",
+        tool_return: receipt,
+      },
+    } as unknown as WsProtocolMessage);
+    see(finished());
+    advance(SETTLE_MS);
+    await flush();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(payload().body).toBe("Asked a question and is waiting for your answer.");
+
+    // The answer arrives as an ordinary user message and runs a new turn;
+    // that turn ends the push the normal way, with the receipt long gone.
+    see(processing(true));
+    see(finished());
+    advance(SETTLE_MS);
+    await flush();
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(payload(1).body).toBe("Finished its turn.");
+  });
+
+  test("a plain tool return does not make the push wait", async () => {
+    const { see, advance, payload } = setup();
+    see({
+      type: "stream_delta",
+      runtime,
+      delta: {
+        type: "message",
+        message_type: "tool_return_message",
+        id: "r2",
+        tool_call_id: "call-2",
+        status: "success",
+        tool_return: '{"ask_user_question": "not really"}',
+      },
+    } as unknown as WsProtocolMessage);
+    see(finished());
+    advance(SETTLE_MS);
+    await flush();
+    expect(payload().body).toBe("Finished its turn.");
+  });
+
   test("ignores frames without a scope", async () => {
     const { notify, see, advance } = setup();
     see({

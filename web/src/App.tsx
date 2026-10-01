@@ -406,6 +406,7 @@ function Workspace({ status }: { status: Status }) {
               onOpenFile={setOpenFile}
               showTimestamps={showTimestamps}
               onEditMessage={setPrefill}
+              onAnswerQuestion={conversation.answerQuestions}
             />
 
             {conversation.queue.length > 0 ? (
@@ -544,13 +545,12 @@ function Workspace({ status }: { status: Status }) {
       {conversation.approvals.length > 0 ? (
         <ApprovalSheet
           // Keyed by request id so a fresh approval always mounts fresh —
-          // without this, answering one question mid-form and moving straight
-          // to the next queued approval reused the same component instance,
-          // carrying over its denying/reason/selection state.
+          // without this, an approval answered mid-deny moved straight to the
+          // next queued approval on the same component instance, carrying
+          // over its denying/reason state.
           key={conversation.approvals[0]!.requestId}
           approval={conversation.approvals[0]!}
           onRespond={conversation.respondToApproval}
-          onAnswerQuestions={conversation.answerQuestions}
         />
       ) : null}
 

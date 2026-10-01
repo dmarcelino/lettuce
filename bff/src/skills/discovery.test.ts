@@ -59,12 +59,24 @@ skill(`work/${AGENT}/.skills/proj`, "name: proj\ndescription: legacy");
 skill(`data/local-backend/memfs/${AGENT}/memory/skills/mem`, "name: mem\ndescription: in memfs");
 skill(`data/local-backend/memfs/${AGENT}/memory/skills/proj`, "name: proj\ndescription: memfs");
 skill(`data/local-backend/memfs/${AGENT}/memory/skills/web-apps`, "name: web-apps\ndescription: m");
+// A local agent's own (project) copy of a Cloud-only bundled skill survives the exclusion.
+skill(
+  "work/palace-owner/.agents/skills/curating-memory-palace",
+  "name: curating-memory-palace\ndescription: own copy",
+);
 
 const result = await discoverSkills({
   agentId: AGENT,
   cwd: CWD,
   hostFs,
-  bundled: { skills: [bundledSkill("image-generation"), bundledSkill("proj")], errors: [] },
+  bundled: {
+    skills: [
+      bundledSkill("image-generation"),
+      bundledSkill("curating-memory-palace"),
+      bundledSkill("proj"),
+    ],
+    errors: [],
+  },
 });
 const byId = new Map(result.skills.map((s) => [s.id, s]));
 
@@ -91,6 +103,18 @@ describe("discoverSkills", () => {
 
   test("bundled skills upstream hides from local agents are hidden", () => {
     expect(byId.has("image-generation")).toBe(false);
+    expect(byId.has("curating-memory-palace")).toBe(false);
+  });
+
+  test("a local agent's own copy of a hidden bundled skill is still listed", async () => {
+    const own = await discoverSkills({
+      agentId: "agent-local-palace",
+      cwd: "/work/palace-owner",
+      hostFs,
+      bundled: { skills: [bundledSkill("curating-memory-palace")], errors: [] },
+    });
+    const palace = own.skills.find((s) => s.id === "curating-memory-palace");
+    expect(palace).toMatchObject({ source: "project", overrides: ["bundled"] });
   });
 
   test("agent scope overrides global, and says so", () => {

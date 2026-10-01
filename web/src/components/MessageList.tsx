@@ -1,3 +1,4 @@
+import type { AskUserQuestionResponse } from "@letta-ai/letta-code/ask-user-question";
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { claudeSessionInTaskText } from "../lib/claude.ts";
 import { copyText } from "../lib/clipboard.ts";
@@ -17,6 +18,7 @@ import { ClaudeRunSheet } from "./ClaudeRunSheet.tsx";
 import { CodexRunSheet } from "./CodexRunSheet.tsx";
 import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { QuestionCard } from "./QuestionCard.tsx";
 
 interface Props {
   entries: TranscriptEntry[];
@@ -30,6 +32,8 @@ interface Props {
   showTimestamps: boolean;
   /** "Edit" on your last message: put its text back in the composer. Stable. */
   onEditMessage: (text: string) => void;
+  /** Send an AskUserQuestion answer (or dismissal) as an ordinary user message. */
+  onAnswerQuestion: (response: AskUserQuestionResponse) => void;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -91,6 +95,7 @@ export function MessageList({
   onOpenFile,
   showTimestamps,
   onEditMessage,
+  onAnswerQuestion,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fileLinks = useFileLinks(session, cwd);
@@ -141,17 +146,33 @@ export function MessageList({
     return { returnByCall: byCall, pairedReturnIds: paired };
   }, [entries]);
 
+  // An AskUserQuestion answer is a task notification, and the question card
+  // renders it read-only right where the question was asked — so its raw Task
+  // card is redundant the moment a card for that tool call is on screen.
+  const answersByCall = useMemo(() => {
+    const answers = new Map<string, AskUserQuestionResponse>();
+    const calls = new Set<string>();
+    for (const entry of entries) {
+      if (entry.kind === "question" && entry.toolCallId) calls.add(entry.toolCallId);
+      if (entry.questionResponse)
+        answers.set(entry.questionResponse.toolCallId, entry.questionResponse);
+    }
+    return { answers, calls };
+  }, [entries]);
+
   // Paired returns render inside their call, so they leave the list before
-  // grouping — otherwise a Bash call would count as two steps.
+  // grouping — otherwise a Bash call would count as two steps. Answered
+  // questions drop their raw notification the same way.
   const items = useMemo(
     () =>
       groupTranscript(
         entries.filter(
           (entry) =>
-            !(entry.kind === "tool_return" && entry.toolCallId && pairedReturnIds.has(entry.id)),
+            !(entry.kind === "tool_return" && entry.toolCallId && pairedReturnIds.has(entry.id)) &&
+            !(entry.questionResponse && answersByCall.calls.has(entry.questionResponse.toolCallId)),
         ),
       ),
-    [entries, pairedReturnIds],
+    [entries, pairedReturnIds, answersByCall],
   );
 
   // Steps fold once the turn is done. Only an explicit tap is remembered, so a
@@ -182,6 +203,12 @@ export function MessageList({
           ? (returnByCall.get(entry.toolCallId) ?? null)
           : null
       }
+      answer={
+        entry.kind === "question" && entry.toolCallId
+          ? (answersByCall.answers.get(entry.toolCallId) ?? null)
+          : null
+      }
+      onAnswerQuestion={onAnswerQuestion}
       cwd={cwd}
       fileLinks={fileLinks}
       onOpenFile={onOpenFile}
@@ -243,6 +270,8 @@ export function MessageList({
 const MessageItem = memo(function MessageItem({
   entry,
   retn,
+  answer = null,
+  onAnswerQuestion,
   cwd,
   fileLinks,
   onOpenFile,
@@ -253,6 +282,9 @@ const MessageItem = memo(function MessageItem({
   entry: TranscriptEntry;
   /** For a tool call: its matching return, folded into the same block. */
   retn?: TranscriptEntry | null;
+  /** For a question card: the answer already in the transcript, if any. */
+  answer?: AskUserQuestionResponse | null;
+  onAnswerQuestion: (response: AskUserQuestionResponse) => void;
   cwd: string | null;
   fileLinks: FileLinks;
   onOpenFile: (path: string) => void;
@@ -310,18 +342,29 @@ const MessageItem = memo(function MessageItem({
     );
   }
 
+  if (entry.kind === "question" && entry.question) {
+    return <QuestionCard receipt={entry.question} response={answer} onSubmit={onAnswerQuestion} />;
+  }
+
   if (entry.kind === "tool_call" || entry.kind === "approval_request") {
     const args = formatArgs(entry.toolArgs);
     // Mid-stream the argument JSON is truncated and unparseable, so the summary
     // is absent until the call is whole; the raw args carry the preview until then.
     const summary = summarizeToolCall(entry.toolName, parseToolArgs(entry.toolArgs), cwd);
-    const inPreview = summary?.headline || firstLine(entry.toolArgs);
+    // The question's real UI is the card below the fold; the step itself is
+    // just the machine record, so the receipt JSON stays out of the preview.
+    const askedQuestion = entry.toolName === "AskUserQuestion";
+    const inPreview = askedQuestion
+      ? "Questions posted — answer on the card"
+      : summary?.headline || firstLine(entry.toolArgs);
     // `retn` is the folded return; null means it has not arrived yet.
     const status = retn?.status ?? null;
     const outText = retn?.text ?? "";
     const stderr = retn?.stderr?.join("\n") ?? "";
     const showStderr = stderr.length > 0 && !outText.includes(stderr);
-    const outPreview = firstLine(outText) || (showStderr ? firstLine(stderr) : "");
+    const outPreview = askedQuestion
+      ? ""
+      : firstLine(outText) || (showStderr ? firstLine(stderr) : "");
     const hasBody = Boolean(args) || Boolean(outText) || showStderr;
     return (
       <div className={`entry tool${status === "error" ? " error" : ""}`}>

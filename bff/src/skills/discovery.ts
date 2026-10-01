@@ -76,6 +76,7 @@ const MEMFS_DIR = "/data/local-backend/memfs";
 
 /** Bundled skills upstream hides from local agents (`LOCAL_AGENT_EXCLUDED_BUNDLED_SKILLS`). */
 const LOCAL_AGENT_EXCLUDED_BUNDLED = new Set([
+  "curating-memory-palace",
   "image-generation",
   "managing-shared-memory",
   "working-across-computers",
@@ -192,9 +193,7 @@ export async function discoverSkills(
     byId.set(skill.id, skill);
   };
 
-  const local = agentId.startsWith("agent-local-");
   for (const skill of options.bundled.skills) {
-    if (local && LOCAL_AGENT_EXCLUDED_BUNDLED.has(skill.id)) continue;
     put({ ...skill, disableModelInvocation: false });
   }
 
@@ -222,8 +221,15 @@ export async function discoverSkills(
     put(skill);
   }
 
+  // Upstream filters the merged map with `isSkillAvailableForAgent`, not the
+  // bundled root: a local agent's own copy of a Cloud-only skill survives.
+  const local = agentId.startsWith("agent-local-");
   const skills = sortSkills([...byId.values()])
     .filter((skill) => !skill.disableModelInvocation)
+    .filter(
+      (skill) =>
+        !(local && skill.source === "bundled" && LOCAL_AGENT_EXCLUDED_BUNDLED.has(skill.id)),
+    )
     .map(({ disableModelInvocation: _, ...skill }) => skill);
   return { skills, errors };
 }

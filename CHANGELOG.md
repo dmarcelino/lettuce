@@ -7,6 +7,10 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ### Added
 - Attach images to a message from the camera roll, clipboard or drag-drop — the model sees them when the model supports vision.
+- Ask the agent structured mid-conversation questions that don't block the reply: answers and skips come back as ordinary messages, from any device or Telegram, and the question card shows the outcome.
+
+### Changed
+- Synced letta-code to 0.34.1 (async AskUserQuestion, Cloud-only Memory Palace skills, reworked turn recovery).
 
 ## [v0.3.1-letta_0.33.7] - 2026-10-01
 

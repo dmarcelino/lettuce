@@ -26,7 +26,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",
-    "@letta-ai/letta-code": "0.33.7",
+    "@letta-ai/letta-code": "0.34.1",
     "playwright": "^1.62.1",
     "typescript": "^5.6.0"
   },

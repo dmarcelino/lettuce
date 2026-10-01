@@ -4,6 +4,7 @@ import {
   executeCommandViolation,
   isBffWatchingCommand,
   WORKSPACE_ROOT,
+  withWebClientPreferences,
   workspaceViolation,
 } from "./protocol.ts";
 
@@ -228,5 +229,40 @@ describe("execute_command allowlist", () => {
   test("an advertised mod command is allowed, an unadvertised one is not", () => {
     allow("my-mod", new Set(["my-mod"]));
     refuse("my-mod");
+  });
+});
+
+describe("withWebClientPreferences", () => {
+  const createMessage = {
+    type: "input",
+    runtime: { agent_id: "agent-local-a", conversation_id: "conv-1" },
+    payload: { kind: "create_message", messages: [{ role: "user", content: "hi" }] },
+  };
+
+  test("create_message gets the AskUserQuestion opt-in", () => {
+    const out = withWebClientPreferences(createMessage);
+    expect(out.payload).toEqual({
+      ...createMessage.payload,
+      client_preferences: { toolset: { include: ["AskUserQuestion"] } },
+    });
+  });
+
+  test("an existing client_preferences is never overwritten", () => {
+    const mine = {
+      ...createMessage,
+      payload: { ...createMessage.payload, client_preferences: { toolset: { include: [] } } },
+    };
+    expect(withWebClientPreferences(mine)).toBe(mine);
+  });
+
+  test("non-input and non-create_message frames pass through untouched", () => {
+    const abort = { type: "abort_message", runtime: createMessage.runtime };
+    expect(withWebClientPreferences(abort)).toBe(abort);
+    const other = { type: "input", payload: { kind: "something_else" } };
+    expect(withWebClientPreferences(other)).toBe(other);
+    const noPayload = { type: "input" };
+    expect(withWebClientPreferences(noPayload)).toBe(noPayload);
+    const badPayload = { type: "input", payload: "not-an-object" };
+    expect(withWebClientPreferences(badPayload)).toBe(badPayload);
   });
 });

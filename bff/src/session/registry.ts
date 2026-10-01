@@ -19,6 +19,7 @@ import {
   isBffWatchingCommand,
   SEQ_FIELD,
   WORKSPACE_ROOT,
+  withWebClientPreferences,
   workspaceViolation,
 } from "./protocol.ts";
 import { type Lstat, symlinkViolation } from "./symlink-guard.ts";
@@ -282,9 +283,9 @@ export class SessionRegistry {
     const scopeKey = frameScopeKey(command as unknown as WsProtocolMessage);
     if (scopeKey) session.scopes.add(scopeKey);
 
-    // Rewrite the request id into BFF-owned space. Two sessions can otherwise
-    // pick the same id, and a response must come back to exactly one of them.
-    const outbound: Record<string, unknown> = { ...command };
+    // Opt the conversation into the async AskUserQuestion tool before anything
+    // else touches the frame (see `withWebClientPreferences`).
+    const outbound: Record<string, unknown> = withWebClientPreferences({ ...command });
     if (typeof command.request_id === "string") {
       this.requestCounter += 1;
       const bffRequestId = `bff-${session.id.slice(0, 8)}-${this.requestCounter}`;

@@ -1,3 +1,10 @@
+import {
+  type AskUserQuestionReceipt,
+  type AskUserQuestionResponse,
+  parseAskUserQuestionNotif,
+  parseAskUserQuestionReceipt,
+} from "@letta-ai/letta-code/ask-user-question";
+
 /**
  * Normalizes Letta messages — whether streamed as deltas or loaded as history —
  * into a flat transcript the UI can render.
@@ -20,7 +27,8 @@ export type EntryKind =
   | "approval_request"
   | "approval_response"
   | "event"
-  | "notice";
+  | "notice"
+  | "question";
 
 /** The filter groups offered in the UI. */
 export type FilterGroup = "user" | "agent" | "tools" | "tasks" | "system";
@@ -66,6 +74,15 @@ export interface TranscriptEntry {
    */
   images?: TranscriptImage[];
   /**
+   * question: the async AskUserQuestion receipt (letta-code 0.34.1+). The tool
+   * returns immediately with this — the answer is not part of the tool call,
+   * it comes back later as an ordinary user message, so this card stays live
+   * until a `questionResponse` shows up or the user dismisses it.
+   */
+  question?: AskUserQuestionReceipt;
+  /** task: an `<ask-user-question-response>` lifted out of a notification. */
+  questionResponse?: AskUserQuestionResponse;
+  /**
    * user: sent with a `response_format` JSON schema, so the reply was
    * constrained. Only the client knows this — nothing on the wire carries it
    * back — so it is set where the local echo is made and never survives a
@@ -98,6 +115,8 @@ const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
   system: "system",
   event: "system",
   notice: "system",
+  // A tool the agent ran; the card answers it, but it belongs with the work.
+  question: "tools",
 };
 
 export const FILTER_LABELS: Record<FilterGroup, string> = {
@@ -298,6 +317,15 @@ function taskEntry(base: TranscriptEntry, body: string): TranscriptEntry {
   const status = innerTag(body, "status");
   const result = innerTag(body, "result");
   const taskId = innerTag(body, "task-id");
+  // An answer to an AskUserQuestion card is a task notification too —
+  // `prepareAskUserQuestionNotif` wraps it in exactly this tag. Lift it so the
+  // card can render read-only with the chosen answers, live and after a
+  // reload alike (the raw block would otherwise just say "User answered").
+  // The extractor hands us the body INSIDE the tag, so re-wrap for the
+  // npm parser, which only matches complete notifications.
+  const [questionResponse] = parseAskUserQuestionNotif(
+    `<task-notification>${body}</task-notification>`,
+  );
 
   return {
     ...base,
@@ -307,6 +335,7 @@ function taskEntry(base: TranscriptEntry, body: string): TranscriptEntry {
     ...(taskId ? { taskId } : {}),
     // Absent status (Monitor) must not read as a failure, so no badge at all.
     ...(status ? { status: status === "completed" ? "success" : "error" } : {}),
+    ...(questionResponse ? { questionResponse } : {}),
     text: result ?? (summary ? "" : body),
   };
 }
@@ -406,6 +435,66 @@ function nameToolReturns(entries: TranscriptEntry[]): TranscriptEntry[] {
 }
 
 /**
+ * The async AskUserQuestion receipt carried by a tool return, or null.
+ *
+ * Since 0.34.1 the question tool does not block: its return is an immediate
+ * receipt `{type: "ask_user_question", version: 2, toolCallId, questions}`
+ * and the agent is told to continue without an answer. The receipt is a
+ * persisted tool return, so the pending question survives a tab-away, a
+ * reconnect, and a full history rebuild — which is what makes detection here
+ * (live and replay share the keyed entry) the only place it needs doing.
+ */
+export function readQuestionReceipt(entry: TranscriptEntry): AskUserQuestionReceipt | null {
+  if (entry.kind !== "tool_return" || !entry.toolCallId) return null;
+  // Cheap guards first: this runs over every return on every flush.
+  if (entry.toolName !== "AskUserQuestion" || !entry.text.includes('"ask_user_question"'))
+    return null;
+  const receipt = parseAskUserQuestionReceipt(entry.text);
+  return receipt && receipt.toolCallId === entry.toolCallId ? receipt : null;
+}
+
+/**
+ * Give every question receipt its own transcript entry, beside the tool return
+ * that carries it.
+ *
+ * The return itself keeps folding into its call as the machine record it is;
+ * the promoted entry renders the interactive card at top level, because a
+ * pending question must never hide inside a collapsed steps run. Runs on the
+ * sorted, named, block-split entries so live and rebuilt transcripts promote
+ * identically.
+ */
+function promoteQuestions(entries: TranscriptEntry[]): TranscriptEntry[] {
+  let hasQuestion = false;
+  for (const entry of entries) {
+    if (entry.kind === "tool_return" && readQuestionReceipt(entry) !== null) {
+      hasQuestion = true;
+      break;
+    }
+  }
+  if (!hasQuestion) return entries;
+
+  const out: TranscriptEntry[] = [];
+  for (const entry of entries) {
+    out.push(entry);
+    const receipt = readQuestionReceipt(entry);
+    if (!receipt || !entry.toolCallId) continue;
+    out.push({
+      id: `question:${entry.toolCallId}`,
+      kind: "question",
+      date: entry.date,
+      // Just after the return it answers; fractional values are the existing
+      // convention for inserting between integer seqs (see mergeTurnErrors).
+      seenAt: entry.seenAt + 0.1,
+      text: entry.text,
+      toolCallId: entry.toolCallId,
+      question: receipt,
+      ...(entry.subagentId ? { subagentId: entry.subagentId } : {}),
+    });
+  }
+  return out;
+}
+
+/**
  * The transcript as a render-ready list, ordered by arrival.
  *
  * Entries are mutated in place while streaming (`applyMessage` appends to
@@ -417,16 +506,18 @@ function nameToolReturns(entries: TranscriptEntry[]): TranscriptEntry[] {
  * changing re-render, instead of every message in the conversation per token.
  */
 export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
-  return nameToolReturns(
-    [...transcript.values()]
-      .sort((a, b) => {
-        if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
-        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-      })
-      .map((entry) => (entry.streaming ? { ...entry } : entry))
-      // After copying, so an extracted block keeps its parent's position and a
-      // settled entry keeps its identity.
-      .flatMap(splitInjectedBlocks),
+  return promoteQuestions(
+    nameToolReturns(
+      [...transcript.values()]
+        .sort((a, b) => {
+          if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
+          return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+        })
+        .map((entry) => (entry.streaming ? { ...entry } : entry))
+        // After copying, so an extracted block keeps its parent's position and a
+        // settled entry keeps its identity.
+        .flatMap(splitInjectedBlocks),
+    ),
   );
 }
 
@@ -515,6 +606,9 @@ function isTurnBoundary(entry: TranscriptEntry): boolean {
     entry.kind === "user" ||
     entry.kind === "task" ||
     entry.kind === "notice" ||
+    // A posted question ends the work that asked for it: the agent's next text
+    // arrives on the answer, in a turn of its own.
+    entry.kind === "question" ||
     (entry.kind === "system" && entry.reminder === true)
   );
 }
@@ -569,6 +663,8 @@ export function stepLabel(entry: TranscriptEntry): string {
       return "Subagent";
     case "approval_response":
       return "Approval";
+    case "question":
+      return "Question";
     case "event":
       return "Event";
     default:
@@ -603,6 +699,13 @@ export function groupTranscript(entries: readonly TranscriptEntry[]): Transcript
     if (isBlankAgentText(entry)) continue;
     if (entry.kind === "notice") {
       items.push({ kind: "notice", entry });
+      run = null;
+      continue;
+    }
+    if (entry.kind === "question") {
+      // Standalone, never inside a run: a question the user has to see and
+      // answer cannot hide behind a collapsed "5 steps" fold.
+      items.push({ kind: "message", entry });
       run = null;
       continue;
     }

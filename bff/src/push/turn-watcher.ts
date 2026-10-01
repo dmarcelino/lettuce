@@ -1,4 +1,5 @@
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
+import { parseAskUserQuestionReceipt } from "@letta-ai/letta-code/ask-user-question";
 import { frameScopeKey, parseScopeKey } from "../session/buffer.ts";
 import type { AgentNames } from "./agent-names.ts";
 import { conversationUrl, notify as defaultNotify, type PushEventType } from "./notify.ts";
@@ -31,7 +32,14 @@ interface ScopeState {
   /** Subagents launched from this conversation that have not finished. */
   subagents: number;
   /** The latest finished turn, waiting for the conversation to go quiet. */
-  outcome: { error?: string; since: number } | null;
+  outcome: { error?: string; awaitingAnswer: boolean; since: number } | null;
+  /**
+   * This turn posted an AskUserQuestion receipt (0.34.1+: the tool returns
+   * immediately and the answer arrives later as a message). Snapshotted into
+   * `outcome` at `turn_finished`, so a later turn — including the one carrying
+   * the answer itself — resets it.
+   */
+  turnHadQuestion: boolean;
   timer: unknown;
 }
 
@@ -92,9 +100,15 @@ export class TurnOutcomeWatcher {
         state.processing = false;
         state.outcome = {
           ...(frame.error ? { error: frame.error } : {}),
+          awaitingAnswer: state.turnHadQuestion,
           since: state.outcome?.since ?? this.clock.now(),
         };
+        state.turnHadQuestion = false;
         break;
+      }
+      case "stream_delta": {
+        if (questionPostedIn(raw.delta)) this.state(key).turnHadQuestion = true;
+        return; // A delta never changes whether the scope is settled.
       }
       default:
         return;
@@ -105,7 +119,14 @@ export class TurnOutcomeWatcher {
   private state(key: string): ScopeState {
     let state = this.scopes.get(key);
     if (!state) {
-      state = { processing: false, queued: 0, subagents: 0, outcome: null, timer: null };
+      state = {
+        processing: false,
+        queued: 0,
+        subagents: 0,
+        outcome: null,
+        turnHadQuestion: false,
+        timer: null,
+      };
       this.scopes.set(key, state);
     }
     return state;
@@ -144,10 +165,14 @@ export class TurnOutcomeWatcher {
       this.log(`Push for finished turn in ${key} suppressed: a visible session is watching it`);
       return;
     }
-    void this.send(key, outcome.error);
+    void this.send(key, outcome.error, outcome.awaitingAnswer);
   }
 
-  private async send(key: string, error: string | undefined): Promise<void> {
+  private async send(
+    key: string,
+    error: string | undefined,
+    awaitingAnswer: boolean,
+  ): Promise<void> {
     const [agentId] = parseScopeKey(key);
     const name = (await this.names?.name(agentId)) ?? null;
     const eventType: PushEventType = error ? "failed" : "completed";
@@ -155,13 +180,43 @@ export class TurnOutcomeWatcher {
       this.store,
       {
         title: name ?? "Lettuce",
-        body: error ? failureBody(error) : "Finished its turn.",
+        body: error
+          ? failureBody(error)
+          : awaitingAnswer
+            ? "Asked a question and is waiting for your answer."
+            : "Finished its turn.",
         url: conversationUrl(key),
       },
       eventType,
       this.log,
     );
   }
+}
+
+/**
+ * Whether one stream delta carries the immediate receipt of an async
+ * AskUserQuestion. Cheap checks first — this sees every delta of every scope.
+ */
+function questionPostedIn(delta: unknown): boolean {
+  if (!delta || typeof delta !== "object") return false;
+  const record = delta as Record<string, unknown>;
+  if (record.type !== "message" || record.message_type !== "tool_return_message") return false;
+  const texts: unknown[] = [];
+  if (Array.isArray(record.tool_returns)) {
+    for (const part of record.tool_returns as Record<string, unknown>[])
+      texts.push(part?.tool_return);
+  }
+  texts.push(record.tool_return);
+  for (const text of texts) {
+    if (typeof text === "string") {
+      // The full receipt only ever arrives complete in a tool return, so a
+      // substring probe ahead of the parse keeps this O(1) for ordinary results.
+      if (text.includes('"ask_user_question"') && parseAskUserQuestionReceipt(text)) return true;
+    } else if (text && typeof text === "object" && parseAskUserQuestionReceipt(text)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

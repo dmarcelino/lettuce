@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { prepareAskUserQuestionNotif } from "@letta-ai/letta-code/ask-user-question";
 import {
   addLocalUserMessage,
   applyStreamDelta,
@@ -10,6 +11,7 @@ import {
   isShown,
   mergeTurnErrors,
   readContentParts,
+  readQuestionReceipt,
   settleStreaming,
   sortedEntries,
   splitErrorDetail,
@@ -1204,5 +1206,171 @@ describe("image content parts", () => {
       1,
     );
     expect(transcript.get("web-10")?.images).toEqual(localImages);
+  });
+});
+
+describe("async AskUserQuestion (0.34.1 receipt flow)", () => {
+  const QUESTIONS = [
+    {
+      question: "Which approach?",
+      header: "Approach",
+      options: [
+        { label: "A", description: "the A way" },
+        { label: "B", description: "the B way" },
+      ],
+      multiSelect: false,
+    },
+  ];
+  const RECEIPT = {
+    type: "ask_user_question",
+    version: 2,
+    toolCallId: "call-q1",
+    questions: QUESTIONS,
+    message: "Questions posted.",
+  };
+
+  const questionFrames = () => [
+    toolCallFrame(
+      "letta-msg-q",
+      "call-q1",
+      "AskUserQuestion",
+      JSON.stringify({ questions: QUESTIONS }),
+    ),
+    toolReturnFrame("synthetic-tool-return-q", "call-q1", "success", JSON.stringify(RECEIPT)),
+  ];
+
+  test("a question receipt promotes a standalone question entry after its return", () => {
+    const entries = sortedEntries(streamed(questionFrames()));
+    const question = entries.find((entry) => entry.kind === "question");
+    expect(question).toBeDefined();
+    expect(question?.toolCallId).toBe("call-q1");
+    expect(question?.question?.questions).toEqual(QUESTIONS);
+    // The promoted entry sits immediately after the tool return it answers.
+    const returnIndex = entries.findIndex((entry) => entry.kind === "tool_return");
+    expect(entries.indexOf(question as TranscriptEntry)).toBe(returnIndex + 1);
+  });
+
+  test("history rebuild promotes the same question as live streaming", () => {
+    const live = sortedEntries(streamed(questionFrames()));
+    const history = transcriptFromHistory([
+      {
+        message_type: "tool_call_message",
+        id: "h-q1",
+        tool_call: {
+          tool_call_id: "call-q1",
+          name: "AskUserQuestion",
+          arguments: JSON.stringify({ questions: QUESTIONS }),
+        },
+      },
+      {
+        message_type: "tool_return_message",
+        id: "h-q2",
+        tool_call_id: "call-q1",
+        status: "success",
+        tool_return: JSON.stringify(RECEIPT),
+      },
+    ]);
+    // `date` differs between a wire capture and a fixture with no date, so
+    // compare the identity that promotion has to agree on.
+    const promoted = (list: TranscriptEntry[]) =>
+      list
+        .filter((e) => e.kind === "question")
+        .map((e) => ({ id: e.id, toolCallId: e.toolCallId, question: e.question }));
+    expect(promoted(sortedEntries(history))).toEqual(promoted(live));
+  });
+
+  test("the question stands alone in the transcript, never inside a steps run", () => {
+    const items = groupTranscript(sortedEntries(streamed(questionFrames())));
+    expect(items.map((item) => item.kind)).toEqual(["steps", "message"]);
+    const message = items[1];
+    expect(message?.kind === "message" && message.entry.kind).toBe("question");
+  });
+
+  test("a receipt for a different tool call id is not promoted", () => {
+    const transcript = streamed([
+      toolCallFrame("letta-msg-y", "call-q2", "AskUserQuestion", "{}"),
+      toolReturnFrame(
+        "r",
+        "call-q2",
+        "success",
+        JSON.stringify({ ...RECEIPT, toolCallId: "someone-else" }),
+      ),
+    ]);
+    expect(sortedEntries(transcript).some((entry) => entry.kind === "question")).toBe(false);
+  });
+
+  test("readQuestionReceipt rejects malformed returns", () => {
+    const base: TranscriptEntry = {
+      id: "x",
+      kind: "tool_return",
+      date: "",
+      seenAt: 0,
+      text: "",
+      toolCallId: "call-q1",
+      toolName: "AskUserQuestion",
+    };
+    expect(readQuestionReceipt(base)).toBeNull(); // empty text
+    expect(
+      readQuestionReceipt({ ...base, text: '{"ask_user_question": "not a receipt"}' }),
+    ).toBeNull();
+    expect(
+      readQuestionReceipt({ ...base, text: JSON.stringify({ ...RECEIPT, questions: [] }) }),
+    ).toBeNull(); // no questions
+    expect(
+      readQuestionReceipt({ ...base, toolName: "Bash", text: JSON.stringify(RECEIPT) }),
+    ).toBeNull(); // named like some other tool
+    expect(readQuestionReceipt({ ...base, text: JSON.stringify(RECEIPT) })).not.toBeNull();
+  });
+
+  const answerNotif = prepareAskUserQuestionNotif({
+    type: "ask_user_question_response",
+    version: 2,
+    toolCallId: "call-q1",
+    questions: QUESTIONS,
+    status: "answered",
+    answers: { "Which approach?": "A" },
+  });
+
+  test("the answer arrives as a task entry carrying the full response", () => {
+    const entries = sortedEntries(
+      transcriptFromHistory([{ id: "u-a", message_type: "user_message", content: answerNotif }]),
+    );
+    expect(entries).toHaveLength(1);
+    const task = entries[0]!;
+    expect(task.kind).toBe("task");
+    expect(task.questionResponse?.status).toBe("answered");
+    expect(task.questionResponse?.answers).toEqual({ "Which approach?": "A" });
+    // Never rendered as a raw XML user bubble.
+    expect(stripInjectedBlocks(answerNotif)).toBe("");
+  });
+
+  test("a dismissal parses with no answers", () => {
+    const dismissed = prepareAskUserQuestionNotif({
+      type: "ask_user_question_response",
+      version: 2,
+      toolCallId: "call-q1",
+      questions: QUESTIONS,
+      status: "dismissed",
+    });
+    const entries = sortedEntries(
+      transcriptFromHistory([{ id: "u-d", message_type: "user_message", content: dismissed }]),
+    );
+    expect(entries[0]?.questionResponse?.status).toBe("dismissed");
+    expect(entries[0]?.questionResponse?.answers).toBeUndefined();
+  });
+
+  test("an ordinary task notification carries no question response", () => {
+    const entries = sortedEntries(
+      transcriptFromHistory([
+        {
+          id: "u-t",
+          message_type: "user_message",
+          content:
+            "<task-notification><task-id>t1</task-id><summary>Done</summary></task-notification>",
+        },
+      ]),
+    );
+    expect(entries[0]?.kind).toBe("task");
+    expect(entries[0]?.questionResponse).toBeUndefined();
   });
 });
