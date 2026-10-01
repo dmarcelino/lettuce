@@ -129,6 +129,7 @@ export function Composer({
   /** Escape closes the popover without clearing what was typed. */
   const [dismissed, setDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const suggestionListRef = useRef<HTMLUListElement>(null);
   /**
    * Position in `history`. A ref: moving through history re-renders through
    * `value` anyway. The saved draft lives here, not in draft storage, so the
@@ -182,6 +183,16 @@ export function Composer({
   const suggestions = disabled || dismissed ? [] : matchSlashCommands(value, commands);
   const highlighted = suggestions.length > 0 ? Math.min(highlight, suggestions.length - 1) : -1;
   const active = highlighted >= 0 ? suggestions[highlighted] : undefined;
+
+  // The list is scroll-capped (styles.css), but arrow keys move a highlight
+  // without ever focusing an element, so nothing scrolls with them. Follow the
+  // highlight the way a native select does: `nearest` scrolls the list, and
+  // only scrolls the page if the list itself cannot reach the row.
+  useEffect(() => {
+    if (highlighted < 0) return;
+    const item = suggestionListRef.current?.children[highlighted];
+    if (item) (item as HTMLElement).scrollIntoView({ block: "nearest" });
+  }, [highlighted]);
 
   const reset = () => {
     setValue("");
@@ -294,7 +305,11 @@ export function Composer({
             owns the bottom half of the viewport, so a list rendered under the
             composer would open behind it. */}
         {active ? (
-          <ul className="composer-suggestions picker" id="composer-suggestions">
+          <ul
+            className="composer-suggestions picker"
+            id="composer-suggestions"
+            ref={suggestionListRef}
+          >
             {suggestions.map((command, index) => (
               <li key={command.id}>
                 <button

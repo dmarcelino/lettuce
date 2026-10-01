@@ -8,6 +8,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ### Removed
 - The composer's slash-command button and Commands sheet; type `/` in the input to run a command.
 
+### Fixed
+- The slash-command popup scrolls to keep the highlighted command visible when you arrow through it.
+
 ## [v0.2.0-letta_0.33.7] - 2026-10-01
 
 ### Added
