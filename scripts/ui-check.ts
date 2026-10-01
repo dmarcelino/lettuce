@@ -380,7 +380,7 @@ try {
 
     // The composer is the single control surface; each control must exist and
     // be an icon button with an accessible name.
-    for (const label of ["Filter the transcript", "Run a command"]) {
+    for (const label of ["Filter the transcript"]) {
       const button = page.locator(`.composer-row button[aria-label="${label}"]`);
       check(`composer has "${label}"`, (await button.count()) === 1);
       check(`"${label}" is an icon button`, (await button.locator("svg.icon").count()) === 1);
@@ -585,21 +585,9 @@ try {
     await shot(page, "phone-permissions");
     await page.keyboard.press("Escape");
 
-    await page.locator('.composer-row button[aria-label="Run a command"]').click();
-    check("commands sheet opens", await page.locator(".sheet-panel").isVisible());
-    const commandCount = await page.locator(".sheet-panel .menu-list li").count();
-    check("commands sheet lists commands", commandCount > 0, { commandCount });
-    check(
-      "undispatchable commands are hidden",
-      (await page.locator('.sheet-panel .menu-list li:has-text("/secret")').count()) === 0 &&
-        (await page.locator('.sheet-panel .menu-list li:has-text("/channels")').count()) === 0,
-    );
-    await shot(page, "phone-commands");
-    await page.keyboard.press("Escape");
-
     // Every composer menu follows one set of rules: a header with a ✕, no
     // footer, and the shared row.
-    for (const label of ["Run a command", "Filter", "Permission mode", "Model"]) {
+    for (const label of ["Filter", "Permission mode", "Model"]) {
       await page.locator(`.composer-row button[aria-label^="${label}"]`).first().click();
       await page.waitForTimeout(600);
       const shape = await page.evaluate(() => ({

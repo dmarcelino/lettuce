@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Removed
+- The composer's slash-command button and Commands sheet; type `/` in the input to run a command.
+
 ## [v0.2.0-letta_0.33.7] - 2026-10-01
 
 ### Added

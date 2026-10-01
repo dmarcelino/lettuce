@@ -18,7 +18,6 @@ export type IconName =
   | "stop-solid"
   | "filter"
   | "shield"
-  | "slash"
   | "model"
   | "up"
   | "folder"
@@ -62,7 +61,6 @@ const PATHS: Record<IconName, string> = {
   "stop-solid": "M6.5 6.5h11v11h-11z",
   filter: "M4 6h16M7 12h10M10 18h4",
   shield: "M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z",
-  slash: "M9 19l6-14",
   model: "M4 8l8-4 8 4-8 4zM4 12l8 4 8-4M4 16l8 4 8-4",
   up: "M12 19V5M5 12l7-7 7 7",
   folder: "M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z",

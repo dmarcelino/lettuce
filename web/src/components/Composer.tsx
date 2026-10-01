@@ -17,12 +17,7 @@ import {
   parseSlashCommand,
   type SlashCommand,
 } from "../lib/workspace.ts";
-import {
-  CommandSheet,
-  FilterSheet,
-  PermissionSheet,
-  StructuredOutputSheet,
-} from "./ComposerSheets.tsx";
+import { FilterSheet, PermissionSheet, StructuredOutputSheet } from "./ComposerSheets.tsx";
 import { Icon } from "./Icon.tsx";
 
 interface Props {
@@ -76,7 +71,7 @@ interface Props {
   onOpenSwitcher: () => void;
 }
 
-type OpenSheet = "filters" | "permissions" | "commands" | "structured" | null;
+type OpenSheet = "filters" | "permissions" | "structured" | null;
 
 /** The composer grows with its text up to this height, then scrolls. */
 const MAX_TEXTAREA_HEIGHT = 160;
@@ -445,17 +440,6 @@ export function Composer({
 
             <button
               type="button"
-              className="icon-button flat"
-              disabled={disabled}
-              onClick={() => setSheet("commands")}
-              title="Run a command"
-              aria-label="Run a command"
-            >
-              <Icon name="slash" />
-            </button>
-
-            <button
-              type="button"
               className={`icon-button flat${filters.size > 0 ? " on" : ""}`}
               onClick={() => setSheet("filters")}
               title={
@@ -599,10 +583,6 @@ export function Composer({
           onPick={onPermissionMode}
           onClose={() => setSheet(null)}
         />
-      ) : null}
-
-      {sheet === "commands" ? (
-        <CommandSheet commands={commands} onRun={onRunCommand} onClose={() => setSheet(null)} />
       ) : null}
 
       {sheet === "structured" ? (

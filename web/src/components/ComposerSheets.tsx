@@ -1,6 +1,6 @@
 import { FILTER_LABELS, FILTER_ORDER, type FilterGroup, isShown } from "../lib/messages.ts";
 import { parseResponseFormat } from "../lib/structured-output.ts";
-import { PERMISSION_MODES, type PermissionMode, type SlashCommand } from "../lib/workspace.ts";
+import { PERMISSION_MODES, type PermissionMode } from "../lib/workspace.ts";
 import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
 
@@ -99,40 +99,6 @@ export function PermissionSheet({
             selected={mode.id === current}
             onClick={() => {
               onPick(mode.id);
-              onClose();
-            }}
-          />
-        ))}
-      </ul>
-    </Sheet>
-  );
-}
-
-export function CommandSheet({
-  commands,
-  onRun,
-  onClose,
-}: {
-  commands: SlashCommand[];
-  onRun: (id: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <Sheet title="Commands" onClose={onClose}>
-      {commands.length === 0 ? (
-        <p className="menu-intro">
-          The agent has not reported its command list yet. It arrives with the first device status
-          after the runtime starts.
-        </p>
-      ) : null}
-      <ul className="menu-list">
-        {commands.map((command) => (
-          <MenuRow
-            key={command.id}
-            title={command.args ? `/${command.id} ${command.args}` : `/${command.id}`}
-            description={command.description}
-            onClick={() => {
-              onRun(command.id);
               onClose();
             }}
           />
