@@ -64,10 +64,35 @@ export interface ContextLimitApi {
   apply: (tokens: number | null, scope: "conversation" | "agent") => Promise<string>;
 }
 
+/**
+ * The effective limit read from the app-server, or null when nothing was
+ * learned — a failed `agent_retrieve` must not resolve to the 128k default,
+ * which is the wrong value exactly when the real limit is higher (the cold
+ * client that asks before the socket is open). A failed `conversation_retrieve`
+ * alone still resolves from the agent: the agent-scope value is known.
+ */
+export async function fetchContextLimit(
+  request: SessionApi["request"],
+  agentId: string,
+  conversationId: string | null,
+): Promise<ContextLimit | null> {
+  const [agent, conversation] = await Promise.all([
+    request<{ agent?: unknown }>("agent_retrieve", { agent_id: agentId }).catch(() => null),
+    conversationId && conversationId !== "default"
+      ? request<{ conversation?: unknown }>("conversation_retrieve", {
+          conversation_id: conversationId,
+        }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  if (!agent) return null;
+  return resolveContextLimit(agent.agent, conversation?.conversation);
+}
+
 export function useContextLimit(
   request: SessionApi["request"],
   agentId: string | null,
   conversationId: string | null,
+  ready: boolean,
 ): ContextLimitApi {
   const [limit, setLimit] = useState<ContextLimit | null>(null);
 
@@ -76,20 +101,19 @@ export function useContextLimit(
       setLimit(null);
       return;
     }
-    const [agent, conversation] = await Promise.all([
-      request<{ agent?: unknown }>("agent_retrieve", { agent_id: agentId }).catch(() => null),
-      conversationId && conversationId !== "default"
-        ? request<{ conversation?: unknown }>("conversation_retrieve", {
-            conversation_id: conversationId,
-          }).catch(() => null)
-        : Promise.resolve(null),
-    ]);
-    setLimit(resolveContextLimit(agent?.agent, conversation?.conversation));
+    const resolved = await fetchContextLimit(request, agentId, conversationId);
+    // A failed lookup keeps whatever was shown instead of overwriting it with
+    // the default.
+    if (resolved) setLimit(resolved);
   }, [request, agentId, conversationId]);
 
+  // The ids seed from localStorage synchronously, so this must wait for the
+  // socket: a request before the WebSocket opens rejects with "Not connected",
+  // and the gauge would sit on the 128k default until the next scope change.
+  // `ready` flips back on every reconnect, which re-fetches there too.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (ready && agentId) void refresh();
+  }, [ready, agentId, refresh]);
 
   const apply = useCallback(
     async (tokens: number | null, scope: "conversation" | "agent") => {

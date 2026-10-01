@@ -181,7 +181,12 @@ function Workspace({ status }: { status: Status }) {
     void agents.adoptNewConversation();
   });
 
-  const contextLimit = useContextLimit(session.request, agents.agentId, agents.conversationId);
+  const contextLimit = useContextLimit(
+    session.request,
+    agents.agentId,
+    agents.conversationId,
+    session.ready,
+  );
   /** The context gauge's details: usage, and the limit to change. */
   const [contextOpen, setContextOpen] = useState(false);
 

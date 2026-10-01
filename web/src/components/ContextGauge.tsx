@@ -12,7 +12,9 @@ import { Sheet } from "./Sheet.tsx";
 /**
  * How full the conversation's context is, in the top bar: "25k / 128k" over a
  * thin bar, amber from 80% — where Letta starts to think about summarising.
- * Absent until a turn has reported usage (live or remembered).
+ * With no usage reported yet (a fresh load, or a bff restart before any turn),
+ * it shows the limit alone — "— / 256k" over an empty bar — because the gauge
+ * is also the way into the Context sheet, where the limit itself is editable.
  */
 export function ContextGauge({
   usage,
@@ -23,19 +25,26 @@ export function ContextGauge({
   limit: ContextLimit | null;
   onOpen: () => void;
 }) {
-  if (usage?.contextTokens === undefined || !limit) return null;
-  const gauge = contextGauge(usage.contextTokens, limit.tokens);
+  if (!limit) return null;
+  const used = usage?.contextTokens;
+  const gauge = used !== undefined ? contextGauge(used, limit.tokens) : null;
   return (
     <button
       type="button"
-      className={`ctx-gauge${gauge.warn ? " warn" : ""}`}
+      className={`ctx-gauge${gauge?.warn ? " warn" : ""}`}
       onClick={onOpen}
-      aria-label={`Context: ${usage.contextTokens.toLocaleString()} of ${limit.tokens.toLocaleString()} tokens, ${gauge.percent}% full`}
-      title={`${gauge.percent}% of the context window`}
+      aria-label={
+        gauge && used !== undefined
+          ? `Context: ${used.toLocaleString()} of ${limit.tokens.toLocaleString()} tokens, ${gauge.percent}% full`
+          : `Context limit ${limit.tokens.toLocaleString()} tokens — no usage reported yet`
+      }
+      title={gauge ? `${gauge.percent}% of the context window` : "No usage reported yet"}
     >
-      <span className="ctx-gauge-label">{gauge.label}</span>
+      <span className="ctx-gauge-label">
+        {gauge ? gauge.label : `— / ${formatTokens(limit.tokens)}`}
+      </span>
       <span className="ctx-bar" aria-hidden="true">
-        <i style={{ width: `${gauge.percent}%` }} />
+        <i style={{ width: `${gauge?.percent ?? 0}%` }} />
       </span>
     </button>
   );
