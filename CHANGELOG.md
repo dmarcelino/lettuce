@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- Slash-command popup rows fit one line each: the description sits beside the command name and truncates instead of wrapping.
+
 ### Removed
 - The composer's slash-command button and Commands sheet; type `/` in the input to run a command.
 
