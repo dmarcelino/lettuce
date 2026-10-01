@@ -45,7 +45,8 @@ export type IconName =
   | "more"
   | "search"
   | "pin"
-  | "trash";
+  | "trash"
+  | "attach";
 
 /** Path data on a 24×24 grid; stroked, except the icons in `FILLED`. */
 const PATHS: Record<IconName, string> = {
@@ -106,6 +107,10 @@ const PATHS: Record<IconName, string> = {
   // Three dots in a row: a row's menu (rename, archive, edit).
   more: "M6 12h.01M12 12h.01M18 12h.01",
   search: "M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4",
+  // Paper clip: attach an image to the message. Path from Lucide's
+  // "paperclip" icon — ISC License, Copyright (c) Lucide Contributors.
+  attach:
+    "m21.44 11.05-9.19 9.19a6 6 0 01-8.49-8.49l8.57-8.57A4 4 0 1118 8.84l-8.59 8.57a2 2 0 01-2.83-2.83l8.49-8.48",
 };
 
 /** Icons painted solid rather than outlined — see the notes on their paths. */

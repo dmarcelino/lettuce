@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { errorMessage } from "../lib/errors.ts";
 import {
   addLocalUserMessage,
@@ -12,6 +13,7 @@ import {
   sortedEntries,
   type Transcript,
   type TranscriptEntry,
+  type TranscriptImage,
   type TurnErrorRecord,
   transcriptFromHistory,
 } from "../lib/messages.ts";
@@ -82,9 +84,15 @@ export interface ConversationApi {
   /**
    * Send one turn. `responseFormat` constrains the reply to a JSON schema and
    * must already pass `validateResponseFormat`; an invalid value is reported
-   * through `error` rather than silently dropped.
+   * through `error` rather than silently dropped. `images` are already
+   * normalized client-side (`lib/attachments.ts`) and ride as base64 content
+   * parts; empty text with images attached is a sendable message.
    */
-  sendMessage: (text: string, responseFormat?: ResponseFormat | null) => Promise<void>;
+  sendMessage: (
+    text: string,
+    responseFormat?: ResponseFormat | null,
+    images?: PreparedImage[],
+  ) => Promise<void>;
   abort: () => Promise<void>;
   respondToApproval: (requestId: string, approve: boolean, reason?: string) => void;
   /**
@@ -160,6 +168,12 @@ function isClearCompleted(delta: unknown): boolean {
     message.command_id === "clear" &&
     message.success !== false
   );
+}
+
+/** The transcript's image entries for a send's prepared images (preview bytes). */
+function localEntryImages(images?: PreparedImage[]): TranscriptImage[] | undefined {
+  if (!images || images.length === 0) return undefined;
+  return images.map((image) => ({ mediaType: image.mediaType, dataUrl: image.previewUrl }));
 }
 
 function readToolsets(raw: unknown): ToolsetSummary[] {
@@ -637,12 +651,18 @@ export function useConversation(
   /**
    * One user message out the door, with its local echo. `raw` is the content
    * as the protocol wants it (string or content parts); `display` is what the
-   * echo shows. Returns the fresh `client_message_id` — a message must never
-   * be resent under an id the listener already acknowledged, which it would
-   * silently swallow.
+   * echo shows; `images` are what the echo renders beside the text (the wire
+   * already carries them inside `raw`). Returns the fresh `client_message_id` —
+   * a message must never be resent under an id the listener already
+   * acknowledged, which it would silently swallow.
    */
   const sendContent = useCallback(
-    (raw: unknown, display: string, responseFormat?: ResponseFormat | null): string => {
+    (
+      raw: unknown,
+      display: string,
+      responseFormat?: ResponseFormat | null,
+      images?: PreparedImage[],
+    ): string => {
       if (!scope) throw new Error("No conversation is open");
       const clientMessageId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -659,6 +679,7 @@ export function useConversation(
         display,
         seqRef.current,
         Boolean(responseFormat),
+        localEntryImages(images),
       );
       flushSync();
 
@@ -683,8 +704,9 @@ export function useConversation(
   );
 
   const sendMessage = useCallback(
-    async (text: string, responseFormat?: ResponseFormat | null) => {
-      if (!scope || !text.trim()) return;
+    async (text: string, responseFormat?: ResponseFormat | null, images?: PreparedImage[]) => {
+      const hasImages = Boolean(images && images.length > 0);
+      if (!scope || (!text.trim() && !hasImages)) return;
 
       // Validate before anything is rendered or sent: a schema the listener
       // would reject should never look like a turn that went through.
@@ -701,7 +723,13 @@ export function useConversation(
       expectResentTurnRef.current = false;
       clearLocalNotice(transcriptRef.current, STOP_NOTICE_ID);
       try {
-        sendContent(text, text, responseFormat);
+        // Images go as content parts (text part first, dropped when empty);
+        // a text-only send keeps the plain string. We validate and shrink
+        // client-side, so no `image_failure_mode` is set — strict (the default)
+        // is the honest outcome: a server-side normalization failure surfaces
+        // as a `loop_error` in the transcript rather than silently vanishing.
+        const raw = hasImages ? buildMessageContent(text, images ?? []) : text;
+        sendContent(raw, text, responseFormat, images);
       } catch (cause) {
         setProcessing(false);
         setError(errorMessage(cause));

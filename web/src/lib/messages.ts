@@ -60,6 +60,12 @@ export interface TranscriptEntry {
   /** user: arrived over a channel (telegram, slack) rather than being typed. */
   channel?: string;
   /**
+   * user: images attached to the message, lifted from base64 image content
+   * parts — present on the local echo, the queued echo and history alike,
+   * because all three carry the parts (`readContentParts`).
+   */
+  images?: TranscriptImage[];
+  /**
    * user: sent with a `response_format` JSON schema, so the reply was
    * constrained. Only the client knows this — nothing on the wire carries it
    * back — so it is set where the local echo is made and never survives a
@@ -101,6 +107,12 @@ export const FILTER_LABELS: Record<FilterGroup, string> = {
   tasks: "Tasks",
   system: "System",
 };
+
+/** One image attached to a message, rendered from a `data:` URL. */
+export interface TranscriptImage {
+  mediaType: string;
+  dataUrl: string;
+}
 
 export type Transcript = Map<string, TranscriptEntry>;
 
@@ -355,6 +367,7 @@ export function addLocalUserMessage(
   text: string,
   seq: number,
   structured = false,
+  images?: TranscriptImage[],
 ): void {
   index.byOtid.set(clientMessageId, clientMessageId);
   transcript.set(clientMessageId, {
@@ -366,6 +379,7 @@ export function addLocalUserMessage(
     local: true,
     streaming: false,
     ...(structured ? { structured: true } : {}),
+    ...(images && images.length > 0 ? { images } : {}),
   });
 }
 
@@ -615,20 +629,59 @@ export function groupTranscript(entries: readonly TranscriptEntry[]): Transcript
   return items;
 }
 
+/** Text plus images carried by one Letta `content` field. */
+export interface ContentParts {
+  text: string;
+  images: TranscriptImage[];
+}
+
+/**
+ * One base64 image content part, as the wire sends it:
+ * `{ type: "image", source: { type: "base64", media_type, data } }` — the
+ * shape letta-code's own Telegram channel emits and the app-server normalizes
+ * before the model call. Anything else (a `url` source, a malformed part) is
+ * not something this UI can render and is skipped, exactly as it always was
+ * when only text was read.
+ */
+function readImagePart(part: Record<string, unknown>): TranscriptImage | null {
+  if (part.type !== "image") return null;
+  const source = part.source;
+  if (!source || typeof source !== "object") return null;
+  const record = source as Record<string, unknown>;
+  if (record.type !== "base64") return null;
+  if (typeof record.media_type !== "string" || !record.media_type) return null;
+  if (typeof record.data !== "string" || !record.data) return null;
+  return {
+    mediaType: record.media_type,
+    dataUrl: `data:${record.media_type};base64,${record.data}`,
+  };
+}
+
 /** Letta content fields are either a plain string or an array of content parts. */
+export function readContentParts(content: unknown): ContentParts {
+  if (typeof content === "string") return { text: content, images: [] };
+  if (!Array.isArray(content)) return { text: "", images: [] };
+  let text = "";
+  const images: TranscriptImage[] = [];
+  for (const part of content) {
+    if (typeof part === "string") {
+      text += part;
+      continue;
+    }
+    if (!part || typeof part !== "object") continue;
+    const record = part as Record<string, unknown>;
+    const image = readImagePart(record);
+    if (image) {
+      images.push(image);
+      continue;
+    }
+    if (typeof record.text === "string") text += record.text;
+  }
+  return { text, images };
+}
+
 function contentToText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (typeof part === "string") return part;
-      if (part && typeof part === "object") {
-        const text = (part as { text?: unknown }).text;
-        if (typeof text === "string") return text;
-      }
-      return "";
-    })
-    .join("");
+  return readContentParts(content).text;
 }
 
 interface ToolCallish {
@@ -840,7 +893,8 @@ function applyMessage(
   switch (kind) {
     case "user":
     case "assistant": {
-      const chunk = contentToText(message.content);
+      const parts = readContentParts(message.content);
+      const chunk = parts.text;
       // History replaces; streaming appends. A replayed history record for a
       // message we streamed must not double the text.
       //
@@ -854,6 +908,10 @@ function applyMessage(
       } else {
         entry.text = options.streaming ? entry.text + chunk : chunk;
       }
+      // Image parts arrive whole on one frame (echo or history record); a
+      // frame carrying none must not erase the ones our local echo put there.
+      // Non-empty means the server's (normalized) copy replaces ours.
+      if (parts.images.length > 0) entry.images = parts.images;
       break;
     }
     case "reasoning": {

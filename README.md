@@ -69,6 +69,8 @@ before exposing anything.
   tool needs approval — with per-device preferences and a test button.
 - **Reconnects and replays.** Come back after an hour away and the transcript
   is intact, including failures that would otherwise have been lost.
+- **Image attachments.** Attach from the camera roll, paste a screenshot or
+  drag files onto the composer; a vision-capable model actually sees them.
 - **Context gauge** showing how full the window is, including what the prompt
   cache absorbed.
 

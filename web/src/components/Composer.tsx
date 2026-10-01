@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MAX_IMAGES_PER_MESSAGE, type PreparedImage, prepareImages } from "../lib/attachments.ts";
 import { clearDraft, readDraft, writeDraft } from "../lib/draft.ts";
 import {
   AT_DRAFT,
@@ -29,7 +30,14 @@ interface Props {
    * under this key and restored on the way back. See `lib/draft.ts`.
    */
   draftKey: string | null;
-  onSend: (text: string, responseFormat: ResponseFormat | null) => void;
+  onSend: (text: string, responseFormat: ResponseFormat | null, images: PreparedImage[]) => void;
+  /**
+   * Prepared images staged for the next message, owned by the caller so the
+   * tray survives this component unmounting on a tab switch — the same
+   * treatment `structuredText` gets. Cleared on conversation switch.
+   */
+  attachments: PreparedImage[];
+  onAttachmentsChange: (next: PreparedImage[]) => void;
   /**
    * Structured-output state, owned by the caller so it survives this component
    * unmounting on a tab switch. `structuredText` is the schema as typed;
@@ -122,6 +130,8 @@ export function Composer({
   structuredEnabled,
   structuredSupported,
   onStructuredChange,
+  attachments,
+  onAttachmentsChange,
 }: Props) {
   const [value, setValue] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   const [sheet, setSheet] = useState<OpenSheet>(null);
@@ -136,11 +146,66 @@ export function Composer({
    * stored draft is always what was typed — never a recalled message.
    */
   const cursorRef = useRef<HistoryCursor>(AT_DRAFT);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * Mirror of the `attachments` prop for async callbacks: a second drop that
+   * lands while the first is still encoding must append to what the first
+   * added, not to the list as it was when this render was drawn.
+   */
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  /** `prepareImages` is decode + encode on the main thread; say so while it runs. */
+  const [preparing, setPreparing] = useState(false);
+  /** One line per rejected file from the last add attempt; cleared by the next one. */
+  const [attachErrors, setAttachErrors] = useState<string[]>([]);
 
   /** Persist every edit so a tab switch (which unmounts this) does not lose it. */
   const remember = (next: string) => {
     if (draftKey) writeDraft(draftKey, next);
   };
+
+  /**
+   * Offer files to the tray: the picker, a clipboard paste (the primary mobile
+   * path — phone keyboards paste screenshots here) and a drag-drop all funnel
+   * through this. Rejections never throw away the accepted ones.
+   */
+  const addFiles = async (files: readonly File[]): Promise<void> => {
+    const images = files.filter((file) => file.type.toLowerCase().startsWith("image/"));
+    if (images.length === 0) return;
+    const room = MAX_IMAGES_PER_MESSAGE - attachmentsRef.current.length;
+    if (room <= 0) {
+      setAttachErrors([`At most ${MAX_IMAGES_PER_MESSAGE} images per message — remove one first.`]);
+      return;
+    }
+    setPreparing(true);
+    const batch = await prepareImages(images.slice(0, room));
+    setPreparing(false);
+    const errors = [...batch.errors];
+    if (images.length > room) {
+      errors.push(
+        `Only ${room} more image${room === 1 ? "" : "s"} fit — the limit is ${MAX_IMAGES_PER_MESSAGE} per message.`,
+      );
+    }
+    if (batch.images.length > 0) {
+      onAttachmentsChange([...attachmentsRef.current, ...batch.images]);
+    }
+    setAttachErrors(errors);
+  };
+
+  // A file dropped anywhere else made the browser navigate to it and threw the
+  // app away. Swallow every file drag; the composer's own drop handler runs
+  // first on its subtree, this one is the safety net for the rest of the page.
+  useEffect(() => {
+    const swallow = (event: DragEvent) => {
+      if (event.dataTransfer?.types?.includes("Files")) event.preventDefault();
+    };
+    window.addEventListener("dragover", swallow);
+    window.addEventListener("drop", swallow);
+    return () => {
+      window.removeEventListener("dragover", swallow);
+      window.removeEventListener("drop", swallow);
+    };
+  }, []);
 
   // Switching conversation without leaving the Chat tab keeps this mounted, so
   // the lazy initialiser above never re-runs — reload the draft for the new
@@ -256,9 +321,11 @@ export function Composer({
    */
   const submit = () => {
     const text = value.trim();
-    if (!text || disabled) return;
+    // Images make a message on their own; an empty box with a tray is sendable.
+    if ((!text && attachments.length === 0) || disabled || preparing) return;
 
-    const command = parseSlashCommand(text, commands);
+    // A typed command never carries attachments — the tray stays put.
+    const command = text ? parseSlashCommand(text, commands) : null;
     if (command) {
       onRunCommand(command.id, command.args);
       reset();
@@ -277,8 +344,10 @@ export function Composer({
     // A schema that stopped parsing between toggling and sending must not
     // silently ride along; drop it and let the turn go unstructured.
     const parsed = structuredEnabled ? parseResponseFormat(structuredText) : null;
-    onSend(text, parsed?.value ?? null);
+    onSend(text, parsed?.value ?? null, attachments);
     reset();
+    onAttachmentsChange([]);
+    setAttachErrors([]);
   };
 
   /**
@@ -287,7 +356,7 @@ export function Composer({
    * red corner stops the agent. Both are real buttons — no long-press gesture,
    * so keyboard users get both actions and a queue press can never abort.
    */
-  const queueMode = processing && !stopping && value.trim().length > 0;
+  const queueMode = processing && !stopping && (value.trim().length > 0 || attachments.length > 0);
 
   const modeLabel =
     PERMISSION_MODES.find((mode) => mode.id === permissionMode)?.label ?? "Permissions";
@@ -299,6 +368,16 @@ export function Composer({
         onSubmit={(event) => {
           event.preventDefault();
           submit();
+        }}
+        onDragOver={(event) => {
+          if (event.dataTransfer?.types?.includes("Files")) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          const files = Array.from(event.dataTransfer?.files ?? []);
+          if (files.length > 0) {
+            event.preventDefault();
+            void addFiles(files);
+          }
         }}
       >
         {/* Above the textarea, not below: on a phone the on-screen keyboard
@@ -351,12 +430,55 @@ export function Composer({
         ) : null}
 
         <div className="composer-box">
+          {/* Above the textarea so the images you are about to send sit between
+              you and the agent, not under the keyboard. */}
+          {attachments.length > 0 || preparing || attachErrors.length > 0 ? (
+            <div className="attach-tray">
+              {attachments.map((image, index) => (
+                <span className="attach-chip" key={`${index}:${image.name}`}>
+                  <img src={image.previewUrl} alt={image.name} />
+                  <button
+                    type="button"
+                    className="attach-remove"
+                    onClick={() => onAttachmentsChange(attachments.filter((_, i) => i !== index))}
+                    title={`Remove ${image.name}`}
+                    aria-label={`Remove ${image.name}`}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </span>
+              ))}
+              {preparing ? <span className="attach-note">Adding…</span> : null}
+              {attachments.length > 0 ? (
+                <span
+                  className="attach-count"
+                  title={`${attachments.length} of ${MAX_IMAGES_PER_MESSAGE} images`}
+                >
+                  {attachments.length}/{MAX_IMAGES_PER_MESSAGE}
+                </span>
+              ) : null}
+              {attachErrors.map((line) => (
+                <span className="attach-error" key={line} role="alert">
+                  {line}
+                </span>
+              ))}
+            </div>
+          ) : null}
           <textarea
             ref={textareaRef}
             value={value}
             rows={1}
             placeholder={disabled ? "Select a conversation" : "Message the agent…"}
             disabled={disabled}
+            onPaste={(event) => {
+              // A screenshot on the clipboard — the primary mobile attach path,
+              // since phone keyboards paste images here rather than the box.
+              const files = Array.from(event.clipboardData?.files ?? []);
+              if (files.length > 0) {
+                event.preventDefault();
+                void addFiles(files);
+              }
+            }}
             onChange={(event) => {
               // Editing a recalled message makes it the draft.
               cursorRef.current = AT_DRAFT;
@@ -452,6 +574,34 @@ export function Composer({
             </button>
 
             <span className="spacer" />
+
+            {/* The file input is invisible; the button is the label. `accept`
+                keeps a phone's picker on the photo library, and `multiple`
+                matches how screenshots get grabbed. */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="attach-input"
+              tabIndex={-1}
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                // Clear the input so picking the same file twice re-adds it.
+                event.target.value = "";
+                void addFiles(files);
+              }}
+            />
+            <button
+              type="button"
+              className="icon-button flat"
+              disabled={disabled || attachments.length >= MAX_IMAGES_PER_MESSAGE}
+              onClick={() => fileInputRef.current?.click()}
+              title={`Attach images (${attachments.length}/${MAX_IMAGES_PER_MESSAGE})`}
+              aria-label="Attach images"
+            >
+              <Icon name="attach" />
+            </button>
 
             <button
               type="button"
@@ -570,7 +720,7 @@ export function Composer({
               <button
                 type="submit"
                 className="icon-button send"
-                disabled={disabled || !value.trim()}
+                disabled={disabled || preparing || (!value.trim() && attachments.length === 0)}
                 title="Send"
                 aria-label="Send message"
               >

@@ -16,6 +16,7 @@ import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Switcher } from "./components/Switcher.tsx";
+import type { PreparedImage } from "./lib/attachments.ts";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import type { FeatureFlags } from "./lib/features.ts";
@@ -251,6 +252,19 @@ function Workspace({ status }: { status: Status }) {
     [structuredKey],
   );
 
+  /**
+   * Images staged for the next message, owned here for the same reason as the
+   * structured-output schema: the composer unmounts on every tab switch and
+   * a tray of picked photos must survive that. Not persisted — a reload
+   * carrying half-chosen images back would be worse than losing them. Cleared
+   * with the conversation switch, like the schema is re-read.
+   */
+  const [attachments, setAttachments] = useState<PreparedImage[]>([]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: structuredKey is the conversation's key; this fires per switch, not per render.
+  useEffect(() => {
+    setAttachments([]);
+  }, [structuredKey]);
+
   // The open conversation already shows its own state in the composer; the
   // menu badge is for turns running somewhere you are not looking.
   const respondingElsewhere =
@@ -449,11 +463,13 @@ function Workspace({ status }: { status: Status }) {
               structuredEnabled={structured.enabled}
               structuredSupported={session.appServerInfo?.capabilities.structured_outputs ?? false}
               onStructuredChange={onStructuredChange}
-              onSend={(text, responseFormat) => {
-                void conversation.sendMessage(text, responseFormat);
+              attachments={attachments}
+              onAttachmentsChange={setAttachments}
+              onSend={(text, responseFormat, images) => {
+                void conversation.sendMessage(text, responseFormat, images);
                 // Name the conversation after the first thing said in it. No-op
                 // once it has a title, so a manual rename always wins.
-                if (agents.conversationId) {
+                if (agents.conversationId && text) {
                   agents.autoTitleConversation(agents.conversationId, text);
                 }
               }}

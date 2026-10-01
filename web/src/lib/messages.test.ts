@@ -9,6 +9,7 @@ import {
   groupTranscript,
   isShown,
   mergeTurnErrors,
+  readContentParts,
   settleStreaming,
   sortedEntries,
   splitErrorDetail,
@@ -1107,5 +1108,101 @@ describe("toggleShown (the Filter sheet: ticked = shown)", () => {
   });
   test("every box reads ticked when nothing is filtered", () => {
     for (const group of FILTER_ORDER) expect(isShown(everything, group)).toBe(true);
+  });
+});
+
+describe("image content parts", () => {
+  const imagePart = {
+    type: "image",
+    source: { type: "base64", media_type: "image/webp", data: "aW1hZ2U=" },
+  };
+  const imageExpectation = {
+    mediaType: "image/webp",
+    dataUrl: "data:image/webp;base64,aW1hZ2U=",
+  };
+
+  test("readContentParts reads text parts and lifts base64 images", () => {
+    expect(readContentParts("plain")).toEqual({ text: "plain", images: [] });
+    expect(
+      readContentParts([
+        { type: "text", text: "look " },
+        imagePart,
+        { type: "text", text: "here" },
+      ]),
+    ).toEqual({ text: "look here", images: [imageExpectation] });
+  });
+
+  test("readContentParts skips malformed and non-renderable parts", () => {
+    expect(
+      readContentParts([
+        null,
+        "string part",
+        { type: "image", source: { type: "url", url: "https://x/y.png" } },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "" } },
+        { type: "text" },
+      ]),
+    ).toEqual({ text: "string part", images: [] });
+  });
+
+  test("history records carry image parts onto the entry", () => {
+    const transcript = transcriptFromHistory([
+      {
+        id: "u1",
+        message_type: "user_message",
+        content: [{ type: "text", text: "what is this?" }, imagePart],
+      },
+    ]);
+    expect(transcript.get("u1")?.images).toEqual([imageExpectation]);
+    expect(transcript.get("u1")?.text).toBe("what is this?");
+  });
+
+  test("the queued echo replaces the local echo's images with the server's copy", () => {
+    const transcript: Transcript = new Map();
+    const index = createStreamIndex();
+    const localImages = [{ mediaType: "image/jpeg", dataUrl: "data:image/jpeg;base64,bG9jYWw=" }];
+    addLocalUserMessage(transcript, index, "web-9", "look", 0, false, localImages);
+    expect(transcript.get("web-9")?.images).toEqual(localImages);
+
+    // The dequeued echo arrives under the same otid with the normalized bytes.
+    wireSeq += 1;
+    applyStreamDelta(
+      transcript,
+      index,
+      {
+        type: "message",
+        id: `letta-msg-${wireSeq}`,
+        date: new Date(wireSeq).toISOString(),
+        message_type: "user_message",
+        otid: "web-9",
+        content: [{ type: "text", text: "look" }, imagePart],
+      },
+      1,
+    );
+
+    const entry = transcript.get("web-9");
+    expect(entry?.text).toBe("look"); // not doubled
+    expect(entry?.images).toEqual([imageExpectation]);
+  });
+
+  test("a text-only frame does not erase images already on the entry", () => {
+    const transcript: Transcript = new Map();
+    const index = createStreamIndex();
+    const localImages = [{ mediaType: "image/jpeg", dataUrl: "data:image/jpeg;base64,bG9jYWw=" }];
+    addLocalUserMessage(transcript, index, "web-10", "hi", 0, false, localImages);
+    wireSeq += 1;
+    applyStreamDelta(
+      transcript,
+      index,
+      {
+        type: "message",
+        id: `letta-msg-${wireSeq}`,
+        date: new Date(wireSeq).toISOString(),
+        message_type: "user_message",
+        otid: "web-10",
+        content: [{ type: "text", text: "hi" }],
+      },
+      1,
+    );
+    expect(transcript.get("web-10")?.images).toEqual(localImages);
   });
 });

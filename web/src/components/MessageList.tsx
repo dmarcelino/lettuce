@@ -498,7 +498,31 @@ const MessageItem = memo(function MessageItem({
           ) : null}
         </span>
       </div>
-      <div className={`bubble ${entry.kind}`}>{md(entry.text)}</div>
+      {entry.images && entry.images.length > 0 ? (
+        // Thumbnails above the text; tap opens the full image in a new tab.
+        // A plain anchor on the data URL: no lightbox state to hold, and
+        // popup blockers do not apply to anchor clicks.
+        <div className="msg-images">
+          {entry.images.map((image, index) => (
+            <a
+              key={index}
+              href={image.dataUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Open image ${index + 1} full size`}
+            >
+              {/* The anchor's aria-label is the accessible name; the image
+                  itself is decorative beside it. */}
+              <img src={image.dataUrl} alt="" loading="lazy" />
+            </a>
+          ))}
+        </div>
+      ) : null}
+      {/* An image-only message has no text bubble to draw; the thumbnails are
+          the message. */}
+      {entry.text.trim() || !entry.images?.length ? (
+        <div className={`bubble ${entry.kind}`}>{md(entry.text)}</div>
+      ) : null}
     </div>
   );
 });

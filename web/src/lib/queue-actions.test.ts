@@ -102,3 +102,22 @@ describe("planForceSend", () => {
     expect(plan?.resend[0]?.raw).toBe(parts);
   });
 });
+
+describe("display text for image content", () => {
+  const imagePart = {
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data: "QUJD" },
+  };
+
+  test("text still wins over images", () => {
+    const [entry] = readQueue([{ id: "q1", content: [imagePart, { type: "text", text: "look" }] }]);
+    expect(entry?.content).toBe("look");
+  });
+
+  test("an image-only queue chip names the images instead of dumping base64", () => {
+    const [one] = readQueue([{ id: "q1", content: [imagePart] }]);
+    expect(one?.content).toBe("[image]");
+    const [many] = readQueue([{ id: "q2", content: [imagePart, { ...imagePart }] }]);
+    expect(many?.content).toBe("[2 images]");
+  });
+});

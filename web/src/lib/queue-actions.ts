@@ -33,12 +33,19 @@ export interface ResendItem {
 function displayText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
+    let images = 0;
     const parts = content.flatMap((part) => {
       if (!part || typeof part !== "object") return [];
       const p = part as { type?: unknown; text?: unknown };
+      if (p.type === "image") {
+        images += 1;
+        return [];
+      }
       return p.type === "text" && typeof p.text === "string" ? [p.text] : [];
     });
     if (parts.length > 0) return parts.join("\n");
+    // An image-only queue chip must not show forty characters of base64.
+    if (images > 0) return images === 1 ? "[image]" : `[${images} images]`;
   }
   return JSON.stringify(content ?? "");
 }
