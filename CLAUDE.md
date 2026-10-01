@@ -774,6 +774,9 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
   semver part; a letta bump riding along with a feature just changes that tag's suffix.
 - A tag is created **only after the prod deploy is verified** (Definition of done 7b)
   and pushed with `git push origin <tag>`. A failed deploy is never tagged.
+- Before running it, make the release-time **docs sync** commit on `main` if the
+  `[Unreleased]` range changed anything `README.md` or `docs/CONFIGURATION.md` describes
+  (see "Docs sync"). `release.ts` only stages `VERSION` and `CHANGELOG.md`.
 - **`bun run release --minor|--patch`** (`scripts/release.ts`) is the whole release as one
   gated command: it asserts `main` is clean and untagged, computes the next tag from
   `VERSION` + the compose pin, makes the release commit on `main`, runs `deploy-check`,
@@ -825,6 +828,26 @@ to this repo's tag scheme:
 - `deploy-check` asserts `CHANGELOG.md` has `## [Unreleased]` and that its newest
   `## [v...]` section equals `VERSION`.
 
+#### Docs sync (README and CONFIGURATION)
+
+`README.md` (what the app is, architecture, how to run it) and `docs/CONFIGURATION.md`
+(every environment variable and setting) describe the **shipped product**, so a release
+must not be cut from a `main` whose docs describe the previous one.
+
+- **Primary place — the feature branch, in the same commit as the change** (Definition of
+  done step 2), exactly like the changelog entry: any change that adds or changes an env
+  var, setting, port, sidecar, default, or user-facing workflow carries its `README.md`
+  and/or `docs/CONFIGURATION.md` update with it. That is where the knowledge is fresh and
+  where the diff is reviewed together with the code.
+- **Release-time safety net — on `main`, right before `bun run release`**: skim the
+  `CHANGELOG.md` `[Unreleased]` entries since the last tag and update anything the
+  per-change commits missed, as a `docs:` commit on `main`. It must be its own commit
+  because release requires a clean tree and `release.ts` stages only `VERSION` and
+  `CHANGELOG.md`; being on `main` before the release commit, it rides into the tagged
+  range and ships with the tag.
+- A prose gate `deploy-check` cannot check: correctness of docs is a human/agent judgment
+  at these two points, not an assertion.
+
 ## Definition of done
 
 Work is **not done**, and must not be reported as done, until every line below passes. The
@@ -837,7 +860,8 @@ Passing typecheck is not done. Passing tests are not done. **Running in the cont
    do not run once one fails.
  2. **Committed** on a feature branch and fast-forwarded into `main`
    (`git merge --ff-only`). A user-visible change carries its `CHANGELOG.md` `[Unreleased]`
-   entry in the same commit. The **release commit** — the `VERSION` bump and the
+   entry — and its `README.md` / `docs/CONFIGURATION.md` update when it touched the
+   configuration surface or a user-facing workflow — in the same commit. The **release commit** — the `VERSION` bump and the
    `[Unreleased]` rename — is never made on a feature branch: it is made on `main` at
    release time, after every merge for that release, by `bun run release` (see
    "Versioning and tags").
