@@ -5,14 +5,17 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- COMPOSE_PROFILES now gates features as well as containers: `codex` and `claude` install their CLI into the app-server image, and the `search`/`google`/`codex`/`claude` tokens decide which Settings sections, run lists and Agent → Tools rows exist. Changing a coding token requires an app-server rebuild.
+
 ### Changed
 - Slash-command popup rows fit one line each: the description sits beside the command name and truncates instead of wrapping.
 
-### Removed
-- The composer's slash-command button and Commands sheet; type `/` in the input to run a command.
-
 ### Fixed
 - The slash-command popup scrolls to keep the highlighted command visible when you arrow through it.
+
+### Removed
+- The composer's slash-command button and Commands sheet; type `/` in the input to run a command.
 
 ## [v0.2.0-letta_0.33.7] - 2026-10-01
 

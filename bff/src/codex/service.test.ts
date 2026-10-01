@@ -57,6 +57,17 @@ describe("saving settings", () => {
     await saveCodexSettings(io, READY);
     expect(await reapplyCodexSettings(io)).toBe(true);
   });
+
+  test("with the profile token dropped, reapply forces the switch off but keeps the endpoint", async () => {
+    const { io, files } = memoryIo();
+    await saveCodexSettings(io, { ...READY, apiKey: "secret" });
+    expect(await reapplyCodexSettings(io, { profileEnabled: false })).toBe(true);
+    const stored = JSON.parse(files.get(CODEX_SETTINGS_PATH) ?? "{}") as Record<string, unknown>;
+    expect(stored.enabled).toBe(false);
+    // The rest survives: re-adding the token needs one flip of the switch.
+    expect(stored.baseUrl).toBe("http://h/v1");
+    expect(stored.apiKey).toBe("secret");
+  });
 });
 
 const T1 = "01a0e3cf-b69f-7eb0-8b79-4cc6ad0c0e9a"; // 2026-09-27

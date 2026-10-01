@@ -189,12 +189,15 @@ const upstream = new UpstreamConnection({
         .catch((error) => log(`Google: could not re-render config: ${errorMessage(error)}`))
         .then(() => resyncMods("connected", { refreshCatalog: true }))
         .catch(() => {});
-      void reapplyCodexSettings(codexIo)
+      void reapplyCodexSettings(codexIo, { profileEnabled: config.features.codex })
         .then((applied) => applied && log("Codex: re-rendered config from saved settings"))
         .catch((error) => log(`Codex: could not re-render config: ${errorMessage(error)}`));
-      void reapplyClaudeSettings(claudeIo)
+      void reapplyClaudeSettings(claudeIo, { profileEnabled: config.features.claude })
         .then((applied) => applied && log("Claude Code: re-rendered config from saved settings"))
         .catch((error) => log(`Claude Code: could not re-render config: ${errorMessage(error)}`));
+      void checkCodingMarker().catch((error) =>
+        log(`Coding CLIs: could not read the install marker: ${errorMessage(error)}`),
+      );
     }
   },
   log,
@@ -260,6 +263,41 @@ const codexIo: CodexFileIo = {
     throw new Error(response.error ?? `Could not list ${dir}`);
   },
 };
+
+// Which coding CLIs the app-server image actually installed, read from the
+// marker the Dockerfile writes (docker/codex/Dockerfile). `null` = not read
+// yet, or an image that predates the marker — the mismatch check says which.
+// The same image tag can be built with or without the CLIs (CODING_FEATURES is
+// a build arg, not a tag suffix), so a profile token can be on against an image
+// that was built without it: without this check that would fail silently.
+const CODING_MARKER_PATH = "/opt/letta-ui/features";
+let codingInstalled: string[] | null = null;
+
+async function checkCodingMarker(): Promise<void> {
+  const text = await codexIo.read(CODING_MARKER_PATH);
+  if (text === null) {
+    log(
+      `Coding CLIs: the app-server image predates the install marker (${CODING_MARKER_PATH}); ` +
+        `nothing can be verified against it — rebuild app-server to change what is installed.`,
+    );
+    return;
+  }
+  codingInstalled = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (const [name, on] of [
+    ["codex", config.features.codex],
+    ["claude", config.features.claude],
+  ] as const) {
+    if (on && !codingInstalled.includes(name)) {
+      log(
+        `! ${name} is enabled by COMPOSE_PROFILES but is not installed in the app-server image — ` +
+          `rebuild it: docker compose -f docker/compose.yml build app-server && … up -d`,
+      );
+    }
+  }
+}
 
 // Claude Code workers' files, over the same channel as Codex's — plus the
 // folder half of `list_in_directory`, which is how `claude/` finds the project
@@ -407,7 +445,12 @@ async function renderAllMods(): Promise<RenderedMod[]> {
   return [
     {
       path: WEB_TOOLS_MOD_PATH,
-      source: renderWebToolsMod({ enabled: web.enabled, port: config.port }),
+      // Effective-enabled: the `search` token must be on for the stored switch
+      // to count at all — with the profile off the sidecars do not exist.
+      source: renderWebToolsMod({
+        enabled: web.enabled && config.features.web,
+        port: config.port,
+      }),
     },
     {
       path: GOOGLE_TOOLS_MOD_PATH,
@@ -586,6 +629,13 @@ app.get("/api/status", (c) => {
     auth_mode,
     user: { email: session.email },
     version: uiVersion,
+    // Which integrations this deployment offers (from COMPOSE_PROFILES) — the
+    // web hides the matching Settings sections and lists on this.
+    features: config.features,
+    // What the app-server image actually has installed; null until read, or
+    // when the image predates the marker. Compare against `features` — a token
+    // on with the CLI missing is a stale image, which the connect log also says.
+    coding_installed: codingInstalled,
     upstream: {
       state: upstream.getState(),
       info: upstream.getInfo(),
@@ -877,6 +927,9 @@ app.get("/api/codex/settings", async (c) => {
 
 app.put("/api/codex/settings", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
+  // Gated by the `codex` profile token: nothing to configure without the CLI,
+  // and the connect-time reapply has already forced the stored switch off.
+  if (!config.features.codex) return c.text("Codex workers are off: COMPOSE_PROFILES", 404);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   const body = await c.req.json().catch(() => null);
   try {
@@ -902,6 +955,9 @@ app.get("/api/web-tools/settings", async (c) => {
 
 app.put("/api/web-tools/settings", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
+  // Gated by the `search` profile token: without the sidecars there is no
+  // backend to point the switch at.
+  if (!config.features.web) return c.text("Web search is off: COMPOSE_PROFILES", 404);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   const body = await c.req.json().catch(() => null);
   try {
@@ -987,6 +1043,8 @@ app.get("/api/claude/settings", async (c) => {
 
 app.put("/api/claude/settings", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
+  // Gated by the `claude` profile token, exactly like Codex above.
+  if (!config.features.claude) return c.text("Claude Code workers are off: COMPOSE_PROFILES", 404);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   const body = await c.req.json().catch(() => null);
   try {
@@ -1052,6 +1110,9 @@ const googleService = new GoogleService({
   fetch: (input, init) => fetch(input, init),
   redirectUri: config.google.redirectUri,
   syncMcpEntry: syncGoogleMcpEntry,
+  // The `google` profile token: stored settings intact, sidecar and MCP entry
+  // off while it is absent. See `GoogleServiceDeps.profileEnabled`.
+  profileEnabled: () => config.features.google,
   log,
 });
 
@@ -1107,6 +1168,9 @@ app.get("/api/google", async (c) => {
 });
 
 app.put("/api/google", async (c) => {
+  // Gated by the `google` profile token, which is also what starts the
+  // sidecar; the stored switch is treated as off while it is absent.
+  if (!config.features.google) return c.text("Google is off: COMPOSE_PROFILES", 404);
   const refused = googleWriteRefusal(c);
   if (refused) return refused;
   const body = await c.req.json().catch(() => null);
@@ -1415,6 +1479,14 @@ const server = Bun.serve<SocketData>({
 });
 
 log(`Mode: ${config.mode}`);
+const featureNames = (["web", "google", "codex", "claude"] as const).filter(
+  (name) => config.features[name],
+);
+log(
+  `Features: ${
+    featureNames.length > 0 ? featureNames.join(", ") : "(none — no feature token in LETTA_MODE)"
+  }`,
+);
 log(`Listening on ${bindHostname}:${server.port} (public origin ${config.publicOrigin})`);
 log(`App-server: ${config.appServerUrl}`);
 log(`Allowlisted users: ${config.allowedUsers.join(", ") || "(none — nobody can sign in)"}`);

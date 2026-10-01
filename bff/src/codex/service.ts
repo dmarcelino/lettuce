@@ -72,11 +72,24 @@ export async function saveCodexSettings(io: CodexFileIo, body: unknown): Promise
  * On every upstream connect: re-render Codex's files from the saved settings,
  * so a BFF upgrade that changes the rendering reaches an existing install.
  * Nothing saved yet means nothing to write — the shim stays disabled.
+ *
+ * `profileEnabled: false` (the `codex` token is not in COMPOSE_PROFILES) makes
+ * the effective settings `enabled: false` regardless of the stored switch,
+ * so the shim refuses even if the switch was left on before the profile was
+ * dropped. The endpoint and model settings themselves are kept, so re-adding
+ * the token restores a working worker after one flip of the switch.
  */
-export async function reapplyCodexSettings(io: CodexFileIo): Promise<boolean> {
+export async function reapplyCodexSettings(
+  io: CodexFileIo,
+  options: { profileEnabled?: boolean } = {},
+): Promise<boolean> {
   const stored = await io.read(CODEX_SETTINGS_PATH);
   if (stored === null) return false;
-  await writeCodexFiles(io, parseStoredCodexSettings(stored));
+  const settings = parseStoredCodexSettings(stored);
+  await writeCodexFiles(
+    io,
+    options.profileEnabled === false ? { ...settings, enabled: false } : settings,
+  );
   return true;
 }
 

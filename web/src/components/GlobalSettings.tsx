@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type FeatureFlags, type FeatureName, featureEnabled } from "../lib/features.ts";
 import type { LinkState } from "../lib/session-client.ts";
 import { defaultStorage } from "../lib/storage.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
@@ -67,6 +68,27 @@ const ALL_SECTIONS = GLOBAL_SECTION_GROUPS.flatMap((group) => group.sections);
 const SHARED_NOTE = "Shared by every agent. An agent's own settings are in its Agent tab.";
 const LAST_SECTION_KEY = "letta-ui:settings-section";
 
+/** The profile token each gated section rides on; others are always visible. */
+const SECTION_FEATURE: Partial<Record<GlobalSection, FeatureName>> = {
+  web: "web",
+  google: "google",
+  codex: "codex",
+  claude: "claude",
+};
+
+function isSectionVisible(id: GlobalSection, features?: FeatureFlags): boolean {
+  const feature = SECTION_FEATURE[id];
+  return !feature || featureEnabled(features, feature);
+}
+
+/** The section groups with gated sections removed and empty groups dropped. */
+function visibleGroups(features?: FeatureFlags) {
+  return GLOBAL_SECTION_GROUPS.map((group) => ({
+    ...group,
+    sections: group.sections.filter((section) => isSectionVisible(section.id, features)),
+  })).filter((group) => group.sections.length > 0);
+}
+
 export function isGlobalSection(value: string | null): value is GlobalSection {
   return ALL_SECTIONS.some((section) => section.id === value);
 }
@@ -98,6 +120,12 @@ interface Props {
   authMode: "cf-access" | "dev-bypass" | "none";
   /** This build's release tag from `/api/status`; absent on an untagged dev run. */
   version?: string;
+  /**
+   * Profile-gated sections from `/api/status`: a section whose token is off
+   * does not appear at all — the integration behind it cannot be configured,
+   * and the BFF refuses its save routes anyway. Absent (older BFF) = all on.
+   */
+  features?: FeatureFlags;
   /** Open straight on a section, e.g. from the Agent tab's Skills link. */
   initialSection?: GlobalSection;
   onClose: () => void;
@@ -121,14 +149,20 @@ export function GlobalSettings({
   user,
   authMode,
   version,
+  features,
   initialSection,
   onClose,
 }: Props) {
   const wide = useWide();
-  // One section is always open, so it resumes where it was.
-  const [section, setSection] = useState<GlobalSection>(
-    () => initialSection ?? readLastSection() ?? "providers",
-  );
+  const groups = useMemo(() => visibleGroups(features), [features]);
+  const sections = useMemo(() => groups.flatMap((group) => group.sections), [groups]);
+  // One section is always open, so it resumes where it was — but only if what
+  // it resumes to is visible: a deep link or a remembered section behind a
+  // feature that is off lands on the first visible section instead.
+  const [section, setSection] = useState<GlobalSection>(() => {
+    const wanted = initialSection ?? readLastSection();
+    return wanted && isSectionVisible(wanted, features) ? wanted : (sections[0]?.id ?? "providers");
+  });
 
   const pick = (next: GlobalSection) => {
     setSection(next);
@@ -179,7 +213,7 @@ export function GlobalSettings({
         {wide ? null : (
           <>
             <nav className="pane-bar section-tabs" aria-label="Settings sections">
-              {ALL_SECTIONS.map((item) => (
+              {sections.map((item) => (
                 <button
                   key={item.id}
                   type="button"
@@ -199,7 +233,7 @@ export function GlobalSettings({
           {wide ? (
             <nav className="settings-nav" aria-label="Settings sections">
               <p className="settings-nav-note small muted">{SHARED_NOTE}</p>
-              {GLOBAL_SECTION_GROUPS.map((group) => (
+              {groups.map((group) => (
                 <section key={group.label}>
                   <h3 className="switcher-group">{group.label}</h3>
                   <ul className="menu-list">

@@ -1,5 +1,110 @@
 import { describe, expect, test } from "bun:test";
-import { assertSessionSecretIsStrong, loadConfig, parseAllowedUsers } from "./config";
+import { assertSessionSecretIsStrong, hasProfile, loadConfig, parseAllowedUsers } from "./config";
+
+describe("hasProfile", () => {
+  test("matches whole comma-delimited tokens, ignoring surrounding space", () => {
+    expect(hasProfile("cloudflared,google,search,codex,claude", "google")).toBe(true);
+    expect(hasProfile("cloudflared, search , codex", "search")).toBe(true);
+    expect(hasProfile("codex", "codex")).toBe(true);
+  });
+
+  test("does not match a token inside a longer word", () => {
+    // The list is one shared namespace, so exact tokens matter: a profile
+    // named `searchy` must not light up the web tools, and `research` is not
+    // `search` either way.
+    expect(hasProfile("searchy", "search")).toBe(false);
+    expect(hasProfile("research,codexy", "codex")).toBe(false);
+    expect(hasProfile("cloudflaredx", "cloudflared")).toBe(false);
+  });
+
+  test("an empty list carries nothing", () => {
+    expect(hasProfile("", "local")).toBe(false);
+    expect(hasProfile(",,", "google")).toBe(false);
+  });
+});
+
+describe("loadConfig features", () => {
+  const base = {
+    PUBLIC_ORIGIN: "http://localhost:8090",
+    LETTA_APP_SERVER_URL: "ws://127.0.0.1:4500",
+    SESSION_SECRET: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p67",
+  };
+
+  function withEnv(extra: Record<string, string | undefined>, run: () => void): void {
+    const saved = { ...process.env };
+    try {
+      for (const [key, value] of Object.entries(extra)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      run();
+    } finally {
+      for (const key of Object.keys(process.env)) delete process.env[key];
+      Object.assign(process.env, saved);
+    }
+  }
+
+  test("no profile list means no feature tokens — everything off", () => {
+    withEnv({ ...base, LETTA_MODE: undefined }, () => {
+      expect(loadConfig().features).toEqual({
+        web: false,
+        google: false,
+        codex: false,
+        claude: false,
+      });
+    });
+  });
+
+  test("exact tokens flip exactly the features they name", () => {
+    withEnv({ ...base, LETTA_MODE: "google,search" }, () => {
+      expect(loadConfig().features).toEqual({
+        web: true,
+        google: true,
+        codex: false,
+        claude: false,
+      });
+    });
+    withEnv({ ...base, LETTA_MODE: "codex,claude" }, () => {
+      expect(loadConfig().features).toEqual({
+        web: false,
+        google: false,
+        codex: true,
+        claude: true,
+      });
+    });
+  });
+
+  test("lookalikes are not features", () => {
+    withEnv({ ...base, LETTA_MODE: "searchy,googleplex,codex" }, () => {
+      expect(loadConfig().features).toEqual({
+        web: false,
+        google: false,
+        codex: true,
+        claude: false,
+      });
+    });
+  });
+
+  test("the profile list still decides cloudflared mode the same way", () => {
+    withEnv(
+      {
+        ...base,
+        LETTA_MODE: "cloudflared,codex",
+        ALLOWED_USERS: "me@example.com",
+        CF_ACCESS_TEAM_DOMAIN: "acme",
+        CF_ACCESS_AUD: "aud",
+      },
+      () => {
+        const config = loadConfig();
+        expect(config.mode).toBe("cloudflared");
+        expect(config.features.codex).toBe(true);
+      },
+    );
+    withEnv({ ...base, LETTA_MODE: "cloudflaredx" }, () => {
+      expect(loadConfig().mode).toBe("local");
+    });
+  });
+});
 
 describe("parseAllowedUsers", () => {
   test("splits a comma-separated list", () => {

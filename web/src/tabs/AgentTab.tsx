@@ -4,6 +4,7 @@ import { AgentToolsSection } from "../components/AgentToolsSection.tsx";
 import { ReflectionSection } from "../components/ReflectionSection.tsx";
 import { SecretsSection } from "../components/SecretsSection.tsx";
 import { AgentSkills } from "../components/SkillsSections.tsx";
+import { type FeatureFlags, featureEnabled } from "../lib/features.ts";
 import type { AgentsApi } from "../state/use-agents.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -16,6 +17,8 @@ interface Props {
   cwd: string | null;
   /** Changes whenever the app-server reports a skill enabled or disabled. */
   skillsVersion: number;
+  /** Profile-gated features: with Google, Codex and Claude all off, Tools has nothing to narrow. */
+  features?: FeatureFlags;
   /** Settings shared by every agent live behind the top bar's gear. */
   onOpenGlobalSettings: (section?: "skills") => void;
 }
@@ -42,6 +45,7 @@ export function AgentTab({
   conversationId,
   cwd,
   skillsVersion,
+  features,
   onOpenGlobalSettings,
 }: Props) {
   const [section, setSection] = useState<AgentSection>("general");
@@ -50,8 +54,14 @@ export function AgentTab({
 
   // Secrets need upstream's agent management; the chip is pointless without it.
   const agentManagement = session.appServerInfo?.capabilities.agent_management ?? false;
+  // Per-agent Tools narrows Google, Codex and Claude only — with all three
+  // profile tokens off there is nothing left to narrow, so no chip either.
+  const anyToolFamily =
+    featureEnabled(features, "google") ||
+    featureEnabled(features, "codex") ||
+    featureEnabled(features, "claude");
   const visibleSections = (Object.keys(SECTION_LABELS) as AgentSection[]).filter(
-    (name) => name !== "secrets" || agentManagement,
+    (name) => (name !== "secrets" || agentManagement) && (name !== "tools" || anyToolFamily),
   );
 
   if (!agentId) {
@@ -87,7 +97,11 @@ export function AgentTab({
         <AgentGeneralSection key={agentId} session={session} agents={agents} agentId={agentId} />
       ) : null}
       {section === "tools" ? (
-        <AgentToolsSection agentId={agentId} onOpenGlobalSettings={() => onOpenGlobalSettings()} />
+        <AgentToolsSection
+          agentId={agentId}
+          features={features}
+          onOpenGlobalSettings={() => onOpenGlobalSettings()}
+        />
       ) : null}
       {section === "secrets" ? <SecretsSection session={session} agentId={agentId} /> : null}
       {section === "reflection" ? (

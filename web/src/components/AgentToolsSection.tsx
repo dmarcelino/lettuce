@@ -7,9 +7,12 @@ import {
   saveAgentToolAccess,
 } from "../lib/agent-tool-access.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { type FeatureFlags, featureEnabled } from "../lib/features.ts";
 
 interface Props {
   agentId: string;
+  /** Profile-gated features: a family whose token is off cannot be narrowed, so its row is hidden. */
+  features?: FeatureFlags;
   /** Codex, Claude Code and Google themselves are set up for every agent in Settings. */
   onOpenGlobalSettings: () => void;
 }
@@ -39,7 +42,7 @@ const SAVED_NOTE: Record<ModsResult, string> = {
  * Which of the shared tool families this agent gets. Narrows, never widens:
  * what Settings → Codex workers and → Google turn off stays off for everyone.
  */
-export function AgentToolsSection({ agentId, onOpenGlobalSettings }: Props) {
+export function AgentToolsSection({ agentId, features, onOpenGlobalSettings }: Props) {
   const [access, setAccess] = useState<AgentToolAccess | null>(null);
   const [saved, setSaved] = useState<AgentToolAccess | null>(null);
   const [status, setStatus] = useState("");
@@ -89,59 +92,76 @@ export function AgentToolsSection({ agentId, onOpenGlobalSettings }: Props) {
     saved.claude !== access.claude ||
     saved.google !== access.google;
 
+  const showGoogle = featureEnabled(features, "google");
+  const showCodex = featureEnabled(features, "codex");
+  const showClaude = featureEnabled(features, "claude");
+  if (!showGoogle && !showCodex && !showClaude) {
+    return (
+      <p className="muted pad">
+        No shared tool family is enabled on this instance, so there is nothing to narrow here.
+      </p>
+    );
+  }
+
   return (
     <>
       <div className="pad-x">
-        <label className="field">
-          Google (Gmail, Calendar, Tasks, Contacts)
-          <select
-            value={access.google}
-            onChange={(event) =>
-              setAccess({ ...access, google: event.target.value as GoogleAccess })
-            }
-          >
-            {GOOGLE_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <span className="muted small">
-            {GOOGLE_OPTIONS.find((option) => option.id === access.google)?.hint}
-          </span>
-        </label>
+        {showGoogle ? (
+          <label className="field">
+            Google (Gmail, Calendar, Tasks, Contacts)
+            <select
+              value={access.google}
+              onChange={(event) =>
+                setAccess({ ...access, google: event.target.value as GoogleAccess })
+              }
+            >
+              {GOOGLE_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">
+              {GOOGLE_OPTIONS.find((option) => option.id === access.google)?.hint}
+            </span>
+          </label>
+        ) : null}
 
-        <label className="field">
-          Codex workers
-          <select
-            value={access.codex ? "on" : "off"}
-            onChange={(event) => setAccess({ ...access, codex: event.target.value === "on" })}
-          >
-            <option value="on">Allowed</option>
-            <option value="off">Blocked</option>
-          </select>
-          <span className="muted small">
-            {access.codex
-              ? "The agent may hand coding tasks to Codex workers."
-              : "Starting or messaging a Codex worker is refused, in every permission mode."}
-          </span>
-        </label>
+        {showCodex ? (
+          <label className="field">
+            Codex workers
+            <select
+              value={access.codex ? "on" : "off"}
+              onChange={(event) => setAccess({ ...access, codex: event.target.value === "on" })}
+            >
+              <option value="on">Allowed</option>
+              <option value="off">Blocked</option>
+            </select>
+            <span className="muted small">
+              {access.codex
+                ? "The agent may hand coding tasks to Codex workers."
+                : "Starting or messaging a Codex worker is refused, in every permission mode."}
+            </span>
+          </label>
+        ) : null}
 
-        <label className="field">
-          Claude Code workers
-          <select
-            value={access.claude ? "on" : "off"}
-            onChange={(event) => setAccess({ ...access, claude: event.target.value === "on" })}
-          >
-            <option value="on">Allowed</option>
-            <option value="off">Blocked</option>
-          </select>
-          <span className="muted small">
-            {access.claude
-              ? "The agent may hand coding tasks to Claude Code workers."
-              : "Starting or messaging a Claude Code worker is refused, in every permission mode."}
-          </span>
-        </label>
+        {showClaude ? (
+          <label className="field">
+            Claude Code workers
+            <select
+              value={access.claude ? "on" : "off"}
+              onChange={(event) => setAccess({ ...access, claude: event.target.value === "on" })}
+            >
+              <option value="on">Allowed</option>
+              <option value="off">Blocked</option>
+            </select>
+            <span className="muted small">
+              {access.claude
+                ? "The agent may hand coding tasks to Claude Code workers."
+                : "Starting or messaging a Claude Code worker is refused, in every permission mode."}
+            </span>
+          </label>
+        ) : null}
 
         <button
           type="button"

@@ -199,10 +199,33 @@ dockhand skill cannot stop containers. With no gateway, agents simply have no `M
 tool.
 
 **The sidecars are opt-in too: `google-mcp` has `profiles: ["google"]`, `searxng` and
-`ddg-mcp` share `profiles: ["search"]`.** Prod runs `COMPOSE_PROFILES=cloudflared,google,search`.
-Nothing `depends_on` them; without them the BFF's tools fail per call (web) or are not
-registered (Google — but the shared-MCP-list entry follows Settings → Google, not the
-container, so keep that disabled). Same removal rule as the gateway: `--profile <p> rm -sf …`.
+`ddg-mcp` share `profiles: ["search"]`.** Prod runs
+`COMPOSE_PROFILES=cloudflared,google,search,codex,claude`. Nothing `depends_on` them; without
+their token the integration is off wholesale — the BFF treats the stored Settings switch as
+disabled whatever it says (no sidecar config on, no shared-MCP-list entry, no native tools),
+so dropping the profile is the whole off switch. Same removal rule as the gateway:
+`--profile <p> rm -sf …`.
+
+**`COMPOSE_PROFILES` is the one feature list, and it carries two VIRTUAL profiles: `codex` and
+`claude`** — tokens no service declares, so they start no container. Every token is matched as an
+exact comma-delimited entry (`bff/src/config.ts` `hasProfile`: `searchy` ≠ `search`), and the BFF
+derives `config.features` = `web`⇐`search`, `google`⇐`google`, `codex`⇐`codex`, `claude`⇐`claude`.
+- **effective-enabled = token AND stored Settings switch**, enforced at each availability
+  decision: web tools render disabled (`renderAllMods`), Google reapply/status/sidecar-config
+  run on the gated settings, and the codex/claude connect-time reapply writes `enabled: false`
+  into `letta-ui.json` so the shims refuse — the stored endpoint/model/key survive, so
+  re-enabling the token needs only one flip of the switch. The four Settings save routes answer
+  404 while their token is off; `web/` hides the matching Settings sections, Tasks run lists
+  and Agent → Tools rows from `features` in `/api/status` (absent = all on).
+- **The coding tokens also decide the app-server image**: the raw string goes in as the build
+  arg `CODING_FEATURES`, the Dockerfile installs a CLI only for a token it finds, and writes
+  what it actually installed to `/opt/letta-ui/features`. **The image tag does not change with
+  the token list** (it names version pins), so toggling a coding token REQUIRES an app-server
+  rebuild, and on the one tag you can have an image built either way — the BFF reads the marker
+  on every connect, logs a loud mismatch when a token is on but the CLI is not baked in (and
+  "predates the marker" when the file is absent), and serves it as `coding_installed` in the
+  authenticated `/api/status`. A warning about unknown profiles from Compose is fine: profile
+  names are free-form and `docker compose config` accepts tokens no service declares.
 
 Telegram is set up once with the CLI inside the gateway container (see `docker/README.md`),
 the same way llama.cpp is set up with `letta connect`. The gateway then runs it, and the agent
@@ -406,8 +429,11 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
 - **Codex workers: letta-code runs them, a shim makes them fit this container.** Since 0.33,
   `Task` / `launch_subagent` accept `subagent_type: "codex"` and spawn `codex app-server
   --stdio` from PATH (`tools/impl/external-coding-agent.ts`, `codex-app-server.ts`). Our
-  app-server image (`docker/codex/Dockerfile`) installs the real CLI under `/opt/codex` and
-  puts `docker/codex/codex-shim.mjs` on PATH as `codex`. Upstream unmodified.
+  app-server image (`docker/codex/Dockerfile`) installs the real CLI under `/opt/codex` only
+  when the `codex` profile token is in `CODING_FEATURES` (see "COMPOSE_PROFILES is the one
+  feature list"), and always puts `docker/codex/codex-shim.mjs` on PATH as `codex` — with the
+  CLI absent the shim's preflight fails with ENOENT and the task reports it. Upstream
+  unmodified.
   - The shim's one rewrite: letta hard-codes `sandboxPolicy: workspaceWrite` on every
     `turn/start`, Codex builds that with bubblewrap, and Docker's default seccomp/AppArmor
     refuse it — so the shim rewrites that field to `{type: "externalSandbox"}` and passes
@@ -424,7 +450,10 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
     (provider `letta-ui`, `wire_api = "responses"` — the endpoint must serve `/v1/responses`,
     which llama.cpp does) and `auth.json` from it, on every save and every upstream connect.
     The API key never goes back to a browser. `letta-ui.json` is also the switch: the shim
-    refuses to run until it says `enabled`, and that refusal is what a task reports.
+    refuses to run until it says `enabled`, and that refusal is what a task reports. With the
+    `codex` token off the connect-time reapply writes `enabled: false` regardless of the stored
+    switch and the settings save route 404s — the endpoint and key survive, only the switch
+    resets.
   - **letta keeps only a worker's final message.** The full run lives in Codex's rollout,
     `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<thread id>.jsonl`, appended live. Thread
     ids are UUIDv7, so the day directory comes from the id. `GET /api/codex/runs[/:threadId]`
@@ -441,9 +470,10 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
   also accepts `subagent_type: "claude-code"` and spawns `claude --print --input-format
   stream-json --output-format stream-json …` with the prompt on stdin
   (`tools/impl/claude-stream-session.ts`). The image installs the real CLI under
-  `/opt/claude-code` and puts `docker/codex/claude-shim.mjs` on PATH as `claude`; the shim
-  rewrites nothing (argv and stdin pass through verbatim) — its whole job is env injection and
-  the switch.
+  `/opt/claude-code` only when the `claude` profile token is in `CODING_FEATURES` (like Codex
+  above) and always puts `docker/codex/claude-shim.mjs` on PATH as `claude`; the shim rewrites
+  nothing (argv and stdin pass through verbatim) — its whole job is env injection and the
+  switch.
   - **Claude Code speaks only the Anthropic Messages API**, which llama.cpp does not serve:
     Settings → Claude Code takes a user-supplied Anthropic-compatible base URL (a LiteLLM-style
     proxy or any Anthropic-API gateway), a model id, and an optional auth token. There is no
@@ -561,12 +591,17 @@ reaches it through the `MessageChannel` tool the gateway registers as an externa
     switch (off renders a mod that registers nothing — the protocol cannot delete a file),
     backend status, a test search, and mod load errors from letta-code's
     `/root/.letta/mods/diagnostics/latest.json` (errors only — a clean load writes nothing).
+    The `search` token gates it: with the token off the stored switch is treated as off when
+    the mod is rendered and the settings save route 404s.
   - **duckduckgo left the shared MCP list** in a one-time migration (`retireSeededDdgMcp`,
     recorded as `mcpDdgRetired`), so a user who adds it back keeps it.
 - **Google (Gmail / Calendar / Tasks / Contacts) is a sidecar whose access no agent can change.**
   Agents reach `http://google-mcp:8000/mcp` (`docker/google-mcp`:
   taylorwilsdon/google_workspace_mcp, pinned `WORKSPACE_MCP_VERSION`, under `supervisor.py`),
-  listed in the shared MCP list while it serves. Reaching it is not the control — agent shells
+  listed in the shared MCP list while it serves. The `google` token gates all of it: with the
+  token off, reapply and status run on effective settings (stored switch forced off, sidecar
+  config and MCP-list entry out) while the stored client, switch and grant survive, and the
+  settings save route 404s. Reaching it is not the control — agent shells
   reach everything. What it may do is fixed in two places no agent can touch:
   1. **The token's OAuth scopes.** The BFF runs the consent (`bff/src/google/`), asking for
      exactly the levels' scopes, never `include_granted_scopes`. Invariant: the token never

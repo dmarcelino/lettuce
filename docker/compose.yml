@@ -44,6 +44,19 @@ services:
     # login lives in GH_CONFIG_DIR, under the persisted /root/.letta, so it
     # survives recreates; sign in once with `gh auth login --with-token`.
     #
+    # CODING_FEATURES is the raw COMPOSE_PROFILES string: the image installs
+    # the Codex CLI only when it contains the token `codex`, and the Claude
+    # Code CLI only when it contains `claude` — two VIRTUAL profiles, tokens no
+    # service declares, so they install no container and gate no sidecar; they
+    # decide the build and the BFF's feature flags together. The image then
+    # writes what it actually baked into /opt/letta-ui/features, and the BFF
+    # logs loudly when a token is on but the CLI is missing.
+    #
+    # The image TAG does not change with the token list (it names version
+    # pins), so toggling a coding token REQUIRES a rebuild — `compose up`
+    # without `--build` silently keeps the old image. Enabling needs the exact
+    # comma-delimited token: `…codex…,`.
+    #
     # Default container hardening (seccomp, AppArmor, default capabilities) is
     # deliberately left intact: this is the one service agent-authored shell
     # commands run in, so the container -> host boundary is the one that
@@ -57,6 +70,7 @@ services:
         CODEX_VERSION: ${CODEX_VERSION:-0.157.1}
         GH_VERSION: ${GH_VERSION:-2.101.0}
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.285}
+        CODING_FEATURES: ${COMPOSE_PROFILES:-}
     image: letta-app-server:${LETTA_CODE_VERSION:-0.33.7}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}-claude${CLAUDE_CODE_VERSION:-2.1.285}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
@@ -242,7 +256,10 @@ services:
       # Pass-through of the exact same value that decides, at the Compose
       # level, whether the `cloudflared` service below even exists — one
       # setting (COMPOSE_PROFILES) drives both. "local" unless it contains
-      # "cloudflared".
+      # "cloudflared". The BFF also reads it as its feature list: exact tokens
+      # `search` (web tools), `google`, and the virtual coding tokens `codex`
+      # and `claude` decide which Settings sections and integrations are on
+      # (bff/src/config.ts). Same comma-separated string, no second setting.
       LETTA_MODE: ${COMPOSE_PROFILES:-local}
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
@@ -413,9 +430,10 @@ services:
   # two volumes below, which only this service and the BFF mount.
   #
   # Opt-in behind the `google` profile (COMPOSE_PROFILES contains "google").
-  # Without it no native Google tool is registered (the BFF registers only
-  # tools the sidecar lists), but keep Settings → Google disabled too: the
-  # shared-MCP-list entry follows that switch, not whether the sidecar runs.
+  # Without it Google is off everywhere: the BFF treats the stored Settings
+  # switch as disabled no matter what it says — no native Google tool is
+  # registered (the BFF registers only tools the sidecar lists), no sidecar
+  # config is rendered on, and the shared-MCP-list entry is removed.
   # To turn it off, drop the profile and
   #   docker compose -f docker/compose.yml --profile google rm -sf google-mcp
   google-mcp:

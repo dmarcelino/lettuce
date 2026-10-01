@@ -37,25 +37,41 @@ outside Docker.
 
 ## Modes and profiles
 
-One setting decides both which optional containers exist and how the BFF
-behaves: `COMPOSE_PROFILES`. Compose passes it through to the BFF as
-`LETTA_MODE`, so there is nothing to keep in sync by hand.
+One setting decides which optional containers exist, which features the app
+offers, and even what the app-server image installs: `COMPOSE_PROFILES`.
+Compose passes it through to the BFF as `LETTA_MODE`, so there is nothing to
+keep in sync by hand.
 
 | `COMPOSE_PROFILES` | Mode | Sign-in |
 |---|---|---|
 | unset (default) | local | `DEV_BYPASS_EMAIL`, or nobody |
 | `cloudflared` | cloudflared | Cloudflare Access |
 
-Other profiles add sidecars and are orthogonal to the mode:
+Other profiles are orthogonal to the mode:
 
 | Profile | Adds |
 |---|---|
-| `google` | the Gmail / Calendar / Tasks / Contacts sidecar |
-| `search` | SearXNG + `ddg-mcp`, behind the agents' web tools |
+| `google` | the Gmail / Calendar / Tasks / Contacts sidecar + Settings → Google |
+| `search` | SearXNG + `ddg-mcp`, behind the agents' web tools + Settings → Web |
 | `telegram` | the messaging channel gateway |
+| `codex` | virtual: installs the Codex CLI into the app-server image + Settings → Codex workers |
+| `claude` | virtual: installs the Claude Code CLI + Settings → Claude Code workers |
 
 Combine them with commas and keep any profile you already have when adding
-another: `COMPOSE_PROFILES=cloudflared,google,search`.
+another: `COMPOSE_PROFILES=cloudflared,google,search,codex,claude`.
+
+A token must match exactly as a comma-delimited entry — `searchy` is not
+`search`. A profile whose token is off is off everywhere: the stored Settings
+switch is treated as disabled, the matching Settings section disappears from
+the app, and the save routes refuse. The stored settings themselves survive,
+so re-adding the token restores the setup.
+
+The two **virtual** coding tokens install at **build** time and change no image
+tag, so adding or removing one REQUIRES rebuilding `app-server`
+(`docker compose -f docker/compose.yml build app-server`): `up -d` alone
+silently keeps the previous image, and the BFF logs a mismatch warning when a
+token is on but the CLI is not in the image it talks to. When you add one to a
+running deployment, rebuild before — not after — flipping `COMPOSE_PROFILES`.
 
 **Local mode authenticates nobody.** Whoever can reach the port *is* the
 configured user, and that user's agent has your shell, your files and your
@@ -294,7 +310,7 @@ letta-code checkout, no pre-built images.
 
 | Variable | Value |
 |---|---|
-| `COMPOSE_PROFILES` | `cloudflared,google,search` (drop what you don't want) |
+| `COMPOSE_PROFILES` | `cloudflared,google,search,codex,claude` (drop what you don't want) |
 | `LETTA_STATE_DIR` | `/srv/letta` |
 | `PUBLIC_ORIGIN` | `https://<your-hostname>` |
 | `SESSION_SECRET` | `openssl rand -hex 32` |

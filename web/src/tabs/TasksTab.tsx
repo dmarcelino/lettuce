@@ -13,6 +13,7 @@ import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { describeCron } from "../lib/cron-describe.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { type FeatureFlags, featureEnabled } from "../lib/features.ts";
 import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
 import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
@@ -57,6 +58,8 @@ interface Props {
   onStopMonitor: (processId: string) => void;
   /** Every conversation for this agent, used to name each task's target. */
   conversations: ConversationSummary[];
+  /** Profile-gated features: the coding-run lists hide when their token is off. */
+  features?: FeatureFlags;
 }
 
 /**
@@ -98,6 +101,7 @@ export function TasksTab({
   backgroundProcesses,
   onStopMonitor,
   conversations,
+  features,
 }: Props) {
   const [tasks, setTasks] = useState<CronTask[]>([]);
   const [status, setStatus] = useState("");
@@ -318,19 +322,25 @@ export function TasksTab({
         </>
       ) : null}
 
-      <CodexRunsList
-        refreshKey={backgroundProcesses
-          .filter((process) => process.kind === "agent_task")
-          .map((process) => process.processId)
-          .join(",")}
-      />
+      {/* The run viewers belong to the coding workers: their profile token
+          off means the worker cannot run, so the viewer has nothing to show. */}
+      {featureEnabled(features, "codex") ? (
+        <CodexRunsList
+          refreshKey={backgroundProcesses
+            .filter((process) => process.kind === "agent_task")
+            .map((process) => process.processId)
+            .join(",")}
+        />
+      ) : null}
 
-      <ClaudeRunsList
-        refreshKey={backgroundProcesses
-          .filter((process) => process.kind === "agent_task")
-          .map((process) => process.processId)
-          .join(",")}
-      />
+      {featureEnabled(features, "claude") ? (
+        <ClaudeRunsList
+          refreshKey={backgroundProcesses
+            .filter((process) => process.kind === "agent_task")
+            .map((process) => process.processId)
+            .join(",")}
+        />
+      ) : null}
 
       <ul className="list">
         {tasks.map((task) => (

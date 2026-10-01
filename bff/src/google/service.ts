@@ -61,6 +61,14 @@ export interface GoogleServiceDeps {
   redirectUri: string;
   /** Put the sidecar into the shared MCP list while it serves; take it out when not. */
   syncMcpEntry: (serving: boolean) => Promise<void>;
+  /**
+   * Whether the `google` profile token is on. When it is not, the effective
+   * settings are `enabled: false` no matter what the stored switch says: no
+   * sidecar config on, no MCP-list entry — while the stored settings keep the
+   * switch, the client and the grant, so re-adding the token restores the
+   * setup with one flip of the switch.
+   */
+  profileEnabled?: () => boolean;
   log: (message: string) => void;
   now?: () => number;
 }
@@ -98,8 +106,20 @@ export class GoogleService {
     return parseStoredGoogleSettings(await this.deps.io.readPolicy(GOOGLE_SETTINGS_FILE));
   }
 
+  /**
+   * The settings as they take effect: with the `google` profile token off,
+   * `enabled` is false whatever the stored switch says. Everything that
+   * renders the sidecar's config or decides serving runs on this; everything
+   * that writes stored state runs on the raw settings, so a token that comes
+   * back finds the previous setup intact.
+   */
+  private effective(settings: GoogleSettings): GoogleSettings {
+    const gate = this.deps.profileEnabled;
+    return gate && !gate() && settings.enabled ? { ...settings, enabled: false } : settings;
+  }
+
   async status(): Promise<PublicGoogleSettings> {
-    return toPublicGoogleSettings(await this.load());
+    return toPublicGoogleSettings(this.effective(await this.load()));
   }
 
   /** When `checkIfDue` last asked Google; in memory, so a restart checks again. */
@@ -147,9 +167,12 @@ export class GoogleService {
   /** Settings first, then the sidecar's config, then the MCP list. */
   private async persist(settings: GoogleSettings): Promise<void> {
     await this.deps.io.writePolicy(GOOGLE_SETTINGS_FILE, renderStoredGoogleSettings(settings));
-    await this.deps.io.writePolicy(GOOGLE_SIDECAR_FILE, renderSidecarConfig(settings));
+    // The sidecar and the MCP list answer to the effective settings: with the
+    // profile token off they go off too, even while the stored switch stays on.
+    const effective = this.effective(settings);
+    await this.deps.io.writePolicy(GOOGLE_SIDECAR_FILE, renderSidecarConfig(effective));
     try {
-      await this.deps.syncMcpEntry(isServing(settings));
+      await this.deps.syncMcpEntry(isServing(effective));
     } catch (error) {
       // The list is only discovery; access is decided in the sidecar. A failed
       // sync is retried on the next upstream connect.

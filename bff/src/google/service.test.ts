@@ -243,6 +243,39 @@ describe("changing the policy", () => {
     expect(t.creds.size).toBe(1);
   });
 
+  test("a dropped profile token stops serving while the stored switch and grant stay intact", async () => {
+    let on = true;
+    const t = setup();
+    const service = new GoogleService({
+      io: t.io,
+      fetch: t.google.fetch,
+      redirectUri: "https://ui.example/api/google/oauth/callback",
+      syncMcpEntry: async (serving) => void t.mcp.push(serving),
+      profileEnabled: () => on,
+      log: () => {},
+    });
+    await service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    const state = t.google.ask(await service.startConnect());
+    await service.finishConnect({ state, code: "c" });
+    expect(t.sidecar().enabled).toBe(true);
+
+    on = false; // COMPOSE_PROFILES loses `google`, and the BFF reconnects
+    await service.reapply();
+    expect(t.sidecar().enabled).toBe(false);
+    expect(t.mcp.at(-1)).toBe(false);
+    const status = await service.status();
+    expect(status.enabled).toBe(false);
+    expect(status.grant?.email).toBe("me@example.com"); // grant kept, not revoked
+    expect(t.creds.size).toBe(1);
+    expect(t.google.revoked).toEqual([]);
+
+    on = true; // the token comes back: the setup is still there, switch included
+    await service.reapply();
+    expect(t.sidecar().enabled).toBe(true);
+    expect(t.mcp.at(-1)).toBe(true);
+    expect((await service.status()).enabled).toBe(true);
+  });
+
   test("a new OAuth client drops the old client's token", async () => {
     const t = setup();
     await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });

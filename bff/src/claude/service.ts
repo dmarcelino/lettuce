@@ -51,13 +51,26 @@ export async function saveClaudeSettings(io: CodexFileIo, body: unknown): Promis
  * On every upstream connect: re-render the switch file from the saved
  * settings, so a BFF upgrade that changes the rendering reaches an existing
  * install. Nothing saved yet means nothing to write — the shim stays disabled.
+ *
+ * `profileEnabled: false` (the `claude` token is not in COMPOSE_PROFILES)
+ * makes the effective settings `enabled: false` regardless of the stored
+ * switch, so the shim refuses even if the switch was left on before the
+ * profile was dropped. The endpoint and model settings themselves are kept,
+ * so re-adding the token restores a working worker after one flip of the
+ * switch.
  */
-export async function reapplyClaudeSettings(io: CodexFileIo): Promise<boolean> {
+export async function reapplyClaudeSettings(
+  io: CodexFileIo,
+  options: { profileEnabled?: boolean } = {},
+): Promise<boolean> {
   const stored = await io.read(CLAUDE_SETTINGS_PATH);
   if (stored === null) return false;
+  const settings = parseStoredClaudeSettings(stored);
   await io.write(
     CLAUDE_SETTINGS_PATH,
-    renderStoredClaudeSettings(parseStoredClaudeSettings(stored)),
+    renderStoredClaudeSettings(
+      options.profileEnabled === false ? { ...settings, enabled: false } : settings,
+    ),
   );
   return true;
 }

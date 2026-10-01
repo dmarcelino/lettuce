@@ -76,6 +76,17 @@ describe("saving settings", () => {
     await saveClaudeSettings(io, READY);
     expect(await reapplyClaudeSettings(io)).toBe(true);
   });
+
+  test("with the profile token dropped, reapply forces the switch off but keeps the endpoint", async () => {
+    const { io, files } = memoryIo();
+    await saveClaudeSettings(io, { ...READY, authToken: "sk-secret" });
+    expect(await reapplyClaudeSettings(io, { profileEnabled: false })).toBe(true);
+    const stored = JSON.parse(files.get(CLAUDE_SETTINGS_PATH) ?? "{}") as Record<string, unknown>;
+    expect(stored.enabled).toBe(false);
+    // The rest survives: re-adding the token needs one flip of the switch.
+    expect(stored.baseUrl).toBe("http://proxy:4000");
+    expect(stored.model).toBe("m");
+  });
 });
 
 describe("runs", () => {

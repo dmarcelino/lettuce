@@ -18,6 +18,7 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { Switcher } from "./components/Switcher.tsx";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
+import type { FeatureFlags } from "./lib/features.ts";
 import { userHistory } from "./lib/input-history.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { type RuntimeScope, scopeKey } from "./lib/protocol.ts";
@@ -45,6 +46,8 @@ interface Status {
   user: { email: string } | null;
   /** This build's release tag; present only when authenticated. */
   version?: string;
+  /** Which integrations this deployment offers; absent (older BFF) = all on. */
+  features?: FeatureFlags;
 }
 
 const TABS = ["Chat", "Files", "Tasks", "Memory", "Agent"] as const;
@@ -479,6 +482,7 @@ function Workspace({ status }: { status: Status }) {
             backgroundProcesses={conversation.backgroundProcesses}
             onStopMonitor={conversation.stopMonitor}
             conversations={agents.conversations}
+            features={status.features}
           />
         ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />
@@ -489,6 +493,7 @@ function Workspace({ status }: { status: Status }) {
             conversationId={agents.conversationId}
             cwd={conversation.cwd}
             skillsVersion={conversation.skillsVersion}
+            features={status.features}
             onOpenGlobalSettings={(section) => setGlobalSettings({ section })}
           />
         )}
@@ -505,6 +510,7 @@ function Workspace({ status }: { status: Status }) {
           user={status.user}
           authMode={status.auth_mode}
           version={status.version}
+          features={status.features}
           initialSection={globalSettings.section}
           onClose={closeGlobalSettings}
         />

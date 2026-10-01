@@ -64,6 +64,25 @@ export interface BffConfig {
   webTools: { searxngUrl: string | null; ddgMcpUrl: string | null };
   /** Settings → Google — see `google/settings.ts`. */
   google: GoogleConfig;
+  /**
+   * Which integrations this deployment offers at all, from the tokens in
+   * `COMPOSE_PROFILES` (passed through as `LETTA_MODE`): `web`⇐`search`,
+   * `google`⇐`google`, and the two VIRTUAL coding tokens `codex` and `claude`
+   * — profiles no service declares, which exist to decide the app-server
+   * image's install (see `docker/codex/Dockerfile`) and, here, which Settings
+   * sections exist and which integrations the BFF will switch on. A stored
+   * Settings switch is only honoured when its feature is on: effective-enabled
+   * is token AND switch, enforced at every availability decision.
+   */
+  features: FeatureFlags;
+}
+
+/** The four profile-gated integrations. See `BffConfig.features`. */
+export interface FeatureFlags {
+  web: boolean;
+  google: boolean;
+  codex: boolean;
+  claude: boolean;
 }
 
 export interface GoogleConfig {
@@ -272,14 +291,47 @@ function assertBypassIsSafe(
 
 /**
  * `LETTA_MODE` is a pass-through of Compose's own `COMPOSE_PROFILES` (see
- * docker/compose.yml) — whatever decides if the `cloudflared` container
- * exists is the same value the app reads. Checked with `includes` rather
- * than equality so a future multi-profile value like `"cloudflared,other"`
- * still resolves correctly.
+ * docker/compose.yml) — the same comma-separated profile list decides which
+ * containers exist, which coding CLIs the app-server image installed, and
+ * which integrations the app offers.
  */
+function profileList(): string {
+  return process.env.LETTA_MODE?.trim() ?? "";
+}
+
+/**
+ * Whether a profile list carries `name` as a whole comma-delimited token:
+ * `search` matches `cloudflared,search,google` but not `searchy` and not
+ * `research`. Exact tokens matter because the list is one shared namespace —
+ * a profile named for a sidecar, a virtual coding token, and whatever someone
+ * adds next all live in the same string.
+ *
+ * Exported for tests; `readMode` and `readFeatures` are the only production
+ * callers.
+ */
+export function hasProfile(profiles: string, name: string): boolean {
+  return profiles.split(",").some((token) => token.trim() === name);
+}
+
 function readMode(): "local" | "cloudflared" {
-  const raw = process.env.LETTA_MODE?.trim() ?? "";
-  return raw.includes("cloudflared") ? "cloudflared" : "local";
+  return hasProfile(profileList(), "cloudflared") ? "cloudflared" : "local";
+}
+
+/**
+ * The feature flags, one per gated integration. `web` rides on the `search`
+ * token because that token is what makes SearXNG and ddg-mcp exist — the web
+ * tools have nothing to call without them. `codex` and `claude` are virtual
+ * tokens: no container declares them, and the same tokens decide whether the
+ * CLIs are baked into the app-server image.
+ */
+function readFeatures(): FeatureFlags {
+  const profiles = profileList();
+  return {
+    web: hasProfile(profiles, "search"),
+    google: hasProfile(profiles, "google"),
+    codex: hasProfile(profiles, "codex"),
+    claude: hasProfile(profiles, "claude"),
+  };
 }
 
 /** `SESSION_SECRET`, read and checked in one place so no path skips the floor. */
@@ -340,6 +392,7 @@ export function loadConfig(): BffConfig {
         `${publicOrigin}/api/google/oauth/callback`,
       allowDevBypass: process.env.GOOGLE_ALLOW_DEV_BYPASS?.trim() === "true",
     },
+    features: readFeatures(),
   };
 }
 
