@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.3.1-letta_0.33.7] - 2026-10-01
+
 ### Fixed
 - The context gauge shows the real limit on first load (no more transient 128k default) and appears before the first turn as "— / 256k".
 
