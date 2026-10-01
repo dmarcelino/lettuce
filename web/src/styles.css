@@ -1112,8 +1112,9 @@ pre {
 }
 /* One line per suggestion: the name, then its description truncated on the
    same row — descriptions run to four words and no command needs more.
-   Scoped here, not on .picker: sheet rows keep their two-line layout. */
-.composer-suggestions button {
+   Scoped `.composer-suggestions.picker` to out-rank the shared `.picker
+   button` column layout further down; sheet rows keep their two-line shape. */
+.composer-suggestions.picker button {
   flex-direction: row;
   align-items: baseline;
   gap: 10px;
