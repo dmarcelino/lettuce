@@ -170,18 +170,20 @@ export function Composer({
    * through this. Rejections never throw away the accepted ones.
    */
   const addFiles = async (files: readonly File[]): Promise<void> => {
-    const images = files.filter((file) => file.type.toLowerCase().startsWith("image/"));
-    if (images.length === 0) return;
+    if (files.length === 0) return;
     const room = MAX_IMAGES_PER_MESSAGE - attachmentsRef.current.length;
     if (room <= 0) {
       setAttachErrors([`At most ${MAX_IMAGES_PER_MESSAGE} images per message — remove one first.`]);
       return;
     }
     setPreparing(true);
-    const batch = await prepareImages(images.slice(0, room));
+    // Everything offered goes to `prepareImages`, not just what passes the
+    // type gate: a dropped or force-picked non-image must name itself in the
+    // tray, exactly like one that is too large.
+    const batch = await prepareImages(files.slice(0, room));
     setPreparing(false);
     const errors = [...batch.errors];
-    if (images.length > room) {
+    if (files.length > room) {
       errors.push(
         `Only ${room} more image${room === 1 ? "" : "s"} fit — the limit is ${MAX_IMAGES_PER_MESSAGE} per message.`,
       );
