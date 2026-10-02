@@ -32,24 +32,31 @@ const logRecord = (sha: string, subject: string): string =>
 const showOut = (sha: string): string =>
   `${sha}\x1fTester\x1f2026-10-02T11:16:37-07:00\x1fsome commit\n\x1e\n\n:100644 100644 aaaaaaa bbbbbbb M\tfile.txt\n1\t0\tfile.txt\n`;
 
-/** Records every argv the handler asks for, answering from canned scripts. */
-function scriptedRunner(answerFor: (args: string[]) => GitResult, calls: string[][]): GitRunner {
-  return async (_dir, args) => {
+/** Records every argv (and the directory it was run in), answering from canned scripts. */
+function scriptedRunner(
+  answerFor: (args: string[]) => GitResult,
+  calls: string[][],
+  dirs?: string[],
+): GitRunner {
+  return async (dir, args) => {
     calls.push([...args]);
+    dirs?.push(dir);
     return answerFor(args);
   };
 }
 
-function repoAnswers(calls: string[][]): GitRunner {
-  return scriptedRunner((args) => {
-    if (args[0] === "rev-parse" && args[1] === "--git-dir") return okRes(".git\n");
-    if (args.join(" ") === "rev-parse --show-toplevel") return okRes(`${repoDir}\n`);
-    if (args.join(" ") === "rev-parse --abbrev-ref HEAD") return okRes("main\n");
-    if (args[0] === "log")
-      return okRes(`${logRecord("a".repeat(40), "first")}${logRecord("b".repeat(40), "second")}`);
-    if (args[0] === "show") return okRes(showOut("a".repeat(40)));
-    return failKind("failed");
-  }, calls);
+function repoAnswer(args: string[]): GitResult {
+  if (args[0] === "rev-parse" && args[1] === "--git-dir") return okRes(".git\n");
+  if (args.join(" ") === "rev-parse --show-toplevel") return okRes(`${repoDir}\n`);
+  if (args.join(" ") === "rev-parse --abbrev-ref HEAD") return okRes("main\n");
+  if (args[0] === "log")
+    return okRes(`${logRecord("a".repeat(40), "first")}${logRecord("b".repeat(40), "second")}`);
+  if (args[0] === "show") return okRes(showOut("a".repeat(40)));
+  return failKind("failed");
+}
+
+function repoAnswers(calls: string[][], dirs?: string[]): GitRunner {
+  return scriptedRunner(repoAnswer, calls, dirs);
 }
 
 const session = { hasSession: true } satisfies Partial<GitRouteDeps>;
@@ -175,20 +182,26 @@ describe("GET /api/git/log handler", () => {
     expect(logCall?.[logCall.indexOf("-n") + 1]).toBe("2");
   });
 
-  test("the open subfolder becomes a repo-relative pathspec", async () => {
+  test("the open subfolder becomes a repo-relative pathspec, and the log runs in the root", async () => {
     const calls: string[][] = [];
+    const dirs: string[] = [];
     await gitLogResponse(
-      { ...session, runner: repoAnswers(calls), root },
+      { ...session, runner: repoAnswers(calls, dirs), root },
       {
         path: join(repoDir, "src"),
       },
     );
-    const logCall = calls.find((args) => args[0] === "log");
-    expect(logCall?.slice(logCall.indexOf("--end-of-options"))).toEqual([
+    const logIndex = calls.findIndex((args) => args[0] === "log");
+    expect(logIndex).toBeGreaterThanOrEqual(0);
+    const logCall = calls[logIndex] as string[];
+    expect(logCall.slice(logCall.indexOf("--end-of-options"))).toEqual([
       "--end-of-options",
       "--",
       "src",
     ]);
+    // A root-relative pathspec run in the subfolder would resolve against
+    // git's cwd and match nothing — the -C directory is part of the contract.
+    expect(dirs[logIndex]).toBe(repoDir);
   });
 
   test("infrastructure failures map to 503, 429 and 502", async () => {

@@ -81,7 +81,12 @@ export async function gitLogResponse(
   }
 
   const pathspec = pathspecFor(probe.root, dir);
-  const log = await runner(dir, logArgs({ limit, skip, pathspec }));
+  // The log runs in the repository root, not the open folder: a relative
+  // pathspec resolves against git's cwd, so `-C <folder>` plus a root-relative
+  // pathspec would silently match nothing (`<folder>/src` + `src`). The root
+  // is safe to point git at — it is at or above the already-clamped folder and
+  // still inside the workspace.
+  const log = await runner(probe.root, logArgs({ limit, skip, pathspec }));
   if (!log.ok) {
     if (log.error.kind === "not-a-repository") {
       return { status: 200, json: { repo: false, reason: log.error.detail } };
