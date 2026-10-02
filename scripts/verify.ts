@@ -68,10 +68,12 @@ console.log(`\n✓ verify passed — ${STAGES.map((s) => s.name).join(", ")}`);
 console.log(`
   This is NOT done yet. Still required (see AGENTS.md → Definition of done):
 
-    2. commit on a feature branch, merge to main
-    3. worktree lifecycle is the orchestrator's — never remove worktrees or branches
-    4. docker compose -f docker/compose.yml build bff && ... up -d bff
+    2. commit on the feature branch, then build and run it locally from the worktree
+    3. STOP — let the user test it; merge to main only after they say it works
+    4. docker compose -f docker/compose.yml build bff && ... up -d   (from main, unscoped)
     5. bun run deploy-check
     6. bun run smoke        (only if BFF session/protocol/settings changed)
     7. git push             <- STOP. Ask for confirmation first, every time.
+
+  Report your worktree as merged and safe to remove; never remove it or its branch yourself.
 `);

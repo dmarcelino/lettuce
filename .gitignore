@@ -9,6 +9,9 @@ docker/secrets/
 .mockups/
 .kilo/
 
+# One worktree per feature branch, inside the checkout (see AGENTS.md → Workflow).
+.worktrees/
+
 # pi harness: tracked config is .pi/extensions, .pi/prompts; the rest is local.
 .pi/npm/
 .pi/sessions/

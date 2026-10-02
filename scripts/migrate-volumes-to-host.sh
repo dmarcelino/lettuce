@@ -35,7 +35,7 @@ fail() { printf '\033[31m%s\033[0m\n' "$*" >&2; exit 1; }
 # not the repo root — so its `../..` default is $UI_ROOT/.., one level up from
 # what a naive $UI_ROOT/../.. would give. Getting this wrong silently migrates
 # into the wrong directory, which is how the first run of this script created a
-# stray /home/dima/work/letta-home.
+# stray `letta-home` beside the repo.
 env_value() { [ -f "$ENV_FILE" ] && sed -nE "s/^$1=(.*)$/\1/p" "$ENV_FILE" | tail -1; }
 
 DEST="${1:-${LETTA_STATE_DIR:-$(env_value LETTA_STATE_DIR)}}"

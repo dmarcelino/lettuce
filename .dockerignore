@@ -12,6 +12,7 @@ dist/
 web/dist/
 .git/
 .ui-check/
+.worktrees/
 *.log
 
 # Secrets and local state — none of it belongs in an image layer.

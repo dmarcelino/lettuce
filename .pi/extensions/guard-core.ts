@@ -46,17 +46,31 @@ export const RULES: Rule[] = [
       "AGENTS.md: a tag is created only after the prod deploy is verified (definition of done 7b).",
   },
   {
-    pattern: /\bgit\b[^\n]*\bworktree\s+(?:remove|prune)\b/,
-    title: "git worktree",
+    pattern: /\bgit\b[^\n]*\bworktree remove\b/,
+    title: "git worktree remove",
     message:
-      "AGENTS.md: the orchestrator owns worktree lifecycle. Another session may be sitting in " +
-      "that worktree with uncommitted work.",
+      "AGENTS.md: report a merged worktree as safe to remove and let the operator decide. Confirm " +
+      "only because they asked for this specific one — another session may be sitting in it " +
+      "with uncommitted work.",
+  },
+  {
+    pattern: /\bgit\b[^\n]*\bworktree\s+prune\b/,
+    title: "git worktree prune",
+    message:
+      "AGENTS.md: worktree lifecycle is the operator's; pruning cleans up other peoples' stale entries.",
     hard: true,
   },
   {
-    pattern: /\bgit\b[^\n]*\bbranch\s+(?:-[dD]|--delete)\b/,
+    pattern: /\bgit\b[^\n]*\bbranch\s+(?:-d\b|--delete\b)/,
     title: "git branch -d",
-    message: "AGENTS.md: never delete a branch you did not create in this session.",
+    message:
+      "AGENTS.md: report the branch instead of deleting it. Confirm only because the operator " +
+      "asked for this specific branch.",
+  },
+  {
+    pattern: /\bgit\b[^\n]*\bbranch\s+(?:-D\b|--delete\s+--force|--force\s+--delete)/,
+    title: "git branch -D",
+    message: "Unmerged branch deletion is not part of this repo's workflow.",
     hard: true,
   },
   {

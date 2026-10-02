@@ -236,10 +236,10 @@ bun run check-docs   # AGENTS.md and .agents/skills stay honest
 ```
 
 Feature work happens in a worktree on a feature branch
-(`git worktree add ../lettuce-worktrees/<name> -b <branch>`), and nothing is
-"done" until it is running in the container — `AGENTS.md` holds the gate, and
-`.pi/extensions/guard.ts` refuses `git push`, worktree/branch deletion, and
-`docker compose … rm|down|stop` unless you confirm them.
+(`git worktree add .worktrees/<name> -b <branch>`), and nothing is
+"done" until it is running in the container and you have tested it there — `AGENTS.md` holds the
+gate and the workflow, and `.pi/extensions/guard.ts` asks you (or refuses outright) before
+`git push`, worktree/branch removal, and `docker compose … rm|down|stop`.
 
 ## License
 

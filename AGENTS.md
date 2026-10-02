@@ -26,20 +26,30 @@ keeps this file inside its size budget.
    `channel-gateway`, so always run `docker compose -f docker/compose.yml up -d` unscoped.
 5. **Never push, tag, or redeploy prod without asking, every time** (see "Stop before releasing to
    prod"). `.pi/extensions/guard.ts` makes the harness enforce the same thing.
-6. **Done means running in the container**: `bun run verify`, then rebuild `bff`, then
-   `bun run deploy-check`, plus `bun run ui-check` for any `web/` change. Typecheck and tests
-   passing is not done.
-7. **Feature work happens in a worktree on a feature branch.** The main checkout stays on `main`
-   with a clean tree and only takes merges.
-8. **Never remove a worktree or delete a branch you did not create** — the orchestrator owns that
-   lifecycle, and another session may be sitting in it with uncommitted work.
+6. **Done means the user has tested it in the container**: `bun run verify`, the local run, the
+   human test gate, then after merging — rebuild `bff`, `bun run deploy-check`, plus
+   `bun run ui-check` for any `web/` change. Typecheck and tests passing is not done.
+7. **Feature work happens in a worktree on a feature branch**, under `.worktrees/` inside this
+   checkout. The main checkout stays on `main` with a clean tree and only takes merges.
+8. **Never remove a worktree or delete a branch on your own initiative.** Report it as merged and
+   safe to remove and let the human decide; act only when asked about that specific one
+   (`.pi/extensions/guard.ts` makes them confirm it). Another session may be sitting in it with
+   uncommitted work.
 
 ## Workspace layout
 
 ```
-/home/dima/work/letta/
-  letta-code/      plain clone of letta-ai/letta-code at the pinned release tag — read-only
-  lettuce/         this repo — everything we own (the app is **Lettuce**)
+```
+~/work/
+  lettuce/            this repo — everything we own (the app is **Lettuce**)
+    .worktrees/       one worktree per feature branch (git- and docker-ignored)
+  letta-code/         plain clone of letta-ai/letta-code at the pinned release tag — read-only.
+                      A sibling of `lettuce/` because that is what `scripts/sync-upstream.sh`
+                      assumes: `${LETTA_CODE_DIR:-<repo parent>/letta-code}`. A fresh machine has
+                      no clone; the script clones it.
+  <state dir>         LETTA_STATE_DIR from docker/.env — see "All durable state lives under one
+                      host root" (here: ~/work/letta)
+```
 ```
 
 **The upstream clone is dev tooling, not a build input.** Nothing in `letta-code/` is compiled
@@ -134,8 +144,8 @@ $LETTA_STATE_DIR/
 ```
 
 It defaults to `../..` relative to the compose file; prod sets an absolute path. **The default
-is a trap in a worktree** — `../..` from `lettuce-worktrees/<feature>/docker/` resolves to the
-worktrees directory, not the real state. Set `LETTA_STATE_DIR` absolutely in `docker/.env` so a
+is a trap in a worktree** — `../..` from `.worktrees/<feature>/docker/` resolves to
+`.worktrees`, not the real state. Set `LETTA_STATE_DIR` absolutely in `docker/.env` so a
 compose command run from anywhere hits the same state, and always do container work from the
 main checkout.
 
@@ -202,9 +212,6 @@ traps; read it before working in that area.
 | `AgentMenu`, the sidebar agent list, pin/archive lists | `lettuce-ui-conventions` |
 | `bun run sync-upstream`, `LETTA_CODE_VERSION` | `lettuce-upstream-sync` |
 | `VERSION`, `CHANGELOG.md`, tagging, `bun run release` | `lettuce-releasing` |
-
-Runbook-shaped procedures are also pi prompt templates: `/verify`, `/finish`, `/release`,
-`/sync-upstream` (see "Project harness").
 
 ## Facts that are easy to get wrong
 
@@ -316,14 +323,14 @@ Worktrees per feature, feature branches, fast-forward merge to `main`
 first if it isn't already a fast-forward.
 
 **The main checkout stays on `main` with a clean tree — only merges happen there.** All feature
-work, including creating the branch and every commit on it, happens in a worktree
-(`git worktree add ../lettuce-worktrees/<name> -b <branch>`). Branching inside the main
-checkout lets two sessions collide and breaks `deploy-check`'s clean-tree and on-`main`
+work, including creating the branch and every commit on it, happens in a worktree under
+`.worktrees/` inside the checkout (`git worktree add .worktrees/<name> -b <branch>`; the directory
+is git- and docker-ignored — the bff image's build context is the repo root). Branching inside the
+main checkout lets two sessions collide and breaks `deploy-check`'s clean-tree and on-`main`
 assertions — story: docs/upstream-notes.md#main-checkout-collision-story-2026-09-29.
 
-Worktree lifecycle belongs to the orchestrator, not the agent — whoever launched the session.
-An agent must never remove a worktree or delete a branch it did not create in its own session.
-"Worktrees per feature" describes where work happens, not a cleanup duty.
+Worktree removal is the human's call, not the agent's: report the path as merged and safe to
+remove, and remove it only when asked about that specific one ("Never remove a worktree" above).
 
 **Every user-facing feature gets its own feature branch**: a new capability, a new service or
 sidecar, or any change spanning more than one of `bff/`, `web/`, `docker/`. Small fixes and
@@ -343,6 +350,35 @@ commit as the change, plus its `README.md` / `docs/CONFIGURATION.md` update.
 deploy → verify → tag). The tag format rules, who writes changelog entries, the docs-sync duty and
 why the release commit is never made on a feature branch: **`lettuce-releasing`** skill.
 
+## Workflow
+
+The ordered shape of a change; "Definition of done" is the checklist each step has to satisfy.
+
+1. **Worktree.** `git worktree add .worktrees/<name> -b <branch>`, run from the main checkout —
+   never branch inside the main checkout. If the session was launched in a worktree someone else
+   made (`.pendant/worktrees/…`, an agent manager's own directory), use it; the gate only cares
+   that you are not in the main checkout.
+2. **Implement and commit.** Commit on the branch, with the `CHANGELOG.md` `[Unreleased]` entry and
+   any `README.md` / `docs/CONFIGURATION.md` update in the same commit, and `bun run verify`
+   green.
+3. **Build and run it locally**, from the worktree:
+   `docker compose -f docker/compose.yml build bff && docker compose -f docker/compose.yml up -d`
+   (unscoped — hard rule 4). The local stack is **one per machine, shared by every worktree**, so
+   local testing is serialized: your `up -d bff` replaces what another session is looking at.
+   A worktree has no `docker/.env` (it is gitignored) — copy it first
+   (`cp ../../docker/.env docker/.env`), or its absolute `LETTA_STATE_DIR` is missing and the
+   `../..` default builds a state tree inside `.worktrees/`.
+4. **Pause for the user to test.** Say what to click and what should happen, then stop. Nothing
+   merges before they say it works; a failed test goes back to step 2.
+5. **Merge.** `git merge --ff-only <branch>` in the main checkout, then prove the artifact that
+   ships from `main`: rebuild `bff`, `bun run deploy-check`, plus `ui-check` / `smoke` where they
+   apply. Do not remove the worktree — report it as merged and safe to remove.
+6. **Release — only after asking.** `bun run release --minor|--patch` makes the release commit on
+   `main` (`VERSION` bump + `[Unreleased]` rename), runs `deploy-check`, then push → Dockhand
+   deploy → verify → **annotated tag + push the tag**. A failed deploy is never tagged. Without the
+   `dockhand-deploy` skill on this machine the release ends at `git push origin main` and the
+   deploy is the human's.
+
 ## Definition of done
 
 Work is **not done**, and must not be reported as done, until every line below passes. The
@@ -353,6 +389,9 @@ Passing typecheck is not done. Passing tests are not done. **Running in the cont
 
 1. **`bun run verify` green** — worktree check, version-pin, docs check, lint, typecheck, tests,
    build. Fails fast; later stages do not run once one fails.
+ 1b. **Built and running locally from the worktree** (Workflow step 3), and **tested by the user**:
+    say what to look at, stop, and wait. Merge only after they say it works — no machine check
+    replaces this gate, and unit tests passing is not "working".
  2. **Committed** on a feature branch and fast-forwarded into `main`
    (`git merge --ff-only`). A user-visible change carries its `CHANGELOG.md` `[Unreleased]`
    entry — and its `README.md` / `docs/CONFIGURATION.md` update when it touched the
@@ -360,9 +399,10 @@ Passing typecheck is not done. Passing tests are not done. **Running in the cont
    `[Unreleased]` rename — is never made on a feature branch: it is made on `main` at
    release time, after every merge for that release, by `bun run release` (see the
    `lettuce-releasing` skill).
-3. **Worktree lifecycle is owned by the orchestrator, not the agent** — never run
-   `git worktree remove` or `git branch -d|-D` yourself (`.pi/extensions/guard.ts` blocks them).
-   Concurrent agents may have live worktrees; removing one that is not yours destroys another session's uncommitted work.
+3. **The worktree is reported, not removed** — never `git worktree remove` or `git branch -d` on
+   your own initiative (`.pi/extensions/guard.ts` makes the operator confirm either; `--force`
+   variants and `git worktree prune` are blocked outright). Concurrent agents may have live
+   worktrees; removing one that is not yours destroys another session's uncommitted work.
    `deploy-check` no longer requires a single worktree.
 4. **Docker rebuilt from `main`** —
    `docker compose -f docker/compose.yml build bff && docker compose -f docker/compose.yml up -d bff`.
@@ -383,12 +423,10 @@ Passing typecheck is not done. Passing tests are not done. **Running in the cont
    and restores the shared MCP list, creates and deletes a cron task).
  7. **Released to prod — pushed to `origin`, then redeployed with Dockhand — but stop and ask
     first** (see "Stop before releasing to prod" for the full rule, target and order).
- 7b. **Tagged** — once the prod deploy verifies, tag `main`'s HEAD with the tag `VERSION`
-    names (`git tag -a "$(cat VERSION)" -m "<feature>"`) and `git push origin <tag>`.
-    `VERSION` is bumped in the release commit itself (step 2), so the tag and the version
-    the deployed UI reports are the same string by construction. Part of the same
-    stop-and-ask confirmation as the release — never a separate approval, and never
-    before `dockhand verify` is green.
+ 7b. **Tagged** — once the prod deploy verifies, tag `main`'s HEAD with the tag `VERSION` names
+    (`git tag -a "$(cat VERSION)" -m "<feature>"`) and `git push origin <tag>`. Part of the same
+    stop-and-ask confirmation as the release — never a separate approval, and never before
+    `dockhand verify` is green.
 
 ### Stop before releasing to prod
 
@@ -501,25 +539,20 @@ app-server request loop that `use-session.ts` documents).
 
 The repo carries its own agent-harness configuration so the rules above are not only prose:
 
-- `.agents/skills/lettuce-*/SKILL.md` — the task-scoped mechanics this file moved out. Pi loads
-  them from here (or `.pi/skills/`) and lists only their names and descriptions until one is read.
-- `.pi/extensions/guard.ts` — confirms (or outright blocks) the operations this file forbids:
-  `git push`, `git tag -a`, any `--force`, `git worktree remove|prune` and `git branch -d|-D`
-  (the last three blocked, not confirmable), `docker compose … rm|down|stop|kill|restart`, a
-  scoped `up … app-server`, and any edit or write touching `docker/.env`, `docker/secrets/` or
-  `VERSION`. With no UI (headless runs) a confirmable action is blocked rather than silently
-  allowed. The rules are pure functions in `.pi/extensions/guard-core.ts`, covered by
-  `guard-core.test.ts`, and read-only commands that merely quote one of these are exempt.
-  It guards what an agent types, not what a script does internally — which is why `release.ts`
-  carries its own typed confirmation.
-- `.pi/prompts/*.md` — `/verify`, `/finish`, `/release`, `/sync-upstream` runbooks expanding to the
-  ordered gates, so a fresh session does not have to remember the order.
-- `.pi/remote-pi/` is local (per-machine) and gitignored, along with `.pi/npm/` and
-  `.pi/sessions/`. If your harness needs a `.pi/settings.json` (for example to point
-  `skills` at `~/.claude/skills` so `dockhand-deploy` is visible), keep it local — the tracked
-  files here are the shared ones.
-- `bun run check-docs` asserts this file and the skills stay honest: every `docs/*.md#anchor`
-  reference resolves to a real heading, every repo path mentioned in them exists, the command
-  table matches `package.json`, each skill's frontmatter is valid and its directory name matches,
-  and `AGENTS.md` stays inside its context budget (`bun run check-docs --print-size` shows the
-  current size).
+- `.agents/skills/lettuce-*/SKILL.md` — the task-scoped mechanics this file moved out; pi lists
+  their names and descriptions and loads the body only when one is read.
+- `.pi/extensions/guard.ts` — confirms, or outright blocks, what this file forbids: `git push`,
+  `git tag -a`, `git worktree remove` / `git branch -d` (blocked when combined with `--force`;
+  `git worktree prune` and `git branch -D` are always blocked), `docker compose … rm|down|stop|
+  kill|restart`, a scoped `up … app-server`, and any write to `docker/.env`, `docker/secrets/` or
+  `VERSION`. With no UI a confirmable action is blocked, never silently allowed. Rules are pure
+  functions in `guard-core.ts` (tests: `guard-core.test.ts`); read-only commands that merely quote
+  one are exempt; it guards what an agent types, not what a script does internally — which is why
+  `release.ts` carries its own typed confirmation.
+- `.pi/prompts/*.md` — `/verify`, `/finish`, `/release`, `/sync-upstream` runbooks, so a fresh
+  session does not have to remember the order.
+- `.pi/remote-pi/`, `.pi/npm/`, `.pi/sessions/` and `.pi/settings.json` are per-machine and
+  gitignored (a local `settings.json` is how you point `skills` at `~/.claude/skills`).
+- `bun run check-docs` keeps this file and the skills honest: every `docs/*.md#anchor` resolves, every
+  repo path mentioned exists, the command table matches `package.json`, skill frontmatter is valid
+  and matches its directory, and `AGENTS.md` stays inside its budget (`--print-size` shows it).
