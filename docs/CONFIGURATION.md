@@ -212,7 +212,7 @@ the real `contextWindow` / `maxTokens`. An unparsable value is logged and
 ignored.
 
 ```
-VISION_PROVIDERS=[{"id":"halogen","name":"Halogen","description":"Qwen3.8-Flash-Next on Strix Halo via Olla","baseUrl":"http://192.168.6.100:8080/olla/openai/v1","models":[{"id":"Qwen3.8-Flash-Next","name":"Qwen3.8-Flash-Next","contextWindow":262144,"maxTokens":32768}]}]
+VISION_PROVIDERS=[{"id":"vision-box","name":"Vision Box","description":"Qwen3-VL on a Strix Halo box via Olla","baseUrl":"http://192.0.2.10:8080/olla/openai/v1","models":[{"id":"Qwen3-VL-8B","name":"Qwen3-VL-8B","contextWindow":262144,"maxTokens":32768}]}]
 ```
 
 ## Google (Gmail, Calendar, Tasks, Contacts)

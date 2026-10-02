@@ -46,10 +46,10 @@ describe("checkUpgradeOrigin", () => {
   test("local allows same-origin by host and port", () => {
     expect(
       checkUpgradeOrigin(
-        "http://192.168.1.5:8090",
+        "http://192.0.2.5:8090",
         "local",
         "http://localhost:8090",
-        "192.168.1.5:8090",
+        "192.0.2.5:8090",
       ).ok,
     ).toBe(true);
     expect(

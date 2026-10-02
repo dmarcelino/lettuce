@@ -15,6 +15,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun test && bun test ./.pi/extensions",
     "check-docs": "bun scripts/check-docs.ts",
+    "check-prod-info": "bun scripts/check-prod-info.ts",
     "build": "bun run --filter '*' build",
     "dev": "bun run --filter '*' dev",
     "smoke": "bun scripts/persistence-smoke.ts",

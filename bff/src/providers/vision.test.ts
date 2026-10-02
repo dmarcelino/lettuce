@@ -11,7 +11,7 @@ import {
 
 const HALOGEN =
   '[{"id":"halogen","name":"Halogen","description":"Qwen3.8-Flash-Next on Strix Halo",' +
-  '"baseUrl":"http://192.168.6.100:8080/olla/openai/v1",' +
+  '"baseUrl":"http://192.0.2.100:8080/olla/openai/v1",' +
   '"models":[{"id":"Qwen3.8-Flash-Next","contextWindow":262144,"maxTokens":32768}]}]';
 
 describe("parseVisionProviders", () => {
@@ -24,7 +24,7 @@ describe("parseVisionProviders", () => {
   test("a well-formed halogen entry parses with vision defaults", () => {
     const provider = parseVisionProviders(HALOGEN)[0]!;
     expect(provider.id).toBe("halogen");
-    expect(provider.baseUrl).toBe("http://192.168.6.100:8080/olla/openai/v1");
+    expect(provider.baseUrl).toBe("http://192.0.2.100:8080/olla/openai/v1");
     expect(provider.apiKey).toBeUndefined();
     const model = provider.models[0]!;
     expect(model.input).toEqual(["text", "image"]);
@@ -237,7 +237,7 @@ describe("buildProviderModGroups", () => {
         },
         endpoints: {
           halogen: {
-            baseUrl: "http://192.168.6.100:8080/olla/openai/v1",
+            baseUrl: "http://192.0.2.100:8080/olla/openai/v1",
             name: "Halogen",
             apiKey: "sk-x",
           },
@@ -247,7 +247,7 @@ describe("buildProviderModGroups", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]!.id).toBe("halogen");
     expect(groups[0]!.name).toBe("Halogen");
-    expect(groups[0]!.baseUrl).toBe("http://192.168.6.100:8080/olla/openai/v1");
+    expect(groups[0]!.baseUrl).toBe("http://192.0.2.100:8080/olla/openai/v1");
     expect(groups[0]!.apiKey).toBe("sk-x");
     expect(groups[0]!.models[0]).toMatchObject({
       id: "Qwen3.8-Flash-Next",

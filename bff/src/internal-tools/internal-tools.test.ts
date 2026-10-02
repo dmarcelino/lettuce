@@ -22,17 +22,22 @@ const handlers = (): ReadonlyMap<string, ToolHandler> =>
 const post = (path: string, body: unknown = { query: "q" }) =>
   new Request(`http://127.0.0.1:8080${path}`, { method: "POST", body: JSON.stringify(body) });
 
+// A docker bridge address (172.18.0.0/16): the assertion is "not loopback", and whose LAN it
+// belongs to is not this repo's business.  // check-prod-info: allow
+const DOCKER_BRIDGE = "172.18.0.1";
+const DOCKER_BRIDGE_MAPPED = "::ffff:172.18.0.5";
+
 describe("the internal route", () => {
   test("loopback means loopback", () => {
     for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.53"])
       expect(isLoopback(address)).toBe(true);
-    for (const address of ["172.18.0.1", "192.168.1.24", "::ffff:172.18.0.5", "", null, undefined])
+    for (const address of [DOCKER_BRIDGE, "192.0.2.24", DOCKER_BRIDGE_MAPPED, "", null, undefined])
       expect(isLoopback(address)).toBe(false);
   });
 
   test("a browser (non-loopback) gets a 404; other paths are not ours", async () => {
     expect(
-      (await handleInternalTools(post("/internal/tools/web_search"), "172.18.0.1", handlers))
+      (await handleInternalTools(post("/internal/tools/web_search"), DOCKER_BRIDGE, handlers))
         ?.status,
     ).toBe(404);
     expect(await handleInternalTools(post("/api/status"), "127.0.0.1", handlers)).toBeNull();

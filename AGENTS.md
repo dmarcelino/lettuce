@@ -440,8 +440,8 @@ project that is not on one laptop — so it matters, and so it is worth a human 
 It comes last, after `deploy-check`, so nothing reaches `origin` that has not been proven
 to run in the container first.
 
-**Prod is deployed from `origin`, not from this machine.** Dockhand (http://192.168.1.24:3000)
-builds the stack from `dmarchevsky/lettuce` `main` at the moment of the deploy (Dockhand's
+**Prod is deployed from `origin`, not from this machine.** Dockhand (its address lives in the
+`dockhand-deploy` skill's own config — never in a tracked file) builds the stack from `dmarchevsky/lettuce` `main` at the moment of the deploy (Dockhand's
 stored stack URL must be updated when the repo is renamed), so the push
 must land first and an unpushed commit never reaches prod. Use the `dockhand-deploy` skill
 (`~/.claude/skills/dockhand-deploy/`) for every step — `plan`, `deploy --confirm`, `verify` — never
@@ -457,11 +457,15 @@ commits are live) before any tag is created, per step 7b.
 The confirmation question must **name the target exactly** and show the preflight, so the user is
 approving a specific thing:
 
-| | Prod value |
+| | Prod target |
 |---|---|
-| Dockhand environment | `letta` (id 7, host `172.31.0.102`) |
-| Stack | `letta-code-ui-prod` (git stack id 8, compose `docker/compose.yml`) |
+| Dockhand environment | `letta` |
+| Stack | `letta-code-ui-prod`, compose `docker/compose.yml` |
 | Containers | `letta-code-ui-prod-app-server-1`, `-bff-1`, `-channel-gateway-1`, `-cloudflared-1` |
+
+**No prod hostnames, IP addresses or Dockhand ids are kept in this repo** — names are enough to
+address it, and everything else is read live from `dockhand.sh stacks letta`. `bun run
+check-prod-info` keeps it that way (private IPv4 ranges and personal mail domains fail it).
 
 Re-read environment and stack from `dockhand.sh stacks letta` before asking — never from memory,
 never inferred from a similar name (`duckduckgo` alone exists in three environments). If they do
@@ -514,6 +518,7 @@ app-server request loop that `use-session.ts` documents).
 | Command | What it does |
 |---|---|
 | `bun run verify` | **The gate.** worktree → version-pin → docs → lint → typecheck → test → build, fail-fast |
+| `bun run check-prod-info` | Fails if any tracked file contains a private IPv4 address or a personal mail domain |
 | `bun run check-docs` | Asserts `AGENTS.md` and `.agents/skills/` are honest: anchors, paths, command table, skill frontmatter, size budget |
 | `bun run deploy-check` | Asserts the running container serves the merged code, and is healthy |
 | `bun run ui-check` | Layout/interaction assertions in a real browser; screenshots to `.ui-check/` |
@@ -553,6 +558,9 @@ The repo carries its own agent-harness configuration so the rules above are not 
   session does not have to remember the order.
 - `.pi/remote-pi/`, `.pi/npm/`, `.pi/sessions/` and `.pi/settings.json` are per-machine and
   gitignored (a local `settings.json` is how you point `skills` at `~/.claude/skills`).
+- `bun run check-prod-info` fails on private IPv4 addresses and personal mail domains anywhere in
+  tracked files — the repo is public, so prod is referred to by name only. Use RFC 5737's
+  documentation ranges (`192.0.2.0/24`) in examples and tests.
 - `bun run check-docs` keeps this file and the skills honest: every `docs/*.md#anchor` resolves, every
   repo path mentioned exists, the command table matches `package.json`, skill frontmatter is valid
   and matches its directory, and `AGENTS.md` stays inside its budget (`--print-size` shows it).
