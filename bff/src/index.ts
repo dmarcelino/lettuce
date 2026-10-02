@@ -1097,7 +1097,19 @@ app.post("/api/web-tools/test", async (c) => {
 
 app.get("/api/model-caps", (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
-  return c.json({ models: modelCaps.models() });
+  // Endpoint snapshots minus the key: a declared provider no Settings
+  // connection owns (an env-seeded one like halogen) still needs its URL and
+  // name to render as a served model. Keys stay write-only, same as everywhere.
+  const endpoints = Object.fromEntries(
+    Object.entries(modelCaps.endpoints()).map(([prefix, info]) => [
+      prefix,
+      {
+        ...(info.baseUrl ? { baseUrl: info.baseUrl } : {}),
+        ...(info.name ? { name: info.name } : {}),
+      },
+    ]),
+  );
+  return c.json({ models: modelCaps.models(), endpoints });
 });
 
 app.put("/api/model-caps", async (c) => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
-import { fetchModelCaps, type ModelCaps } from "../lib/model-caps.ts";
+import { fetchModelCaps, type ModelCapsStore } from "../lib/model-caps.ts";
 import {
   handleProvider,
   isCapabilityLessHandle,
@@ -86,7 +86,7 @@ export function ConnectionSection({ session }: { session: SessionApi }) {
   const models = useModels(session);
   // What the operator declared per model (bff/src/providers/store.ts); the
   // row's tags are the save confirmation, so this is display state only.
-  const [caps, setCaps] = useState<Record<string, ModelCaps>>({});
+  const [caps, setCaps] = useState<ModelCapsStore>({ models: {}, endpoints: {} });
   const [editingModel, setEditingModel] = useState<ModelEditTarget | null>(null);
 
   const loadCaps = useCallback(async () => {
@@ -183,8 +183,19 @@ export function ConnectionSection({ session }: { session: SessionApi }) {
   // fails for llama.cpp and only llama.cpp: it reports "llama-cpp" but stamps
   // "llama.cpp/" onto every handle. See lib/providers.ts.
   const localKeys = localProviderKeys(local);
-  const localModels = models.models.filter((m) => isLocalHandle(m.handle, localKeys));
-  const cloudModels = models.models.filter((m) => !isLocalHandle(m.handle, localKeys));
+  // A declared provider (the mod registers it) is served here even when no
+  // Settings connection owns its prefix — an env-seeded one like `halogen`
+  // would otherwise be filed under Cloud by the classifier.
+  const declaredPrefixes = new Set(
+    [...Object.keys(caps.models), ...Object.keys(caps.endpoints)].map((key) => {
+      const cut = key.indexOf("/");
+      return cut > 0 ? key.slice(0, cut) : key;
+    }),
+  );
+  const servedHere = (handle: string) =>
+    isLocalHandle(handle, localKeys) || declaredPrefixes.has(handleProvider(handle));
+  const localModels = models.models.filter((m) => servedHere(m.handle));
+  const cloudModels = models.models.filter((m) => !servedHere(m.handle));
 
   const open = (provider: ProviderEntry) => {
     setEditing(provider);
@@ -236,11 +247,17 @@ export function ConnectionSection({ session }: { session: SessionApi }) {
       <ul className="list">
         {localModels.map((model) => {
           const prefix = handleProvider(model.handle);
-          const declared = caps[model.handle];
-          // Only capability-less endpoints can be declared; native ones
-          // already report their own capabilities and need no editing.
-          const editable = isCapabilityLessHandle(model.handle, models.aliases);
+          const declared = caps.models[model.handle];
+          // Editable when the endpoint reports no capabilities, or when the
+          // prefix is one this store declares (a seeded provider keeps its
+          // declaration editable even though no connection row owns it).
+          const editable =
+            isCapabilityLessHandle(model.handle, models.aliases) || declaredPrefixes.has(prefix);
           const connection = providerForPrefix(providers, models.aliases, prefix);
+          const baseUrl =
+            (typeof connection?.connected === "object"
+              ? connection.connected.base_url
+              : undefined) ?? caps.endpoints[prefix]?.baseUrl;
           return (
             <li key={model.id}>
               <div className="row static">
@@ -266,10 +283,7 @@ export function ConnectionSection({ session }: { session: SessionApi }) {
                       setEditingModel({
                         handle: model.handle,
                         label: model.label,
-                        baseUrl:
-                          typeof connection?.connected === "object"
-                            ? connection.connected.base_url
-                            : undefined,
+                        baseUrl,
                         requiresKey: connection?.requires_api_key === true,
                         caps: declared ?? null,
                       })

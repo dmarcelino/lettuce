@@ -22,11 +22,21 @@ async function ok(response: Response): Promise<Response> {
   return response;
 }
 
-export async function fetchModelCaps(): Promise<Record<string, ModelCaps>> {
-  const body = (await (await ok(await fetch("/api/model-caps"))).json()) as {
-    models: Record<string, ModelCaps>;
-  };
-  return body.models ?? {};
+/** What the store knows about an endpoint (never the key). */
+export interface EndpointInfo {
+  baseUrl?: string;
+  name?: string;
+}
+
+export interface ModelCapsStore {
+  models: Record<string, ModelCaps>;
+  /** By provider prefix; lets an env-seeded provider render as a served model. */
+  endpoints: Record<string, EndpointInfo>;
+}
+
+export async function fetchModelCaps(): Promise<ModelCapsStore> {
+  const body = (await (await ok(await fetch("/api/model-caps"))).json()) as Partial<ModelCapsStore>;
+  return { models: body.models ?? {}, endpoints: body.endpoints ?? {} };
 }
 
 export async function saveModelCaps(
