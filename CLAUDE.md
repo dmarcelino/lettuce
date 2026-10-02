@@ -983,6 +983,13 @@ must land first and an unpushed commit never reaches prod. Use the `dockhand-dep
 (`~/.claude/skills/dockhand-deploy/`) for every step — `plan`, `deploy --confirm`, `verify` — never
 ad-hoc API calls and never the Dockhand stop/down/delete/exec endpoints.
 
+**When that skill is not present on the machine running the release, the release ends at
+`git push origin main`.** Stop there, report the pushed commit range, and tell the user the prod
+redeploy is theirs to trigger manually (from a machine that has the skill, or the Dockhand UI)
+— do not substitute ad-hoc API calls for a missing skill. The rest of the flow is unchanged:
+the deploy is still verified (`dockhand verify` or the user's own confirmation that the pushed
+commits are live) before any tag is created, per step 7b.
+
 The confirmation question must **name the target exactly** and show the preflight, so the user is
 approving a specific thing:
 
