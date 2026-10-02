@@ -85,6 +85,9 @@ before exposing anything.
 - **Any MCP server** you add, in one list shared by every agent.
 - **Tool approvals.** A tool call that needs permission surfaces as a sheet you
   can allow or deny, from any device — and sends a push if nobody is watching.
+- **Structured questions.** An agent can ask a multiple-choice question that
+  appears as a card you answer or skip; the agent keeps working meanwhile, and
+  the answer can come from any device.
 
 ### Files and workspaces
 
