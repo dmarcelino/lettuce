@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BranchSheet } from "../components/BranchSheet.tsx";
 import { FileViewer } from "../components/FileViewer.tsx";
 import { GitHistorySheet } from "../components/GitHistorySheet.tsx";
@@ -7,6 +7,7 @@ import { Sheet } from "../components/Sheet.tsx";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { downloadUrl, formatBytes, triggerDownload } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { fetchGitRepo } from "../lib/git.ts";
 import { formatEntryTimeFull } from "../lib/timestamps.ts";
 import { agentWorkspace, WORKSPACE_ROOT } from "../lib/workspace.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -77,6 +78,26 @@ export function newFilePath(root: string, name: string): string | null {
   return resolve(root, trimmed);
 }
 
+/**
+ * Whether the pane bar offers Branch and History. The BFF decides repo-ness
+ * (git is not in the app-server image, and upstream has only branch
+ * commands), so the answer is per-folder and arrives a moment after the
+ * listing.
+ *
+ * Hidden while unknown: in flight, a failed request, or any answer that is not
+ * `repo: true`. A git folder therefore gains the buttons a beat after its
+ * files appear; a plain one never shows buttons whose sheets could only say
+ * "this folder isn't a git repository". An answer for another path is not an
+ * answer about this one — that is the race guard for a slow probe racing a
+ * navigation.
+ */
+export function gitActionsVisible(
+  probe: { path: string; repo: boolean } | null,
+  root: string,
+): boolean {
+  return probe !== null && probe.repo && probe.path === root;
+}
+
 interface Props {
   session: SessionApi;
   /** Working directory of the active runtime; the tree is rooted here. */
@@ -97,6 +118,10 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [branchesOpen, setBranchesOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newFileOpen, setNewFileOpen] = useState(false);
+  /** The last git answer we trust, tagged with the folder it was about. */
+  const [repoProbe, setRepoProbe] = useState<{ path: string; repo: boolean } | null>(null);
+  /** The folder the last `load` asked for — what a probe answer must match. */
+  const loadedPath = useRef<string | null>(null);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -140,8 +165,28 @@ export function FilesTab({ session, cwd, agentId }: Props) {
     setSelected(null);
   }, []);
 
+  /**
+   * Ask the BFF whether `path` is inside a repository, in parallel with the
+   * listing. No cache: a folder the agent `git init`s while you watch it gains
+   * the buttons on the next load, and a stale cache is the only way a plain
+   * folder ends up with two dead buttons. An answer that raced a navigation is
+   * dropped — the ref holds the folder actually on screen.
+   */
+  const probeGitRepo = useCallback(async (path: string) => {
+    let repo = false;
+    try {
+      repo = (await fetchGitRepo(path)).repo;
+    } catch {
+      repo = false;
+    }
+    if (loadedPath.current !== path) return;
+    setRepoProbe({ path, repo });
+  }, []);
+
   const load = useCallback(
     async (path: string) => {
+      loadedPath.current = path;
+      void probeGitRepo(path);
       setStatus("Loading…");
       try {
         const response = await session.request<{
@@ -159,12 +204,24 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         failed(errorMessage(cause));
       }
     },
-    [session, failed],
+    [session, failed, probeGitRepo],
   );
 
   useEffect(() => {
     if (root) void load(root);
   }, [root, load]);
+
+  /**
+   * Git controls follow the folder, not the last folder that happened to be a
+   * repository: navigating from a repo to a plain directory closes a sheet
+   * that can no longer say anything true about what is on screen.
+   */
+  const showGitActions = gitActionsVisible(repoProbe, root ?? "");
+  useEffect(() => {
+    if (showGitActions) return;
+    setBranchesOpen(false);
+    setHistoryOpen(false);
+  }, [showGitActions]);
 
   /** Hand the file to the browser's download manager via the BFF's HTTP route. */
   const downloadFile = (path: string) => {
@@ -219,22 +276,30 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         </button>
         <code className="path">{root}</code>
         <span className="spacer" />
-        <button
-          type="button"
-          className="link"
-          onClick={() => setHistoryOpen(true)}
-          title="Browse git history"
-        >
-          <Icon name="history" /> History
-        </button>
-        <button
-          type="button"
-          className="link"
-          onClick={() => setBranchesOpen(true)}
-          title="Switch git branch"
-        >
-          <Icon name="branch" /> Branch
-        </button>
+        {/* Only in a folder that git says is a repository — see
+            `gitActionsVisible`. Both sheets keep their own "isn't a git
+            repository" state as the fallback for a repo vanishing between
+            this probe and the click. */}
+        {showGitActions ? (
+          <>
+            <button
+              type="button"
+              className="link"
+              onClick={() => setHistoryOpen(true)}
+              title="Browse git history"
+            >
+              <Icon name="history" /> History
+            </button>
+            <button
+              type="button"
+              className="link"
+              onClick={() => setBranchesOpen(true)}
+              title="Switch git branch"
+            >
+              <Icon name="branch" /> Branch
+            </button>
+          </>
+        ) : null}
         <button
           type="button"
           className="link"
@@ -409,11 +474,13 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         />
       ) : null}
 
-      {branchesOpen ? (
+      {branchesOpen && showGitActions ? (
         <BranchSheet session={session} cwd={root} onClose={() => setBranchesOpen(false)} />
       ) : null}
 
-      {historyOpen ? <GitHistorySheet cwd={root} onClose={() => setHistoryOpen(false)} /> : null}
+      {historyOpen && showGitActions ? (
+        <GitHistorySheet cwd={root} onClose={() => setHistoryOpen(false)} />
+      ) : null}
     </div>
   );
 }

@@ -62,9 +62,23 @@ export type GitCommitResponse =
   | { repo: true; root: string; commit: GitCommitInfo }
   | { repo: false; reason: string };
 
+/**
+ * "Is this folder at or inside a repository?" — the one answer the Files tab
+ * uses to decide whether to offer Branch and History at all. Same two shapes
+ * as the log: `repo: false` is a friendly state, not an error.
+ */
+export type GitRepoResponse =
+  | { repo: true; root: string; branch: string }
+  | { repo: false; reason: string };
+
 async function ok(response: Response): Promise<Response> {
   if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
   return response;
+}
+
+export async function fetchGitRepo(path: string): Promise<GitRepoResponse> {
+  const response = await ok(await fetch(`/api/git/repo?${new URLSearchParams({ path })}`));
+  return (await response.json()) as GitRepoResponse;
 }
 
 export async function fetchGitLog(

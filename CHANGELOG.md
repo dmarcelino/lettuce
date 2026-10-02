@@ -9,6 +9,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 - Browse the git history of any workspace folder from the Files tab: the commit log scoped to the open folder, and per-commit details with changed files and +/− stats.
 
 ### Fixed
+- Show Branch and History in the Files tab only for folders inside a git repository — a plain workspace no longer offers two buttons that can only say "isn't a git repository".
 - Escape inside a Settings section's own sheet (e.g. a model's capability edit) closes just that sheet — it no longer takes the whole Settings screen with it.
 
 ## [v0.5.0-letta_0.34.1] - 2026-10-02

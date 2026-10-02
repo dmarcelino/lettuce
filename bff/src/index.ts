@@ -51,7 +51,12 @@ import { type BffConfig, googleWritesAllowed, isAllowedUser, loadConfig } from "
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
-import { type GitRouteResult, gitCommitResponse, gitLogResponse } from "./git/routes.ts";
+import {
+  type GitRouteResult,
+  gitCommitResponse,
+  gitLogResponse,
+  gitRepoResponse,
+} from "./git/routes.ts";
 import { checkGitAvailability, runGit } from "./git/service.ts";
 import { createGoogleFsIo } from "./google/fs-io.ts";
 import { googleSettingsUrl, type LostAccessPort } from "./google/lost-access.ts";
@@ -1514,6 +1519,13 @@ app.get("/api/files/download", async (c) => {
 // and nothing goes upstream. The handlers (session, workspace clamp, symlink
 // guard, realpath re-check, then git) live in `git/routes.ts`; this is only
 // the HTTP plumbing. See that file and `git/log.ts` for the reasoning.
+
+app.get("/api/git/repo", async (c) => {
+  return gitResponse(
+    c,
+    await gitRepoResponse({ hasSession: !!c.get("session") }, { path: c.req.query("path") }),
+  );
+});
 
 app.get("/api/git/log", async (c) => {
   return gitResponse(

@@ -2,8 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyGitFailure, type GitResult, NOT_A_REPOSITORY_STDERR } from "./log.ts";
-import { type GitRouteDeps, gitCommitResponse, gitLogResponse } from "./routes.ts";
+import {
+  classifyGitFailure,
+  type GitResult,
+  NOT_A_REPOSITORY_STDERR,
+  PROBE_BRANCH,
+  PROBE_GIT_DIR,
+  PROBE_TOPLEVEL,
+} from "./log.ts";
+import { type GitRouteDeps, gitCommitResponse, gitLogResponse, gitRepoResponse } from "./routes.ts";
 import type { GitRunner } from "./service.ts";
 
 // The routes clamp against /work in production; tests move the root to a real
@@ -60,6 +67,109 @@ function repoAnswers(calls: string[][], dirs?: string[]): GitRunner {
 }
 
 const session = { hasSession: true } satisfies Partial<GitRouteDeps>;
+
+describe("GET /api/git/repo handler", () => {
+  test("no session means no git, at all", async () => {
+    const calls: string[][] = [];
+    const result = await gitRepoResponse(
+      { hasSession: false, runner: repoAnswers(calls), root },
+      { path: repoDir },
+    );
+    expect(result.status).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  test("a bad path is refused before anything touches the disk", async () => {
+    const calls: string[][] = [];
+    const deps: GitRouteDeps = { ...session, runner: repoAnswers(calls), root };
+    expect((await gitRepoResponse(deps, {})).status).toBe(400);
+    expect((await gitRepoResponse(deps, { path: "relative/dir" })).status).toBe(400);
+    expect((await gitRepoResponse(deps, { path: "/etc/passwd" })).status).toBe(400);
+    expect((await gitRepoResponse(deps, { path: `${root}/../escape` })).status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
+  test("a symlink out of the workspace is refused; git is never asked", async () => {
+    const calls: string[][] = [];
+    const result = await gitRepoResponse(
+      { ...session, runner: repoAnswers(calls), root },
+      { path: join(root, "link") },
+    );
+    expect(result.status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
+  test("a realpath that lands outside the workspace is refused", async () => {
+    const calls: string[][] = [];
+    const result = await gitRepoResponse(
+      { ...session, runner: repoAnswers(calls), root, realpath: () => "/somewhere/else" },
+      { path: repoDir },
+    );
+    expect(result.status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
+  test("a missing directory and a file both answer 404", async () => {
+    const calls: string[][] = [];
+    const deps: GitRouteDeps = { ...session, runner: repoAnswers(calls), root };
+    expect((await gitRepoResponse(deps, { path: join(root, "nope") })).status).toBe(404);
+    expect((await gitRepoResponse(deps, { path: join(root, "repo", "file.txt") })).status).toBe(
+      404,
+    );
+    expect(calls).toEqual([]);
+  });
+
+  test("a plain folder is repo:false, decided by one probe and no log", async () => {
+    const calls: string[][] = [];
+    const result = await gitRepoResponse(
+      { ...session, runner: scriptedRunner(() => notARepo, calls), root },
+      { path: join(root, "plain") },
+    );
+    expect(result.status).toBe(200);
+    expect(result.json).toEqual({
+      repo: false,
+      reason: "fatal: not a git repository (or any of the parent directories): .git",
+    });
+    // The whole point of this route being cheap enough to run per directory
+    // load: git's refusal arrives on the first probe, and nothing follows it.
+    expect(calls).toEqual([PROBE_GIT_DIR]);
+  });
+
+  test("a repository answers root and branch", async () => {
+    const calls: string[][] = [];
+    const result = await gitRepoResponse(
+      { ...session, runner: repoAnswers(calls), root },
+      { path: repoDir },
+    );
+    expect(result.status).toBe(200);
+    expect(result.json).toEqual({ repo: true, root: repoDir, branch: "main" });
+    // No log, no show — the probe alone is the answer.
+    expect(calls).toEqual([PROBE_GIT_DIR, PROBE_TOPLEVEL, PROBE_BRANCH]);
+  });
+
+  test("a subfolder reports the repository above it", async () => {
+    const calls: string[][] = [];
+    const result = await gitRepoResponse(
+      { ...session, runner: repoAnswers(calls), root },
+      { path: join(repoDir, "src") },
+    );
+    expect(result.status).toBe(200);
+    const body = result.json as { repo: boolean; root: string };
+    expect(body.repo).toBe(true);
+    // git's own answer, so the root is the repository, not the open folder.
+    expect(body.root).toBe(repoDir);
+  });
+
+  test("infrastructure failures map to 503 and 429", async () => {
+    const depsFor = (kind: string): GitRouteDeps => ({
+      ...session,
+      root,
+      runner: scriptedRunner(() => failKind(kind), []),
+    });
+    expect((await gitRepoResponse(depsFor("git-unavailable"), { path: repoDir })).status).toBe(503);
+    expect((await gitRepoResponse(depsFor("busy"), { path: repoDir })).status).toBe(429);
+  });
+});
 
 describe("GET /api/git/log handler", () => {
   test("no session means no git, at all", async () => {

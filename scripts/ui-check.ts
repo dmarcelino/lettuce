@@ -675,13 +675,25 @@ try {
       check("a file name gets most of the row on a phone", nameShare >= 0.6, { nameShare });
     }
 
-    // The git-history entry sits in the same pane-bar as Branch; at phone
+    // The git entry points sit in the same pane-bar as New file; at phone
     // width the bar must still fit, and the sheet must open and close like
-    // every other sheet. Whether the workspace is a repository decides the
-    // sheet's body — clipping is asserted either way.
+    // every other sheet. They are only offered for a folder inside a git
+    // repository, and a default agent workspace is a plain directory — so the
+    // negative path is the one an ordinary run exercises.
     const phoneHistory = page.locator('.pane-bar button:has-text("History")');
-    check("History is on the Files pane bar on a phone", (await phoneHistory.count()) > 0);
-    if ((await phoneHistory.count()) > 0) {
+    const phoneBranch = page.locator('.pane-bar button:has-text("Branch")');
+    if ((await phoneHistory.count()) === 0) {
+      check(
+        "no git controls in a non-repository folder on a phone",
+        (await phoneBranch.count()) === 0,
+        { history: 0, branch: await phoneBranch.count() },
+      );
+      console.log("  SKIP  git actions on a phone (this workspace is not a git repository)");
+    } else {
+      check(
+        "History and Branch are both on the Files pane bar on a phone",
+        (await phoneBranch.count()) > 0,
+      );
       await phoneHistory.click();
       await page.waitForTimeout(800);
       const phoneSheet = page.locator('.sheet-panel[aria-label="History"]');
@@ -1359,13 +1371,21 @@ try {
       await shot(page, "desktop-files");
     }
 
-    // Git history: the sheet always opens; commit-row and detail assertions
-    // only run when the probed workspace actually is a repository — asserting
-    // rows against a plain directory would pass for the wrong reason, so it
-    // follows the download-skip idiom above.
+    // Git history: the controls only exist for a folder inside a repository,
+    // and the probed workspace usually is not one — so a missing pair is
+    // asserted as a pair, and the sheet flow runs only when there is a repo.
+    // Commit-row assertions still follow the download-skip idiom below: a row
+    // asserted against an empty repository would pass for the wrong reason.
     const historyButton = page.locator('.pane-bar button:has-text("History")');
-    check("History is on the Files pane bar", (await historyButton.count()) > 0);
-    if ((await historyButton.count()) > 0) {
+    const branchButton = page.locator('.pane-bar button:has-text("Branch")');
+    if ((await historyButton.count()) === 0) {
+      check("no git controls in a non-repository folder", (await branchButton.count()) === 0, {
+        history: 0,
+        branch: await branchButton.count(),
+      });
+      console.log("  SKIP  git actions (this workspace is not a git repository)");
+    } else {
+      check("Branch is on the Files pane bar", (await branchButton.count()) > 0);
       await historyButton.first().click();
       const historySheet = page.locator('.sheet-panel[aria-label="History"]');
       await historySheet.waitFor({ state: "visible", timeout: 5000 });

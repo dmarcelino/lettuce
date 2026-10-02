@@ -1,6 +1,6 @@
 /**
- * The two session-gated HTTP routes behind Files → History. Both read a git
- * repository through the BFF's read-only `/work` mount because upstream
+ * The three session-gated HTTP routes behind Files → History/Branch. They read
+ * a git repository through the BFF's read-only `/work` mount because upstream
  * exposes only `search_branches` / `checkout_branch` and the app-server image
  * ships no git binary — so the log is read here, and nothing goes upstream.
  *
@@ -53,6 +53,43 @@ export interface GitLogQuery {
 export interface GitCommitQuery {
   path?: string;
   sha?: string;
+}
+
+export interface GitRepoQuery {
+  path?: string;
+}
+
+/**
+ * `GET /api/git/repo?path=` — is this folder at or inside a repository?
+ *
+ * The Files tab asks this for the folder it just opened and shows Branch and
+ * History only when the answer is yes, instead of offering two buttons whose
+ * only content is "this folder isn't a git repository". The BFF decides for
+ * both controls — one source of truth — rather than letting upstream's
+ * `search_branches` decide for Branch.
+ *
+ * A plain directory is a 200 with `repo: false`, not an error: on the common
+ * path only the `--git-dir` probe runs and git refuses immediately.
+ */
+export async function gitRepoResponse(
+  deps: GitRouteDeps,
+  query: GitRepoQuery,
+): Promise<GitRouteResult> {
+  if (!deps.hasSession) return { status: 401, text: "Unauthorized" };
+
+  const guard = guardDirectory(deps, query.path);
+  if (!guard.ok) return guard.result;
+
+  const runner = deps.runner ?? runGit;
+  const probe = await probeRepo(runner, guard.real);
+  if (!probe.ok) {
+    if (probe.failure.kind === "not-a-repository") {
+      return { status: 200, json: { repo: false, reason: probe.failure.detail } };
+    }
+    return failureResult(probe.failure);
+  }
+
+  return { status: 200, json: { repo: true, root: probe.root, branch: probe.branch } };
 }
 
 /** `GET /api/git/log?path=&limit=&skip=` — the commit log of the folder's repository. */

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isEditableFile } from "../components/FileViewer.tsx";
-import { newFilePath, parentDirectory, resolve } from "./FilesTab.tsx";
+import { gitActionsVisible, newFilePath, parentDirectory, resolve } from "./FilesTab.tsx";
 
 const ROOT = "/work";
 const AGENT = "/work/agent-local-e596ee28-7374-4a66-b410-f4f8cab1abdf";
@@ -53,6 +53,30 @@ describe("New file", () => {
     expect(newFilePath(AGENT, "/etc/passwd")).toBeNull();
     expect(newFilePath(AGENT, "")).toBeNull();
     expect(newFilePath(AGENT, "   ")).toBeNull();
+  });
+});
+
+describe("git controls", () => {
+  const PROBED = `${AGENT}/repo`;
+
+  test("nothing is offered until the BFF answers", () => {
+    // In flight, and the folder the tab opens before any answer lands.
+    expect(gitActionsVisible(null, PROBED)).toBe(false);
+  });
+
+  test("a plain folder never gets the buttons", () => {
+    expect(gitActionsVisible({ path: PROBED, repo: false }, PROBED)).toBe(false);
+  });
+
+  test("a repository shows them", () => {
+    expect(gitActionsVisible({ path: PROBED, repo: true }, PROBED)).toBe(true);
+  });
+
+  test("an answer about another folder is not an answer about this one", () => {
+    // The race: a slow probe for the folder you left must not open the
+    // controls for the plain one you just navigated into.
+    expect(gitActionsVisible({ path: PROBED, repo: true }, AGENT)).toBe(false);
+    expect(gitActionsVisible({ path: PROBED, repo: true }, `${PROBED}/src`)).toBe(false);
   });
 });
 
