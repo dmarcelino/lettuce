@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- New `VISION_PROVIDERS` env publishes vision and the real context window for a model behind an OpenAI-only endpoint (e.g. halogen), so images reach it instead of being dropped as "model does not support images".
+
+### Fixed
+- Tapping an image you sent shows it full-size in the app; it used to open a new tab the browser refuses to navigate to.
+
 ## [v0.4.0-letta_0.34.1] - 2026-10-02
 
 ### Added

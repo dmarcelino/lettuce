@@ -289,6 +289,10 @@ services:
       # is the search fallback. Empty disables that backend.
       SEARXNG_URL: ${SEARXNG_URL-http://searxng:8080}
       DDG_MCP_URL: ${DDG_MCP_URL-http://ddg-mcp:8000/mcp}
+      # Provider mods for vision-capable models behind OpenAI-only endpoints
+      # (JSON array — bff/src/providers/vision.ts, docs/CONFIGURATION.md).
+      # Empty means no extra providers.
+      VISION_PROVIDERS: ${VISION_PROVIDERS:-}
       # Settings → Google. Changing Google access from a dev-bypass session is
       # refused unless this is "true": agent shells share this namespace and can
       # sign themselves in through the bypass. See bff/src/config.ts.

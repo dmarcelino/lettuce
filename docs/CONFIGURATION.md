@@ -179,6 +179,36 @@ backend status and a test search.
 Without the profile the tools stay registered and every call fails with the
 backend's error, so switch them off in Settings → Web.
 
+## Vision model providers
+
+| Variable | Default | Effect |
+|---|---|---|
+| `VISION_PROVIDERS` | empty | JSON array of providers whose models are declared vision-capable |
+
+letta-code can only detect vision from a provider's native capability schema
+(llama.cpp's `/props` / native `/models`, Ollama's `/api/tags`). A model behind a
+plain OpenAI-compatible `/v1/models` endpoint is always resolved text-only — the
+image is silently replaced with an "(image omitted)" placeholder before the call,
+even when the server reads images fine — and its context window clamps to the
+harness default of 128 000. `VISION_PROVIDERS` publishes both facts through a
+provider mod (the BFF renders it into the app-server's mods dir like every
+other mod). Set it in `docker/.env`; agents then select the model under the
+new provider id, e.g. `halogen/Qwen3.8-Flash-Next`.
+
+```
+VISION_PROVIDERS=[{"id":"halogen","name":"Halogen","description":"Qwen3.8-Flash-Next on Strix Halo via Olla","baseUrl":"http://192.168.6.100:8080/olla/openai/v1","models":[{"id":"Qwen3.8-Flash-Next","name":"Qwen3.8-Flash-Next","contextWindow":262144,"maxTokens":32768}]}]
+```
+
+Per entry: `id` (lowercase, becomes the model-handle prefix), `baseUrl`
+(OpenAI-compatible, `/v1` included), optional `name`, `description`, `apiKey`
+(env-var name or literal; default no auth), and `models[]` with `id`, optional
+`name`, `reasoning: true` (server emits thinking; default off), `input`
+(default `["text","image"]`), and the **real** `contextWindow` and completion
+`maxTokens` of the served endpoint — halogen on this setup serves a 262 144-token window and
+rejects completions above its `max_tokens_cap` of 32 768, hence the values
+above — `/health` on the actual endpoint reports both live numbers. An unparsable value is logged
+and ignored; the mod reloads on the BFF's next connect.
+
 ## Google (Gmail, Calendar, Tasks, Contacts)
 
 Needs the `google` profile. The client ID/secret and the per-service

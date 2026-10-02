@@ -82,6 +82,11 @@ import { MCP_SKILL_NAME } from "./mcp/skill.ts";
 import { McpCatalog } from "./mcp-bridge/catalog.ts";
 import { mcpClient } from "./mcp-bridge/client.ts";
 import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
+import {
+  PROVIDERS_MOD_PATH,
+  parseVisionProviders,
+  renderProvidersMod,
+} from "./providers/vision.ts";
 import { AgentNames } from "./push/agent-names.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { configureWebPush, sendPush } from "./push/send.ts";
@@ -434,6 +439,20 @@ const modsIo: ModsIo = {
   },
 };
 
+// Provider mods declared by VISION_PROVIDERS (bff/src/providers/vision.ts):
+// the only sanctioned way to publish vision — and the real context window —
+// for a model behind an OpenAI-only endpoint. A value that will not parse is
+// a mistake in the operator's environment, not a reason to stay down: log it
+// loudly and run without the extra providers.
+const visionProviders = (() => {
+  try {
+    return parseVisionProviders(process.env.VISION_PROVIDERS);
+  } catch (error) {
+    log(`Providers: ignoring VISION_PROVIDERS — ${errorMessage(error)}`);
+    return [];
+  }
+})();
+
 /** Every mod as it should be now, from the saved switch and the last catalog. */
 async function renderAllMods(): Promise<RenderedMod[]> {
   const web = await loadWebToolsSettings(codexIo);
@@ -475,6 +494,10 @@ async function renderAllMods(): Promise<RenderedMod[]> {
         codexBlocked: agentsWhere(access, (a) => !a.codex),
         claudeBlocked: agentsWhere(access, (a) => !a.claude),
       }),
+    },
+    {
+      path: PROVIDERS_MOD_PATH,
+      source: renderProvidersMod(visionProviders),
     },
   ];
 }
