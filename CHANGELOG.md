@@ -8,6 +8,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ### Added
 - Browse the git history of any workspace folder from the Files tab: the commit log scoped to the open folder, and per-commit details with changed files and +/− stats.
 
+### Changed
+- The stack's own images and containers are named `lettuce-*` now (`docker ps` shows `lettuce-bff-1`); no host folders, env vars or volumes move.
+
 ### Fixed
 - Show Branch and History in the Files tab only for folders inside a git repository — a plain workspace no longer offers two buttons that can only say "isn't a git repository".
 - Escape inside a Settings section's own sheet (e.g. a model's capability edit) closes just that sheet — it no longer takes the whole Settings screen with it.
