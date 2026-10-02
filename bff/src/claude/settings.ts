@@ -5,10 +5,10 @@
  * "claude-code"` and hands it nothing but a prompt and a cwd. Claude Code has
  * no config file for its endpoint — it reads `ANTHROPIC_BASE_URL`,
  * `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_MODEL` from the environment — so the
- * BFF keeps the saved settings as `letta-ui.json` in Claude's config dir and
+ * BFF keeps the saved settings as `lettuce.json` in Claude's config dir and
  * the shim injects them as env. There is no `config.toml` analogue.
  *
- * `letta-ui.json` doubles as the shim's switch: absent, unreadable or
+ * `lettuce.json` doubles as the shim's switch: absent, unreadable or
  * `enabled: false` and the shim refuses to run (docker/codex/claude-shim-core.mjs).
  *
  * Claude Code speaks only the Anthropic Messages API, which llama.cpp does not
@@ -18,7 +18,14 @@
 
 /** On the letta-home bind mount (`CLAUDE_CONFIG_DIR` in docker/compose.yml). */
 export const CLAUDE_HOME = "/root/.letta/claude";
-export const CLAUDE_SETTINGS_PATH = `${CLAUDE_HOME}/letta-ui.json`;
+export const CLAUDE_SETTINGS_PATH = `${CLAUDE_HOME}/lettuce.json`;
+/**
+ * This file's name before the `letta-ui` → `lettuce` rename. Read when the new
+ * one is absent and mirrored on every write, because the `claude` shim that
+ * reads it ships in the app-server image and that image is only rebuilt on a
+ * version bump. See `bff/src/internal-tools/legacy.ts`.
+ */
+export const CLAUDE_SETTINGS_LEGACY_PATH = `${CLAUDE_HOME}/letta-ui.json`;
 /** Where Claude writes its per-run transcripts: `<dir>/<session id>.jsonl`. */
 export const CLAUDE_PROJECTS_DIR = `${CLAUDE_HOME}/projects`;
 

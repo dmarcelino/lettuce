@@ -4,11 +4,13 @@
  * `internal-tools/install.ts`, shared with the other mods.)
  */
 
+import { readRenamed } from "../internal-tools/legacy.ts";
 import { loadMcpServers, type McpIo, saveMcpServers } from "../mcp/service.ts";
 import {
   applyWebToolsSettingsUpdate,
   parseStoredWebToolsSettings,
   renderStoredWebToolsSettings,
+  WEB_TOOLS_SETTINGS_LEGACY_PATH,
   WEB_TOOLS_SETTINGS_PATH,
   type WebToolsSettings,
 } from "./settings.ts";
@@ -23,7 +25,9 @@ export interface WebToolsIo {
 export async function loadWebToolsSettings(
   io: Pick<WebToolsIo, "read">,
 ): Promise<WebToolsSettings> {
-  return parseStoredWebToolsSettings(await io.read(WEB_TOOLS_SETTINGS_PATH));
+  return parseStoredWebToolsSettings(
+    await readRenamed(io, WEB_TOOLS_SETTINGS_PATH, WEB_TOOLS_SETTINGS_LEGACY_PATH),
+  );
 }
 
 /** A browser update: save the switch. The caller then re-syncs the mods. */

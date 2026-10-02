@@ -9,7 +9,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Written by the BFF (`bff/src/claude/settings.ts`) in Claude's config dir. */
-export const SETTINGS_FILE = "letta-ui.json";
+export const SETTINGS_FILE = "lettuce.json";
+/** Its name before the `letta-ui` → `lettuce` rename; the BFF mirrors into it. */
+export const SETTINGS_FILE_LEGACY = "letta-ui.json";
 
 export const DISABLED_MESSAGE =
   "Claude Code workers are disabled. Enable them in the web UI under Settings → Claude Code.";
@@ -36,12 +38,15 @@ export function claudeConfigDir(env) {
 
 /** The saved settings, or null when absent or unreadable — which means disabled. */
 export function readShimSettings(configDir) {
-  try {
-    const parsed = JSON.parse(readFileSync(join(configDir, SETTINGS_FILE), "utf8"));
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
+  for (const name of [SETTINGS_FILE, SETTINGS_FILE_LEGACY]) {
+    try {
+      const parsed = JSON.parse(readFileSync(join(configDir, name), "utf8"));
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      // Try the next name; no file at all means disabled.
+    }
   }
+  return null;
 }
 
 export function isEnabled(settings) {

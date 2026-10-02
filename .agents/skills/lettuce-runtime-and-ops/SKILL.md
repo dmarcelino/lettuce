@@ -49,7 +49,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
     with `EAGAIN`. Diagnosis story: docs/upstream-notes.md#zombie-eagain-diagnosis-2026-09-29.
   - `docker/codex/spawn-diagnostics.cjs`, preloaded into every node process in the image
     (`ENV NODE_OPTIONS=--require …` in the Dockerfile, never compose: a missing `--require`
-    target kills every node process). It logs `[letta-ui spawn-diag] spawn failed: <errno>
+    target kills every node process). It logs `[lettuce spawn-diag] spawn failed: <errno>
     file=… cwd=… pids=<current>/<max> zombies=<n>` to stderr, i.e. `docker logs` for the server
     and the "stderr tail" of a failing child's parent. Observe-only: it wraps
     `ChildProcess.prototype.emit` and never adds an `error` listener.

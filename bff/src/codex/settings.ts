@@ -5,16 +5,24 @@
  * "codex"` and hands it nothing but a prompt and a cwd, so everything else —
  * endpoint, model, key — has to be in Codex's own `$CODEX_HOME/config.toml`.
  * The BFF owns that file: it keeps the settings the user saved as
- * `letta-ui.json` and renders `config.toml` and `auth.json` from them, all over
+ * `lettuce.json` and renders `config.toml` and `auth.json` from them, all over
  * the permanent upstream connection (`write_file`), never a bind mount.
  *
- * `letta-ui.json` doubles as the shim's switch: absent, unreadable or
+ * `lettuce.json` doubles as the shim's switch: absent, unreadable or
  * `enabled: false` and the shim refuses to run (docker/codex/shim-core.mjs).
  */
 
 /** On the letta-home bind mount (`CODEX_HOME` in docker/compose.yml). */
 export const CODEX_HOME = "/root/.letta/codex";
-export const CODEX_SETTINGS_PATH = `${CODEX_HOME}/letta-ui.json`;
+export const CODEX_SETTINGS_PATH = `${CODEX_HOME}/lettuce.json`;
+/**
+ * This file's name before the `letta-ui` → `lettuce` rename. The BFF reads it
+ * when the new one is absent and mirrors every write into it, because the
+ * `codex` shim that reads it ships in the app-server image — and that image is
+ * only rebuilt on a version bump, so a new BFF runs against an old shim for a
+ * while. Drop both halves once the pinned image postdates the rename.
+ */
+export const CODEX_SETTINGS_LEGACY_PATH = `${CODEX_HOME}/letta-ui.json`;
 export const CODEX_CONFIG_PATH = `${CODEX_HOME}/config.toml`;
 export const CODEX_AUTH_PATH = `${CODEX_HOME}/auth.json`;
 /** letta-code's own provider record — the source of the suggested endpoint. */
@@ -179,7 +187,7 @@ export function renderCodexConfigToml(settings: CodexSettings): string {
   const lines = [
     "# Written by lettuce (Settings → Codex). Edits here are overwritten.",
     `model = ${tomlString(settings.model)}`,
-    `model_provider = "letta-ui"`,
+    `model_provider = "lettuce"`,
   ];
   if (settings.reasoningEffort) {
     lines.push(`model_reasoning_effort = ${tomlString(settings.reasoningEffort)}`);
@@ -187,7 +195,7 @@ export function renderCodexConfigToml(settings: CodexSettings): string {
   if (settings.contextWindow) lines.push(`model_context_window = ${settings.contextWindow}`);
   lines.push(
     "",
-    "[model_providers.letta-ui]",
+    "[model_providers.lettuce]",
     `name = "lettuce"`,
     `base_url = ${tomlString(settings.baseUrl)}`,
     `wire_api = "responses"`,
@@ -204,7 +212,7 @@ export function renderCodexConfigToml(settings: CodexSettings): string {
  * which exits non-zero until *some* login exists; this placeholder satisfied it.
  * Since 0.33.3 the preflight is `codex --version`, so it is vestigial but
  * harmless. It is an OpenAI-provider credential, and no
- * worker uses that provider: `letta-ui` above authenticates with its own
+ * worker uses that provider: `lettuce` above authenticates with its own
  * `experimental_bearer_token`, or not at all.
  */
 export const CODEX_PLACEHOLDER_KEY = "lettuce-placeholder-not-an-openai-key";

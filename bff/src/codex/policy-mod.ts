@@ -18,7 +18,7 @@
 
 import { MODS_DIR } from "../internal-tools/mod.ts";
 
-export const AGENT_POLICY_MOD_PATH = `${MODS_DIR}/letta-ui-agent-policy.mjs`;
+export const AGENT_POLICY_MOD_PATH = `${MODS_DIR}/lettuce-agent-policy.mjs`;
 
 export const CODEX_BLOCKED_REASON =
   "Codex workers are turned off for this agent (Agent → Tools in the UI). Tell the user; do not try to run Codex another way.";
@@ -30,7 +30,7 @@ export function renderAgentPolicyMod(options: {
   codexBlocked: readonly string[];
   claudeBlocked?: readonly string[];
 }): string {
-  const header = `// letta-ui agent-policy v2 — rendered by the lettuce BFF (bff/src/codex/policy-mod.ts).
+  const header = `// lettuce agent-policy v2 — rendered by the lettuce BFF (bff/src/codex/policy-mod.ts).
 // Edits here are overwritten on the BFF's next connect.`;
   const codex = [...options.codexBlocked].sort();
   const claude = [...(options.claudeBlocked ?? [])].sort();
@@ -60,7 +60,7 @@ function startsClaude(args) {
 export default function activate(letta) {
   if (!letta.capabilities?.permissions) return;
   return letta.permissions.register({
-    id: "letta-ui-external-workers-per-agent",
+    id: "lettuce-external-workers-per-agent",
     description: "Codex and Claude Code workers blocked per agent (Agent → Tools)",
     check(event) {
       const args = event.args ?? {};

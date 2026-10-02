@@ -12,9 +12,9 @@
  * grow this without limit. Storage failures degrade to "no draft" — see
  * `./storage.ts`.
  */
-import { defaultStorage, type MaybeStorage } from "./storage.ts";
+import { defaultStorage, type MaybeStorage, readStored } from "./storage.ts";
 
-const KEY = "letta-ui:draft";
+const KEY = "lettuce:draft";
 const MAX_DRAFTS = 20;
 
 /** `order` is oldest-first; `drafts` is the text by conversation key. */
@@ -32,7 +32,7 @@ export function draftKey(agentId: string | null, conversationId: string | null):
 
 function readStore(storage: MaybeStorage): DraftStore {
   try {
-    const raw = storage?.getItem(KEY);
+    const raw = readStored(storage, KEY);
     if (!raw) return EMPTY_STORE;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return EMPTY_STORE;

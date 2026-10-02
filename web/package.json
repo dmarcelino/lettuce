@@ -1,5 +1,5 @@
 {
-  "name": "@letta-ui/web",
+  "name": "@lettuce/web",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",

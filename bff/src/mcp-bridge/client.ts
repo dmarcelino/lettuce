@@ -61,7 +61,7 @@ export function textOfResult(result: unknown): CallResult {
 }
 
 async function withClient<T>(server: McpServer, run: (client: Client) => Promise<T>): Promise<T> {
-  const client = new Client({ name: "letta-ui-bff", version: "1" });
+  const client = new Client({ name: "lettuce-bff", version: "1" });
   try {
     await client.connect(transportFor(server), { timeout: 15_000 });
     return await run(client);

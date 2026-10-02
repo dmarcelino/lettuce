@@ -14,6 +14,15 @@ describe("settings", () => {
     expect(shim.readShimSettings(dir)).toBeNull();
   });
 
+  test("the settings file under its pre-rename name still counts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "shim-legacy-"));
+    writeFileSync(join(dir, shim.SETTINGS_FILE_LEGACY), JSON.stringify({ enabled: true }));
+    expect(shim.isEnabled(shim.readShimSettings(dir))).toBe(true);
+    // The current name wins once the BFF has written it.
+    writeFileSync(join(dir, shim.SETTINGS_FILE), JSON.stringify({ enabled: false }));
+    expect(shim.isEnabled(shim.readShimSettings(dir))).toBe(false);
+  });
+
   test("only an explicit true enables", () => {
     const dir = mkdtempSync(join(tmpdir(), "claude-home-"));
     writeFileSync(join(dir, shim.SETTINGS_FILE), JSON.stringify({ enabled: true }));

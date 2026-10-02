@@ -7,9 +7,11 @@
  */
 
 import type { CodexFileIo } from "../codex/service.ts";
+import { readRenamed, writeRenamed } from "../internal-tools/legacy.ts";
 import {
   applyClaudeSettingsUpdate,
   CLAUDE_PROJECTS_DIR,
+  CLAUDE_SETTINGS_LEGACY_PATH,
   CLAUDE_SETTINGS_PATH,
   type ClaudeSettings,
   parseStoredClaudeSettings,
@@ -37,13 +39,20 @@ export interface ClaudeFileIo extends CodexFileIo {
 const MAX_SCANNED_FILES = 30;
 
 export async function loadClaudeSettings(io: CodexFileIo): Promise<ClaudeSettings> {
-  return parseStoredClaudeSettings(await io.read(CLAUDE_SETTINGS_PATH));
+  return parseStoredClaudeSettings(
+    await readRenamed(io, CLAUDE_SETTINGS_PATH, CLAUDE_SETTINGS_LEGACY_PATH),
+  );
 }
 
 /** Merge a browser update into the saved settings and write the switch file. */
 export async function saveClaudeSettings(io: CodexFileIo, body: unknown): Promise<ClaudeSettings> {
   const next = applyClaudeSettingsUpdate(await loadClaudeSettings(io), body);
-  await io.write(CLAUDE_SETTINGS_PATH, renderStoredClaudeSettings(next));
+  await writeRenamed(
+    io,
+    CLAUDE_SETTINGS_PATH,
+    CLAUDE_SETTINGS_LEGACY_PATH,
+    renderStoredClaudeSettings(next),
+  );
   return next;
 }
 
@@ -63,11 +72,13 @@ export async function reapplyClaudeSettings(
   io: CodexFileIo,
   options: { profileEnabled?: boolean } = {},
 ): Promise<boolean> {
-  const stored = await io.read(CLAUDE_SETTINGS_PATH);
+  const stored = await readRenamed(io, CLAUDE_SETTINGS_PATH, CLAUDE_SETTINGS_LEGACY_PATH);
   if (stored === null) return false;
   const settings = parseStoredClaudeSettings(stored);
-  await io.write(
+  await writeRenamed(
+    io,
     CLAUDE_SETTINGS_PATH,
+    CLAUDE_SETTINGS_LEGACY_PATH,
     renderStoredClaudeSettings(
       options.profileEnabled === false ? { ...settings, enabled: false } : settings,
     ),

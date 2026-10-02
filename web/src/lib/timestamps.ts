@@ -5,13 +5,13 @@
  * is a reading preference, not conversation state, so nothing server-side
  * needs to know.
  */
-import { defaultStorage, type MaybeStorage } from "./storage.ts";
+import { defaultStorage, type MaybeStorage, readStored } from "./storage.ts";
 
-const KEY = "letta-ui:timestamps";
+const KEY = "lettuce:timestamps";
 
 export function readShowTimestamps(storage: MaybeStorage = defaultStorage()): boolean {
   try {
-    return storage?.getItem(KEY) !== "off";
+    return readStored(storage, KEY) !== "off";
   } catch {
     return true;
   }

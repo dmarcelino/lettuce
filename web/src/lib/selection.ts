@@ -9,21 +9,21 @@
  * agent, and two independent keys can be written at different moments, which is
  * how you end up restoring a conversation id that belongs to a different agent.
  */
-import { defaultStorage, type MaybeStorage } from "./storage.ts";
+import { defaultStorage, type MaybeStorage, readStored } from "./storage.ts";
 
 export interface Selection {
   agentId: string | null;
   conversationId: string | null;
 }
 
-const KEY = "letta-ui:selection";
+const KEY = "lettuce:selection";
 
 export const EMPTY_SELECTION: Selection = { agentId: null, conversationId: null };
 
 /** The last selection, or empty when there is none to be had. */
 export function readSelection(storage: MaybeStorage = defaultStorage()): Selection {
   try {
-    const raw = storage?.getItem(KEY);
+    const raw = readStored(storage, KEY);
     if (!raw) return EMPTY_SELECTION;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return EMPTY_SELECTION;

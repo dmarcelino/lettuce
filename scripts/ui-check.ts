@@ -1517,7 +1517,7 @@ try {
     }
     const send = inject as (frame: string) => void;
     // Mark a conversation other than the open one, so the phone badge shows too.
-    const selection = await page.evaluate(() => localStorage.getItem("letta-ui:selection"));
+    const selection = await page.evaluate(() => localStorage.getItem("lettuce:selection"));
     const openId = selection ? (JSON.parse(selection).conversationId as string | null) : null;
     send(
       JSON.stringify({
@@ -1613,7 +1613,7 @@ try {
       await shot(page, `activity-sheet-${viewport.width}`);
       await sheetRows.nth(openId ? 1 : 0).click();
       await sheet.waitFor({ state: "hidden", timeout: 3000 });
-      const after = await page.evaluate(() => localStorage.getItem("letta-ui:selection"));
+      const after = await page.evaluate(() => localStorage.getItem("lettuce:selection"));
       check(
         `${viewport.width}px: clicking a row switches to that conversation`,
         after !== null && JSON.parse(after).conversationId === otherId,

@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleInternalTools, isLoopback } from "./http.ts";
-import { type ModsIo, syncMods } from "./install.ts";
+import { type ModsIo, RETIRED_MOD_SOURCE, syncMods } from "./install.ts";
 import { renderToolsMod } from "./mod.ts";
 import { capText, MAX_TOOL_TEXT, type ToolHandler, type ToolSpec } from "./types.ts";
 
@@ -170,6 +170,29 @@ describe("syncMods", () => {
   test("with no agent yet the reload is reported pending", async () => {
     const { io } = memory(false);
     expect(await syncMods(io, [{ path: "/m/a.mjs", source: "a" }])).toBe("reload-pending");
+  });
+
+  test("a retired mod is stubbed so it registers nothing, once", async () => {
+    const { io, events } = memory();
+    const retired = "/m/old-name.mjs";
+    // An install's mods directory still holding the pre-rename file.
+    await io.write(retired, "export default function activate(letta) { /* tools */ }\n");
+    events.length = 0;
+
+    expect(await syncMods(io, [{ path: "/m/new-name.mjs", source: "x" }], [retired])).toBe(
+      "reloaded",
+    );
+    expect(events).toEqual([`write ${retired}`, "write /m/new-name.mjs", "reload"]);
+    expect(await io.read(retired)).toBe(RETIRED_MOD_SOURCE);
+
+    // Already stubbed: nothing rewritten, so no spurious reload.
+    expect(await syncMods(io, [{ path: "/m/new-name.mjs", source: "x" }], [retired])).toBe(
+      "unchanged",
+    );
+    // A retired path that was never written (a fresh install) is skipped too.
+    expect(
+      await syncMods(io, [{ path: "/m/new-name.mjs", source: "x" }], ["/m/never-existed.mjs"]),
+    ).toBe("unchanged");
   });
 });
 

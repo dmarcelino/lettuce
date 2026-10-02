@@ -38,7 +38,7 @@ function textOf(result: unknown): DdgToolResult {
 
 export function ddgCaller(mcpUrl: string, timeoutMs = 60_000): DdgCaller {
   return async (tool, args) => {
-    const client = new Client({ name: "letta-ui-web-tools", version: "1" });
+    const client = new Client({ name: "lettuce-web-tools", version: "1" });
     const transport = new StreamableHTTPClientTransport(new URL(mcpUrl));
     try {
       await client.connect(transport);
@@ -59,7 +59,7 @@ export function isDdgEmpty(text: string): boolean {
 
 /** Whether ddg-mcp answers an MCP handshake — for Settings → Web's status line. */
 export async function ddgReachable(mcpUrl: string, timeoutMs = 5_000): Promise<boolean> {
-  const client = new Client({ name: "letta-ui-web-tools-probe", version: "1" });
+  const client = new Client({ name: "lettuce-web-tools-probe", version: "1" });
   const transport = new StreamableHTTPClientTransport(new URL(mcpUrl));
   try {
     await client.connect(transport, { timeout: timeoutMs });

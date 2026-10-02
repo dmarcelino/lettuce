@@ -11,9 +11,9 @@
  * remembers a draft — it is a convenience, so every storage path degrades to
  * "nothing remembered" rather than raising. See `./storage.ts`.
  */
-import { defaultStorage, type MaybeStorage } from "./storage.ts";
+import { defaultStorage, type MaybeStorage, readStored } from "./storage.ts";
 
-const KEY = "letta-ui:structured-output";
+const KEY = "lettuce:structured-output";
 const MAX_ENTRIES = 20;
 
 /** The wire shape `response_format` must have for the listener to accept it. */
@@ -112,7 +112,7 @@ const EMPTY_STORE: FormatStore = { order: [], formats: {} };
 
 function readStore(storage: MaybeStorage): FormatStore {
   try {
-    const raw = storage?.getItem(KEY);
+    const raw = readStored(storage, KEY);
     if (!raw) return EMPTY_STORE;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return EMPTY_STORE;

@@ -14,7 +14,7 @@
  *   the probe itself re-mints an expired app cookie, so the next attempt works.
  * - `unreachable`: offline, or the server is down. Keep retrying.
  */
-import type { MaybeStorage } from "./storage.ts";
+import { type MaybeStorage, readStored } from "./storage.ts";
 
 export type AuthProbe = "ok" | "expired" | "unreachable";
 
@@ -50,7 +50,7 @@ export async function probeAuth(fetchImpl: typeof fetch = fetch): Promise<AuthPr
   return classifyAuthProbe(response);
 }
 
-const RELOAD_KEY = "letta-ui:reauth-reload-at";
+const RELOAD_KEY = "lettuce:reauth-reload-at";
 /** An automatic re-sign-in reload happens at most this often. */
 export const AUTO_RELOAD_INTERVAL_MS = 5 * 60_000;
 
@@ -65,7 +65,7 @@ export function claimAutoReload(storage: MaybeStorage, now: number = Date.now())
   // Without storage there is no loop guard, so never reload unasked.
   if (!storage) return false;
   try {
-    const stamp = storage.getItem(RELOAD_KEY);
+    const stamp = readStored(storage, RELOAD_KEY);
     const last = stamp === null ? Number.NaN : Number(stamp);
     if (Number.isFinite(last) && now - last < AUTO_RELOAD_INTERVAL_MS) return false;
     storage.setItem(RELOAD_KEY, String(now));

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 // Only the pure helpers: installing the hooks is for node processes in the
 // app-server container, not the test runner.
-process.env.LETTA_UI_SPAWN_DIAG_OFF = "1";
+process.env.LETTUCE_SPAWN_DIAG_OFF = "1";
 const { countZombies, describeSpawnFailure } = await import("./spawn-diagnostics.cjs");
 
 describe("describeSpawnFailure", () => {
@@ -13,7 +13,7 @@ describe("describeSpawnFailure", () => {
     const child = {
       spawnfile: "letta",
       spawnargs: ["letta", "-p", "--agent", "agent-1"],
-      __lettaUiSpawnCwd: "/work/agent-1",
+      __lettuceSpawnCwd: "/work/agent-1",
     };
     const error = Object.assign(new Error("spawn letta EAGAIN"), { code: "EAGAIN" });
     const line = describeSpawnFailure(error, child, {

@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type FeatureFlags, type FeatureName, featureEnabled } from "../lib/features.ts";
 import type { LinkState } from "../lib/session-client.ts";
-import { defaultStorage } from "../lib/storage.ts";
+import { defaultStorage, readStored } from "../lib/storage.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { useWide } from "../state/use-wide.ts";
@@ -66,7 +66,7 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
 
 const ALL_SECTIONS = GLOBAL_SECTION_GROUPS.flatMap((group) => group.sections);
 const SHARED_NOTE = "Shared by every agent. An agent's own settings are in its Agent tab.";
-const LAST_SECTION_KEY = "letta-ui:settings-section";
+const LAST_SECTION_KEY = "lettuce:settings-section";
 
 /** The profile token each gated section rides on; others are always visible. */
 const SECTION_FEATURE: Partial<Record<GlobalSection, FeatureName>> = {
@@ -95,7 +95,7 @@ export function isGlobalSection(value: string | null): value is GlobalSection {
 
 function readLastSection(): GlobalSection | null {
   try {
-    const value = defaultStorage()?.getItem(LAST_SECTION_KEY) ?? null;
+    const value = readStored(defaultStorage(), LAST_SECTION_KEY);
     return isGlobalSection(value) ? value : null;
   } catch {
     return null;

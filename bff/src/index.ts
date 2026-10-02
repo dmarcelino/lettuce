@@ -76,7 +76,8 @@ import {
 } from "./http-rate-limit.ts";
 import { handleInternalTools } from "./internal-tools/http.ts";
 import { type ModsIo, type RenderedMod, syncMods } from "./internal-tools/install.ts";
-import { renderToolsMod } from "./internal-tools/mod.ts";
+import { readRenamed } from "./internal-tools/legacy.ts";
+import { MODS_DIR, renderToolsMod } from "./internal-tools/mod.ts";
 import type { ToolHandler } from "./internal-tools/types.ts";
 import { ensureMcpServers, loadMcpServers, type McpIo, saveMcpServers } from "./mcp/service.ts";
 import {
@@ -301,11 +302,15 @@ const codexIo: CodexFileIo = {
 // The same image tag can be built with or without the CLIs (CODING_FEATURES is
 // a build arg, not a tag suffix), so a profile token can be on against an image
 // that was built without it: without this check that would fail silently.
-const CODING_MARKER_PATH = "/opt/letta-ui/features";
+// The marker moved to /opt/lettuce with the `letta-ui` rename; the old path is
+// still tried because the marker lives in the image, and the image is only
+// rebuilt when letta-code is bumped.
+const CODING_MARKER_PATH = "/opt/lettuce/features";
+const CODING_MARKER_LEGACY_PATH = "/opt/letta-ui/features";
 let codingInstalled: string[] | null = null;
 
 async function checkCodingMarker(): Promise<void> {
-  const text = await codexIo.read(CODING_MARKER_PATH);
+  const text = await readRenamed(codexIo, CODING_MARKER_PATH, CODING_MARKER_LEGACY_PATH);
   if (text === null) {
     log(
       `Coding CLIs: the app-server image predates the install marker (${CODING_MARKER_PATH}); ` +
@@ -518,7 +523,7 @@ async function renderAllMods(): Promise<RenderedMod[]> {
     {
       path: GOOGLE_TOOLS_MOD_PATH,
       source: renderToolsMod({
-        title: "letta-ui google-tools v1",
+        title: "lettuce google-tools v1",
         tools: availableGoogleTools(tools, config.google.mcpUrl).specs,
         port: config.port,
         hidden: googleHidden,
@@ -527,7 +532,7 @@ async function renderAllMods(): Promise<RenderedMod[]> {
     {
       path: MCP_BRIDGE_MOD_PATH,
       source: renderToolsMod({
-        title: "letta-ui mcp-bridge v1",
+        title: "lettuce mcp-bridge v1",
         tools: tools.length > 0 ? BRIDGE_TOOL_SPECS : [],
         port: config.port,
       }),
@@ -563,6 +568,21 @@ async function renderAllMods(): Promise<RenderedMod[]> {
   return mods;
 }
 
+/**
+ * Mod files this BFF no longer writes, by name. Every one of them was renamed
+ * in the `letta-ui` → `lettuce` rename, and each still registers its tools if
+ * it survives on disk, so `syncMods` overwrites them with an inert stub. Once
+ * every install's mods directory has been through a sync this list can go,
+ * along with the stub writer.
+ */
+const RETIRED_MOD_PATHS: readonly string[] = [
+  `${MODS_DIR}/letta-ui-web-tools.mjs`,
+  `${MODS_DIR}/letta-ui-google-tools.mjs`,
+  `${MODS_DIR}/letta-ui-mcp-bridge.mjs`,
+  `${MODS_DIR}/letta-ui-agent-policy.mjs`,
+  `${MODS_DIR}/letta-ui-providers.mjs`,
+];
+
 // Serialised: a Google change, an MCP save and a reconnect can all land at once.
 let modsChain: Promise<unknown> = Promise.resolve();
 /** Retries a reload that could not run yet (no agent existed) until one can. */
@@ -590,7 +610,7 @@ function resyncMods(
     // The providers mod is rendered from the mirror, so refresh it first.
     if (options.refreshProviders) await providerSight.refresh();
     if (options.refreshCatalog) await mcpCatalog.refresh();
-    const result = await syncMods(modsIo, await renderAllMods());
+    const result = await syncMods(modsIo, await renderAllMods(), RETIRED_MOD_PATHS);
     if (result !== "unchanged") log(`Native tools: mods ${result} (${reason})`);
     if (result === "reload-pending") scheduleModsReload();
     return result;

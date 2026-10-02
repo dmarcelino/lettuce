@@ -25,7 +25,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
     **every** permission mode, Unrestricted included. A Codex worker is not a tool of its own;
     it is `subagent_type: "codex"` on Task/Agent, plus `SendAgentMessage` to `codex_<uuid>` for
     follow-ups (same shape for Claude Code with `"claude-code"` and `claude_<uuid>`). So
-    `letta-ui-agent-policy.mjs` (`bff/src/codex/policy-mod.ts`) matches on the
+    `lettuce-agent-policy.mjs` (`bff/src/codex/policy-mod.ts`) matches on the
     arguments, not the tool name.
   - **Knowing the caller:** every mod call sends `x-letta-agent-id` from `ctx.agent.id`
     (`internal-tools/mod.ts`), and handlers get it as `ToolCallContext`. The MCP bridge filters

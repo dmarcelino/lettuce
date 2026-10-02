@@ -5,6 +5,7 @@
  * against an in-memory filesystem.
  */
 
+import { readRenamed, writeRenamed } from "../internal-tools/legacy.ts";
 import {
   type CodexRun,
   type CodexRunSummary,
@@ -19,6 +20,7 @@ import {
   CODEX_AUTH_PATH,
   CODEX_CONFIG_PATH,
   CODEX_HOME,
+  CODEX_SETTINGS_LEGACY_PATH,
   CODEX_SETTINGS_PATH,
   type CodexSettings,
   LETTA_PROVIDERS_PATH,
@@ -42,7 +44,9 @@ const SESSIONS_DIR = `${CODEX_HOME}/sessions`;
 const RECENT_DAYS = 7;
 
 export async function loadCodexSettings(io: CodexFileIo): Promise<CodexSettings> {
-  return parseStoredCodexSettings(await io.read(CODEX_SETTINGS_PATH));
+  return parseStoredCodexSettings(
+    await readRenamed(io, CODEX_SETTINGS_PATH, CODEX_SETTINGS_LEGACY_PATH),
+  );
 }
 
 export async function suggestedCodexBaseUrl(io: CodexFileIo): Promise<string | null> {
@@ -58,7 +62,12 @@ async function writeCodexFiles(io: CodexFileIo, settings: CodexSettings): Promis
   // `enabled: true` while config.toml still describes something else.
   await io.write(CODEX_CONFIG_PATH, renderCodexConfigToml(settings));
   await io.write(CODEX_AUTH_PATH, renderCodexAuthJson());
-  await io.write(CODEX_SETTINGS_PATH, renderStoredCodexSettings(settings));
+  await writeRenamed(
+    io,
+    CODEX_SETTINGS_PATH,
+    CODEX_SETTINGS_LEGACY_PATH,
+    renderStoredCodexSettings(settings),
+  );
 }
 
 /** Merge a browser update into the saved settings and write every file. Throws on invalid input. */
@@ -83,7 +92,7 @@ export async function reapplyCodexSettings(
   io: CodexFileIo,
   options: { profileEnabled?: boolean } = {},
 ): Promise<boolean> {
-  const stored = await io.read(CODEX_SETTINGS_PATH);
+  const stored = await readRenamed(io, CODEX_SETTINGS_PATH, CODEX_SETTINGS_LEGACY_PATH);
   if (stored === null) return false;
   const settings = parseStoredCodexSettings(stored);
   await writeCodexFiles(

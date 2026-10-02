@@ -28,15 +28,22 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   - **The preflight is `codex --version`** (since 0.33.3). With workers disabled the shim fails
     it, so the task reports "Codex executable is not ready: <our disabled message>".
   - **Configuration is Settings → Codex workers, owned by the BFF** (`bff/src/codex/`). It
-    stores `letta-ui.json` in `CODEX_HOME=/root/.letta/codex` (persisted, so threads survive
+    stores `lettuce.json` in `CODEX_HOME=/root/.letta/codex` (persisted, so threads survive
     recreates and `SendAgentMessage` follow-ups can resume them) and renders `config.toml`
-    (provider `letta-ui`, `wire_api = "responses"` — the endpoint must serve `/v1/responses`,
+    (provider `lettuce`, `wire_api = "responses"` — the endpoint must serve `/v1/responses`,
     which llama.cpp does) and `auth.json` from it, on every save and every upstream connect.
-    The API key never goes back to a browser. `letta-ui.json` is also the switch: the shim
+    The API key never goes back to a browser. `lettuce.json` is also the switch: the shim
     refuses to run until it says `enabled`, and that refusal is what a task reports. With the
     `codex` token off the connect-time reapply writes `enabled: false` regardless of the stored
     switch and the settings save route 404s — the endpoint and key survive, only the switch
     resets.
+  - **The settings file was renamed from `letta-ui.json`, and both names are live on purpose.**
+    The shim that reads it ships inside the app-server image, which is only rebuilt when
+    letta-code is bumped, so the BFF reads new-then-old and mirrors every write into the old
+    name (`bff/src/internal-tools/legacy.ts`, the `*_LEGACY_PATH` constants). Same for
+    `/opt/lettuce/features` (written by the image, read by the BFF, old path tried second) and
+    `LETTUCE_SPAWN_DIAG_OFF` (which still accepts `LETTA_UI_SPAWN_DIAG_OFF`). Do not delete the
+    fallbacks until the pinned image postdates the rename.
   - **letta keeps only a worker's final message.** The full run lives in Codex's rollout,
     `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<thread id>.jsonl`, appended live. Thread
     ids are UUIDv7, so the day directory comes from the id. `GET /api/codex/runs[/:threadId]`
@@ -61,7 +68,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
     Settings → Claude Code takes a user-supplied Anthropic-compatible base URL (a LiteLLM-style
     proxy or any Anthropic-API gateway), a model id, and an optional auth token. There is no
     config file to render — the shim injects `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` and
-    `ANTHROPIC_AUTH_TOKEN` from `letta-ui.json` in `CLAUDE_CONFIG_DIR=/root/.letta/claude`
+    `ANTHROPIC_AUTH_TOKEN` from `lettuce.json` in `CLAUDE_CONFIG_DIR=/root/.letta/claude`
     (on the letta-home mount), each only if not already in the env.
   - **The preflight is `claude auth status --json`** and needs `{"loggedIn": true}` on stdout
     with exit 0 — measured on 2.1.285, any `ANTHROPIC_AUTH_TOKEN` value satisfies it, so the

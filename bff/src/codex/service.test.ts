@@ -3,10 +3,11 @@ import {
   type CodexFileIo,
   getCodexRun,
   listCodexRuns,
+  loadCodexSettings,
   reapplyCodexSettings,
   saveCodexSettings,
 } from "./service.ts";
-import { CODEX_CONFIG_PATH, CODEX_SETTINGS_PATH } from "./settings.ts";
+import { CODEX_CONFIG_PATH, CODEX_SETTINGS_LEGACY_PATH, CODEX_SETTINGS_PATH } from "./settings.ts";
 
 function memoryIo(initial: Record<string, string> = {}) {
   const files = new Map(Object.entries(initial));
@@ -33,7 +34,9 @@ describe("saving settings", () => {
   test("writes Codex's files before the switch the shim reads", async () => {
     const { io, writes } = memoryIo();
     await saveCodexSettings(io, READY);
-    expect(writes.at(-1)).toBe(CODEX_SETTINGS_PATH);
+    // The switch is written last — and mirrored under its pre-rename name, so a
+    // shim baked into an older app-server image still finds it.
+    expect(writes.slice(-2)).toEqual([CODEX_SETTINGS_PATH, CODEX_SETTINGS_LEGACY_PATH]);
     expect(writes).toContain(CODEX_CONFIG_PATH);
   });
 
@@ -42,6 +45,18 @@ describe("saving settings", () => {
     await saveCodexSettings(io, { ...READY, apiKey: "secret" });
     const next = await saveCodexSettings(io, { model: "m2" });
     expect(next.apiKey).toBe("secret");
+  });
+
+  test("settings stored under the pre-rename name are still read", async () => {
+    const first = memoryIo();
+    const saved = await saveCodexSettings(first.io, { ...READY, apiKey: "secret" });
+    // What an install that predates the rename has on disk: the old file only.
+    const stored = first.files.get(CODEX_SETTINGS_LEGACY_PATH) ?? "";
+    const { io, files } = memoryIo({ [CODEX_SETTINGS_LEGACY_PATH]: stored });
+    expect((await loadCodexSettings(io)).apiKey).toBe("secret");
+    expect(await reapplyCodexSettings(io)).toBe(true);
+    // ...and the reapply promotes it, so the old file is no longer load-bearing.
+    expect(JSON.parse(files.get(CODEX_SETTINGS_PATH) ?? "{}").model).toBe(saved.model);
   });
 
   test("an invalid update writes nothing", async () => {

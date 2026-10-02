@@ -60,7 +60,7 @@ describe("selection memory", () => {
   test("the pair is stored under one key, so it cannot half-update", () => {
     const storage = fakeStorage();
     writeSelection({ agentId: "a", conversationId: "c" }, storage);
-    const keys = ["letta-ui:selection"];
+    const keys = ["lettuce:selection"];
     expect(JSON.parse(storage.read(keys[0]!) ?? "null")).toEqual({
       agentId: "a",
       conversationId: "c",
@@ -74,14 +74,12 @@ describe("selection memory", () => {
   });
 
   test("corrupt or foreign JSON reads as empty rather than throwing", () => {
-    expect(readSelection(fakeStorage({ "letta-ui:selection": "not json" }))).toEqual(
+    expect(readSelection(fakeStorage({ "lettuce:selection": "not json" }))).toEqual(
       EMPTY_SELECTION,
     );
-    expect(readSelection(fakeStorage({ "letta-ui:selection": "[1,2,3]" }))).toEqual(
-      EMPTY_SELECTION,
-    );
+    expect(readSelection(fakeStorage({ "lettuce:selection": "[1,2,3]" }))).toEqual(EMPTY_SELECTION);
     // Right shape, wrong types — a value we did not write.
-    expect(readSelection(fakeStorage({ "letta-ui:selection": '{"agentId":42}' }))).toEqual(
+    expect(readSelection(fakeStorage({ "lettuce:selection": '{"agentId":42}' }))).toEqual(
       EMPTY_SELECTION,
     );
   });

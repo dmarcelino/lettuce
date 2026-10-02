@@ -33,7 +33,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
     the Tasks form no longer offers it and `delegating-to-codex` tells agents to hand workers
     the wrapper instead.
   - **Most turns reach these servers through native tools, not the skill: the MCP bridge**
-    (`bff/src/mcp-bridge/`, the `letta-ui-mcp-bridge.mjs` mod). Four tools with small static
+    (`bff/src/mcp-bridge/`, the `lettuce-mcp-bridge.mjs` mod). Four tools with small static
     schemas — `mcp_search` (keyword-ranked, marks each hit read-only or writes), `mcp_describe`,
     `mcp_call` (auto; **refuses** any tool the server does not mark `readOnlyHint` — unmarked
     counts as a write) and `mcp_call_write` (`approval: "ask"`). Search-then-call rather than
@@ -65,7 +65,12 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
     is `approval: "auto"` (never prompts) or `"ask"` (`requiresApproval` + `approvalPolicy:
     "ask"`: Standard/Strict prompt, Unrestricted runs — `permissions/checker.ts`). Reads are
     `auto`; an `ask` tool in an unattended cron turn under Standard mode waits for an approval.
-    Three mods: `letta-ui-web-tools.mjs`, `letta-ui-google-tools.mjs`, `letta-ui-mcp-bridge.mjs`.
+    Three mods: `lettuce-web-tools.mjs`, `lettuce-google-tools.mjs`, `lettuce-mcp-bridge.mjs`.
+  - **A renamed mod file is stubbed, not deleted** — the protocol has no delete verb, so
+    `syncMods` overwrites a path in `RETIRED_MOD_PATHS` (`bff/src/index.ts`) with
+    `RETIRED_MOD_SOURCE`, a module that registers nothing, and reloads once. The mods that used
+    to be `letta-ui-*.mjs` are the current entries; leave the list until every install's
+    `/root/.letta/mods` has been through a sync, then delete both it and the stub writer.
   - **Search:** the `searxng` sidecar (`docker/searxng`, pinned `SEARXNG_VERSION`, settings
     baked into the image *outside* `/etc/searxng` — that path is a declared VOLUME and compose
     carries an anonymous volume across recreates, so a settings change there would never land).
@@ -86,7 +91,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
     agent exists. It runs on connect, on a Settings → Web search or → MCP servers save, and
     4/12/30 s after any Google change. An app-server restart needs no reload: the files are
     already there.
-  - **Settings → Web search** (`/api/web-tools/*`, `/root/.letta/web-tools/letta-ui.json`): a
+  - **Settings → Web search** (`/api/web-tools/*`, `/root/.letta/web-tools/lettuce.json`): a
     switch (off renders a mod that registers nothing — the protocol cannot delete a file),
     backend status, a test search, and mod load errors from letta-code's
     `/root/.letta/mods/diagnostics/latest.json` (errors only — a clean load writes nothing).

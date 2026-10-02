@@ -7,7 +7,7 @@ import { readUiVersion } from "./version.ts";
 
 const dirs: string[] = [];
 function tempDir(): URL {
-  const dir = mkdtempSync(join(tmpdir(), "letta-ui-version-"));
+  const dir = mkdtempSync(join(tmpdir(), "lettuce-version-"));
   dirs.push(dir);
   return pathToFileURL(`${dir}/`);
 }

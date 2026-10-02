@@ -4,10 +4,15 @@ import {
   type ClaudeFileIo,
   getClaudeRun,
   listClaudeRuns,
+  loadClaudeSettings,
   reapplyClaudeSettings,
   saveClaudeSettings,
 } from "./service.ts";
-import { CLAUDE_PROJECTS_DIR, CLAUDE_SETTINGS_PATH } from "./settings.ts";
+import {
+  CLAUDE_PROJECTS_DIR,
+  CLAUDE_SETTINGS_LEGACY_PATH,
+  CLAUDE_SETTINGS_PATH,
+} from "./settings.ts";
 
 function memoryIo(initial: Record<string, string> = {}) {
   const files = new Map(Object.entries(initial));
@@ -53,14 +58,24 @@ function transcript(prompt: string, at: string): string {
 }
 
 describe("saving settings", () => {
-  test("the switch file is the only file, and holds the settings", async () => {
+  test("the switch file is the only setting, mirrored under its old name", async () => {
     const { io, files, writes } = memoryIo();
     await saveClaudeSettings(io, { ...READY, authToken: "sk-secret" });
-    expect(writes).toEqual([CLAUDE_SETTINGS_PATH]);
+    expect(writes).toEqual([CLAUDE_SETTINGS_PATH, CLAUDE_SETTINGS_LEGACY_PATH]);
     expect(JSON.parse(files.get(CLAUDE_SETTINGS_PATH) ?? "{}")).toMatchObject({
       enabled: true,
       authToken: "sk-secret",
     });
+  });
+
+  test("settings stored under the pre-rename name are still read", async () => {
+    const first = memoryIo();
+    await saveClaudeSettings(first.io, { ...READY, authToken: "sk-secret" });
+    const stored = first.files.get(CLAUDE_SETTINGS_LEGACY_PATH) ?? "";
+    const { io, files } = memoryIo({ [CLAUDE_SETTINGS_LEGACY_PATH]: stored });
+    expect(await loadClaudeSettings(io)).toMatchObject({ authToken: "sk-secret" });
+    expect(await reapplyClaudeSettings(io)).toBe(true);
+    expect(JSON.parse(files.get(CLAUDE_SETTINGS_PATH) ?? "{}").enabled).toBe(true);
   });
 
   test("an invalid update writes nothing", async () => {

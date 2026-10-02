@@ -10,7 +10,7 @@
 # COMPOSE_PROFILES in YAML, so the word-match lives here instead — which also
 # means the SAME image tag can be built with or without the CLIs, and a token
 # change is only picked up by a rebuild. What was actually installed is written
-# to /opt/letta-ui/features, one name per line, so the BFF can log loudly at
+# to /opt/lettuce/features, one name per line, so the BFF can log loudly at
 # connect when a token is on but the CLI is not in the image.
 ARG LETTA_CODE_VERSION
 FROM letta/letta:${LETTA_CODE_VERSION}
@@ -37,17 +37,17 @@ RUN case ",${CODING_FEATURES}," in *,claude,*) \
 # The install manifest, read by the BFF on every connect. Always written, even
 # when empty — a missing file means an image that predates this mechanism, and
 # the BFF says so instead of guessing.
-RUN mkdir -p /opt/letta-ui \
-    && : > /opt/letta-ui/features \
-    && case ",${CODING_FEATURES}," in *,codex,*) printf 'codex\n' >> /opt/letta-ui/features ;; esac \
-    && case ",${CODING_FEATURES}," in *,claude,*) printf 'claude\n' >> /opt/letta-ui/features ;; esac
+RUN mkdir -p /opt/lettuce \
+    && : > /opt/lettuce/features \
+    && case ",${CODING_FEATURES}," in *,codex,*) printf 'codex\n' >> /opt/lettuce/features ;; esac \
+    && case ",${CODING_FEATURES}," in *,claude,*) printf 'claude\n' >> /opt/lettuce/features ;; esac
 
 # Logs the real errno of a failed child spawn, which letta-code discards (a
 # subagent that could not start reports only "exited with code unknown"). In
 # ENV, not compose, so the variable can never point at a file this image lacks:
 # a missing --require target stops every node process in the container.
-COPY spawn-diagnostics.cjs /opt/letta-ui/spawn-diagnostics.cjs
-ENV NODE_OPTIONS="--require /opt/letta-ui/spawn-diagnostics.cjs"
+COPY spawn-diagnostics.cjs /opt/lettuce/spawn-diagnostics.cjs
+ENV NODE_OPTIONS="--require /opt/lettuce/spawn-diagnostics.cjs"
 
 COPY shim-core.mjs codex-shim.mjs /opt/codex-shim/
 RUN chmod 755 /opt/codex-shim/codex-shim.mjs \

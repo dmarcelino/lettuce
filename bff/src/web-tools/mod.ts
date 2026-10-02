@@ -14,7 +14,7 @@
 import { MODS_DIR, renderToolsMod } from "../internal-tools/mod.ts";
 import type { ToolSpec } from "../internal-tools/types.ts";
 
-export const WEB_TOOLS_MOD_PATH = `${MODS_DIR}/letta-ui-web-tools.mjs`;
+export const WEB_TOOLS_MOD_PATH = `${MODS_DIR}/lettuce-web-tools.mjs`;
 /** v2: rendered by the shared renderer, calling `/internal/tools/<name>`. */
 export const WEB_TOOLS_MOD_VERSION = 2;
 
@@ -81,7 +81,7 @@ export const WEB_TOOL_SPECS: readonly ToolSpec[] = [
 
 export function renderWebToolsMod(options: { enabled: boolean; port: number }): string {
   return renderToolsMod({
-    title: `letta-ui web-tools v${WEB_TOOLS_MOD_VERSION}`,
+    title: `lettuce web-tools v${WEB_TOOLS_MOD_VERSION}`,
     tools: options.enabled ? WEB_TOOL_SPECS : [],
     port: options.port,
   });

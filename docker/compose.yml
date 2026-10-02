@@ -54,7 +54,7 @@ services:
     # Code CLI only when it contains `claude` — two VIRTUAL profiles, tokens no
     # service declares, so they install no container and gate no sidecar; they
     # decide the build and the BFF's feature flags together. The image then
-    # writes what it actually baked into /opt/letta-ui/features, and the BFF
+    # writes what it actually baked into /opt/lettuce/features, and the BFF
     # logs loudly when a token is on but the CLI is missing.
     #
     # The image TAG does not change with the token list (it names version
@@ -188,13 +188,13 @@ services:
       # letta-home bind mount so threads survive a recreate — follow-ups and
       # SendAgentMessage steering resume them by id — and so the BFF can read
       # their rollout files for the run viewer. The BFF writes config.toml,
-      # auth.json and letta-ui.json there from Settings → Codex; the shim
+      # auth.json and lettuce.json there from Settings → Codex; the shim
       # refuses to run until that says enabled.
       CODEX_HOME: /root/.letta/codex
       # Claude Code subagent workers (`subagent_type: "claude-code"`). Same
       # rationale as CODEX_HOME: its `projects/` transcripts live on the
       # letta-home bind mount so they survive a recreate and the BFF can read
-      # them for the run viewer. The BFF writes letta-ui.json there from
+      # them for the run viewer. The BFF writes lettuce.json there from
       # Settings → Claude Code; the shim reads it for the switch and injects
       # the endpoint settings as env (Claude Code has no config file for them).
       CLAUDE_CONFIG_DIR: /root/.letta/claude

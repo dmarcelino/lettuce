@@ -80,7 +80,7 @@ describe("rendered Codex files", () => {
       streamIdleTimeoutSeconds: 600,
     });
     expect(toml).toContain('model = "Qwen3.8-Flash-Next"');
-    expect(toml).toContain('model_provider = "letta-ui"');
+    expect(toml).toContain('model_provider = "lettuce"');
     expect(toml).toContain('base_url = "http://olla:8080/olla/openai/v1"');
     expect(toml).toContain('wire_api = "responses"');
     expect(toml).toContain('experimental_bearer_token = "k\\"ey"');

@@ -168,13 +168,13 @@ derives `config.features` = `web`⇐`search`, `google`⇐`google`, `codex`⇐`co
 - **effective-enabled = token AND stored Settings switch**, enforced at each availability
   decision: web tools render disabled (`renderAllMods`), Google reapply/status/sidecar-config
   run on the gated settings, and the codex/claude connect-time reapply writes `enabled: false`
-  into `letta-ui.json` so the shims refuse — the stored endpoint/model/key survive, so
+  into `lettuce.json` so the shims refuse — the stored endpoint/model/key survive, so
   re-enabling the token needs only one flip of the switch. The four Settings save routes answer
   404 while their token is off; `web/` hides the matching Settings sections, Tasks run lists
   and Agent → Tools rows from `features` in `/api/status` (absent = all on).
 - **The coding tokens also decide the app-server image**: the raw string goes in as the build
   arg `CODING_FEATURES`, the Dockerfile installs a CLI only for a token it finds, and writes
-  what it actually installed to `/opt/letta-ui/features`. **The image tag does not change with
+  what it actually installed to `/opt/lettuce/features`. **The image tag does not change with
   the token list** (it names version pins), so toggling a coding token REQUIRES an app-server
   rebuild, and on the one tag you can have an image built either way — the BFF reads the marker
   on every connect, logs a loud mismatch when a token is on but the CLI is not baked in (and

@@ -319,5 +319,5 @@ describe("parseRegisteredProviderIds", () => {
 });
 
 test("the mod lives where every other mod lives", () => {
-  expect(PROVIDERS_MOD_PATH).toMatch(/mods\/letta-ui-providers\.mjs$/);
+  expect(PROVIDERS_MOD_PATH).toMatch(/mods\/lettuce-providers\.mjs$/);
 });

@@ -11,7 +11,7 @@ import {
   renderMcpSettings,
 } from "../mcp/settings.ts";
 import type { DdgCaller } from "./ddg.ts";
-import { retireSeededDdgMcp, saveWebToolsSettings } from "./install.ts";
+import { loadWebToolsSettings, retireSeededDdgMcp, saveWebToolsSettings } from "./install.ts";
 import { renderWebToolsMod } from "./mod.ts";
 import { normalizeSearxng } from "./searxng.ts";
 import { fetchWebpage, MAX_PAGE_CHARS, type WebToolsBackends, webSearch } from "./service.ts";
@@ -19,6 +19,7 @@ import {
   applyWebToolsSettingsUpdate,
   InvalidWebToolsSettingsError,
   parseStoredWebToolsSettings,
+  WEB_TOOLS_SETTINGS_LEGACY_PATH,
   WEB_TOOLS_SETTINGS_PATH,
 } from "./settings.ts";
 import { modErrorsFrom } from "./status.ts";
@@ -359,6 +360,24 @@ describe("retireSeededDdgMcp", () => {
   });
 });
 
+describe("web-tools settings file", () => {
+  test("the pre-rename file is still read, and nothing is mirrored back", async () => {
+    const files = new Map([[WEB_TOOLS_SETTINGS_LEGACY_PATH, '{ "enabled": false }']]);
+    const io = {
+      read: async (path: string) => files.get(path) ?? null,
+      write: async (path: string, content: string) => {
+        files.set(path, content);
+      },
+    };
+    expect(await loadWebToolsSettings(io)).toMatchObject({ enabled: false });
+    await saveWebToolsSettings(io, { enabled: true });
+    // The current name is written; the old one is not kept in sync, because
+    // nothing but the BFF ever reads this file.
+    expect(files.has(WEB_TOOLS_SETTINGS_PATH)).toBe(true);
+    expect(files.get(WEB_TOOLS_SETTINGS_LEGACY_PATH)).toBe('{ "enabled": false }');
+  });
+});
+
 describe("settings", () => {
   test("saving the switch stores it and rejects a malformed one", async () => {
     const { io, files } = memoryIo();
@@ -399,7 +418,7 @@ describe("modErrorsFrom", () => {
       report: {
         diagnostics: [
           {
-            mod: "/root/.letta/mods/letta-ui-web-tools.mjs",
+            mod: "/root/.letta/mods/lettuce-web-tools.mjs",
             phase: "import",
             message: "boom",
             severity: "error",
@@ -410,7 +429,7 @@ describe("modErrorsFrom", () => {
             message: "not ours",
             severity: "error",
           },
-          { mod: "letta-ui-web-tools", phase: "activate", message: "meh", severity: "warning" },
+          { mod: "lettuce-web-tools", phase: "activate", message: "meh", severity: "warning" },
         ],
       },
     });

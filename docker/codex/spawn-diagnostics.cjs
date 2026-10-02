@@ -51,14 +51,14 @@ function describeSpawnFailure(error, child, env = {}) {
   const code = (error && (error.code || error.errno)) || "unknown";
   const file = child.spawnfile || (error && error.path) || "?";
   const args = Array.isArray(child.spawnargs) ? child.spawnargs.slice(1).join(" ") : "";
-  const cwd = child.__lettaUiSpawnCwd || process.cwd();
+  const cwd = child.__lettuceSpawnCwd || process.cwd();
   const current =
     env.pidsCurrent === undefined ? readNumber("/sys/fs/cgroup/pids.current") : env.pidsCurrent;
   const max = env.pidsMax === undefined ? readNumber("/sys/fs/cgroup/pids.max") : env.pidsMax;
   const zombies = env.zombies === undefined ? countZombies() : env.zombies;
   const pids = current === null ? "?" : `${current}/${max === null ? "max" : max}`;
   return (
-    `[letta-ui spawn-diag] spawn failed: ${code} file=${file}` +
+    `[lettuce spawn-diag] spawn failed: ${code} file=${file}` +
     ` args=${JSON.stringify(args.slice(0, 160))} cwd=${cwd}` +
     ` pids=${pids} zombies=${zombies === null ? "?" : zombies} parent=${process.pid}`
   );
@@ -66,12 +66,12 @@ function describeSpawnFailure(error, child, env = {}) {
 
 function install() {
   const { ChildProcess } = require("node:child_process");
-  if (ChildProcess.prototype.__lettaUiSpawnDiag) return;
-  ChildProcess.prototype.__lettaUiSpawnDiag = true;
+  if (ChildProcess.prototype.__lettuceSpawnDiag) return;
+  ChildProcess.prototype.__lettuceSpawnDiag = true;
 
   const spawn = ChildProcess.prototype.spawn;
   ChildProcess.prototype.spawn = function (options) {
-    if (options && typeof options.cwd === "string") this.__lettaUiSpawnCwd = options.cwd;
+    if (options && typeof options.cwd === "string") this.__lettuceSpawnCwd = options.cwd;
     return spawn.apply(this, arguments);
   };
 
@@ -92,4 +92,10 @@ function install() {
 
 module.exports = { countZombies, describeSpawnFailure, install };
 
-if (require.main !== module && !process.env.LETTA_UI_SPAWN_DIAG_OFF) install();
+// `LETTA_UI_SPAWN_DIAG_OFF` is this switch's pre-lettuce name, still honoured.
+if (
+  require.main !== module &&
+  !process.env.LETTUCE_SPAWN_DIAG_OFF &&
+  !process.env.LETTA_UI_SPAWN_DIAG_OFF
+)
+  install();

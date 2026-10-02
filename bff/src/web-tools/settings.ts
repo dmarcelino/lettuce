@@ -8,7 +8,13 @@
  */
 
 export const WEB_TOOLS_HOME = "/root/.letta/web-tools";
-export const WEB_TOOLS_SETTINGS_PATH = `${WEB_TOOLS_HOME}/letta-ui.json`;
+export const WEB_TOOLS_SETTINGS_PATH = `${WEB_TOOLS_HOME}/lettuce.json`;
+/**
+ * The name this file had before the `letta-ui` → `lettuce` rename, read when
+ * the new one is absent so an existing install keeps its switch. Nothing but
+ * the BFF ever reads it, so writes are not mirrored.
+ */
+export const WEB_TOOLS_SETTINGS_LEGACY_PATH = `${WEB_TOOLS_HOME}/letta-ui.json`;
 
 export interface WebToolsSettings {
   /** Whether the mod registers the tools. On by default: web access is a baseline capability. */

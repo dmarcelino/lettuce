@@ -39,7 +39,7 @@
 import { MODS_DIR } from "../internal-tools/mod.ts";
 import type { EndpointInfo, ModelCaps } from "./store.ts";
 
-export const PROVIDERS_MOD_PATH = `${MODS_DIR}/letta-ui-providers.mjs`;
+export const PROVIDERS_MOD_PATH = `${MODS_DIR}/lettuce-providers.mjs`;
 
 /** The id shapes upstream's own provider-mod validation enforces. */
 export const PROVIDER_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
@@ -296,7 +296,7 @@ export function buildProviderModGroups(input: ProviderModInput): ProviderModGrou
  * a mod that registers nothing — the reload protocol cannot delete a file.
  */
 export function renderProvidersMod(groups: readonly ProviderModGroup[]): string {
-  const header = `// letta-ui providers v1 — rendered by the lettuce BFF (bff/src/providers/vision.ts).
+  const header = `// lettuce providers v1 — rendered by the lettuce BFF (bff/src/providers/vision.ts).
 // Edits here are overwritten on the BFF's next connect; declare capabilities in
 // Settings → Providers & models (vision/thinking/windows travel per model).`;
   if (groups.length === 0) {

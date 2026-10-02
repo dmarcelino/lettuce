@@ -64,7 +64,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   that works again clears `lostAt`. The `accessNotConfigured` mis-mark incident and the full
   design: docs/upstream-notes.md#google-token-loss-story.
 - **Agents use Google through native tools, not the skill** (`bff/src/google/tools.ts`, the
-  `letta-ui-google-tools.mjs` mod): `gmail_search`, `gmail_read`, `calendar_events`,
+  `lettuce-google-tools.mjs` mod): `gmail_search`, `gmail_read`, `calendar_events`,
   `calendar_freebusy`, `tasks_list`, `contacts_list`, `contacts_get` (reads, never ask) and
   `gmail_send`, `gmail_draft`, `calendar_event`, `tasks_update`, `contacts_update` (writes,
   `approval: "ask"`). Each is a compact schema mapped onto one workspace-mcp tool — its own

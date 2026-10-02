@@ -65,7 +65,7 @@ describe("draft memory", () => {
     writeDraft("a::c", "first", storage);
     writeDraft("a::c", "second", storage);
     expect(readDraft("a::c", storage)).toBe("second");
-    const parsed = JSON.parse(storage.read("letta-ui:draft") ?? "null");
+    const parsed = JSON.parse(storage.read("lettuce:draft") ?? "null");
     expect(parsed.order).toEqual(["a::c"]);
   });
 
@@ -77,7 +77,7 @@ describe("draft memory", () => {
     expect(readDraft("a::4", storage)).toBe("");
     expect(readDraft("a::5", storage)).toBe("draft 5");
     expect(readDraft("a::24", storage)).toBe("draft 24");
-    const parsed = JSON.parse(storage.read("letta-ui:draft") ?? "null");
+    const parsed = JSON.parse(storage.read("lettuce:draft") ?? "null");
     expect(parsed.order.length).toBe(20);
   });
 
@@ -94,9 +94,9 @@ describe("draft memory", () => {
   });
 
   test("corrupt or foreign JSON reads as empty rather than throwing", () => {
-    expect(readDraft("a::c", fakeStorage({ "letta-ui:draft": "not json" }))).toBe("");
-    expect(readDraft("a::c", fakeStorage({ "letta-ui:draft": "[1,2,3]" }))).toBe("");
-    expect(readDraft("a::c", fakeStorage({ "letta-ui:draft": '{"drafts":{"a::c":42}}' }))).toBe("");
+    expect(readDraft("a::c", fakeStorage({ "lettuce:draft": "not json" }))).toBe("");
+    expect(readDraft("a::c", fakeStorage({ "lettuce:draft": "[1,2,3]" }))).toBe("");
+    expect(readDraft("a::c", fakeStorage({ "lettuce:draft": '{"drafts":{"a::c":42}}' }))).toBe("");
   });
 
   test("storage that throws degrades to no memory", () => {
