@@ -42,7 +42,7 @@ const SITES: Site[] = [
     file: "docker/compose.yml",
     label: "compose app-server image tag",
     pattern:
-      /^ {2}app-server:(?:(?!^ {2}\S)[\s\S])*?image:\s*letta-app-server:\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/m,
+      /^ {2}app-server:(?:(?!^ {2}\S)[\s\S])*?image:\s*lettuce-app-server:\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/m,
   },
   {
     file: "docker/compose.yml",

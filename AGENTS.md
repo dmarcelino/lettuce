@@ -39,8 +39,7 @@ keeps this file inside its size budget.
 ```
 /home/dima/work/letta/
   letta-code/      plain clone of letta-ai/letta-code at the pinned release tag — read-only
-  lettuce/         this repo — everything we own (the app is **Lettuce**; the local checkout
-                   dir may still carry the old `letta-code-ui` name until renamed)
+  lettuce/         this repo — everything we own (the app is **Lettuce**)
 ```
 
 **The upstream clone is dev tooling, not a build input.** Nothing in `letta-code/` is compiled

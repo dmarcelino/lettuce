@@ -31,7 +31,7 @@ engines:
     disabled: false
 
 general:
-  instance_name: letta-web-search
+  instance_name: lettuce-web-search
   enable_metrics: false
 
 search:

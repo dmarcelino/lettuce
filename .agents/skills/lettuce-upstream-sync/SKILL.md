@@ -53,7 +53,7 @@ both artifacts exist before re-pinning.
 | File | Form |
 |---|---|
 | `docker/compose.yml` | `LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-<v>}` — app-server build arg (its `FROM`) |
-| `docker/compose.yml` | `image: letta-app-server:${LETTA_CODE_VERSION:-<v>}-codex…` — app-server local tag |
+| `docker/compose.yml` | `image: lettuce-app-server:${LETTA_CODE_VERSION:-<v>}-codex…` — app-server local tag |
 | `docker/compose.yml` | `image: letta/letta:${LETTA_CODE_VERSION:-<v>}` — channel-gateway |
 | `package.json` | `"@letta-ai/letta-code": "<v>"` |
 | `bff/package.json` | same |

@@ -21,7 +21,12 @@
 # off — so the BFF and the gateway join the app-server's network namespace and
 # reach it at 127.0.0.1:4500. Nothing outside that namespace can, which is
 # stronger isolation than a shared token on a bridge network.
-name: letta
+# The compose project name is `lettuce`, so containers come up as lettuce-*-1 and
+# the named volumes are lettuce_bff-data and friends. (Older installs ran under
+# the `letta` project name, so their volumes keep that prefix; nothing looks
+# them up by name except scripts/migrate-volumes-to-host.sh, which is a
+# one-shot for exactly those installs.)
+name: lettuce
 
 services:
   app-server:
@@ -71,7 +76,7 @@ services:
         GH_VERSION: ${GH_VERSION:-2.101.0}
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.285}
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
-    image: letta-app-server:${LETTA_CODE_VERSION:-0.34.1}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}-claude${CLAUDE_CODE_VERSION:-2.1.285}
+    image: lettuce-app-server:${LETTA_CODE_VERSION:-0.34.1}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}-claude${CLAUDE_CODE_VERSION:-2.1.285}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -398,7 +403,7 @@ services:
       context: searxng
       args:
         SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
-    image: letta-searxng:${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
+    image: lettuce-searxng:${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
@@ -415,7 +420,7 @@ services:
       context: ddg-mcp
       args:
         DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
-    image: letta-ddg-mcp:${DDG_MCP_VERSION:-0.7.0}
+    image: lettuce-ddg-mcp:${DDG_MCP_VERSION:-0.7.0}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       DDG_REGION: ${DDG_REGION:-us-en}
@@ -446,7 +451,7 @@ services:
       context: google-mcp
       args:
         WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-1.29.0}
-    image: letta-google-mcp:${WORKSPACE_MCP_VERSION:-1.29.0}
+    image: lettuce-google-mcp:${WORKSPACE_MCP_VERSION:-1.29.0}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:

@@ -51,9 +51,12 @@ VERSION="${LETTA_CODE_VERSION:-$(env_value LETTA_CODE_VERSION)}"
 VERSION="${VERSION:-$(sed -nE 's/.*LETTA_CODE_VERSION:-([0-9][^}]*)\}.*/\1/p' "$COMPOSE_FILE" | head -1)}"
 GIT_IMAGE="letta/letta:$VERSION"
 
-# Compose prefixes volumes with the project name, which compose.yml pins to
-# `letta` (there is also an unused letta-code_* pair from an older project
-# name — deliberately not touched).
+# Compose prefixes volumes with the project name. This one-shot was written for
+# installs that ran under the `letta` project name (compose.yml now says
+# `lettuce`), which is why the names below are hard-coded: they are the volumes
+# that hold the state being migrated, not today's project prefix. (There is also
+# an unused letta-code_* pair from an even older project name — deliberately not
+# touched.)
 VOLUMES=(letta_letta-home letta_letta-data)
 
 say "Destination: $DEST"
