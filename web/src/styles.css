@@ -1302,18 +1302,66 @@ pre {
   gap: 6px;
   max-width: 100%;
 }
-.msg-images a {
+.msg-images .msg-image-thumb {
   display: block;
   width: 120px;
   max-width: calc(50% - 3px);
+  padding: 0;
   border: 1px solid var(--border);
   background: var(--surface-2);
+  cursor: zoom-in;
 }
 .msg-images img {
   width: 100%;
   max-height: 160px;
   object-fit: cover;
   display: block;
+}
+
+/* Full-size preview of a transcript image (ImageLightbox). Above sheets (40):
+   an image opened from the transcript covers whatever sheet is under it. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(6, 8, 12, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.lightbox-img-wrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-out;
+}
+.lightbox-img {
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  object-fit: contain;
+}
+.lightbox-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #e6e9f0;
+  cursor: pointer;
+}
+.lightbox-close .icon {
+  width: 20px;
+  height: 20px;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */

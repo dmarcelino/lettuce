@@ -17,6 +17,7 @@ import type { SessionApi } from "../state/use-session.ts";
 import { ClaudeRunSheet } from "./ClaudeRunSheet.tsx";
 import { CodexRunSheet } from "./CodexRunSheet.tsx";
 import { Icon } from "./Icon.tsx";
+import { ImageLightbox } from "./ImageLightbox.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 
@@ -297,6 +298,8 @@ const MessageItem = memo(function MessageItem({
   const [open, setOpen] = useState(false);
   const [codexOpen, setCodexOpen] = useState(false);
   const [claudeOpen, setClaudeOpen] = useState(false);
+  // Index into `entry.images` of the image shown full-size, if any.
+  const [zoom, setZoom] = useState<number | null>(null);
   const label = KIND_LABEL[entry.kind] ?? entry.kind;
 
   // Look up every filename this entry mentions so `Markdown` can link the real
@@ -542,24 +545,31 @@ const MessageItem = memo(function MessageItem({
         </span>
       </div>
       {entry.images && entry.images.length > 0 ? (
-        // Thumbnails above the text; tap opens the full image in a new tab.
-        // A plain anchor on the data URL: no lightbox state to hold, and
-        // popup blockers do not apply to anchor clicks.
+        // Thumbnails above the text; tap opens the full image in the app.
+        // A data: URL cannot be navigated to (browsers refuse top-level
+        // `data:` from a click), so the preview lives in this entry.
         <div className="msg-images">
           {entry.images.map((image, index) => (
-            <a
+            <button
+              type="button"
               key={index}
-              href={image.dataUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={`Open image ${index + 1} full size`}
+              className="msg-image-thumb"
+              onClick={() => setZoom(index)}
+              aria-label={`View image ${index + 1} full size`}
             >
-              {/* The anchor's aria-label is the accessible name; the image
+              {/* The button's aria-label is the accessible name; the image
                   itself is decorative beside it. */}
               <img src={image.dataUrl} alt="" loading="lazy" />
-            </a>
+            </button>
           ))}
         </div>
+      ) : null}
+      {zoom !== null && entry.images?.[zoom] ? (
+        <ImageLightbox
+          src={entry.images[zoom].dataUrl}
+          alt={`Image ${zoom + 1}`}
+          onClose={() => setZoom(null)}
+        />
       ) : null}
       {/* An image-only message has no text bubble to draw; the thumbnails are
           the message. */}
