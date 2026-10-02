@@ -1120,6 +1120,36 @@ try {
       (await page.locator(warningSelector).count()) === 0,
     );
 
+    // Capability-less endpoints get an Edit link per row, opening the
+    // declaration sheet. On a stack serving only native endpoints there are
+    // none — then there is nothing to check, and that must not fail. Wait for
+    // the first row to render: the list arrives over the socket after the
+    // section opens.
+    await page
+      .locator('.section-note:has-text("Models served") ~ ul li')
+      .first()
+      .waitFor({ timeout: 10_000 })
+      .catch(() => {});
+    const modelEditLinks = page.locator(
+      '.section-note:has-text("Models served") ~ ul .row button:has-text("Edit")',
+    );
+    const editCount = await modelEditLinks.count();
+    if (editCount > 0) {
+      await modelEditLinks.first().click();
+      const sheet = page.locator(".sheet-panel[aria-label]");
+      check(
+        "model edit sheet opens with capability toggles",
+        (await sheet.locator('.menu-row:has-text("Vision")').count()) === 1 &&
+          (await sheet.locator('.menu-row:has-text("Thinking")').count()) === 1,
+        await sheet.innerText(),
+      );
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      check("model edit sheet closes", (await sheet.count()) === 0);
+    } else {
+      check("served rows without an editable endpoint show no Edit link", true);
+    }
+
     // Global skills: only the global scope, plus the enable-by-path form.
     await openSection("Global skills");
     const enableButton = page.locator('button:text-is("Enable globally")');

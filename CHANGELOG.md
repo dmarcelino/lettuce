@@ -11,6 +11,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ### Fixed
 - Tapping an image you sent shows it full-size in the app; it used to open a new tab the browser refuses to navigate to.
+- A declared provider (e.g. one seeded from `VISION_PROVIDERS`) lists its models under "Models served" with their tags — they no longer hide under "Cloud models".
 
 ## [v0.4.0-letta_0.34.1] - 2026-10-02
 
