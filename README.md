@@ -227,3 +227,19 @@ bun install
 bun run dev          # Vite + BFF
 bun run verify       # lint, typecheck, tests, build
 ```
+
+## License
+
+lettuce is licensed under the [Apache License 2.0](LICENSE).
+
+It bundles no upstream code: it runs [letta-code](https://github.com/letta-ai/letta-code)
+(Apache-2.0, © Letta Inc.) unmodified, as its published npm package and Docker image, and
+talks to it over the public app-server protocol. "Letta" is a trademark of Letta, Inc.;
+Letta's brand assets (name, logo, wordmark) are not licensed here, and this project is not
+affiliated with or endorsed by Letta.
+
+Everything else is a separate sidecar container under its own license: SearXNG (AGPL-3.0),
+google_workspace_mcp (MIT), duckduckgo-mcp-server (MIT), cloudflared (Apache-2.0), Codex CLI
+(Apache-2.0), GitHub CLI (MIT). Claude Code is installed under Anthropic's commercial terms.
+Those CLIs are installed into images from npm at build time — nothing is redistributed from
+this repository.
