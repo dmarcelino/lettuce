@@ -1,5 +1,5 @@
 /**
- * The offline half of the definition of done (see CLAUDE.md).
+ * The offline half of the definition of done (see AGENTS.md).
  *
  * Runs every gate that needs no running stack, cheapest first, and stops at the
  * first failure. On success it prints the steps that are NOT automated, because
@@ -28,9 +28,18 @@ const STAGES: Stage[] = [
     cmd: ["bun", "scripts/check-version-pin.ts"],
     why: "one letta-code release across images and types",
   },
+  {
+    name: "docs",
+    cmd: ["bun", "scripts/check-docs.ts"],
+    why: "AGENTS.md and .agents/skills point at things that exist",
+  },
   { name: "lint", cmd: ["bun", "run", "lint"], why: "biome check" },
-  { name: "typecheck", cmd: ["bun", "run", "typecheck"], why: "also the protocol-drift detector" },
-  { name: "test", cmd: ["bun", "test"], why: "bun:test" },
+  {
+    name: "typecheck",
+    cmd: ["bun", "run", "typecheck"],
+    why: "also the protocol-drift detector",
+  },
+  { name: "test", cmd: ["bun", "run", "test"], why: "bun:test, including the harness guard" },
   { name: "build", cmd: ["bun", "run", "build"], why: "writes web/dist" },
 ];
 
@@ -57,10 +66,10 @@ if (failed) {
 
 console.log(`\n✓ verify passed — ${STAGES.map((s) => s.name).join(", ")}`);
 console.log(`
-  This is NOT done yet. Still required (see CLAUDE.md → Definition of done):
+  This is NOT done yet. Still required (see AGENTS.md → Definition of done):
 
     2. commit on a feature branch, merge to main
-    3. worktree cleanup is Agent Manager's — do not remove worktrees yourself
+    3. worktree lifecycle is the orchestrator's — never remove worktrees or branches
     4. docker compose -f docker/compose.yml build bff && ... up -d bff
     5. bun run deploy-check
     6. bun run smoke        (only if BFF session/protocol/settings changed)

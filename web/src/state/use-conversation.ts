@@ -796,7 +796,7 @@ export function useConversation(
       // AbortController wired to nothing and `PiStreamAdapter` is built with no
       // `abortSignal`, so the HTTP request to the model is never aborted. The
       // turn can only end when the model's next chunk arrives. Saying so is the
-      // honest thing the UI can do; see CLAUDE.md.
+      // honest thing the UI can do; see AGENTS.md.
       setStopping(true);
       seqRef.current += 1;
       setLocalNotice(

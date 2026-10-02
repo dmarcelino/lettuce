@@ -1,8 +1,8 @@
 # Upstream notes — the stories behind the rules
 
 Archive of the incident narratives and upstream code walkthroughs that justify the
-terse invariants in CLAUDE.md. Nothing here is a rule; CLAUDE.md is. Pointers from
-CLAUDE.md look like `docs/upstream-notes.md#anchor`.
+terse invariants in AGENTS.md. Nothing here is a rule; AGENTS.md is. Pointers from
+AGENTS.md look like `docs/upstream-notes.md#<anchor>`.
 
 ## BFF redeploy drain
 
@@ -141,7 +141,7 @@ only in `abort_message_response`, so the UI **must** use `request()` and not `se
 abort. `use-conversation.ts` does, and renders its own honest "Stopping" line for the gap.
 Fixing the cancellation itself needs an upstream change; it cannot be done from here.
 
-## tool_return_message capture detail
+## tool return message capture detail
 
 A live delta carries the singular `tool_call_id`/`status`/`tool_return` fields **and** a
 `tool_returns[]` array (`normalizeToolReturnWireMessage`, `listener/interrupts.ts`); history
@@ -182,7 +182,7 @@ failed command still reads as a success after a reload — upstream, not ours.)
 - Codex also fetches its plugin marketplace from GitHub on start (`$CODEX_HOME/.tmp/plugins`)
   — not model traffic, but not nothing.
 
-## Zombie / EAGAIN diagnosis (2026-09-29)
+## Zombie EAGAIN diagnosis (2026-09-29)
 
 `init: true` on `app-server`. Without it PID 1 is `node … letta server`, which never reaps
 orphans, so everything an agent shell backgrounds and outlives stays a zombie counting

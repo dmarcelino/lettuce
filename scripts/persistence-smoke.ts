@@ -2,7 +2,7 @@
  * Acceptance test for the invariant the whole architecture rests on:
  * a browser session disappearing must NOT disturb the app-server.
  *
- * See CLAUDE.md — the app-server cancels in-flight turns, drops queued messages
+ * See AGENTS.md — the app-server cancels in-flight turns, drops queued messages
  * and rejects pending approvals for a connection that closes. Browser sockets
  * close constantly (tab switch, phone sleep), so they must never be the
  * connection the app-server knows about.

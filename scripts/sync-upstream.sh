@@ -22,7 +22,7 @@ PROTOCOL_FILES=(
 )
 
 # Files whose *behavior* we depend on but whose types will NOT catch a change.
-# See CLAUDE.md — these are the invariants that keep chat alive across tab switches.
+# See AGENTS.md — these are the invariants that keep chat alive across tab switches.
 BEHAVIOR_FILES=(
   "src/websocket/listener/connection-lifecycle.ts"
   "src/websocket/listener/lifecycle.ts"
@@ -35,7 +35,7 @@ BEHAVIOR_FILES=(
   # an unlisted kind is dropped, so a new one silently vanishes from Tasks.
   "src/types/background-process-protocol.ts"
   # Which tools agents get. 0.33 dropped `memory` and `MultiEdit` from every
-  # toolset; CLAUDE.md and web/src/lib/tool-summary.ts describe the tool set.
+  # toolset; AGENTS.md and web/src/lib/tool-summary.ts describe the tool set.
   "src/tools/toolset-catalog.ts"
   # Settings → Skills: bff/src/skills/ re-implements skill discovery (roots,
   # override order, frontmatter, the local-agent bundled exclusions), because
@@ -87,7 +87,7 @@ say "Upstream checkout: $CHECKOUT"
 # ── 1. The checkout carries no local changes ──────────────────────────────────
 if [[ -n "$(git status --porcelain)" ]]; then
   git status --short
-  fail "Upstream checkout has local changes. It is read-only — see CLAUDE.md."
+  fail "Upstream checkout has local changes. It is read-only — see AGENTS.md."
 fi
 
 CURRENT="$(git rev-parse HEAD)"
@@ -153,7 +153,7 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "   * control-inputs.ts — does handleAbortMessageInput still return false with no frames"
   warn "     when nothing is active, and still emit Interrupted before the turn unwinds?"
   warn "   * background-process-protocol.ts — a new kind? readBackgroundProcesses drops it."
-  warn "   * toolset-catalog.ts — tools added/removed? Update tool-summary.ts and CLAUDE.md."
+  warn "   * toolset-catalog.ts — tools added/removed? Update tool-summary.ts and AGENTS.md."
   warn "   * skills.ts / client-skills.ts / frontmatter.ts — new skill root, changed override"
   warn "     order or parsing? Mirror it in bff/src/skills/ and compare /api/skills with a"
   warn "     live turn's current_available_skills."

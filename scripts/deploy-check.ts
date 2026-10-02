@@ -1,5 +1,5 @@
 /**
- * The "is it actually live" half of the definition of done (see CLAUDE.md).
+ * The "is it actually live" half of the definition of done (see AGENTS.md).
  *
  * `web/dist` is baked into the bff image at build time and is NOT mounted, so
  * `docker compose up -d` without a preceding `build bff` silently keeps serving
@@ -56,8 +56,8 @@ check("on main", branch === "main", `on "${branch}"`);
 // every other agent's live worktree (observed 2026-09-29).
 
 /**
- * `VERSION` carries the release tag this checkout claims (see CLAUDE.md
- * "Versioning and tags"): it is bumped in the commit that gets tagged, and the
+ * `VERSION` carries the release tag this checkout claims (see the
+ * `lettuce-releasing` skill): it is bumped in the commit that gets tagged, and the
  * bff image bakes it in for Settings → About. Before tagging it only has to be
  * well-formed; once HEAD is tagged, the two must agree — that is what catches a
  * release tagged without bumping the file.
@@ -69,7 +69,7 @@ const version = versionText.trim();
 check(
   "VERSION is a well-formed release tag",
   /^v\d+\.\d+\.\d+-letta_\d+\.\d+\.\d+$/.test(version),
-  versionText || 'missing — see CLAUDE.md "Versioning and tags"',
+  versionText || "missing — see the lettuce-releasing skill",
 );
 const headTag = git("tag", "--points-at", "HEAD");
 if (headTag) {
@@ -81,8 +81,8 @@ if (headTag) {
 }
 
 /**
- * `CHANGELOG.md` carries the user-facing entries for each release (see CLAUDE.md
- * "Versioning and tags" → changelog rules): the release commit that bumps
+ * `CHANGELOG.md` carries the user-facing entries for each release (see the
+ * `lettuce-releasing` skill's changelog rules): the release commit that bumps
  * `VERSION` renames `## [Unreleased]` to `## [v<new-tag>] - <date>`, so the
  * newest released section must equal `VERSION` by construction — before tagging
  * this is the VERSION↔changelog check, after tagging it transitively matches
@@ -96,7 +96,7 @@ check(
   "CHANGELOG.md exists and has an [Unreleased] section",
   changelogText.includes("## [Unreleased]"),
   changelogText === ""
-    ? 'missing — see CLAUDE.md "Versioning and tags"'
+    ? "missing — see the lettuce-releasing skill"
     : 'no "## [Unreleased]" heading',
 );
 const newestRelease = changelogText.match(/^## \[(v[^\]]+)\]/m)?.[1];

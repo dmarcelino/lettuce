@@ -13,10 +13,10 @@ is read from a file by the app itself, and a value you leave commented out is
 a value you are **not** setting — every one of them has a default in
 `docker/compose.yml` or in `bff/src/config.ts`.
 
-For day-to-day operational detail (logs, restarts, container-level quirks)
-see [`docker/README.md`](../docker/README.md). This document is the
-reference: what each variable does, which mode needs it, and the full
-deployment walkthroughs.
+This document is the reference: what each variable does, which mode needs
+it, and the full deployment walkthroughs. The engineering guide
+([`AGENTS.md`](../AGENTS.md)) holds the invariants instead, and the
+`.agents/skills/` beside it hold the task-scoped mechanics.
 
 ## Required
 
@@ -133,9 +133,8 @@ which drops the BFF's upstream connection, so run
 
 ## Cloudflare Access (cloudflared mode)
 
-All of this comes from the Zero Trust dashboard; the click-by-click setup is
-in
-[`docker/README.md` → Remote access via Cloudflare Tunnel](../docker/README.md).
+All of this comes from the Zero Trust dashboard; the walkthrough is
+[Cloudflare Tunnel (recommended for remote)](#cloudflare-tunnel-recommended-for-remote).
 
 | Variable | Example |
 |---|---|
@@ -240,9 +239,22 @@ configured".
 
 Generate a keypair once with `cd bff && bunx web-push generate-vapid-keys`.
 Rotating the keys invalidates every existing subscription; each device must
-re-subscribe from Settings → Notifications. Full behaviour (what triggers a
-push, the visibility check, iOS requirements) is in
-[`docker/README.md` → Push notifications](../docker/README.md).
+re-subscribe from Settings → Notifications.
+
+A push fires for three events — a turn completed, a turn failed, a tool
+approval needed — and only while no **visible** browser session has that
+conversation on screen. "Visible" is literal: a backgrounded desktop tab
+keeps its WebSocket open for hours, so "still connected" is not evidence
+anyone is looking. The browser reports the conversation on screen plus
+`document.visibilityState`, and that is the only input to the check
+(`SessionRegistry.isScopeWatched`). Each device opts in or out of each event
+under Settings → Notifications, all three on by default.
+
+**Send a test notification** there, once subscribed, delivers one to that
+device immediately, skipping both the watching check and the per-event
+preferences — it is how you tell "delivery is broken" apart from "suppressed
+because you were watching". One decision per line in the BFF log:
+`docker compose -f docker/compose.yml logs bff | grep Push`.
 
 ## Web apps agents serve
 
@@ -260,10 +272,59 @@ Changing either recreates `app-server`: run
 ## Telegram
 
 Needs the `telegram` profile. There are no environment variables for it —
-channel configuration happens once inside the gateway container with
-`letta channels configure telegram`, and pairing with `letta channels pair`.
-The walkthrough is in
-[`docker/README.md` → Telegram](../docker/README.md).
+channel configuration happens once inside the gateway container, and the
+web UI has no path to it at all.
+
+Turn the profile on by adding `telegram` to `COMPOSE_PROFILES` in
+`docker/.env` (or the Dockhand stack variables), keeping whatever is
+already there — e.g. `COMPOSE_PROFILES=cloudflared,telegram` — then
+`docker compose -f docker/compose.yml up -d`. To turn it off again, remove
+the profile **and** stop the container: `up -d` merely stops managing a
+running one:
+
+```bash
+docker compose -f docker/compose.yml --profile telegram rm -sf channel-gateway
+```
+
+Then configure it:
+
+```bash
+C="docker compose -f docker/compose.yml exec channel-gateway"
+
+$C letta channels install telegram   # installs the runtime dependency
+$C letta channels status             # should show telegram configured:false
+
+# Interactive; needs a bot token from @BotFather. -it, not exec -T.
+docker compose -f docker/compose.yml exec -it channel-gateway \
+  letta channels configure telegram
+
+docker compose -f docker/compose.yml restart channel-gateway
+```
+
+Message the bot, then pair the chat to an agent:
+
+```bash
+$C letta channels pair --channel telegram --code <code-from-bot> \
+  --agent <agent-id> --conversation <conversation-id>
+$C letta channels status
+```
+
+## GitHub (WatchPR)
+
+Agents' `WatchPR` tool watches a pull request through the GitHub CLI, which
+the app-server image carries (pinned by `GH_VERSION`). Sign it in once; the
+login is stored in `GH_CONFIG_DIR=/root/.letta/gh` on the state root, so it
+survives recreates. Use a fine-grained token with read access to the repos
+you want watched (pull requests, checks, commit statuses):
+
+```bash
+docker compose -f docker/compose.yml exec -T app-server \
+  gh auth login --with-token < token.txt
+docker compose -f docker/compose.yml exec app-server gh auth status
+```
+
+Every agent shell can read that token — the same reach as any other file
+under `/root/.letta`.
 
 ## Where state lives
 
@@ -338,7 +399,19 @@ BFF_BIND=127.0.0.1
 Create the tunnel, the public hostname pointing at `app-server:8080` (not
 `bff` — the BFF shares the app-server's network namespace), the Google login
 method and the Access application in the Zero Trust dashboard, then mirror
-that application's policy in `ALLOWED_USERS` by hand.
+that application's policy in `ALLOWED_USERS` by hand. The two lists are not
+kept in sync automatically.
+
+Two details that bite:
+
+- The Access application's Google login needs its **own** Google OAuth
+  client, and the redirect URI Cloudflare shows during setup is the one to
+  register there.
+- If the PWA will not install, add a second self-hosted Access application
+  for the same hostname scoped to the PWA static files (`manifest.webmanifest`
+  and its icons) with one **Bypass** / **Everyone** policy — a path-scoped
+  app is matched before the catch-all one. A browser that fetches the
+  manifest without a session gets the login redirect and gives up silently.
 
 ### Production (Dockhand or any compose manager)
 

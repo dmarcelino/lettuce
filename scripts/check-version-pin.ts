@@ -4,7 +4,7 @@
  * The app-server image, the channel-gateway image and the protocol types the UI
  * compiles against must all be the SAME release, or the UI is typechecked
  * against one protocol and talks to another. The literal is repeated in six
- * tracked places and nothing used to check them — CLAUDE.md said so outright
+ * tracked places and nothing used to check them — AGENTS.md said so outright
  * ("Nothing asserts they agree").
  *
  * `docker/.env` is reported but never fails the run: it is gitignored, so it

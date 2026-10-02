@@ -1,0 +1,94 @@
+/**
+ * The guard rules must fire on what they claim to fire on, and stay quiet on
+ * reads that merely quote a forbidden command. Run under `bun test`.
+ */
+import { expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
+import {
+  commandSegments,
+  protectedFileFor,
+  relativeToRoot,
+  reviewCommand,
+  reviewPath,
+} from "./guard-core.ts";
+
+const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+
+const titles = (command: string) => reviewCommand(command).map((hit) => hit.rule.title);
+const hard = (command: string) => reviewCommand(command).some((hit) => !!hit.rule.hard);
+
+test("git push is gated", () => {
+  expect(titles("git push origin main")).toEqual(["git push"]);
+  expect(titles("git -C /elsewhere push")).toEqual(["git push"]);
+  expect(titles("git pushd .")).toEqual([]);
+});
+
+test("force is blocked outright", () => {
+  expect(hard("git push --force-with-lease origin main")).toBe(true);
+});
+
+test("worktree and branch deletion are blocked outright", () => {
+  expect(hard("git worktree remove ../lettuce-worktrees/x")).toBe(true);
+  expect(hard("git worktree prune")).toBe(true);
+  expect(hard("git branch -d old-branch")).toBe(true);
+  expect(hard("git branch -D old-branch")).toBe(true);
+  expect(titles("git branch --show-current")).toEqual([]);
+});
+
+test("an annotated tag is gated", () => {
+  expect(titles('git tag -a "$(cat VERSION)" -m "release"')).toContain("git tag -a");
+});
+
+test("plain compose up is fine, scoped app-server is not", () => {
+  expect(titles("docker compose -f docker/compose.yml up -d")).toEqual([]);
+  expect(titles("docker compose -f docker/compose.yml up -d --build bff")).toEqual([]);
+  expect(titles("docker compose -f docker/compose.yml up -d app-server")).toContain(
+    "recreate app-server",
+  );
+});
+
+test("stopping or removing containers is gated", () => {
+  expect(
+    titles("docker compose -f docker/compose.yml --profile telegram rm -sf channel-gateway"),
+  ).toContain("docker compose (destructive)");
+  expect(titles("docker compose -f docker/compose.yml stop bff")).toContain(
+    "docker compose (destructive)",
+  );
+  expect(titles("docker compose -f docker/compose.yml restart channel-gateway")).toContain(
+    "docker compose restart",
+  );
+});
+
+test("reads that quote a forbidden command do not trip a gate", () => {
+  expect(titles('grep -rn "git push origin main" AGENTS.md')).toEqual([]);
+  expect(titles("cat AGENTS.md | rg git\\ push")).toEqual([]);
+  expect(titles("echo 'then git push'")).toEqual([]);
+  expect(commandSegments("cat x | git push")).toContain("git push");
+});
+
+test("compound commands check every doing segment", () => {
+  expect(titles("git add -A && git commit -m x && git push origin main")).toEqual(["git push"]);
+});
+
+test("protected files match by path, not by prefix accidents", () => {
+  const at = (path: string) => reviewPath(path, ROOT, ROOT)?.path;
+  expect(at("docker/.env")).toBe("docker/.env");
+  expect(at("./docker/.env")).toBe("docker/.env");
+  expect(at(`${ROOT}docker/.env`)).toBe("docker/.env");
+  expect(at("VERSION")).toBe("VERSION");
+  expect(at("VERSIONS.md")).toBeUndefined();
+  expect(at("docker/.env.example")).toBeUndefined();
+  expect(at("docker/secrets/token.json")).toBe("docker/secrets");
+  expect(at("web/src/main.ts")).toBeUndefined();
+  expect(reviewPath("../elsewhere/docker/.env", ROOT, ROOT)).toBeNull();
+});
+
+test("docker/secrets is hard-protected, VERSION is only gated", () => {
+  expect(protectedFileFor("docker/secrets")?.hard).toBe(true);
+  expect(protectedFileFor("VERSION")?.hard).toBeFalsy();
+});
+
+test("paths outside the repo are never protected", () => {
+  expect(relativeToRoot("/etc/VERSION", ROOT).startsWith("..")).toBe(true);
+  expect(protectedFileFor(relativeToRoot("/etc/VERSION", ROOT))).toBeNull();
+});

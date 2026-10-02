@@ -81,7 +81,7 @@ const UNDISPATCHABLE = new Set([
   "secret",
   // Advertised but has no case either; falls through to the mod lookup.
   "toolset",
-  // Needs a gateway attached over stdio; see CLAUDE.md.
+  // Needs a gateway attached over stdio; see AGENTS.md.
   "channels",
   // Meaningless against a pinned image.
   "upgrade-letta-code",

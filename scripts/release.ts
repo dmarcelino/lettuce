@@ -1,5 +1,5 @@
 /**
- * The release, as one gated command (see CLAUDE.md "Versioning and tags" and
+ * The release, as one gated command (see the lettuce-releasing skill and
  * "Stop before releasing to prod").
  *
  * It exists because the release is five manual steps with a human gate in the
@@ -46,7 +46,7 @@ function die(step: string, why: string): never {
 if (bumpMinor === bumpPatch) {
   die(
     "arguments",
-    "exactly one of --minor or --patch is required (see CLAUDE.md versioning rules)",
+    "exactly one of --minor or --patch is required (see the lettuce-releasing skill)",
   );
 }
 
@@ -107,7 +107,7 @@ const newest = changelog.match(/^## \[(v[^\]]+)\]/m)?.[1];
 if (newest !== current)
   die("preflight", `newest CHANGELOG section ${newest} != VERSION ${current}`);
 
-// The suffix is read from the pin at tag time, never from memory (CLAUDE.md).
+// The suffix is read from the pin at tag time, never from memory (the lettuce-releasing skill).
 // The fenced pattern is check-version-pin's: it stays inside the app-server block.
 const compose = await Bun.file(`${ROOT}docker/compose.yml`)
   .text()

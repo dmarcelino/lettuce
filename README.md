@@ -206,9 +206,13 @@ Back that one directory up and you have everything.
 - [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) — every environment
   variable, the Compose profiles, deployment walkthroughs (local, Cloudflare
   Tunnel, production), integrations, upgrades, and the security model.
-- [`docker/README.md`](docker/README.md) — operational detail: running the
-  stack, logs, Telegram, Google, push, and local development without Docker.
-- `CLAUDE.md` — the internal engineering guide.
+- [`docs/upstream-notes.md`](docs/upstream-notes.md) — the incident stories
+  behind the rules in the engineering guide.
+- [`AGENTS.md`](AGENTS.md) — the internal engineering guide. `CLAUDE.md` is a
+  symlink to it, and the task-scoped detail lives in
+  [`.agents/skills/`](.agents/skills).
+- [`.pi/`](.pi) — the harness configuration the repo ships with: guardrails,
+  runbook prompts, and the size/anchor budget `bun run check-docs` enforces.
 
 ## Screenshots
 
@@ -227,8 +231,15 @@ Requires [Bun](https://bun.sh).
 ```bash
 bun install
 bun run dev          # Vite + BFF
-bun run verify       # lint, typecheck, tests, build
+bun run verify       # worktree, version-pin, docs, lint, typecheck, tests, build
+bun run check-docs   # AGENTS.md and .agents/skills stay honest
 ```
+
+Feature work happens in a worktree on a feature branch
+(`git worktree add ../lettuce-worktrees/<name> -b <branch>`), and nothing is
+"done" until it is running in the container — `AGENTS.md` holds the gate, and
+`.pi/extensions/guard.ts` refuses `git push`, worktree/branch deletion, and
+`docker compose … rm|down|stop` unless you confirm them.
 
 ## License
 

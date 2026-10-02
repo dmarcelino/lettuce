@@ -1,7 +1,7 @@
 # Changelog
 
 All notable user-facing changes to lettuce, newest first. Version tags and
-`VERSION` are defined in CLAUDE.md ("Versioning and tags").
+`VERSION` are defined in `AGENTS.md` and the `lettuce-releasing` skill.
 
 ## [Unreleased]
 
