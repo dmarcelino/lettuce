@@ -364,8 +364,12 @@ export const FILE_PATH_FIELDS: ReadonlyMap<string, "path" | "cwd" | "skill_path"
   ["checkout_branch", "cwd"],
 ]);
 
-/** Normalise a POSIX path, resolving `.` and `..` without touching the disk. */
-function normalizePosixPath(input: string): string {
+/**
+ * Normalise a POSIX path, resolving `.` and `..` without touching the disk.
+ * Exported for `git/routes.ts`, which applies the same clamp to an HTTP query
+ * parameter instead of a WS command body.
+ */
+export function normalizePosixPath(input: string): string {
   const segments: string[] = [];
   for (const segment of input.split("/")) {
     if (segment === "" || segment === ".") continue;

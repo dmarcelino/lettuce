@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BranchSheet } from "../components/BranchSheet.tsx";
 import { FileViewer } from "../components/FileViewer.tsx";
+import { GitHistorySheet } from "../components/GitHistorySheet.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { shortDate } from "../lib/conversation-groups.ts";
@@ -94,6 +95,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [branchesOpen, setBranchesOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [newFileOpen, setNewFileOpen] = useState(false);
 
   const toggleSort = (key: SortKey) => {
@@ -217,6 +219,14 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         </button>
         <code className="path">{root}</code>
         <span className="spacer" />
+        <button
+          type="button"
+          className="link"
+          onClick={() => setHistoryOpen(true)}
+          title="Browse git history"
+        >
+          <Icon name="history" /> History
+        </button>
         <button
           type="button"
           className="link"
@@ -402,6 +412,8 @@ export function FilesTab({ session, cwd, agentId }: Props) {
       {branchesOpen ? (
         <BranchSheet session={session} cwd={root} onClose={() => setBranchesOpen(false)} />
       ) : null}
+
+      {historyOpen ? <GitHistorySheet cwd={root} onClose={() => setHistoryOpen(false)} /> : null}
     </div>
   );
 }

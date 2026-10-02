@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- Browse the git history of any workspace folder from the Files tab: the commit log scoped to the open folder, and per-commit details with changed files and +/− stats.
+
 ## [v0.5.0-letta_0.34.1] - 2026-10-02
 
 ### Added

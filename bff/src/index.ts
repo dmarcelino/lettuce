@@ -51,6 +51,8 @@ import { type BffConfig, googleWritesAllowed, isAllowedUser, loadConfig } from "
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
+import { type GitRouteResult, gitCommitResponse, gitLogResponse } from "./git/routes.ts";
+import { checkGitAvailability, runGit } from "./git/service.ts";
 import { createGoogleFsIo } from "./google/fs-io.ts";
 import { googleSettingsUrl, type LostAccessPort } from "./google/lost-access.ts";
 import { GoogleOAuthError } from "./google/oauth.ts";
@@ -1506,6 +1508,46 @@ app.get("/api/files/download", async (c) => {
   });
 });
 
+// ── Git history (Files → History) ──────────────────────────────────────────
+// Upstream exposes only branch commands and the app-server image ships no git
+// binary, so the log is read here, against the BFF's read-only view of /work,
+// and nothing goes upstream. The handlers (session, workspace clamp, symlink
+// guard, realpath re-check, then git) live in `git/routes.ts`; this is only
+// the HTTP plumbing. See that file and `git/log.ts` for the reasoning.
+
+app.get("/api/git/log", async (c) => {
+  return gitResponse(
+    c,
+    await gitLogResponse(
+      { hasSession: !!c.get("session") },
+      {
+        path: c.req.query("path"),
+        limit: c.req.query("limit"),
+        skip: c.req.query("skip"),
+      },
+    ),
+  );
+});
+
+app.get("/api/git/commit", async (c) => {
+  return gitResponse(
+    c,
+    await gitCommitResponse(
+      { hasSession: !!c.get("session") },
+      { path: c.req.query("path"), sha: c.req.query("sha") },
+    ),
+  );
+});
+
+function gitResponse(c: Context, result: GitRouteResult): Response {
+  // The handler picked the status; plain numbers do not satisfy Hono's json
+  // overload, which is the entire reason for the cast.
+  const status = result.status as 200;
+  return result.json !== undefined
+    ? c.json(result.json, status)
+    : c.text(result.text ?? "", status);
+}
+
 // ── Static SPA ───────────────────────────────────────────────────────────────
 // Registered last: Hono matches in order, so /api, /auth and the health probes
 // above always win. In local development Vite serves the app instead and
@@ -1653,6 +1695,9 @@ log(
 );
 log(`Listening on ${bindHostname}:${server.port} (public origin ${config.publicOrigin})`);
 log(`App-server: ${config.appServerUrl}`);
+// A misbuilt image without git would otherwise be noticed only as a quiet 503
+// on the first History open; say it out loud once here instead.
+void checkGitAvailability(runGit, (message) => log(message));
 log(`Allowlisted users: ${config.allowedUsers.join(", ") || "(none — nobody can sign in)"}`);
 if (config.devBypassEmail) {
   log("!".repeat(72));

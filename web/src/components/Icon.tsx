@@ -38,6 +38,7 @@ export type IconName =
   | "task"
   | "braces"
   | "branch"
+  | "history"
   | "copy"
   | "check"
   | "chats"
@@ -98,6 +99,8 @@ const PATHS: Record<IconName, string> = {
   // Git branch: two nodes on a line with a diverging one.
   branch:
     "M7 5v10M7 19a2 2 0 100-4 2 2 0 000 4zM7 7a2 2 0 100-4 2 2 0 000 4zM17 9a2 2 0 100-4 2 2 0 000 4zM17 9c0 4-4 4-4 8",
+  // Clock outline: git history — the log of what already happened.
+  history: "M12 3a9 9 0 100 18 9 9 0 100-18M12 7v5l3 2",
   // Two overlapping sheets: copy to the clipboard.
   copy: "M9 9h10v10H9zM15 9V5H5v10h4",
   check: "M5 12l5 5 9-10",

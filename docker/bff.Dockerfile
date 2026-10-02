@@ -34,12 +34,25 @@ RUN cd web && bun run build
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM deps AS runtime
 
+# The first apt use in this image. The Files tab's History reads the commit log
+# here (bff/src/git/) — against the BFF's read-only /work mount — because
+# upstream exposes only branch commands and the app-server image ships no git
+# binary. Deliberately unpinned: pinning a Debian package version breaks on
+# every base refresh, and the accepted residual risk is git's object parser
+# running on agent-authored repositories inside this container, mitigated by
+# the read-only mount, argv-only spawns, timeouts and output caps. Only `git`
+# itself is needed; --no-install-recommends keeps perl manpages etc. out.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY bff/src            ./bff/src
 COPY bff/tsconfig.json  ./bff/tsconfig.json
 # This build's release tag, served at /api/status and shown in Settings → About.
-# A file rather than `git describe`: .dockerignore excludes .git and the image
-# has no git (see CLAUDE.md "Versioning and tags").
+# A file rather than `git describe`: .dockerignore excludes .git, and the git
+# install above must not become the reason this build could not be derived
+# (see CLAUDE.md "Versioning and tags").
 COPY VERSION            ./VERSION
 # Skills the BFF installs into every agent's global skill directory on connect
 # (bff/src/agent-skills.ts). In the image, not a bind mount: under Dockhand a

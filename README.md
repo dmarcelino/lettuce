@@ -95,6 +95,8 @@ before exposing anything.
   browser with inline previews for images, PDFs and text.
 - **Git branch switcher** for the workspace, including checking out remote
   branches.
+- **Git history** in the Files tab: the commit log of the open folder and a
+  per-commit view of its changed files with +/− stats.
 - Agents can **serve small web apps** on a published port range and hand you a
   link.
 

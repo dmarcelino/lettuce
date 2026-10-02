@@ -674,6 +674,32 @@ try {
     } else {
       check("a file name gets most of the row on a phone", nameShare >= 0.6, { nameShare });
     }
+
+    // The git-history entry sits in the same pane-bar as Branch; at phone
+    // width the bar must still fit, and the sheet must open and close like
+    // every other sheet. Whether the workspace is a repository decides the
+    // sheet's body — clipping is asserted either way.
+    const phoneHistory = page.locator('.pane-bar button:has-text("History")');
+    check("History is on the Files pane bar on a phone", (await phoneHistory.count()) > 0);
+    if ((await phoneHistory.count()) > 0) {
+      await phoneHistory.click();
+      await page.waitForTimeout(800);
+      const phoneSheet = page.locator('.sheet-panel[aria-label="History"]');
+      await phoneSheet.waitFor({ state: "visible", timeout: 5000 });
+      const sheetBox = await overflow(page);
+      check(
+        "the history sheet has nothing clipped on a phone",
+        sheetBox.clipped.length === 0,
+        sheetBox,
+      );
+      await shot(page, "phone-files-history");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      check(
+        "escape closes the history sheet",
+        (await page.locator('.sheet-panel[aria-label="History"]').count()) === 0,
+      );
+    }
     await page.locator('nav.tabs button:text-is("Chat")').click();
 
     // The Agent tab's section switcher wraps rather than widening the pane.
@@ -1331,6 +1357,67 @@ try {
       const filesBox = await overflow(page);
       check("files list has nothing clipped", filesBox.clipped.length === 0, filesBox);
       await shot(page, "desktop-files");
+    }
+
+    // Git history: the sheet always opens; commit-row and detail assertions
+    // only run when the probed workspace actually is a repository — asserting
+    // rows against a plain directory would pass for the wrong reason, so it
+    // follows the download-skip idiom above.
+    const historyButton = page.locator('.pane-bar button:has-text("History")');
+    check("History is on the Files pane bar", (await historyButton.count()) > 0);
+    if ((await historyButton.count()) > 0) {
+      await historyButton.first().click();
+      const historySheet = page.locator('.sheet-panel[aria-label="History"]');
+      await historySheet.waitFor({ state: "visible", timeout: 5000 });
+      const rows = historySheet.locator(".git-commits .git-commit");
+      let isRepo = true;
+      try {
+        await rows.first().waitFor({ state: "visible", timeout: 5000 });
+      } catch {
+        isRepo = false;
+      }
+      const historyBox = await overflow(page);
+      check("the history sheet has nothing clipped", historyBox.clipped.length === 0, historyBox);
+      if (!isRepo) {
+        console.log("  SKIP  commit rows and detail (this workspace is not a git repository)");
+        await shot(page, "desktop-files-history");
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+        check(
+          "escape closes the history sheet",
+          (await page.locator('.sheet-panel[aria-label="History"]').count()) === 0,
+        );
+      } else {
+        await rows.first().click();
+        await historySheet.locator(".git-message").waitFor({ state: "visible", timeout: 5000 });
+        check(
+          "the commit detail renders its message",
+          (await historySheet.locator(".git-message").count()) === 1,
+        );
+        const fileRows = await historySheet.locator(".git-file").count();
+        const mergeNote = await historySheet.getByText("merge commits show none").count();
+        check("the detail lists changed files (or says merge)", fileRows > 0 || mergeNote > 0, {
+          fileRows,
+          mergeNote,
+        });
+        const detailBox = await overflow(page);
+        check("the commit detail has nothing clipped", detailBox.clipped.length === 0, detailBox);
+        await shot(page, "desktop-files-history-detail");
+
+        // Back to the list, then dismiss by clicking the scrim.
+        await historySheet.locator('button:has-text("Commits")').click();
+        await rows.first().waitFor({ state: "visible", timeout: 5000 });
+        check(
+          "Commits returns to the list",
+          (await historySheet.locator(".git-commits .git-commit").count()) > 0,
+        );
+        await page.locator(".sheet-scrim").click();
+        await page.waitForTimeout(300);
+        check(
+          "clicking outside closes the history sheet",
+          (await page.locator('.sheet-panel[aria-label="History"]').count()) === 0,
+        );
+      }
     }
 
     // A reload must come back to the agent you were on. It used to land on

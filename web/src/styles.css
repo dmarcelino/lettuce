@@ -1773,6 +1773,80 @@ button {
   gap: 8px;
 }
 
+/* ── Git history (Files → History) ────────────────────────────────────────
+   Rows reuse .picker; these are only the parts it does not cover: the
+   sha/author/date meta line, the changed-file row, the +n/−m stat column
+   and its status letters. On a phone the meta wraps under the subject and
+   the stats wrap under the path — plain inline text inside column-flex rows,
+   so the existing fold idiom applies with no media query. */
+.git-repo-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.git-repo-line code {
+  overflow-wrap: anywhere;
+}
+.git-commit-subject {
+  flex-wrap: wrap;
+}
+.git-commit-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.git-commit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+.git-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.git-file {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.git-status {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+}
+.git-file-path {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.git-file-stats {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.git-add {
+  color: var(--ok);
+}
+.git-del {
+  color: var(--bad);
+}
+pre.git-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ── Misc ────────────────────────────────────────────────────────────────── */
 
 .pill {
