@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.5.0-letta_0.34.1] - 2026-10-02
+
 ### Added
 - Mark a served model **Vision** / **Thinking** from Settings → Providers & models (Edit on the model's row) so it receives images and its real context window instead of the 128k default — applies from the agents' next turn, no restart, no server config.
 - `VISION_PROVIDERS` env still works, as a first-boot seed for those declarations; after that everything is edited in the UI.
