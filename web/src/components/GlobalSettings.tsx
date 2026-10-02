@@ -178,8 +178,15 @@ export function GlobalSettings({
       if (document.querySelector(".sheet")) return;
       onClose();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Capture phase, deliberately. A section's own sheet listens on document
+    // in the bubble phase, and its close flushes before any bubble listener on
+    // window runs — in bubble order this guard would always find the sheet
+    // already gone and would close Settings along with it (Escape inside
+    // Settings → Providers' model-edit sheet closed the whole screen). In
+    // capture the sheet is still in the DOM, so the `.sheet` test means what
+    // it says.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   const info = ALL_SECTIONS.find((candidate) => candidate.id === section);
