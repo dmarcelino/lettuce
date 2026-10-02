@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
-import { handleProvider, isLocalHandle, localProviderKeys } from "../lib/providers.ts";
+import { fetchModelCaps, type ModelCaps } from "../lib/model-caps.ts";
+import {
+  handleProvider,
+  isCapabilityLessHandle,
+  isLocalHandle,
+  localProviderKeys,
+  normalizeProviderKey,
+} from "../lib/providers.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
+import { ModelEditSheet, type ModelEditTarget } from "./ModelEditSheet.tsx";
 import { Sheet } from "./Sheet.tsx";
 
 interface ProviderField {
@@ -51,6 +59,21 @@ function currentValues(provider: ProviderEntry): Record<string, string> {
   return state?.base_url ? { baseUrl: state.base_url } : {};
 }
 
+/** The connection row a handle prefix belongs to, following BYOK aliases. */
+function providerForPrefix(
+  providers: readonly ProviderEntry[],
+  aliases: Readonly<Record<string, string>>,
+  prefix: string,
+): ProviderEntry | undefined {
+  const base = aliases[prefix] ?? prefix;
+  const key = normalizeProviderKey(base);
+  return providers.find((p) =>
+    [p.provider_name, ...(p.provider_names ?? [])].some(
+      (n) => n && normalizeProviderKey(n) === key,
+    ),
+  );
+}
+
 export function ConnectionSection({ session }: { session: SessionApi }) {
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [status, setStatus] = useState("");
@@ -61,6 +84,18 @@ export function ConnectionSection({ session }: { session: SessionApi }) {
   // Same hook the chat model picker uses, so the two can never disagree about
   // what is being served.
   const models = useModels(session);
+  // What the operator declared per model (bff/src/providers/store.ts); the
+  // row's tags are the save confirmation, so this is display state only.
+  const [caps, setCaps] = useState<Record<string, ModelCaps>>({});
+  const [editingModel, setEditingModel] = useState<ModelEditTarget | null>(null);
+
+  const loadCaps = useCallback(async () => {
+    try {
+      setCaps(await fetchModelCaps());
+    } catch {
+      // Non-fatal: without the store the list simply shows no tags.
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setStatus("Loading providers…");
@@ -82,8 +117,11 @@ export function ConnectionSection({ session }: { session: SessionApi }) {
   }, [session.request]);
 
   useEffect(() => {
-    if (session.ready) void load();
-  }, [session.ready, load]);
+    if (session.ready) {
+      void load();
+      void loadCaps();
+    }
+  }, [session.ready, load, loadCaps]);
 
   // `connect_provider` routes to createOrUpdateProvider, keyed on provider
   // name, so re-issuing it with new fields IS the edit path — there is no
@@ -196,12 +234,54 @@ export function ConnectionSection({ session }: { session: SessionApi }) {
         </p>
       ) : null}
       <ul className="list">
-        {localModels.map((model) => (
-          <li key={model.id} className="row-between pad">
-            <span>{model.label}</span>
-            <code className="muted small">{handleProvider(model.handle)}</code>
-          </li>
-        ))}
+        {localModels.map((model) => {
+          const prefix = handleProvider(model.handle);
+          const declared = caps[model.handle];
+          // Only capability-less endpoints can be declared; native ones
+          // already report their own capabilities and need no editing.
+          const editable = isCapabilityLessHandle(model.handle, models.aliases);
+          const connection = providerForPrefix(providers, models.aliases, prefix);
+          return (
+            <li key={model.id}>
+              <div className="row static">
+                <span className="grow-text">
+                  {model.label}
+                  {declared?.vision ? (
+                    <span className="tag muted" style={{ marginLeft: 6 }}>
+                      Vision
+                    </span>
+                  ) : null}
+                  {declared?.thinking ? (
+                    <span className="tag muted" style={{ marginLeft: 6 }}>
+                      Thinking
+                    </span>
+                  ) : null}
+                </span>
+                <code className="muted small">{prefix}</code>
+                {editable ? (
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() =>
+                      setEditingModel({
+                        handle: model.handle,
+                        label: model.label,
+                        baseUrl:
+                          typeof connection?.connected === "object"
+                            ? connection.connected.base_url
+                            : undefined,
+                        requiresKey: connection?.requires_api_key === true,
+                        caps: declared ?? null,
+                      })
+                    }
+                  >
+                    Edit
+                  </button>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
       </ul>
       <p className="pad">
         <button
@@ -256,6 +336,18 @@ export function ConnectionSection({ session }: { session: SessionApi }) {
             </ul>
           ) : null}
         </>
+      ) : null}
+
+      {editingModel ? (
+        <ModelEditSheet
+          target={editingModel}
+          onClose={() => setEditingModel(null)}
+          onSaved={() => {
+            setEditingModel(null);
+            void loadCaps();
+            void models.refresh();
+          }}
+        />
       ) : null}
 
       {editing ? (

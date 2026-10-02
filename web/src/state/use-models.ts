@@ -47,6 +47,13 @@ export interface ModelsApi {
   error: string | null;
   /** Distinct provider segments across the served handles, e.g. ["llama.cpp"]. */
   providers: string[];
+  /**
+   * `byok_provider_aliases` from the last list: BYOK handle prefix → the base
+   * provider it mirrors (`lc-1` → `openai-compatible`). What tells the UI an
+   * `lc-…` prefix is a plain OpenAI-compatible endpoint with no capabilities
+   * of its own (Settings → Providers & models marks such models editable).
+   */
+  aliases: Record<string, string>;
   /** Set when the last refresh returned a different set than the one before it. */
   changed: ModelSetChange | null;
   /** User-initiated refetch; bypasses the listener's availability cache. */
@@ -63,6 +70,7 @@ export function sameHandleSet(a: readonly string[], b: readonly string[]): boole
 interface ListModelsResponse {
   entries?: unknown[];
   available_handles?: unknown;
+  byok_provider_aliases?: unknown;
   error?: string;
 }
 
@@ -107,6 +115,7 @@ export function useModels(session: SessionApi): ModelsApi {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [changed, setChanged] = useState<ModelSetChange | null>(null);
+  const [aliases, setAliases] = useState<Record<string, string>>({});
   /** The handle set from the previous successful load, for comparison. */
   const previousHandles = useRef<string[] | null>(null);
 
@@ -125,6 +134,17 @@ export function useModels(session: SessionApi): ModelsApi {
               return entry ? [entry] : [];
             })
           : [];
+
+        const rawAliases = response?.byok_provider_aliases;
+        setAliases(
+          rawAliases && typeof rawAliases === "object" && !Array.isArray(rawAliases)
+            ? Object.fromEntries(
+                Object.entries(rawAliases as Record<string, unknown>).filter(
+                  (entry): entry is [string, string] => typeof entry[1] === "string",
+                ),
+              )
+            : {},
+        );
 
         const handles = response?.available_handles;
 
@@ -172,7 +192,7 @@ export function useModels(session: SessionApi): ModelsApi {
 
   const providers = [...new Set(models.map((m) => handleProvider(m.handle)).filter(Boolean))];
 
-  return { models, availability, loading, error, providers, changed, refresh };
+  return { models, availability, loading, error, providers, aliases, changed, refresh };
 }
 
 /**

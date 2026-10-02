@@ -57,6 +57,12 @@ export interface BffConfig {
   /** Per-agent Codex and Google access (`agents/tool-access.ts`), on the `bff-data` volume. */
   agentToolAccessFile: string;
   /**
+   * Declared model capabilities (`providers/store.ts`), on the `bff-data`
+   * volume: vision/thinking/real windows for models behind endpoints that
+   * report none. Drives the providers mod.
+   */
+  modelCapsFile: string;
+  /**
    * Backends of the agents' native `web_search` / `fetch_webpage` tools (see
    * `web-tools/`): SearXNG answers searches, ddg-mcp reads pages and is the
    * search fallback. Null switches that backend off.
@@ -379,6 +385,7 @@ export function loadConfig(): BffConfig {
       process.env.ARCHIVED_AGENTS_FILE?.trim() || "/app/data/archived-agents.json",
     agentToolAccessFile:
       process.env.AGENT_TOOL_ACCESS_FILE?.trim() || "/app/data/agent-tool-access.json",
+    modelCapsFile: process.env.MODEL_CAPS_FILE?.trim() || "/app/data/vision-models.json",
     webTools: {
       searxngUrl: process.env.SEARXNG_URL?.trim() || null,
       ddgMcpUrl: process.env.DDG_MCP_URL?.trim() || null,

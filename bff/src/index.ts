@@ -82,8 +82,17 @@ import { MCP_SKILL_NAME } from "./mcp/skill.ts";
 import { McpCatalog } from "./mcp-bridge/catalog.ts";
 import { mcpClient } from "./mcp-bridge/client.ts";
 import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
+import { ProviderSight } from "./providers/sight.ts";
 import {
+  ModelCapsError,
+  ModelCapsStore,
+  parseModelCapsBody,
+  splitHandle,
+} from "./providers/store.ts";
+import {
+  buildProviderModGroups,
   PROVIDERS_MOD_PATH,
+  parseRegisteredProviderIds,
   parseVisionProviders,
   renderProvidersMod,
 } from "./providers/vision.ts";
@@ -169,10 +178,20 @@ const upstream = new UpstreamConnection({
     // Before the fan-out: a browser refetches usage when it sees a usage
     // delta, and must find this step already counted.
     turnUsage.observe(frame);
+    const sightUpdate = providerSight.observe(frame);
     registry.handleUpstreamFrame(frame);
     turnErrors.observe(frame);
     turnOutcomeWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
     approvalWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
+    if (sightUpdate.modelsMayHaveChanged) {
+      // A relayed connect/disconnect: re-fetch both lists, then re-render.
+      void resyncMods("model list may have changed", {
+        refreshCatalog: false,
+        refreshProviders: true,
+      }).catch(() => {});
+    } else if (sightUpdate.modelsChanged) {
+      void resyncMods("model list changed", { refreshCatalog: false }).catch(() => {});
+    }
   },
   onStateChange: (state, info) => {
     log(`Upstream state: ${state}`);
@@ -192,7 +211,7 @@ const upstream = new UpstreamConnection({
         .catch((error) => log(`MCP: could not retire duckduckgo: ${errorMessage(error)}`))
         .then(() => googleService.reapply())
         .catch((error) => log(`Google: could not re-render config: ${errorMessage(error)}`))
-        .then(() => resyncMods("connected", { refreshCatalog: true }))
+        .then(() => resyncMods("connected", { refreshCatalog: true, refreshProviders: true }))
         .catch(() => {});
       void reapplyCodexSettings(codexIo, { profileEnabled: config.features.codex })
         .then((applied) => applied && log("Codex: re-rendered config from saved settings"))
@@ -439,12 +458,13 @@ const modsIo: ModsIo = {
   },
 };
 
-// Provider mods declared by VISION_PROVIDERS (bff/src/providers/vision.ts):
-// the only sanctioned way to publish vision — and the real context window —
-// for a model behind an OpenAI-only endpoint. A value that will not parse is
-// a mistake in the operator's environment, not a reason to stay down: log it
-// loudly and run without the extra providers.
-const visionProviders = (() => {
+// What the operator has declared about capability-less models (Settings →
+// Providers & models), and the mirror of the currently served list that the
+// providers mod is rendered from (bff/src/providers/). The legacy
+// VISION_PROVIDERS env is a first-boot seed into the store — a value that
+// will not parse is a mistake in the operator's environment, not a reason to
+// stay down: log it loudly and seed nothing.
+const visionSeed = (() => {
   try {
     return parseVisionProviders(process.env.VISION_PROVIDERS);
   } catch (error) {
@@ -452,6 +472,23 @@ const visionProviders = (() => {
     return [];
   }
 })();
+const modelCaps = new ModelCapsStore(config.modelCapsFile, (error) =>
+  log(`Model capabilities persist failed: ${errorMessage(error)}`),
+);
+const seeded = modelCaps.seedFromVisionProviders(visionSeed);
+if (seeded > 0) {
+  log(`Providers: capability store seeded from VISION_PROVIDERS (${seeded} model(s))`);
+}
+
+// The served-model mirror, kept from every model/provider list that passes
+// over the permanent connection (browsers' refreshes included) plus forced
+// refreshes around renders. A change here re-renders the providers mod, which
+// is how an endpoint that gained a model gets it published without a restart.
+const providerSight = new ProviderSight({
+  request: (command) => upstream.request(command),
+  newRequestId: () => `bff-sight-${randomUUID()}`,
+  log,
+});
 
 /** Every mod as it should be now, from the saved switch and the last catalog. */
 async function renderAllMods(): Promise<RenderedMod[]> {
@@ -461,7 +498,7 @@ async function renderAllMods(): Promise<RenderedMod[]> {
   const googleHidden = Object.fromEntries(
     Object.entries(access).map(([agentId, a]) => [agentId, googleToolsHiddenAt(a.google)]),
   );
-  return [
+  const mods: RenderedMod[] = [
     {
       path: WEB_TOOLS_MOD_PATH,
       // Effective-enabled: the `search` token must be on for the stored switch
@@ -495,21 +532,56 @@ async function renderAllMods(): Promise<RenderedMod[]> {
         claudeBlocked: agentsWhere(access, (a) => !a.claude),
       }),
     },
-    {
-      path: PROVIDERS_MOD_PATH,
-      source: renderProvidersMod(visionProviders),
-    },
   ];
+  // The providers mod mirrors the served model list, so it can only be
+  // rendered from a complete mirror: `null` means the mirror is still empty
+  // for a prefix that needs one (the BFF connected before the first model
+  // list landed) and the existing file must stand — a partial render would
+  // erase live models. Retry until the mirror is filled.
+  const currentProvidersMod = await codexIo.read(PROVIDERS_MOD_PATH).catch(() => null);
+  const providerGroups = buildProviderModGroups({
+    models: modelCaps.models(),
+    endpoints: modelCaps.endpoints(),
+    served: providerSight.servedSnapshot(),
+    baseUrlOf: (prefix) => providerSight.baseUrlFor(prefix),
+    isLive: (prefix) => providerSight.isConnected(prefix),
+    alreadyRegistered: parseRegisteredProviderIds(currentProvidersMod),
+  });
+  if (providerGroups) {
+    mods.push({ path: PROVIDERS_MOD_PATH, source: renderProvidersMod(providerGroups) });
+  } else {
+    log("Providers: served-model mirror incomplete — providers mod left as-is");
+    scheduleProvidersMirrorRetry();
+  }
+  return mods;
 }
 
 // Serialised: a Google change, an MCP save and a reconnect can all land at once.
 let modsChain: Promise<unknown> = Promise.resolve();
 /** Retries a reload that could not run yet (no agent existed) until one can. */
 let modsReloadRetry: ReturnType<typeof setInterval> | null = null;
+/** Retry for a providers render deferred on an empty model-list mirror. */
+let providersMirrorRetry: ReturnType<typeof setTimeout> | null = null;
 
-function resyncMods(reason: string, options: { refreshCatalog: boolean }) {
+function scheduleProvidersMirrorRetry(): void {
+  if (providersMirrorRetry) return;
+  providersMirrorRetry = setTimeout(() => {
+    providersMirrorRetry = null;
+    void resyncMods("providers mirror retry", {
+      refreshCatalog: false,
+      refreshProviders: true,
+    }).catch(() => {});
+  }, 30_000);
+}
+
+function resyncMods(
+  reason: string,
+  options: { refreshCatalog: boolean; refreshProviders?: boolean },
+) {
   const run = modsChain.then(async () => {
     if (!upstream.isReady()) return "unchanged" as const;
+    // The providers mod is rendered from the mirror, so refresh it first.
+    if (options.refreshProviders) await providerSight.refresh();
     if (options.refreshCatalog) await mcpCatalog.refresh();
     const result = await syncMods(modsIo, await renderAllMods());
     if (result !== "unchanged") log(`Native tools: mods ${result} (${reason})`);
@@ -1011,6 +1083,63 @@ app.post("/api/web-tools/test", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
   const body = (await c.req.json().catch(() => null)) as { query?: unknown } | null;
   return c.json(await webSearch({ query: body?.query, max_results: 5 }, webToolsBackends()));
+});
+
+// ── Model capabilities ──────────────────────────────────────────────────────
+// What the operator declares about models behind endpoints that report no
+// capabilities (plain OpenAI-compatible and its BYOK aliases): vision,
+// thinking, the real context window. The declarations drive the providers mod
+// — which is THE capability truth for every prefix it registers — so a save
+// re-renders and reloads it and answers with the same `mod` state the
+// web-tools switch uses ("reload-pending" when no agent exists yet).
+// Keys stored here are write-only: no route echoes them, same rule as the
+// provider connections themselves.
+
+app.get("/api/model-caps", (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  return c.json({ models: modelCaps.models() });
+});
+
+app.put("/api/model-caps", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  let saved: ReturnType<typeof parseModelCapsBody>;
+  try {
+    saved = parseModelCapsBody(await c.req.json().catch(() => null));
+  } catch (error) {
+    if (error instanceof ModelCapsError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 400);
+  }
+  modelCaps.setModel(saved.handle, saved.caps);
+  // Snapshot what the live connection currently has, so the group survives
+  // the connection going away; a blank key keeps the stored one (the protocol
+  // can never read it back, so the save form starts blank every time).
+  const prefix = saved.handle.slice(0, saved.handle.indexOf("/"));
+  const baseUrl = providerSight.baseUrlFor(prefix);
+  modelCaps.setEndpoint(prefix, {
+    ...(saved.apiKey ? { apiKey: saved.apiKey } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+  });
+  // Awaited so the answer says whether it is live; the reload retries on its
+  // own while no agent exists to carry it.
+  const mod = await resyncMods("Settings → model capabilities", {
+    refreshCatalog: false,
+    refreshProviders: true,
+  }).catch(() => null);
+  return c.json({ model: { handle: saved.handle, ...saved.caps }, mod: mod ?? "failed" });
+});
+
+app.delete("/api/model-caps", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const parts = splitHandle(c.req.query("handle"));
+  if (!parts) return c.text('handle must look like "provider/model"', 400);
+  const removed = modelCaps.removeModel(`${parts.prefix}/${parts.model}`);
+  const mod = await resyncMods("Settings → model capabilities", {
+    refreshCatalog: false,
+    refreshProviders: true,
+  }).catch(() => null);
+  return c.json({ removed, mod: mod ?? "failed" });
 });
 
 // What agents currently have as native tools from the MCP side: the curated

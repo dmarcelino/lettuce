@@ -78,3 +78,24 @@ export function isLocalHandle(handle: string, localKeys: ReadonlySet<string>): b
   if (!key) return false;
   return localKeys.has(key) || LOCAL_HANDLE_PREFIXES.includes(key);
 }
+
+/**
+ * Can this model's capabilities only be *declared* (Settings → Providers &
+ * models), because its endpoint reports none?
+ *
+ * True for a plain OpenAI-compatible prefix and for its BYOK aliases —
+ * `byok_provider_aliases` maps each `lc-…` prefix to the base provider it
+ * mirrors, and an alias of `openai-compatible` is the same capability-less
+ * endpoint under a different handle. llama.cpp, Ollama etc. report
+ * capabilities themselves from their native schema, so nothing is declared
+ * for them and their models are not editable.
+ */
+export function isCapabilityLessHandle(
+  handle: string,
+  aliases: Readonly<Record<string, string>>,
+): boolean {
+  const prefix = handleProvider(handle);
+  if (!prefix) return false;
+  const base = normalizeProviderKey(aliases[prefix] ?? prefix);
+  return base === normalizeProviderKey("openai-compatible");
+}

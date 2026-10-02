@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { isLocalHandle, localProviderKeys, normalizeProviderKey } from "./providers.ts";
+import {
+  isCapabilityLessHandle,
+  isLocalHandle,
+  localProviderKeys,
+  normalizeProviderKey,
+} from "./providers.ts";
 
 /** Exactly what `list_connect_providers` returns for this deployment. */
 const LLAMA_CPP = { provider_name: "llama-cpp", provider_names: ["llama-cpp", "lc-llama-cpp"] };
@@ -49,5 +54,26 @@ describe("local vs cloud model handles", () => {
 
   test("a handle with no provider segment is not local", () => {
     expect(isLocalHandle("", new Set(["llamacpp"]))).toBe(false);
+  });
+});
+
+describe("isCapabilityLessHandle", () => {
+  test("a plain openai-compatible prefix is capability-less", () => {
+    expect(isCapabilityLessHandle("openai-compatible/Qwen", {})).toBe(true);
+    expect(isCapabilityLessHandle("lc-openai-compatible/Qwen", {})).toBe(true);
+  });
+
+  test("a BYOK alias resolves through byok_provider_aliases", () => {
+    expect(isCapabilityLessHandle("lc-1/Qwen", { "lc-1": "openai-compatible" })).toBe(true);
+    // An alias of a capability-reporting provider is not editable.
+    expect(isCapabilityLessHandle("lc-2/Qwen", { "lc-2": "ollama" })).toBe(false);
+    // An alias the list never mentioned: unknown, so not editable.
+    expect(isCapabilityLessHandle("lc-3/Qwen", {})).toBe(false);
+  });
+
+  test("native endpoints report their own capabilities", () => {
+    expect(isCapabilityLessHandle("llama.cpp/Gemma", {})).toBe(false);
+    expect(isCapabilityLessHandle("ollama/llama3", {})).toBe(false);
+    expect(isCapabilityLessHandle("anthropic/claude-sonnet-4-6", {})).toBe(false);
   });
 });

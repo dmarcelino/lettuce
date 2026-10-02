@@ -179,35 +179,42 @@ backend status and a test search.
 Without the profile the tools stay registered and every call fails with the
 backend's error, so switch them off in Settings → Web.
 
-## Vision model providers
+## Model capabilities (vision, thinking, real context window)
 
 | Variable | Default | Effect |
 |---|---|---|
-| `VISION_PROVIDERS` | empty | JSON array of providers whose models are declared vision-capable |
+| `VISION_PROVIDERS` | empty | **first-boot seed only** — JSON array of provider declarations, imported into the Settings store once |
 
 letta-code can only detect vision from a provider's native capability schema
 (llama.cpp's `/props` / native `/models`, Ollama's `/api/tags`). A model behind a
 plain OpenAI-compatible `/v1/models` endpoint is always resolved text-only — the
 image is silently replaced with an "(image omitted)" placeholder before the call,
 even when the server reads images fine — and its context window clamps to the
-harness default of 128 000. `VISION_PROVIDERS` publishes both facts through a
-provider mod (the BFF renders it into the app-server's mods dir like every
-other mod). Set it in `docker/.env`; agents then select the model under the
-new provider id, e.g. `halogen/Qwen3.8-Flash-Next`.
+harness default of 128 000.
+
+**The declarations live in the UI**: in Settings → Providers & models, every
+model from a capability-less endpoint has an **Edit** action where you tick
+*Vision* and *Thinking* and give the **real** `contextWindow` and completion
+`maxTokens` (e.g. a 262 144-token window with a 32 768 `max_tokens_cap` —
+`/health` on the actual endpoint reports both live numbers). The BFF stores
+them (`bff-data/vision-models.json`) and renders the provider mod — the one
+sanctioned capability override upstream — so the model keeps its handle and
+gains its capabilities from the agents' next turn, with no restart and no
+container recreate. An endpoint that gains models is picked up automatically
+when the BFF next sees its list.
+
+`VISION_PROVIDERS` remains as a **one-time seed** for existing installs: on the
+first boot with no store file yet, its entries are imported and the env is never
+read again. Per entry: `id` (lowercase, becomes the handle prefix — a provider
+the UI cannot see keeps working standalone), `baseUrl` (OpenAI-compatible, `/v1`
+included), optional `name`, `description`, `apiKey`, and `models[]` with `id`,
+optional `name`, `reasoning: true`, `input` (default `["text","image"]`), and
+the real `contextWindow` / `maxTokens`. An unparsable value is logged and
+ignored.
 
 ```
 VISION_PROVIDERS=[{"id":"halogen","name":"Halogen","description":"Qwen3.8-Flash-Next on Strix Halo via Olla","baseUrl":"http://192.168.6.100:8080/olla/openai/v1","models":[{"id":"Qwen3.8-Flash-Next","name":"Qwen3.8-Flash-Next","contextWindow":262144,"maxTokens":32768}]}]
 ```
-
-Per entry: `id` (lowercase, becomes the model-handle prefix), `baseUrl`
-(OpenAI-compatible, `/v1` included), optional `name`, `description`, `apiKey`
-(env-var name or literal; default no auth), and `models[]` with `id`, optional
-`name`, `reasoning: true` (server emits thinking; default off), `input`
-(default `["text","image"]`), and the **real** `contextWindow` and completion
-`maxTokens` of the served endpoint — halogen on this setup serves a 262 144-token window and
-rejects completions above its `max_tokens_cap` of 32 768, hence the values
-above — `/health` on the actual endpoint reports both live numbers. An unparsable value is logged
-and ignored; the mod reloads on the BFF's next connect.
 
 ## Google (Gmail, Calendar, Tasks, Contacts)
 
