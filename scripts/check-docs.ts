@@ -12,8 +12,8 @@
  *   - every relative markdown link resolves to a file that exists.
  *   - every repo path mentioned in the guide or a skill exists.
  *   - every `bun run <name>` in the guide is a real script.
- *   - every skill has valid frontmatter, and is named in the guide so it is
- *     actually discoverable.
+ *   - every skill has valid frontmatter — one a real YAML parser accepts, not just
+ *     the regexes here — and is named in the guide so it is actually discoverable.
  *
  * Usage: bun scripts/check-docs.ts [--print-size]
  */
@@ -75,6 +75,25 @@ const notes: string[] = [];
 
 function check(ok: boolean, label: string, detail?: string) {
   if (!ok) failures.push(detail ? `${label} — ${detail}` : label);
+}
+
+/**
+ * Is this frontmatter value a scalar a real YAML parser will read as a string?
+ *
+ * Pi parses `SKILL.md` frontmatter with the `yaml` package, and a plain (unquoted)
+ * YAML scalar may not contain `": "` — `description: a: b` is a nested mapping,
+ * which errors out as "Nested mappings are not allowed in compact mappings" and
+ * drops the *whole file*: pi loads no skill from it, with no warning in the UI.
+ * On 2026-10-04 that silently killed all twelve `lettuce-*` skills at once, while
+ * the regex below happily read the description back out. Quote the value (single
+ * quotes, doubling any `'`) when it needs a colon.
+ */
+function isYamlScalar(value: string): boolean {
+  if (value === "") return true;
+  if (value[0] === "'" || value[0] === '"') return true; // quoted: colons are inert inside
+  // Anchors, aliases, block scalars and flow collections are not plain scalars.
+  if ("[&*!|>`{[".includes(value[0])) return false;
+  return !value.includes(": ") && !value.endsWith(":");
 }
 
 /** GitHub's anchor rules: lowercase, drop punctuation, spaces to hyphens. */
@@ -260,6 +279,22 @@ for (const dir of skillDirs) {
   const description = /^description:\s*(.+)$/m.exec(front[1] ?? "")?.[1]?.trim();
   check(name === dir, `${file}: name matches its directory`, `name: ${name}`);
   check(!!description && description.length > 40, `${file}: has a real description`);
+  check(
+    !!description && description.length <= 1024,
+    `${file}: description is within pi's 1024-character limit`,
+    `${description?.length ?? 0} chars`,
+  );
+  // Every key must be a scalar pi's YAML parser will accept, not just one the
+  // regex above can pull out of the raw text.
+  for (const line of (front[1] ?? "").split("\n")) {
+    const kv = /^([A-Za-z][A-Za-z0-9_-]*):(.*)$/.exec(line.trim());
+    if (!kv) continue;
+    check(
+      isYamlScalar(kv[2]?.trim() ?? ""),
+      `${file}: ${kv[1]} is a YAML scalar`,
+      "an unquoted `: ` fails the whole file to parse and the skill never loads — quote the value",
+    );
+  }
   check(
     guideText.includes(dir),
     `${file}: is named in ${GUIDE}`,

@@ -1,6 +1,6 @@
 ---
 name: lettuce-runtime-and-ops
-description: lettuce runtime/ops mechanics: the LLM timeout bounds prefill and not generation (env names, parse rules, createLocalProviderFetch is dead code, a change recreates app-server), agent web apps on ports 3000-3099 with the serving-web-apps skill and the never-bind-mount-repo-files rule, and why "Subagent process exited with code unknown" means the spawn failed (init: true reaping, pids.max, EAGAIN, the spawn-diagnostics preload). Read before touching LLM timeout env, docker/compose.yml env for app-server, AGENT_APP_PORTS, or debugging failing subagent spawns.
+description: 'lettuce runtime/ops mechanics: the LLM timeout bounds prefill and not generation (env names, parse rules, createLocalProviderFetch is dead code, a change recreates app-server), agent web apps on ports 3000-3099 with the serving-web-apps skill and the never-bind-mount-repo-files rule, and why "Subagent process exited with code unknown" means the spawn failed (init: true reaping, pids.max, EAGAIN, the spawn-diagnostics preload). Read before touching LLM timeout env, docker/compose.yml env for app-server, AGENT_APP_PORTS, or debugging failing subagent spawns.'
 ---
 
 # App-server runtime limits and ops traps

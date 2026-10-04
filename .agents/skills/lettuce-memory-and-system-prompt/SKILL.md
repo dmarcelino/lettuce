@@ -1,6 +1,6 @@
 ---
 name: lettuce-memory-and-system-prompt
-description: lettuce memory mechanics: `agent.system` is a letta-code-managed preset tracked by hash and version (editing it opts the agent out of refreshes and no agent tool can write it), while what an agent rewrites is persona.md in its memfs repo, surfaced in the Memory tab, not Agent → General; the memfs repo location, the fact that the in-process memory tool is in no toolset, `letta memory` having no write verb, and the background memory worker. Read before answering "it updated its system prompt but the UI shows the old one", touching bff/src/agents memory rendering, or any memory/ persona or frontmatter validation work.
+description: 'lettuce memory mechanics: `agent.system` is a letta-code-managed preset tracked by hash and version (editing it opts the agent out of refreshes and no agent tool can write it), while what an agent rewrites is persona.md in its memfs repo, surfaced in the Memory tab, not Agent → General; the memfs repo location, the fact that the in-process memory tool is in no toolset, `letta memory` having no write verb, and the background memory worker. Read before answering "it updated its system prompt but the UI shows the old one", touching bff/src/agents memory rendering, or any memory/ persona or frontmatter validation work.'
 ---
 
 # Agent memory and the two system prompts

@@ -1,6 +1,6 @@
 ---
 name: lettuce-skill-discovery
-description: lettuce skill-scope mechanics: the four discovery scopes (bundled, global, agent memfs, project /work/<agent-id>/.agents/skills) and their priority, why skill_enable always means global and skill_disable refuses a real directory, the hidden bundled-skill set for local agents, why the BFF re-implements discovery instead of reading protocol state, and its read-only mounts. Read before touching bff/src/skills/, docker/agent-skills/, Settings → Global skills, the Agent → Skills tab, or anything that writes /root/.letta/skills.
+description: 'lettuce skill-scope mechanics: the four discovery scopes (bundled, global, agent memfs, project /work/<agent-id>/.agents/skills) and their priority, why skill_enable always means global and skill_disable refuses a real directory, the hidden bundled-skill set for local agents, why the BFF re-implements discovery instead of reading protocol state, and its read-only mounts. Read before touching bff/src/skills/, docker/agent-skills/, Settings → Global skills, the Agent → Skills tab, or anything that writes /root/.letta/skills.'
 ---
 
 # How skills are discovered, listed and enabled

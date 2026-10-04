@@ -1,6 +1,6 @@
 ---
 name: lettuce-telegram-channels
-description: lettuce Telegram/channel-gateway mechanics: why app-server, bff and the gateway share one network namespace, the --ws-auth vs no-bearer-token deadlock, why channel_* commands are excluded from the BFF allowlist, the opt-in `telegram` compose profile and how to stop a running gateway, and the one-time `letta channels configure/pair` setup. Read before touching channel-gateway in docker/compose.yml, the BFF's channel or profile code, or Telegram pairing.
+description: 'lettuce Telegram/channel-gateway mechanics: why app-server, bff and the gateway share one network namespace, the --ws-auth vs no-bearer-token deadlock, why channel_* commands are excluded from the BFF allowlist, the opt-in `telegram` compose profile and how to stop a running gateway, and the one-time `letta channels configure/pair` setup. Read before touching channel-gateway in docker/compose.yml, the BFF''s channel or profile code, or Telegram pairing.'
 ---
 
 # Telegram channels in lettuce

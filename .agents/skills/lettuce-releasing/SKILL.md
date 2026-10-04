@@ -1,6 +1,6 @@
 ---
 name: lettuce-releasing
-description: Cutting a lettuce release: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, creating a tag only after the prod deploy verifies, `bun run release --minor|--patch` as one gated command, the VERSION file as the only machine-readable record (and why no package.json version exists), the CHANGELOG.md [Unreleased] voice and section rules, and the README / docs/CONFIGURATION.md docs-sync duty on the feature branch and at release time. Read when bumping VERSION, tagging, writing a changelog entry, or running release.
+description: 'Cutting a lettuce release: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, creating a tag only after the prod deploy verifies, `bun run release --minor|--patch` as one gated command, the VERSION file as the only machine-readable record (and why no package.json version exists), the CHANGELOG.md [Unreleased] voice and section rules, and the README / docs/CONFIGURATION.md docs-sync duty on the feature branch and at release time. Read when bumping VERSION, tagging, writing a changelog entry, or running release.'
 ---
 
 # Versioning, tags, changelog, docs sync

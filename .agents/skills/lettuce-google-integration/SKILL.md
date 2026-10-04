@@ -1,6 +1,6 @@
 ---
 name: lettuce-google-integration
-description: lettuce Google integration mechanics: the google-mcp sidecar and its --permissions level table, the BFF's OAuth consent invariants (scope narrowing revokes, a revoke is grant-wide, never revoke on reconnect), the google-policy and google-creds volumes and why they are never mounted into app-server, the curated gmail_/calendar_/tasks_/contacts_ mod tools and the pinned tools/list fixtures to refresh on a WORKSPACE_MCP_VERSION bump, token-loss detection and reconnect links, and the dev-bypass hole. Read before touching bff/src/google/, docker/google-mcp/, Settings → Google, or any OAuth scope level.
+description: 'lettuce Google integration mechanics: the google-mcp sidecar and its --permissions level table, the BFF''s OAuth consent invariants (scope narrowing revokes, a revoke is grant-wide, never revoke on reconnect), the google-policy and google-creds volumes and why they are never mounted into app-server, the curated gmail_/calendar_/tasks_/contacts_ mod tools and the pinned tools/list fixtures to refresh on a WORKSPACE_MCP_VERSION bump, token-loss detection and reconnect links, and the dev-bypass hole. Read before touching bff/src/google/, docker/google-mcp/, Settings → Google, or any OAuth scope level.'
 ---
 
 # Google (Gmail, Calendar, Tasks, Contacts)

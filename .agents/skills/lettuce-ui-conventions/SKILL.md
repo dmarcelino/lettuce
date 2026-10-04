@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: lettuce UI conventions that are ours, not the protocol's: pin and archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags, archive only hides), the single AgentMenu fixed to the viewport because both agent lists scroll in boxes that clip, the two sidebar lists and the .agent-row language with the 3px active bar, useAgentStats only at the desktop width, and ui-check reading the open agent from .agent-row.active[data-agent-id]. Read before touching web/src/components/AgentMenu, the sidebar agent/conversation lists, use-agents, or bff/src/agents/id-list.ts.
+description: 'lettuce UI conventions that are ours, not the protocol''s: pin and archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags, archive only hides), the single AgentMenu fixed to the viewport because both agent lists scroll in boxes that clip, the two sidebar lists and the .agent-row language with the 3px active bar, useAgentStats only at the desktop width, and ui-check reading the open agent from .agent-row.active[data-agent-id]. Read before touching web/src/components/AgentMenu, the sidebar agent/conversation lists, use-agents, or bff/src/agents/id-list.ts.'
 ---
 
 # Agent list and sidebar UI conventions

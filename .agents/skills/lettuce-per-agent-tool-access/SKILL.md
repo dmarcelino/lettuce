@@ -1,6 +1,6 @@
 ---
 name: lettuce-per-agent-tool-access
-description: lettuce per-agent tool access mechanics: agent-tool-access.json on bff-data, and the three letta-code hooks that carry it — mod `isEnabled(ctx)` to hide a tool, `letta.permissions.register` to deny Task/Agent with subagent_type codex or claude-code and SendAgentMessage follow-ups, and the x-letta-agent-id header every mod call sends. Read before touching bff/src/agents/tool-access.ts, the policy mod, the MCP bridge's per-agent filtering, or the Agent → Tools tab. Availability, not isolation — agent shells are unconfined.
+description: 'lettuce per-agent tool access mechanics: agent-tool-access.json on bff-data, and the three letta-code hooks that carry it — mod `isEnabled(ctx)` to hide a tool, `letta.permissions.register` to deny Task/Agent with subagent_type codex or claude-code and SendAgentMessage follow-ups, and the x-letta-agent-id header every mod call sends. Read before touching bff/src/agents/tool-access.ts, the policy mod, the MCP bridge''s per-agent filtering, or the Agent → Tools tab. Availability, not isolation — agent shells are unconfined.'
 ---
 
 # Per-agent tool access (Agent → Tools)
