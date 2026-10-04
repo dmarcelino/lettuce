@@ -109,6 +109,8 @@ before exposing anything.
 - **Subagents.** Fan work out to a parallel agent and watch it report back.
 - **Codex workers.** Hand a coding job to a Codex CLI worker and follow its
   run from the transcript.
+- **Claude Code workers.** The same for Claude Code, signed in with your Claude
+  subscription or pointed at any Anthropic-compatible endpoint.
 - **Skills.** Reusable instructions at global, agent and project scope, with
   the ones the stack needs shipped in the image.
 
