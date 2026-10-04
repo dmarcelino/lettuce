@@ -13,6 +13,7 @@ interface Draft {
   mode: ClaudeAuthMode;
   baseUrl: string;
   model: string;
+  subscriptionModel: string;
   /** Typed only; the stored token is never sent back. */
   authToken: string;
   clearAuthToken: boolean;
@@ -27,6 +28,7 @@ function draftOf(settings: ClaudeSettings): Draft {
     mode: settings.mode,
     baseUrl: settings.baseUrl,
     model: settings.model,
+    subscriptionModel: settings.subscriptionModel,
     authToken: "",
     clearAuthToken: false,
     oauthToken: "",
@@ -65,16 +67,19 @@ export function ClaudeSection() {
 
   const save = async () => {
     if (!draft) return;
-    const update: ClaudeSettingsUpdate = {
-      enabled: draft.enabled,
-      mode: draft.mode,
-      baseUrl: draft.baseUrl,
-      model: draft.model,
-    };
-    if (draft.clearAuthToken) update.authToken = "";
-    else if (draft.authToken.trim()) update.authToken = draft.authToken.trim();
-    if (draft.clearOauthToken) update.oauthToken = "";
-    else if (draft.oauthToken.trim()) update.oauthToken = draft.oauthToken.trim();
+    // Only the visible mode's fields: whatever was typed or ticked in the
+    // other mode's (hidden) section is dropped rather than saved unseen.
+    const update: ClaudeSettingsUpdate = { enabled: draft.enabled, mode: draft.mode };
+    if (draft.mode === "subscription") {
+      update.subscriptionModel = draft.subscriptionModel;
+      if (draft.clearOauthToken) update.oauthToken = "";
+      else if (draft.oauthToken.trim()) update.oauthToken = draft.oauthToken.trim();
+    } else {
+      update.baseUrl = draft.baseUrl;
+      update.model = draft.model;
+      if (draft.clearAuthToken) update.authToken = "";
+      else if (draft.authToken.trim()) update.authToken = draft.authToken.trim();
+    }
     setSaving(true);
     try {
       const saved = await saveClaudeSettings(update);
@@ -149,6 +154,11 @@ export function ClaudeSection() {
                 token it prints. It lasts a year. Workers count against your subscription&apos;s
                 usage limits, shared with your own Claude use.
               </span>
+              <span className="muted small">
+                The token is stored on the server and handed to each worker, so any agent shell —
+                and any command a worker runs — can read it. Treat it like a password for your
+                Claude account.
+              </span>
             </label>
             {settings.hasOauthToken ? (
               <ToggleRow
@@ -161,10 +171,10 @@ export function ClaudeSection() {
             <label className="field">
               Model
               <input
-                value={draft.model}
+                value={draft.subscriptionModel}
                 placeholder="Claude Code's default"
                 autoComplete="off"
-                onChange={(event) => set({ model: event.target.value })}
+                onChange={(event) => set({ subscriptionModel: event.target.value })}
               />
               <span className="muted small">
                 Optional: an alias such as <code>sonnet</code> or <code>opus</code>, or a full model

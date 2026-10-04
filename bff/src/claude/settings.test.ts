@@ -24,6 +24,7 @@ describe("parseStoredClaudeSettings", () => {
       model: "m",
       authToken: null,
       oauthToken: null,
+      subscriptionModel: "",
     });
   });
 
@@ -33,6 +34,7 @@ describe("parseStoredClaudeSettings", () => {
       ...old,
       mode: "endpoint",
       oauthToken: null,
+      subscriptionModel: "",
     });
     expect(parseStoredClaudeSettings(JSON.stringify({ ...old, mode: "bogus" })).mode).toBe(
       "endpoint",
@@ -115,7 +117,7 @@ describe("subscription mode", () => {
       mode: "subscription",
       oauthToken: OAUTH,
     });
-    expect(applyClaudeSettingsUpdate(sub, { model: "opus" }).mode).toBe("subscription");
+    expect(applyClaudeSettingsUpdate(sub, { subscriptionModel: "opus" }).mode).toBe("subscription");
   });
 
   test("the OAuth token is write-only and survives a switch to endpoint and back", () => {
@@ -150,7 +152,7 @@ describe("subscription mode", () => {
       mode: "subscription",
       enabled: true,
       oauthToken: OAUTH,
-      model: "opus",
+      subscriptionModel: "opus",
     });
     expect(parseStoredClaudeSettings(renderStoredClaudeSettings(saved))).toEqual(saved);
   });
@@ -165,5 +167,28 @@ describe("subscription mode", () => {
     expect(publicSettings).not.toHaveProperty("oauthToken");
     expect(publicSettings).toMatchObject({ hasAuthToken: true, hasOauthToken: true });
     expect(JSON.stringify(publicSettings)).not.toContain(OAUTH);
+  });
+
+  test("each mode keeps its own model", () => {
+    const endpoint = applyClaudeSettingsUpdate(DEFAULT_CLAUDE_SETTINGS, {
+      baseUrl: "http://p:4000",
+      model: "qwen3-coder",
+      enabled: true,
+    });
+    const sub = applyClaudeSettingsUpdate(endpoint, {
+      mode: "subscription",
+      oauthToken: OAUTH,
+      subscriptionModel: "opus",
+    });
+    expect(sub).toMatchObject({ model: "qwen3-coder", subscriptionModel: "opus" });
+    const cleared = applyClaudeSettingsUpdate(sub, { subscriptionModel: "" });
+    expect(cleared).toMatchObject({ model: "qwen3-coder", subscriptionModel: "" });
+    expect(applyClaudeSettingsUpdate(cleared, { mode: "endpoint" }).enabled).toBe(true);
+  });
+
+  test("subscriptionModel must be text", () => {
+    expect(() =>
+      applyClaudeSettingsUpdate(DEFAULT_CLAUDE_SETTINGS, { subscriptionModel: 3 }),
+    ).toThrow(InvalidClaudeSettingsError);
   });
 });

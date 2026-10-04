@@ -13,7 +13,10 @@ export interface ClaudeSettings {
   enabled: boolean;
   mode: ClaudeAuthMode;
   baseUrl: string;
+  /** Endpoint mode's model. */
   model: string;
+  /** Subscription mode's model; "" = Claude Code's default. */
+  subscriptionModel: string;
   hasAuthToken: boolean;
   hasOauthToken: boolean;
 }

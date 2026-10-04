@@ -178,9 +178,21 @@ Code workers (subagent type `claude-code`) sign in with:
   Messages API (a LiteLLM-style proxy in front of your own model), a model id,
   and an optional bearer token.
 
-Each mode keeps its own token, so switching between them loses neither. Both
-are stored in `$LETTA_STATE_DIR/letta-home/claude/lettuce.json` and never sent
-back to a browser.
+Each mode keeps its own token and model, so switching between them loses
+neither. Both tokens are stored in `$LETTA_STATE_DIR/letta-home/claude/lettuce.json`
+and never sent back to a browser.
+
+**What can read the subscription token.** Claude Code needs the token in its
+environment, so every command a worker runs can read it, and every agent shell can
+read `lettuce.json`. Agent shells are unconfined inside the app-server container.
+An agent, or a prompt injection in something a worker reads, could therefore copy
+the token out. The same is true of the endpoint token and the Codex API key, but
+this one is a credential for your own Claude account and stays valid for a year.
+Use subscription mode only for agents and workspaces you trust, and keep the
+state directory's backups as private as the token. Claude Code's own credential
+scrubbing for commands it runs (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) depends on
+bubblewrap, which this image deliberately does not ship, so it is not available
+here.
 
 ## Web search
 

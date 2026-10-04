@@ -196,7 +196,9 @@ services:
       # letta-home bind mount so they survive a recreate and the BFF can read
       # them for the run viewer. The BFF writes lettuce.json there from
       # Settings → Claude Code; the shim reads it for the switch and injects
-      # the endpoint settings as env (Claude Code has no config file for them).
+      # its credentials as env (Claude Code has no config file for them) —
+      # an endpoint's URL and token, or the user's Claude subscription OAuth
+      # token. So this directory holds secrets, the subscription one included.
       CLAUDE_CONFIG_DIR: /root/.letta/claude
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta

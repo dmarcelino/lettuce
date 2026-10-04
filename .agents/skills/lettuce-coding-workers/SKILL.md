@@ -70,16 +70,25 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
     variable only if not already in the env (`claude-shim-core.mjs` `buildEnv`).
     - `subscription`: the long-lived OAuth token `claude setup-token` prints (run on any machine
       with a browser; nothing logs in inside the container), injected as
-      `CLAUDE_CODE_OAUTH_TOKEN`, plus `ANTHROPIC_MODEL` only when a model is set. The shim sets
-      **no** `ANTHROPIC_BASE_URL` (it would send the subscription token to a proxy) and **no**
-      placeholder `ANTHROPIC_AUTH_TOKEN` (it outranks the OAuth token in Claude Code's auth order
-      and would shadow it).
+      `CLAUDE_CODE_OAUTH_TOKEN`, plus `ANTHROPIC_MODEL` only when `subscriptionModel` is set. The
+      shim sets **no** `ANTHROPIC_BASE_URL` (it would send the subscription token to a proxy) and
+      **no** placeholder `ANTHROPIC_AUTH_TOKEN` (it outranks the OAuth token in Claude Code's auth
+      order and would shadow it). It also **deletes** any of `ANTHROPIC_BASE_URL`,
+      `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` it inherited (`SUBSCRIPTION_UNSAFE_ENV`), the
+      one exception to "the environment wins".
     - `endpoint`: Claude Code speaks only the Anthropic Messages API, which llama.cpp does not
       serve, so this takes a user-supplied Anthropic-compatible base URL (a LiteLLM-style proxy
       or any Anthropic-API gateway), a model id and an optional token → `ANTHROPIC_BASE_URL`,
       `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`.
-    - Each mode keeps its own write-only token (`authToken`, `oauthToken`); the browser sees
-      only `hasAuthToken` / `hasOauthToken`.
+    - Each mode keeps its own write-only token and model (`authToken` + `model`, `oauthToken` +
+      `subscriptionModel`), so a switch never sends one mode's model id to the other's API. The
+      browser sees only `hasAuthToken` / `hasOauthToken`, and its Save sends only the visible
+      mode's fields.
+    - The subscription token is readable by every command a worker runs (it is in the worker's
+      env) and by every agent shell (`lettuce.json`). Claude Code's own
+      `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` needs bubblewrap, which the image deliberately lacks
+      (see the sandbox note in `AGENTS.md`), so it cannot help here. The exposure is documented
+      in Settings and `docs/CONFIGURATION.md`, not mitigated.
   - **The preflight is `claude auth status --json`** and needs `{"loggedIn": true}` on stdout
     with exit 0 — measured on 2.1.285 and 2.1.289: any `ANTHROPIC_AUTH_TOKEN` value satisfies it,
     so in endpoint mode the shim injects a placeholder when none was configured (a proxy that

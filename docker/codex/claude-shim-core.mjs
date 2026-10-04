@@ -31,6 +31,13 @@ export const CLAUDE_CONFIG_DIR = "/root/.letta/claude";
  */
 export const PLACEHOLDER_AUTH_TOKEN = "lettuce-placeholder-not-an-anthropic-key";
 
+/** Never passed to a subscription-mode run: each would redirect or shadow the OAuth token. */
+export const SUBSCRIPTION_UNSAFE_ENV = [
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+];
+
 /** Where Claude's config (and `projects/` transcripts) live for this run. */
 export function claudeConfigDir(env) {
   return env.CLAUDE_CONFIG_DIR || CLAUDE_CONFIG_DIR;
@@ -63,21 +70,26 @@ export function isEnabled(settings) {
  * Two modes (`settings.mode`; absent means endpoint, which is what every file
  * saved before subscription mode existed holds):
  * - `subscription`: the long-lived OAuth token from `claude setup-token`, as
- *   `CLAUDE_CODE_OAUTH_TOKEN`. Nothing else: `ANTHROPIC_AUTH_TOKEN` outranks
- *   the OAuth token in Claude Code's auth order (so the placeholder would
- *   shadow it), and `ANTHROPIC_BASE_URL` would send the subscription token to
- *   a proxy. `auth status --json` reports `loggedIn: true` with only the OAuth
- *   token set — measured on 2.1.289.
- * - endpoint: the Anthropic-compatible URL, model and bearer token.
+ *   `CLAUDE_CODE_OAUTH_TOKEN`, and the mode's own `subscriptionModel`. No
+ *   endpoint and no bearer token — and any already in the environment are
+ *   removed, the one exception to "the environment wins":
+ *   `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` outrank the OAuth token in
+ *   Claude Code's auth order (so they would shadow it), and
+ *   `ANTHROPIC_BASE_URL` would send the subscription token to a proxy.
+ *   `auth status --json` reports `loggedIn: true` with only the OAuth token
+ *   set — measured on 2.1.289.
+ * - endpoint: the Anthropic-compatible URL, `model` and bearer token.
  */
 export function buildEnv(settings, env) {
   const next = { ...env };
   next.CLAUDE_CONFIG_DIR ||= CLAUDE_CONFIG_DIR;
-  if (settings.model) next.ANTHROPIC_MODEL ||= settings.model;
   if (settings.mode === "subscription") {
+    for (const name of SUBSCRIPTION_UNSAFE_ENV) delete next[name];
+    if (settings.subscriptionModel) next.ANTHROPIC_MODEL ||= settings.subscriptionModel;
     if (settings.oauthToken) next.CLAUDE_CODE_OAUTH_TOKEN ||= settings.oauthToken;
     return next;
   }
+  if (settings.model) next.ANTHROPIC_MODEL ||= settings.model;
   if (settings.baseUrl) next.ANTHROPIC_BASE_URL ||= settings.baseUrl;
   next.ANTHROPIC_AUTH_TOKEN ||= settings.authToken || PLACEHOLDER_AUTH_TOKEN;
   return next;

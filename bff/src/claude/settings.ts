@@ -21,7 +21,9 @@
  *   browser — no login happens in the container). The shim passes it as
  *   `CLAUDE_CODE_OAUTH_TOKEN` and sets no endpoint; the model is optional.
  *
- * Each mode keeps its own token, so switching back and forth loses neither.
+ * Each mode keeps its own token and model (`authToken` + `model` for the
+ * endpoint, `oauthToken` + `subscriptionModel`), so switching back and forth
+ * loses neither and never sends one mode's model id to the other's API.
  */
 
 /** On the letta-home bind mount (`CLAUDE_CONFIG_DIR` in docker/compose.yml). */
@@ -46,7 +48,10 @@ export interface ClaudeSettings {
   mode: ClaudeAuthMode;
   /** Anthropic-compatible base URL, e.g. `http://host:4000`. */
   baseUrl: string;
+  /** Endpoint mode's model id, as the endpoint names it. */
   model: string;
+  /** Subscription mode's model: an alias (`sonnet`, `opus`) or id; "" = Claude Code's default. */
+  subscriptionModel: string;
   /** Sent as `ANTHROPIC_AUTH_TOKEN`. Never returned to a browser. */
   authToken: string | null;
   /** Subscription mode: sent as `CLAUDE_CODE_OAUTH_TOKEN`. Never returned to a browser. */
@@ -64,6 +69,7 @@ export const DEFAULT_CLAUDE_SETTINGS: ClaudeSettings = {
   mode: "endpoint",
   baseUrl: "",
   model: "",
+  subscriptionModel: "",
   authToken: null,
   oauthToken: null,
 };
@@ -102,6 +108,7 @@ export function parseStoredClaudeSettings(text: string | null): ClaudeSettings {
     mode: isAuthMode(raw.mode) ? raw.mode : "endpoint",
     baseUrl: optionalString(raw.baseUrl) ?? "",
     model: optionalString(raw.model) ?? "",
+    subscriptionModel: optionalString(raw.subscriptionModel) ?? "",
     authToken: optionalString(raw.authToken),
     oauthToken: optionalString(raw.oauthToken),
   };
@@ -144,6 +151,12 @@ export function applyClaudeSettingsUpdate(current: ClaudeSettings, body: unknown
       throw new InvalidClaudeSettingsError("model must be text");
     }
     next.model = typeof input.model === "string" ? input.model.trim() : "";
+  }
+  if ("subscriptionModel" in input) {
+    if (input.subscriptionModel !== null && typeof input.subscriptionModel !== "string") {
+      throw new InvalidClaudeSettingsError("subscriptionModel must be text");
+    }
+    next.subscriptionModel = optionalString(input.subscriptionModel) ?? "";
   }
   if ("authToken" in input) next.authToken = tokenUpdate(input.authToken, "authToken");
   if ("oauthToken" in input) next.oauthToken = tokenUpdate(input.oauthToken, "oauthToken");
