@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- Attaching an image no longer fails at random with "the image processing worker is missing from this installation": letta-code can no longer update itself inside the app-server container, which also keeps it on the pinned version. Takes effect on the next app-server rebuild.
+
 ## [v0.6.0-letta_0.34.1] - 2026-10-02
 
 ### Added
