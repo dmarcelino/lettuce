@@ -28,9 +28,11 @@ keeps this file inside its size budget.
    prod"). `.pi/extensions/guard.ts` makes the harness enforce the same thing.
 6. **Done means the user has tested it in the container**: `bun run verify`, the local run, the
    human test gate, then after merging — rebuild `bff`, `bun run deploy-check`, plus
-   `bun run ui-check` for any `web/` change. Typecheck and tests passing is not done.
+   `bun run ui-check` for any `web/` change. Typecheck and tests passing is not done. A
+   **docs-only** change (see "Branches") stops at `bun run check-docs`.
 7. **Feature work happens in a worktree on a feature branch**, under `.worktrees/` inside this
-   checkout. The main checkout stays on `main` with a clean tree and only takes merges.
+   checkout. The main checkout stays on `main` with a clean tree and only takes merges — except a
+   **docs-only** change (see "Branches").
 8. **Never remove a worktree or delete a branch on your own initiative.** Report it as merged and
    safe to remove and let the human decide; act only when asked about that specific one
    (`.pi/extensions/guard.ts` makes them confirm it). Another session may be sitting in it with
@@ -329,13 +331,16 @@ is git- and docker-ignored — the bff image's build context is the repo root). 
 main checkout lets two sessions collide and breaks `deploy-check`'s clean-tree and on-`main`
 assertions — story: docs/upstream-notes.md#main-checkout-collision-story-2026-09-29.
 
-Worktree removal is the human's call, not the agent's: report the path as merged and safe to
-remove, and remove it only when asked about that specific one ("Never remove a worktree" above).
-
 **Every user-facing feature gets its own feature branch**: a new capability, a new service or
-sidecar, or any change spanning more than one of `bff/`, `web/`, `docker/`. Small fixes and
-docs may land directly on `main`; they simply carry a PATCH tag when they ship. (This is a
-rule about the *scope* of a change; what bumps the version is in the `lettuce-releasing` skill.)
+sidecar, or any change spanning more than one of `bff/`, `web/`, `docker/`. Small fixes may land
+on `main` too; both carry a PATCH tag when they ship. (This is a rule about the *scope* of a
+change; what bumps the version is in the `lettuce-releasing` skill.)
+
+**A docs-only change touches none of `bff/`, `web/`, `docker/`: commit it straight to `main`, no
+worktree, nothing to rebuild.** That is `AGENTS.md`, `docs/`, `README.md`, `CHANGELOG.md`,
+`.agents/skills/`, `.pi/`, `scripts/` — none of it reaches an image, so it rides the next
+release's tag. Gate: `bun run check-docs`, plus lint and tests when a script changed.
+`docker/agent-skills/` is not docs-only — it ships in the app-server image.
 
 ### Versioning, tags, changelog — summary
 
@@ -355,9 +360,9 @@ why the release commit is never made on a feature branch: **`lettuce-releasing`*
 The ordered shape of a change; "Definition of done" is the checklist each step has to satisfy.
 
 1. **Worktree.** `git worktree add .worktrees/<name> -b <branch>`, run from the main checkout —
-   never branch inside the main checkout. If the session was launched in a worktree someone else
-   made (`.pendant/worktrees/…`, an agent manager's own directory), use it; the gate only cares
-   that you are not in the main checkout.
+   never branch inside the main checkout; **docs-only** skips 1 and 3–5. If the session was
+   launched in a worktree someone else made (`.pendant/worktrees/…`, an agent manager's own
+   directory), use it; the gate only cares that you are not in the main checkout.
 2. **Implement and commit.** Commit on the branch, with the `CHANGELOG.md` `[Unreleased]` entry and
    any `README.md` / `docs/CONFIGURATION.md` update in the same commit, and `bun run verify`
    green.
@@ -386,6 +391,7 @@ origin story (a change reported complete while the container still served the ol
 docs/upstream-notes.md#definition-of-done-origin-story.
 
 Passing typecheck is not done. Passing tests are not done. **Running in the container is done.**
+A **docs-only** change stops after step 1.
 
 1. **`bun run verify` green** — worktree check, version-pin, docs check, lint, typecheck, tests,
    build. Fails fast; later stages do not run once one fails.
@@ -395,10 +401,9 @@ Passing typecheck is not done. Passing tests are not done. **Running in the cont
  2. **Committed** on a feature branch and fast-forwarded into `main`
    (`git merge --ff-only`). A user-visible change carries its `CHANGELOG.md` `[Unreleased]`
    entry — and its `README.md` / `docs/CONFIGURATION.md` update when it touched the
-   configuration surface or a user-facing workflow — in the same commit. The **release commit** — the `VERSION` bump and the
-   `[Unreleased]` rename — is never made on a feature branch: it is made on `main` at
-   release time, after every merge for that release, by `bun run release` (see the
-   `lettuce-releasing` skill).
+   configuration surface or a user-facing workflow — in the same commit. The **release commit**
+   (`VERSION` bump + `[Unreleased]` rename) is made on `main` by `bun run release`, never on a
+   feature branch — see `lettuce-releasing`.
 3. **The worktree is reported, not removed** — never `git worktree remove` or `git branch -d` on
    your own initiative (`.pi/extensions/guard.ts` makes the operator confirm either; `--force`
    variants and `git worktree prune` are blocked outright). Concurrent agents may have live
