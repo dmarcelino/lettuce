@@ -530,7 +530,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run lint` | Biome check (errors fail, warnings do not) |
 | `bun run format` | Biome check with safe fixes applied |
 | `bun run typecheck` | Typecheck both packages — the protocol-drift detector |
-| `bun run test` | `bun:test` unit tests, then the harness guard rules in `.pi/extensions/` |
+| `bun run test` | `bun:test` unit tests, plus the harness guard rules in `tests/` |
 | `bun run build` | Builds the SPA into `web/dist` (runs `tsc --noEmit` first) |
 | `bun run dev` | BFF + Vite dev server |
 | `bun run smoke` | Live acceptance suite against a running stack — mutates state |
@@ -556,7 +556,7 @@ The repo carries its own agent-harness configuration so the rules above are not 
   `git worktree prune` and `git branch -D` are always blocked), `docker compose … rm|down|stop|
   kill|restart`, a scoped `up … app-server`, and any write to `docker/.env`, `docker/secrets/` or
   `VERSION`. With no UI a confirmable action is blocked, never silently allowed. Rules are pure
-  functions in `guard-core.ts` (tests: `guard-core.test.ts`); read-only commands that merely quote
+  functions in `guard-core.ts` (tests: `tests/guard-core.test.ts`); read-only commands that merely quote
   one are exempt; it guards what an agent types, not what a script does internally — which is why
   `release.ts` carries its own typed confirmation.
 - `.pi/prompts/*.md` — `/verify`, `/finish`, `/release`, `/sync-upstream` runbooks, so a fresh

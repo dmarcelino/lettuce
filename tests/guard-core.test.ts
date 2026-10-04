@@ -10,9 +10,9 @@ import {
   relativeToRoot,
   reviewCommand,
   reviewPath,
-} from "./guard-core.ts";
+} from "../.pi/extensions/guard-core.ts";
 
-const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 const titles = (command: string) => reviewCommand(command).map((hit) => hit.rule.title);
 const hard = (command: string) => reviewCommand(command).some((hit) => !!hit.rule.hard);

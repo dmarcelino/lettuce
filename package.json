@@ -13,7 +13,7 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "bun run --filter '*' typecheck",
-    "test": "bun test && bun test ./.pi/extensions",
+    "test": "bun test",
     "check-docs": "bun scripts/check-docs.ts",
     "check-prod-info": "bun scripts/check-prod-info.ts",
     "build": "bun run --filter '*' build",

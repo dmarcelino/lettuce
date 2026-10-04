@@ -2,7 +2,7 @@
  * The lettuce guard rules, as pure functions.
  *
  * Split out of `guard.ts` (the pi glue) so the matching logic is unit-testable
- * without a harness: `guard-core.test.ts` runs under `bun test`.
+ * without a harness: `tests/guard-core.test.ts` runs under `bun test`.
  */
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
