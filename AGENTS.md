@@ -378,7 +378,7 @@ The ordered shape of a change; "Definition of done" is the checklist each step h
 5. **Merge is the human's** (squash). Then prove the artifact that ships from `main`: rebuild `bff`,
    `bun run deploy-check`, plus `ui-check` / `smoke` where they apply. Then `bun run cleanup`.
 6. **Release — only after asking.** `bun run release --auto --pr`, human merges, `bun run release
-   --deploy` deploys and tags. A failed deploy is never tagged; without the `dockhand-deploy` skill
+   --deploy` deploys and tags. A failed deploy is never tagged; with no `dockhand.sh` on the machine
    the release ends at the push and the deploy is the human's.
 
 ## Definition of done
@@ -441,17 +441,18 @@ project that is not on one laptop — so it matters, and so it is worth a human 
 It comes last, after `deploy-check`, so nothing reaches `origin` that has not been proven
 to run in the container first.
 
-**Prod is deployed from `origin`, not from this machine.** Dockhand (its address lives in the
-`dockhand-deploy` skill's own config — never in a tracked file) builds the stack from `dmarchevsky/lettuce` `main` at the moment of the deploy (Dockhand's
-stored stack URL must be updated when the repo is renamed), so the push
-must land first and an unpushed commit never reaches prod. Use the `dockhand-deploy` skill
-(`~/.claude/skills/dockhand-deploy/`) for every step — `plan`, `deploy --confirm`, `verify` — never
+**Prod is deployed from `origin`, not from this machine.** Dockhand (its address and token live in
+the operator's own config — never in a tracked file) builds the stack from `dmarchevsky/lettuce`
+`main` at the moment of the deploy (Dockhand's stored stack URL must be updated when the repo is
+renamed), so the push must land first and an unpushed commit never reaches prod. Use `dockhand.sh`
+(`$DOCKHAND_SH` or `PATH`) for every step — `plan`, `deploy --confirm`, `verify` — never
 ad-hoc API calls and never the Dockhand stop/down/delete/exec endpoints.
 
-**When that skill is not present on the machine running the release, the release ends at
-`git push origin main`.** Stop there, report the pushed commit range, and tell the user the prod
-redeploy is theirs to trigger manually (from a machine that has the skill, or the Dockhand UI)
-— do not substitute ad-hoc API calls for a missing skill. The rest of the flow is unchanged:
+**When `dockhand.sh` is not on the machine running the release, the release ends at
+`git push origin main`.** `bun run release --deploy` checks that first, so it fails before anything
+is pushed or deployed. Stop there, report the pushed commit range, and tell the user the prod
+redeploy is theirs to trigger (from a machine that has it, or the Dockhand UI) — do not substitute
+ad-hoc API calls for a missing tool. The rest of the flow is unchanged:
 the deploy is still verified (`dockhand verify` or the user's own confirmation that the pushed
 commits are live) before any tag is created, per step 7b.
 
@@ -539,7 +540,7 @@ app-server request loop that `use-session.ts` documents).
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
 | `docker compose -f docker/compose.yml up -d` | App-server + BFF; `cloudflared`, `google-mcp` (`google`), `searxng` + `ddg-mcp` (`search`) and `channel-gateway` (`telegram`) only with their profiles |
 | `git push origin main` | Release, part 1 — **ask for confirmation first, every time** |
-| `~/.claude/skills/dockhand-deploy/dockhand.sh plan letta letta-code-ui-prod` | Prod preflight: commits, compose diff, what gets recreated (read-only). Only on a machine that has that skill — see "Stop before releasing to prod" |
+| `$DOCKHAND_SH plan letta letta-code-ui-prod` | Prod preflight: commits, compose diff, what gets recreated (read-only). Only where `dockhand.sh` exists — see "Stop before releasing to prod" |
 | `… deploy letta letta-code-ui-prod --confirm` | Release, part 2 — prod redeploy via Dockhand, same confirmation as the push |
 
 ## Project harness

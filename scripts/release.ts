@@ -37,11 +37,14 @@
  *                   [--env letta] [--stack letta-code-ui-prod]
  */
 
-import { homedir } from "node:os";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const DOCKHAND =
-  process.env.DOCKHAND_SH ?? `${homedir()}/.claude/skills/dockhand-deploy/dockhand.sh`;
+// Where `dockhand.sh` lives is the operator's machine problem, not a tracked-file
+// problem: point DOCKHAND_SH at it, or put it on PATH. When it is not there the
+// release ends at the push — see "Stop before releasing to prod" in AGENTS.md.
+const DOCKHAND = process.env.DOCKHAND_SH || "dockhand.sh";
 
 // ── Arguments ────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -269,7 +272,32 @@ console.log(`  committed chore(release): ${next} (${current} → ${next}, pin le
 await deployAndTag(next, true);
 
 // ── 4. The shared deploy-and-tag chain ───────────────────────────────────────
+/** Resolve `dockhand.sh` the way a shell would, or null when this machine has none. */
+function findDockhand(): string | null {
+  if (DOCKHAND.includes("/")) return existsSync(DOCKHAND) ? DOCKHAND : null;
+  for (const dir of (process.env.PATH ?? "").split(":")) {
+    if (!dir) continue;
+    const candidate = join(dir, DOCKHAND);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 async function deployAndTag(tag: string, pushMain = false): Promise<void> {
+  // Checked first, before anything is pushed: a release that discovers mid-flight that this box
+  // cannot reach Dockhand has already landed the commit it cannot deploy.
+  const dockhand = findDockhand();
+  if (!dockhand)
+    die(
+      "preflight",
+      `no \`dockhand.sh\` found (${DOCKHAND}) — set DOCKHAND_SH or put it on PATH. Nothing was ` +
+        "deployed, and the release ends at the push: report the pushed commit range and leave " +
+        "the prod redeploy to the operator.",
+      pushMain
+        ? "undo the release commit with: git reset --soft HEAD~1 && git restore VERSION CHANGELOG.md"
+        : "",
+    );
+
   console.log("\n── deploy-check (the merged code must be what the local container runs)");
   if ((await run(["bun", "run", "deploy-check"])) !== 0) {
     die(
@@ -281,7 +309,7 @@ async function deployAndTag(tag: string, pushMain = false): Promise<void> {
   }
 
   console.log("\n── dockhand plan");
-  await capture([DOCKHAND, "plan", ENV, STACK]);
+  await capture([dockhand, "plan", ENV, STACK]);
 
   console.log(
     `\nReleasing ${tag}: ${pushMain ? "push origin main → " : ""}deploy ${ENV}/${STACK} → verify → tag.`,
@@ -311,18 +339,18 @@ async function deployAndTag(tag: string, pushMain = false): Promise<void> {
   }
 
   console.log("\n── dockhand deploy");
-  const deployOut = await capture([DOCKHAND, "deploy", ENV, STACK, "--confirm"]);
+  const deployOut = await capture([dockhand, "deploy", ENV, STACK, "--confirm"]);
   if (!deployOut.includes("success exit=0")) die("deploy", "the deploy run did not report success");
   const started = deployOut.match(/deploy started (\S+)/)?.[1];
   if (!started) die("deploy", "could not parse the deploy start time for --since");
 
   console.log("\n── dockhand verify");
-  const verifyOut = await capture([DOCKHAND, "verify", ENV, STACK, "--since", started]);
+  const verifyOut = await capture([dockhand, "verify", ENV, STACK, "--since", started]);
   if (!verifyOut.includes("VERIFY: PASS"))
     die("verify", "verify did not PASS — review its output above");
 
   console.log("\n── upstream connection");
-  const logs = await capture([DOCKHAND, "logs", ENV, `${STACK}-bff-1`, "200"]);
+  const logs = await capture([dockhand, "logs", ENV, `${STACK}-bff-1`, "200"]);
   if (!logs.includes(`Upstream connected: letta-code ${pin}`)) {
     die("upstream", `the BFF log does not show "Upstream connected: letta-code ${pin}"`);
   }

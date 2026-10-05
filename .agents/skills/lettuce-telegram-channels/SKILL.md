@@ -44,8 +44,9 @@ therefore excluded from the BFF's browser allowlist: a hang is worse than a refu
 `COMPOSE_PROFILES` includes `telegram` (e.g. `cloudflared,telegram`; `LETTA_MODE` matches
 `cloudflared` with `includes`, so extra profiles are safe). Removing the profile does **not**
 remove a running gateway — `up -d` merely stops managing it — so it must be stopped with
-`--profile telegram rm -sf channel-gateway`, and on prod that is a host-side step, since the
-dockhand skill cannot stop containers. With no gateway, agents simply have no `MessageChannel`
+`--profile telegram rm -sf channel-gateway`, and on prod that is a host-side step, since
+`dockhand.sh` has no stop verb (and its stop/down/delete endpoints are off-limits). With no
+gateway, agents simply have no `MessageChannel`
 tool.
 
 Telegram is set up once with the CLI inside the gateway container (see

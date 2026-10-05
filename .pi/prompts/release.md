@@ -24,11 +24,12 @@ You are about to release to production. Read the "Stop before releasing to prod"
    recreate: it kills every in-flight turn with no drain), and the previous deploy's duration.
    The harness also blocks `git push` and `git tag -a` until the operator confirms. Never type
    the confirmation yourself and never reuse an earlier yes.
-5. `bun run release --deploy`. It refuses unless `origin/main`'s tip is that release commit,
+5. `bun run release --deploy`. It first resolves `dockhand.sh` (`$DOCKHAND_SH`, else `PATH`),
+   refuses unless `origin/main`'s tip is that release commit,
    runs `deploy-check`, prints the Dockhand plan, asks for the exact tag, then deploys →
    verifies → checks the BFF log for `Upstream connected: letta-code <pinned version>` → tags →
    pushes the tag.
-6. If the `dockhand-deploy` skill is not installed on this machine, the release ends at the
+6. If `dockhand.sh` is not on this machine, that first check fails and the release ends at the
    push: report the pushed commit range and say the prod redeploy is theirs. Do not substitute
    ad-hoc Dockhand API calls, and tag nothing that has not been verified.
 7. On any failure, stop and report — no retry, no rollback, no restart without the user choosing
