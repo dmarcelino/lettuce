@@ -10,7 +10,7 @@ import {
   relativeToRoot,
   reviewCommand,
   reviewPath,
-} from "../.pi/extensions/guard-core.ts";
+} from "../scripts/guard-core.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 

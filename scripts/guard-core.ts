@@ -3,6 +3,10 @@
  *
  * Split out of `guard.ts` (the pi glue) so the matching logic is unit-testable
  * without a harness: `tests/guard-core.test.ts` runs under `bun test`.
+ *
+ * It lives in `scripts/`, not in `.pi/extensions/`, because pi loads every direct
+ * file in that directory as an extension and a module with no default factory
+ * export fails the launch.
  */
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";

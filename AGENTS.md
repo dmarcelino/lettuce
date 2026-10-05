@@ -552,7 +552,7 @@ The repo carries its own agent-harness configuration so the rules above are not 
   `git tag -a`, `git worktree remove` / `git branch -d|-D` (every `--force` variant and worktree
   pruning stay blocked outright), `docker compose … rm|down|stop|kill|restart`, a scoped
   `up … app-server`, and any write to `docker/.env`, `docker/secrets/` or `VERSION`. With no UI a confirmable action is blocked, never silently allowed. Rules are pure
-  functions in `guard-core.ts` (tests: `tests/guard-core.test.ts`); read-only commands that merely quote
+  functions in `scripts/guard-core.ts` (tests: `tests/guard-core.test.ts`); read-only commands that merely quote
   one are exempt; it guards what an agent types, not what a script does internally — which is why
   `release.ts` carries its own typed confirmation.
 - `.pi/prompts/*.md` — `/verify`, `/finish`, `/release`, `/sync-upstream` runbooks, so a fresh
