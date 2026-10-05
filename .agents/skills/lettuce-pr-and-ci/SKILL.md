@@ -173,6 +173,22 @@ Abandoned branches — the kind a merge never triggers on — are not the script
 `stale-report` workflow lists branches with no open PR and lets a human decide; it never deletes.
 
 The guard follows the same shape: `git branch -D` is confirmable (it has to be, because squash
-ancestry means `-d` can never succeed), every `--force` variant and worktree pruning stay hard
-blocks, and `bun run cleanup` — like `release.ts` — carries its own confirmation because the guard
-only sees what an agent types.
+ancestry means `-d` can never succeed), every `--force` variant, `git push -f` and worktree pruning
+stay hard blocks, and `bun run cleanup` — like `release.ts` — carries its own confirmation because
+the guard only sees what an agent types.
+
+What it sees, exactly, is worth knowing before you rely on it (`scripts/guard-core.ts`, tests in
+`tests/guard-core.test.ts`):
+
+- A push is gated when the refspec is `main`, a tag (`refs/tags/…` or a refspec starting `v1.2.3`,
+  which is what `bun run release` tags), or missing entirely. A branch named `release/v0.8.0-…` is
+  free — only a refspec that *begins* with the version counts as the tag.
+- Merging is gated on `gh pr merge`, and on `gh api …/merge` / `…/merges`, which is the same act with
+  the gate walked around. `gh release create` is gated for the same reason as `git tag -a`.
+- Protected files (`docker/.env`, `docker/secrets/`, `VERSION`) are matched on the `edit` and
+  `write` tools only. A shell redirect (`echo … > VERSION`) or `sed -i` is invisible to it, because
+  parsing a path out of arbitrary shell is how you get a rule nobody trusts.
+- Every segment of a command line is scanned, including text an agent only *quoted* — an
+  `--body-file` body, or a heredoc body writing docs about the guard. That is why quoting
+  `git push --force` inside a `cat > file <<EOF` gets the whole call blocked. To write about a
+  blocked command, write the file with the file tools: those are checked by path, not by content.

@@ -47,9 +47,14 @@ for (const dir of [".agents/skills", ".pi/prompts"]) {
   const abs = join(ROOT, dir);
   if (!existsSync(abs)) continue;
   for (const entry of readdirSync(abs, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const file = join(dir, entry.name, "SKILL.md");
-    if (existsSync(join(ROOT, file))) SCANNED.push(file);
+    // Skills are directories with a SKILL.md; prompt templates are flat .md files.
+    // Both are harness prose every session reads, so both get the same checks.
+    const file = entry.isDirectory()
+      ? join(dir, entry.name, "SKILL.md")
+      : entry.isFile() && entry.name.endsWith(".md")
+        ? join(dir, entry.name)
+        : "";
+    if (file && existsSync(join(ROOT, file))) SCANNED.push(file);
   }
 }
 
@@ -256,10 +261,13 @@ for (const from of SCANNED) {
 const scripts = new Set(
   Object.keys(JSON.parse(read("package.json")).scripts as Record<string, string>),
 );
-for (const match of guideText.matchAll(/bun run ([a-z][a-z-]+)/g)) {
-  const name = match[1];
-  if (!name) continue;
-  check(scripts.has(name), `AGENTS.md: bun run ${name} is a real script`);
+for (const from of SCANNED) {
+  if (!existsSync(join(ROOT, from))) continue;
+  for (const match of read(from).matchAll(/bun run ([a-z][a-z-]+)/g)) {
+    const name = match[1];
+    if (!name) continue;
+    check(scripts.has(name), `${from}: bun run ${name} is a real script`);
+  }
 }
 
 // ------------------------------------------------------------------- skills

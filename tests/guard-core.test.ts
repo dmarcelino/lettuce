@@ -28,6 +28,13 @@ test("landing a branch is free; landing main or a tag is the release", () => {
   ]);
   expect(titles("git -C /elsewhere push")).toEqual(["git push with no refspec"]);
   expect(titles("git pushd .")).toEqual([]);
+  // Pushing the release tag is the release, whichever way it is spelled.
+  expect(titles("git push origin v0.8.0-letta_0.36.0")).toEqual(["git push to main or tags"]);
+  expect(titles("git push origin refs/tags/v0.8.0-letta_0.36.0")).toEqual([
+    "git push to main or tags",
+  ]);
+  // …but a *branch* that merely has a version in its name is ordinary work.
+  expect(titles("git push origin release/v0.8.0-letta_0.36.0")).toEqual([]);
 });
 
 test("merging and approving a PR is the operator's, not the agent's", () => {
@@ -36,6 +43,19 @@ test("merging and approving a PR is the operator's, not the agent's", () => {
   expect(titles('gh pr create --base main --title "x" --body "y"')).toEqual([]);
   expect(titles("gh pr view 7 --json state")).toEqual([]);
   expect(titles("gh pr checks 8")).toEqual([]);
+  // The raw API is the same act as `gh pr merge`, and a GitHub release is a publication.
+  expect(titles("gh api repos/o/r/pulls/12/merge -X PUT")).toEqual(["gh api merge"]);
+  expect(titles("gh api repos/o/r/merges -f head=x -f base=y")).toEqual(["gh api merge"]);
+  expect(titles("gh api repos/o/r/pulls/12 --jq .title")).toEqual([]);
+  expect(titles("gh release create v1.2.3 --generate-notes")).toEqual(["gh release create"]);
+});
+
+test("-f is the same force-push as --force, not a shorter way to be free", () => {
+  expect(hard("git push -f origin feature/x")).toBe(true);
+  expect(titles("git push -f origin feature/x")).toContain("git push -f");
+  // A long option that merely starts with -f is not a force flag.
+  expect(hard("git push origin feature/x --follow-tags")).toBe(false);
+  expect(hard("git push origin feature/x")).toBe(false);
 });
 
 test("force is blocked outright", () => {

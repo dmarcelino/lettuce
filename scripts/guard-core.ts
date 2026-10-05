@@ -34,7 +34,11 @@ export const RULES: Rule[] = [
     // Landing work on a branch is routine; landing it on `main` is the release. The PR flow made
     // every push a confirmation, which meant a human was asked to approve nothing that matters and
     // became the thing they clicked through — so the gate moved to where the risk is.
-    pattern: /\bgit\b[^\n]*\bpush\b(?!\w)[^\n]*(?:\bmain\b|--tags\b|--follow-tags\b)/,
+    // A refspec that starts with `v<digits>` is the annotated tag `bun run release` created, and
+    // `refs/tags/` is the same thing spelled out. `release/v0.7.0-letta_0.34.1` as a *branch* name
+    // stays free — the refspec has to begin with the tag, not merely contain one.
+    pattern:
+      /\bgit\b[^\n]*\bpush\b(?!\w)[^\n]*(?:\bmain\b|--tags\b|--follow-tags\b|refs\/tags\/|(?:^|\s)v\d+\.\d+)/,
     title: "git push to main or tags",
     message:
       "AGENTS.md: pushing `main` or a tag IS the release — never without the operator's " +
@@ -72,6 +76,31 @@ export const RULES: Rule[] = [
       "Force operations are not part of this repo's workflow: history stays linear because PRs " +
       "squash-merge, so a PR branch is updated by merging `main` into it, never by force-pushing.",
     hard: true,
+  },
+  {
+    // The same force-push with a shorter spelling, which would otherwise slip past the rule above
+    // and reach a feature branch with no gate at all.
+    pattern: /\bgit\b[^\n]*\bpush\b(?!\w)[^\n]*\s-f(?!\w)/,
+    title: "git push -f",
+    message:
+      "AGENTS.md: `-f` is the force-push the `--force` rule blocks outright, just spelled shorter. " +
+      "Update a PR branch by merging `main` into it.",
+    hard: true,
+  },
+  {
+    // Merging through the raw API is the same act as `gh pr merge`, and had no gate of its own.
+    pattern: /\bgh\b[^\n]*\bapi\b[^\n]*\/merges?\b/,
+    title: "gh api merge",
+    message:
+      "AGENTS.md: this merges a PR without the `gh pr merge` gate. The operator merges, or " +
+      "authorizes the merge of this specific PR after testing it in the container.",
+  },
+  {
+    pattern: /\bgh\b[^\n]*\brelease\s+create\b/,
+    title: "gh release create",
+    message:
+      "AGENTS.md: a published release comes after the prod deploy is verified (definition of " +
+      "done 7b), and only on the operator's confirmation for that specific change.",
   },
   {
     pattern: /\bgit\b[^\n]*\btag\b[^\n]*-a(?!\w)/,
@@ -132,7 +161,9 @@ export const RULES: Rule[] = [
   },
 ];
 
-/** Files an agent must never touch silently. */
+/** Files an agent must never touch silently — checked on the `edit` and `write` tools,
+ * which is where an agent writes a file. A shell redirect (`>`, `sed -i`) is not a
+ * protected-file check, only a command rule. */
 export const PROTECTED_FILES: ProtectedFile[] = [
   {
     path: "docker/.env",

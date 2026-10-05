@@ -548,10 +548,12 @@ The repo carries its own agent-harness configuration so the rules above are not 
 
 - `.agents/skills/lettuce-*/SKILL.md` — the task-scoped mechanics this file moved out; pi lists
   their names and descriptions and loads the body only when one is read.
-- `.pi/extensions/guard.ts` — confirms, or outright blocks, what this file forbids: `git push`,
+- `.pi/extensions/guard.ts` — confirms, or outright blocks, what this file forbids: `git push`
+  (a tag push counts),
   `git tag -a`, `git worktree remove` / `git branch -d|-D` (every `--force` variant and worktree
   pruning stay blocked outright), `docker compose … rm|down|stop|kill|restart`, a scoped
-  `up … app-server`, and any write to `docker/.env`, `docker/secrets/` or `VERSION`. With no UI a confirmable action is blocked, never silently allowed. Rules are pure
+  `up … app-server`, and any `edit`/`write` of `docker/.env`, `docker/secrets/` or `VERSION` (a
+  shell redirect is not seen). With no UI a confirmable action is blocked, never silently allowed. Rules are pure
   functions in `scripts/guard-core.ts` (tests: `tests/guard-core.test.ts`); read-only commands that merely quote
   one are exempt; it guards what an agent types, not what a script does internally — which is why
   `release.ts` carries its own typed confirmation.
