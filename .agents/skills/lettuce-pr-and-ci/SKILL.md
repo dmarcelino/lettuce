@@ -1,6 +1,6 @@
 ---
 name: lettuce-pr-and-ci
-description: 'lettuce PR and CI mechanics: worktree → PR → squash merge instead of a local fast-forward, which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and the rule that an agent merges only after the operator confirms that specific PR. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the guard rules around merges.'
+description: 'lettuce PR and CI mechanics: worktree → PR → squash merge instead of a local fast-forward, which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and the rule that an agent merges only after the operator confirms that specific PR. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the guard rules around merges.'
 ---
 
 # PR flow and CI
@@ -75,8 +75,34 @@ Hard rules about the file itself:
 - `bun install --frozen-lockfile --ignore-scripts` mirrors the image: letta-code's native
   postinstall builds need a toolchain neither the runner nor the runtime image carries.
 
-The live tier — `deploy-check`, `ui-check`, `smoke` against a real compose stack — is **not** in
-Tier A and has no home yet; it has never run outside a dev box.
+## Tier B (`live.yml`) — advisory until it has measured itself
+
+The live tier runs the shipped compose file on a runner: writes a gitignored `docker/.env` (state in
+the runner temp, local mode, **no compose profiles**, so no sidecars and no Codex/Claude CLIs in the
+image), `build`, `up -d`, waits on `/readyz` — which only answers once the upstream WebSocket is
+connected, so that wait stands in for `deploy-check`'s health assertion — then tears the stack down.
+It runs on PRs, on `main`, and nightly. Measured cold cost of the whole thing: deps 3 s, Chromium
+37 s, both images built 66 s, up 6 s, readyz in seconds.
+
+**`ui-check` is behind `env.UI_CHECK: "off"` in that file, and that is a gap, not a decision to
+keep.** A CI stack boots with an empty state dir, so it has no agent, and the UI is about agents —
+the first real run passed 40-some layout assertions and then timed out waiting for
+`.switcher-agents .switcher-card-title`. Seeding needs either an app-server-side fixture (the BFF
+has no create-agent route; creation is `create_agent` over the WebSocket CI does not speak) or a
+ui-check that asserts on the empty state. Until one exists, Tier B verifies **compose boot and the
+upstream connection**, nothing more, and says so in the run.
+
+Three CI-env facts that cost a run each, learned the hard way: `SESSION_SECRET` must be ≥32
+characters or the BFF refuses to start; **there are two binds** — `BFF_BIND` is the host side of the
+published port, while the BFF's own bind is pinned to loopback by dev bypass unless
+`DEV_BYPASS_ALLOW_REMOTE=true`, and a loopback bind inside the namespace makes the published port
+unreachable (it looks exactly like the server being down); and the container listens on 8080 while
+the runner reaches it on `BFF_PORT`.
+
+It is **deliberately not in the required `ci` aggregate**, and it carries no `continue-on-error`: a red
+`live` check is loud and honest, it just does not block the merge. Whether it becomes a gate for
+`web/**` PRs now hinges on the seed gap above, not on cost. `smoke` is in neither tier: it mutates
+live state and needs an agent to exist.
 
 ## Labels and the bump
 
