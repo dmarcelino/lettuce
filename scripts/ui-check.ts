@@ -152,7 +152,7 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    check("all five tabs are reachable", (await page.locator("nav.tabs button").count()) === 5);
+    check("all six tabs are reachable", (await page.locator("nav.tabs button").count()) === 6);
     check(
       "the top bar names the agent",
       (await page.locator(".topbar .where-agent").innerText()).trim() !== "",
@@ -793,7 +793,7 @@ try {
       ...(featureOn(features, "google") ? ["Google"] : []),
       ...(featureOn(features, "codex") ? ["Codex"] : []),
       ...(featureOn(features, "claude") ? ["Claude"] : []),
-      ...(featureOn(features, "pi") ? ["Remote pi"] : []),
+      ...(featureOn(features, "pi") ? ["Remote Pi"] : []),
       "Skills",
       "Push",
       "About",
@@ -948,7 +948,7 @@ try {
     // The Agent tab holds the selected agent's settings and nothing shared.
     await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.waitForTimeout(500);
-    const expectedChips = ["General", "Tools", "Secrets", "Reflection", "Skills"];
+    const expectedChips = ["General", "Secrets", "Reflection", "Skills"];
     const chipLabels = (await page.locator(".section-tabs button").allInnerTexts()).map((t) =>
       t.trim(),
     );
@@ -989,20 +989,61 @@ try {
       check(`agent ${chip.toLowerCase()} has nothing clipped`, box.clipped.length === 0, box);
     }
 
-    // Agent → Tools: the per-agent Codex, Claude Code and Google access loads
-    // from the BFF.
-    await page.locator('.section-tabs button:text-is("Tools")').click();
-    await page.locator('.pane label:has-text("Codex workers") select').waitFor({ timeout: 10_000 });
+    // The Tools tab: one chip per shared family, the chip carries the on/off box
+    // (role=checkbox — the platform checkbox is still banned everywhere), and
+    // clicking the name opens that family's per-agent settings.
+    await page.locator('nav.tabs button:text-is("Tools")').click();
+    await page.waitForTimeout(700);
     const toolsFeatures = await readFeatures(page);
+    const expectedToolChips = [
+      ["google", "Google"],
+      ["codex", "Codex"],
+      ["claude", "Claude"],
+      ["pi", "Remote Pi"],
+    ]
+      .filter(([key]) => featureOn(toolsFeatures, key))
+      .map(([, label]) => label);
+    const toolChipLabels = (
+      await page.locator(".tool-chips button:not(.chip-check)").allInnerTexts()
+    ).map((t) => t.trim());
     check(
-      "agent tools shows Google, Codex and Claude access, Save idle until changed",
-      (await page.locator('.pane label:has-text("Google") select').count()) === 1 &&
-        (await page.locator('.pane label:has-text("Claude Code workers") select').count()) === 1 &&
-        (featureOn(toolsFeatures, "pi")
-          ? (await page.locator('.pane label:has-text("Remote pi worker") select').count()) === 1
-          : true) &&
-        (await page.locator('.pane button:text-is("Save")').isDisabled()),
+      `tools chips are ${expectedToolChips.join(" / ")}`,
+      JSON.stringify(toolChipLabels) === JSON.stringify(expectedToolChips),
+      toolChipLabels,
     );
+    check(
+      "every tools chip carries its own box and no native checkbox exists",
+      (await page.locator(".tool-chips button[aria-pressed]").count()) ===
+        expectedToolChips.length &&
+        (await page.evaluate(() => document.querySelectorAll('input[type="checkbox"]').length)) ===
+          0,
+      {
+        boxes: await page.locator(".tool-chips button[aria-pressed]").count(),
+      },
+    );
+    check(
+      "the tools pane loads access from the BFF",
+      (await page.locator('.pane label:has-text("Google") select').count()) === 1,
+    );
+    if (featureOn(toolsFeatures, "pi")) {
+      await page.locator('.tool-chips button:text-is("Remote Pi")').click();
+      await page.locator('.pane label:has-text("Where this agent runs pi work") select').waitFor({
+        timeout: 10_000,
+      });
+      check(
+        "remote pi shows where this agent runs pi work",
+        (await page
+          .locator('.pane label:has-text("Where this agent runs pi work") select')
+          .count()) === 1,
+      );
+    }
+    const toolsBox = await overflow(page);
+    check("tools tab has nothing clipped", toolsBox.clipped.length === 0, toolsBox);
+    await shot(page, "desktop-tools");
+
+    // Back to the Agent tab for its own sections.
+    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await page.waitForTimeout(400);
 
     // Agent → Skills: the list comes from the BFF's own discovery, so it is
     // populated with no turn running (bundled skills alone are ~20). Bundled
@@ -1077,7 +1118,7 @@ try {
       ...(featureOn(desktopFeatures, "google") ? ["Google"] : []),
       ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
       ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
-      ...(featureOn(desktopFeatures, "pi") ? ["Remote pi worker"] : []),
+      ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
       "Global skills",
       "Notifications",
       "About",
@@ -1132,11 +1173,11 @@ try {
     );
 
     if (featureOn(desktopFeatures, "pi")) {
-      // Same for the remote pi worker (GET /api/pi/settings).
-      await openSection("Remote pi worker");
+      // Same for Remote Pi (GET /api/pi/settings).
+      await openSection("Remote Pi");
       check(
         "remote pi section loads its settings",
-        (await page.locator('.menu-row:has-text("Allow remote pi runs")').count()) === 1,
+        (await page.locator('.menu-row:has-text("Allow Remote Pi")').count()) === 1,
         await page.locator(".settings-content").innerText(),
       );
     }

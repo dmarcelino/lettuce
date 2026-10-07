@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { type PiSettings, piTarget } from "./settings.ts";
+import { normalizePathPrepend, type PiSettings, piTarget } from "./settings.ts";
 
 /** pi session ids are plain UUIDs (docs/session-format.md). */
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -32,6 +32,13 @@ export type PiRunState = "running" | "completed" | "detached" | "failed";
 export interface PiRunMeta {
   runId: string;
   kind: "run" | "send";
+  /**
+   * Which agent started it, when the call came from one. Per-agent hosts make
+   * this load-bearing rather than cosmetic: a follow-up has to go to the host
+   * that made the session, and runs are listed for every agent. Old run files
+   * simply read as null.
+   */
+  agentId: string | null;
   /** Filled from the json session header shortly after start. */
   session: string | null;
   prompt: string;
@@ -75,14 +82,22 @@ export function shq(value: string): string {
  * The remote command: cd into the workdir, give a non-interactive PATH what it
  * misses (spike finding § 3.1), and run pi in json mode. Empty `pathPrepend`
  * must NOT emit `env PATH=:$PATH` — an empty PATH entry means the cwd.
+ *
+ * The PATH assignment is `PATH='<prepend>':"$PATH"` and not `'<prepend>:$PATH'`:
+ * the `$PATH` has to survive to the *remote* shell, and a value that quotes it
+ * keeps the five characters literally. env then looks up the program with that
+ * broken PATH in hand, and the whole run dies with `env: 'sh': No such file or
+ * directory` — an operator-visible failure from a field that looks correct.
+ * Two adjacent quoted segments concatenate, so the prepend stays quoted and
+ * `$PATH` still expands, spaces in the inherited PATH included.
  */
 export function buildPiRemoteCommand(
   settings: PiSettings,
   options: { prompt: string; session?: string; model?: string | null },
 ): string {
   const parts = ["cd", shq(settings.workdir), "&&"];
-  const prepend = settings.pathPrepend.trim();
-  if (prepend) parts.push("env", `PATH=${shq(`${prepend}:$PATH`)}`);
+  const prepend = normalizePathPrepend(settings.pathPrepend);
+  if (prepend) parts.push("env", `PATH=${shq(prepend)}:"$PATH"`);
   parts.push("pi", "--mode", "json");
   if (options.session) {
     if (!isPiSessionId(options.session)) throw new Error("not a pi session id");
@@ -189,6 +204,18 @@ export class DirPiRunStore implements PiRunStore {
     }
     return metas.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)).slice(0, Math.max(0, limit));
   }
+  /**
+   * The run that created a pi session, newest first. A follow-up must reach the
+   * host that made the session — a pi session id means nothing on another
+   * machine — so the send path looks the origin up instead of trusting the
+   * agent that happens to be asking.
+   */
+  async findBySession(session: string): Promise<PiRunMeta | null> {
+    for (const meta of await this.list(500)) {
+      if (meta.session === session) return meta;
+    }
+    return null;
+  }
   async readEventsTail(runId: string, maxChars: number): Promise<string | null> {
     const fs = await import("node:fs/promises");
     try {
@@ -228,13 +255,20 @@ export class PiRunner {
   async start(
     settings: PiSettings,
     files: PiKeyFiles,
-    options: { kind: "run" | "send"; prompt: string; session?: string; model?: string | null },
+    options: {
+      kind: "run" | "send";
+      prompt: string;
+      session?: string;
+      model?: string | null;
+      agentId?: string | null;
+    },
   ): Promise<PiRunMeta> {
     const remote = buildPiRemoteCommand(settings, options);
     const args = buildSshArgs(settings, files, remote);
     const meta: PiRunMeta = {
       runId: randomUUID(),
       kind: options.kind,
+      agentId: options.agentId ?? null,
       session: options.session ?? null,
       prompt: options.prompt,
       model: options.model ?? settings.model,

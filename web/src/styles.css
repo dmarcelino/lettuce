@@ -112,11 +112,13 @@ pre {
 }
 .tabs button {
   flex: 1;
-  min-width: 72px;
+  /* Six tabs have to fit a 390px phone without scrolling: Chat is the longest
+     name at 62, so this is what is left over. */
+  min-width: 58px;
   background: none;
   border: none;
   color: var(--muted);
-  padding: 8px 10px;
+  padding: 8px 8px;
   border-radius: 0;
   font-size: 14px;
   font-weight: 500;
@@ -2198,6 +2200,53 @@ p.warning code {
   border-color: var(--accent);
   color: var(--text);
 }
+/* Tools: a family's chip is its on/off box and its name, welded into one pill so the
+   box reads as part of the chip and not as a third chip. The box is a `<button
+   role="checkbox">` — nothing in the app uses a platform checkbox — and it draws its own
+   15px plate inside a 28px hit area: the name is what you read first, so the box stays
+   small. The plate keeps a grey outline when unchecked rather than going empty, because
+   "chip with no glyph" and "chip whose glyph you have not looked at" are indistinguishable.
+   React renders no tick when unchecked, so the outline plate stands alone. */
+.tool-chips .chip-pair {
+  display: inline-flex;
+  align-items: stretch;
+}
+.tool-chips .chip-pair .chip-check {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: none;
+  border-right: none;
+}
+.tool-chips .chip-pair .chip-check::before,
+.tool-chips .chip-pair .chip-check .icon {
+  grid-area: 1 / 1;
+}
+.tool-chips .chip-pair .chip-check::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  border: 2px solid color-mix(in srgb, var(--muted) 55%, transparent);
+  box-sizing: border-box;
+}
+.tool-chips .chip-pair .chip-check.on {
+  border-color: var(--border);
+  color: #0b1020;
+}
+.tool-chips .chip-pair .chip-check.on::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.tool-chips .chip-pair .chip-check.on + button {
+  border-left-color: var(--accent);
+}
+.tool-chips .chip-pair .chip-check .icon {
+  width: 11px;
+  height: 11px;
+}
+
 /* Under Settings' chips: who the section's settings apply to. */
 .scope-line {
   margin: 0;
@@ -2584,7 +2633,34 @@ p.warning code {
   gap: 8px;
   margin: 8px 0;
 }
-/* Fixed-width glyphs for pasted keys and ids (Settings → Remote pi worker). */
+/* A section whose switch is off keeps its fields on screen but unusable: the
+   shape of the setup stays visible, and a mistake cannot be typed in. */
+.field input:disabled,
+.field select:disabled,
+.field textarea:disabled {
+  background: var(--surface);
+  color: var(--muted);
+  opacity: 0.62;
+}
+/* One line of a value with its own action inside the control (Remote Pi's public
+   key + Copy), so the row costs no height and the button cannot be missed. */
+.field-inline {
+  position: relative;
+  display: flex;
+}
+.field-inline input {
+  width: 100%;
+  padding-right: 74px;
+  text-overflow: ellipsis;
+}
+.field-inline .button.compact {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Fixed-width glyphs for pasted keys and ids (Settings → Remote Pi). */
 textarea.mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

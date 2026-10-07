@@ -13,7 +13,21 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ToolAnswer, ToolHandler, ToolSpec } from "../internal-tools/types.ts";
 import { capText } from "../internal-tools/types.ts";
+import { effectivePiSettings, PiAgentSettingsStore } from "./agent-settings.ts";
 import {
+  ago,
+  buildProbeRemoteCommand,
+  checkTargetKey,
+  classifyCheckOutput,
+  type PiCheck,
+  type PiCheckRecord,
+  type PiCheckTarget,
+  parseChecks,
+  pinnedHostKey,
+  renderChecks,
+} from "./check.ts";
+import {
+  buildSshArgs,
   DirPiRunStore,
   isPiSessionId,
   type PiKeyFiles,
@@ -31,6 +45,16 @@ import {
   renderPiSettings,
 } from "./settings.ts";
 
+export {
+  assertEffectiveUsable,
+  DEFAULT_PI_AGENT_SETTINGS,
+  effectivePiSettings,
+  InvalidPiAgentSettingsError,
+  isDefaultPiAgentSettings,
+  type PiAgentSettings,
+  parsePiAgentSettings,
+} from "./agent-settings.ts";
+export type { PiCheck, PiCheckRecord, PiCheckState, PiCheckTarget } from "./check.ts";
 export type { PiRunMeta } from "./runner.ts";
 export { DirPiRunStore, isPiSessionId, PiRunner, piAgentId } from "./runner.ts";
 export type { PiSettings, PublicPiSettings } from "./settings.ts";
@@ -41,7 +65,6 @@ export interface PiPaths {
   /** Directory on the bff-data volume, e.g. `/app/data/pi`. */
   dir: string;
 }
-
 export function piSettingsFile(paths: PiPaths): string {
   return `${paths.dir}/settings.json`;
 }
@@ -53,6 +76,14 @@ export function piKnownHostsFile(paths: PiPaths): string {
 }
 export function piRunsDir(paths: PiPaths): string {
   return `${paths.dir}/runs`;
+}
+/** Per-agent overrides (workdir, host) — see `pi/agent-settings.ts`. */
+export function piAgentSettingsFile(paths: PiPaths): string {
+  return `${paths.dir}/agents.json`;
+}
+/** Last check per `user@host:port` — see `pi/check.ts`. */
+export function piChecksFile(paths: PiPaths): string {
+  return `${paths.dir}/checks.json`;
 }
 
 async function readOrNull(path: string): Promise<string | null> {
@@ -107,15 +138,40 @@ export interface PiServiceOptions {
   log?: (message: string) => void;
 }
 
+/** How long a check waits for ssh before calling the host unreachable. */
+const PI_CHECK_TIMEOUT_MS = 15_000;
+
+/**
+ * What pinning came back as: written, or refused because a different key was
+ * already pinned (the caller asks the human, then retries with `force`).
+ */
+export type PiPinResult =
+  | { changed: false; lines: number; target: string; fingerprint: string | null }
+  | { changed: true; target: string; oldFingerprint: string | null; newFingerprint: string | null };
+
 export class PiService {
   private cached: { text: string | null; settings: PiSettings } | null = null;
 
   readonly store: DirPiRunStore;
   readonly runner: PiRunner;
+  /** What each agent does differently (its own workdir, its own host). */
+  readonly agentSettings: PiAgentSettingsStore;
 
   constructor(private readonly options: PiServiceOptions) {
     this.store = new DirPiRunStore(piRunsDir(options.paths));
     this.runner = new PiRunner(this.store, options.spawner ?? sshSpawner, options.now);
+    this.agentSettings = new PiAgentSettingsStore(piAgentSettingsFile(options.paths), () => {});
+  }
+
+  /**
+   * The connection one agent will actually use: the global record with its own
+   * fields laid over it. `agentId` is what the mod sent in `x-letta-agent-id`;
+   * null (a curl from an agent shell, a test) means the global record.
+   */
+  async settingsFor(agentId: string | null): Promise<PiSettings & { source: "global" | "agent" }> {
+    const global = await this.load();
+    if (!agentId) return { ...global, source: "global" };
+    return effectivePiSettings(global, this.agentSettings.get(agentId));
   }
 
   get featureEnabled(): boolean {
@@ -195,7 +251,12 @@ export class PiService {
       await writePrivate(keyFile, pem);
       // Generate straight onto the settings record (no applyPiSettingsUpdate:
       // rotating a key must not require the rest of the config to be complete).
-      const settings: PiSettings = { ...(await this.load()), privateKey: pem, publicKey: pub };
+      const settings: PiSettings = {
+        ...(await this.load()),
+        privateKey: pem,
+        publicKey: pub,
+        keySource: "generated",
+      };
       this.cached = null;
       await writePrivate(piSettingsFile(this.options.paths), renderPiSettings(settings));
       return settings;
@@ -221,40 +282,185 @@ export class PiService {
 
   /**
    * Pin the host's key the way TOFU works here: run `ssh-keyscan` (read-only,
-   * asks nothing) and append whatever it answers. The user pressed "Verify"
-   * in Settings; that human moment is the trust on first use.
+   * asks nothing) and append whatever it answers. The user pressed "Check &
+   * pin" in Settings; that human moment is the trust on first use.
+   *
+   * A *different* key already pinned for that host is never replaced silently:
+   * that is the one case TOFU exists to catch, so it comes back as
+   * `changed: true` with both fingerprints and the caller asks again.
    */
-  async pinHostKey(): Promise<{ lines: number; target: string }> {
-    const settings = await this.load();
-    if (!settings.host) throw new Error("set a host first");
-    const portArg = settings.port === 22 ? "" : ` -p ${settings.port}`;
-    // ssh-keysearch… ssh-keyscan takes -p as an option before the host.
+  async pinHost(
+    options: { host?: string; port?: number; force?: boolean; agentId?: string | null } = {},
+  ): Promise<PiPinResult> {
+    const settings = await this.settingsFor(options.agentId ?? null);
+    const host = (options.host ?? settings.host).trim();
+    const port = options.port ?? settings.port;
+    if (!host) throw new Error("set a host first");
     const result = Bun.spawnSync({
-      cmd: [
-        "ssh-keyscan",
-        ...(settings.port === 22 ? [] : ["-p", String(settings.port)]),
-        settings.host,
-      ],
+      cmd: ["ssh-keyscan", ...(port === 22 ? [] : ["-p", String(port)]), host],
       timeout: 15_000,
     });
-    const text = result.stdout.toString().trim();
-    void portArg;
-    if (result.exitCode !== 0 || !text) {
-      throw new Error(`ssh-keyscan ${settings.host} found no host key`);
+    const scanned = result.stdout
+      .toString()
+      .split("\n")
+      .filter((line) => line.trim() && !line.trim().startsWith("#"));
+    if (result.exitCode !== 0 || scanned.length === 0) {
+      throw new Error(`ssh-keyscan ${host} found no host key`);
     }
     const file = piKnownHostsFile(this.options.paths);
     const existing = (await readOrNull(file)) ?? "";
+    const pinned = pinnedHostKey(existing, host, port);
+    const newFingerprint = await this.fingerprint(scanned[0] ?? "");
+    if (pinned && !options.force) {
+      const oldFingerprint = await this.fingerprint(pinned);
+      if (oldFingerprint !== newFingerprint) {
+        return { changed: true, target: host, oldFingerprint, newFingerprint };
+      }
+    }
+    // Drop whatever this host had (any port form) and write what was scanned.
+    const pattern = port === 22 ? host : `[${host}]:${port}`;
     const kept = existing
       .split("\n")
-      .filter(
-        (line) =>
-          line.trim() &&
-          !line.includes(` ${settings.host} `) &&
-          !line.startsWith(`[${settings.host}`),
-      )
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) return false;
+        const first = trimmed.split(/\s+/)[0] ?? "";
+        return !first.split(/[,\s]/).includes(pattern);
+      })
       .join("\n");
-    await writePrivate(file, `${kept}${kept ? "\n" : ""}${text}\n`);
-    return { lines: text.split("\n").filter(Boolean).length, target: settings.host };
+    await writePrivate(file, `${kept}${kept ? "\n" : ""}${scanned.join("\n")}\n`);
+    return {
+      changed: false,
+      lines: scanned.length,
+      target: host,
+      fingerprint: newFingerprint,
+    };
+  }
+
+  /** `ssh-keygen -lf` over one key line, through a 0600 temp file. */
+  private async fingerprint(keyLine: string): Promise<string | null> {
+    if (!keyLine.trim()) return null;
+    const tmp = `${piKnownHostsFile(this.options.paths)}.${randomUUID()}.fp`;
+    try {
+      await writePrivate(tmp, `${keyLine.trim()}\n`);
+      const res = Bun.spawnSync({ cmd: ["ssh-keygen", "-lf", tmp], stdin: "ignore" });
+      // "256 SHA256:xxxx comment (ED25519)"
+      const match = /SHA256:\S+/.exec(res.stdout.toString());
+      return res.exitCode === 0 && match ? match[0] : null;
+    } catch {
+      return null;
+    } finally {
+      await rm(tmp, { force: true }).catch(() => {});
+    }
+  }
+
+  // ── checking a host ───────────────────────────────────────────────────────
+
+  /** Everything the checks file holds, keyed by `user@host:port`. */
+  async checks(): Promise<PiCheckRecord> {
+    return parseChecks(await readOrNull(piChecksFile(this.options.paths)));
+  }
+
+  /** The last check for a target, or null when it has never been checked. */
+  async lastCheck(target: PiCheckTarget): Promise<PiCheck | null> {
+    return (await this.checks())[checkTargetKey(target)] ?? null;
+  }
+
+  /**
+   * Ask the host the question a run will ask: is it pinned, does it take our
+   * key, is `pi` on the PATH a run gets, does the workdir exist. The draft may
+   * hold unsaved form values — checking before saving is the point.
+   */
+  async checkHost(
+    draft: Partial<PiSettings> = {},
+    agentId: string | null = null,
+  ): Promise<PiCheck> {
+    const stored = await this.settingsFor(agentId);
+    const settings: PiSettings = {
+      ...stored,
+      host: (draft.host ?? stored.host).trim(),
+      user: (draft.user ?? stored.user).trim(),
+      port: Number.isFinite(Number(draft.port)) ? Number(draft.port) : stored.port,
+      pathPrepend: draft.pathPrepend ?? stored.pathPrepend,
+      workdir: draft.workdir ?? stored.workdir,
+    };
+    const key = checkTargetKey(settings);
+    const clock = this.options.now ?? (() => new Date());
+    const at = clock().toISOString();
+    const finish = async (check: Omit<PiCheck, "target" | "at">): Promise<PiCheck> => {
+      const full: PiCheck = { ...check, target: key, at };
+      const record = await this.checks();
+      record[key] = full;
+      await writePrivate(piChecksFile(this.options.paths), renderChecks(record));
+      return full;
+    };
+    if (!settings.host || !settings.user) {
+      return finish({
+        state: "unreachable",
+        ok: false,
+        detail: "Set a host and a user first.",
+        piVersion: null,
+        pinnedFingerprint: null,
+      });
+    }
+    const knownHosts = (await readOrNull(piKnownHostsFile(this.options.paths))) ?? "";
+    const pinned = pinnedHostKey(knownHosts, settings.host, settings.port);
+    const pinnedFingerprint = pinned ? await this.fingerprint(pinned) : null;
+    if (!settings.privateKey) {
+      return finish({
+        state: "no_key",
+        ok: false,
+        detail: "No deploy key yet — generate one or paste a private key.",
+        piVersion: null,
+        pinnedFingerprint,
+      });
+    }
+    if (!pinned) {
+      return finish({
+        state: "unpinned",
+        ok: false,
+        detail: `No host key pinned for ${key} — runs would be refused. Check & pin host key.`,
+        piVersion: null,
+        pinnedFingerprint: null,
+      });
+    }
+    const files = await this.keyFiles(settings);
+    const remote = buildProbeRemoteCommand(settings);
+    const args = buildSshArgs(settings, files, remote);
+    let stdout = "";
+    let stderr = "";
+    const child = (this.options.spawner ?? sshSpawner)(
+      args,
+      (chunk) => {
+        stdout += chunk;
+      },
+      (chunk) => {
+        stderr += chunk;
+      },
+    );
+    const killer = setTimeout(() => child.kill(), PI_CHECK_TIMEOUT_MS);
+    let code: number | null = null;
+    try {
+      code = (await child.exited).code;
+    } catch (error) {
+      stderr += String(error);
+    } finally {
+      clearTimeout(killer);
+    }
+    const verdict = classifyCheckOutput({ code, stdout, stderr });
+    return finish({
+      state: verdict.state,
+      ok: verdict.state === "ready",
+      detail: verdict.detail,
+      piVersion: verdict.piVersion,
+      pinnedFingerprint,
+    });
+  }
+
+  /** One line a UI can show for a stored check, with the time made relative. */
+  static describeCheck(check: PiCheck | null): string {
+    if (!check) return "Never checked.";
+    return `${check.detail} · ${check.target} · ${ago(check.at)}`;
   }
 
   /** Boot reconciliation: runs still marked running are orphans of the old BFF. */
@@ -281,21 +487,39 @@ export class PiService {
     return null;
   }
 
-  private async startRun(kind: "run" | "send", args: Record<string, unknown>): Promise<ToolAnswer> {
+  private async startRun(
+    kind: "run" | "send",
+    args: Record<string, unknown>,
+    callerAgentId: string | null,
+  ): Promise<ToolAnswer> {
     const off = this.guard();
     if (off) return off;
-    const settings = await this.load();
+    const settings = await this.settingsFor(callerAgentId);
     if (!piConfigured(settings)) return { text: this.disabledReason(), isError: true };
 
     const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
     if (!prompt) return { text: "`prompt` is required", isError: true };
     let session: string | undefined;
+    // A follow-up goes where the session was made: a pi session id is a file on
+    // one host, so asking another agent's host about it cannot work. The origin
+    // wins over whoever is asking; an unseen session falls back and says so.
+    let sessionNote = "";
     if (kind === "send") {
       const raw = typeof args.session === "string" ? args.session.trim() : "";
       if (!isPiSessionId(raw)) {
         return { text: "`session` must be the pi session id from a previous run", isError: true };
       }
       session = raw;
+      const origin = await this.store.findBySession(raw);
+      if (origin?.agentId && origin.agentId !== callerAgentId) {
+        const from = await this.settingsFor(origin.agentId);
+        if (piConfigured(from)) {
+          Object.assign(settings, from);
+          sessionNote = ` (session started by agent ${origin.agentId})`;
+        }
+      } else if (!origin) {
+        sessionNote = " (session unknown to lettuce — using this agent's host)";
+      }
     }
     const model = typeof args.model === "string" && args.model.trim() ? args.model.trim() : null;
 
@@ -306,6 +530,7 @@ export class PiService {
         prompt,
         session,
         model,
+        agentId: callerAgentId,
       });
       // Give the session header a moment: it is the first record of the stream
       // and the caller needs it to follow up (§ 3.2).
@@ -323,12 +548,14 @@ export class PiService {
       }
       const agentId = observed.session ? piAgentId(observed.session) : null;
       return {
+        // Naming the host is what makes per-agent hosts usable: the model can
+        // say where a task went instead of guessing.
         text:
-          `Started remote-pi ${kind} ${observed.runId}` +
+          `Started remote-pi ${kind} ${observed.runId} on ${observed.target}` +
           (observed.session
             ? ` on session ${observed.session} (agent ${agentId})`
             : " — session id not yet visible") +
-          `. Poll with pi_status {run:"${observed.runId}"}.`,
+          `${sessionNote}. Poll with pi_status {run:"${observed.runId}"}.`,
         isError: false,
       };
     } catch (error) {
@@ -340,10 +567,12 @@ export class PiService {
   }
 
   /** pi_run: start a fresh pi session on the remote host. */
-  readonly piRun: ToolHandler = (args) => this.startRun("run", args);
+  readonly piRun: ToolHandler = (args, context) =>
+    this.startRun("run", args, context?.agentId ?? null);
 
   /** pi_send: follow up on an existing session (spike-proven iteration, § 3.3). */
-  readonly piSend: ToolHandler = (args) => this.startRun("send", args);
+  readonly piSend: ToolHandler = (args, context) =>
+    this.startRun("send", args, context?.agentId ?? null);
 
   /** pi_status: state of one run, with the tail of its last assistant text. */
   readonly piStatus: ToolHandler = async (args) => {
@@ -476,6 +705,8 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
     name: "pi_run",
     description:
       "Dispatch a task to the remote pi coding agent over SSH and start it now. " +
+      "It starts in the working folder configured for this agent, on the host configured for it " +
+      "(one agent may point at a different folder or machine than another). " +
       "Returns a run id and a pi session id immediately; the run continues in the background. " +
       "Poll with pi_status, continue the conversation with pi_send.",
     parameters: RUN_PARAMETERS,

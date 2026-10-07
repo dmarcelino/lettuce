@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ago,
+  checkPiHost,
   fetchPiSettings,
   generatePiKey,
+  type PiCheck,
   type PiSettings,
   type PiSettingsUpdate,
   pinPiHostKey,
@@ -21,6 +24,7 @@ interface Draft {
   privateKey: string;
 }
 
+/** What the server holds, as an editable draft. */
 function draftOf(settings: PiSettings): Draft {
   return {
     enabled: settings.enabled,
@@ -34,13 +38,62 @@ function draftOf(settings: PiSettings): Draft {
   };
 }
 
+/** Whether the draft differs from what is stored — Save is dead until it does. */
+function isDirty(draft: Draft, settings: PiSettings): boolean {
+  return (
+    draft.enabled !== settings.enabled ||
+    draft.host.trim() !== settings.host ||
+    draft.port !== String(settings.port) ||
+    draft.user.trim() !== settings.user ||
+    draft.pathPrepend.trim() !== settings.pathPrepend ||
+    draft.workdir.trim() !== settings.workdir ||
+    draft.model.trim() !== (settings.model ?? "") ||
+    draft.privateKey.trim() !== ""
+  );
+}
+
+/** `SHA256:abcdef…uvwxyz` — a fingerprint you can read at a glance. */
+function shortFingerprint(value: string | null): string {
+  if (!value) return "none";
+  const hex = value.replace(/^SHA256:/, "");
+  return hex.length <= 12 ? value : `${hex.slice(0, 6)}…${hex.slice(-4)}`;
+}
+
 /**
- * Settings → Remote pi worker: where agents reach a pi installed on another
- * host, over SSH only (see bff/src/pi/ and docs/remote-pi-plan.md). The
- * private key is lettuce-generated (or pasted once) and never returns to this
- * page; Settings shows only its PUBLIC half — the line to paste into the
- * remote's authorized_keys. The host key is pinned from this page (trust on
- * first use) because runs always demand `StrictHostKeyChecking=yes`.
+ * The one line that says whether this host would work. "Saved" is not that
+ * answer: every run pins, so a saved-but-unpinned host fails silently inside an
+ * agent's run. The pill goes stale with the form on purpose — editing a field
+ * after a good check means the good check is about another host.
+ */
+export function piStatusPill(
+  check: PiCheck | null,
+  stale: boolean,
+): { cls: "ok" | "warn" | "bad"; text: string } {
+  if (stale) return { cls: "warn", text: "Changed since the last check" };
+  if (!check) return { cls: "warn", text: "Never checked — an unpinned host fails every run" };
+  const pinned = check.pinnedFingerprint
+    ? ` · pinned ${shortFingerprint(check.pinnedFingerprint)}`
+    : "";
+  if (check.ok)
+    return {
+      cls: "ok",
+      text: `${check.detail} · ${check.target}${pinned} · checked ${ago(check.at)}`,
+    };
+  return { cls: "bad", text: `${check.detail} · ${check.target} · ${ago(check.at)}` };
+}
+
+/**
+ * Settings → Remote Pi: where agents reach a pi installed on another host, over
+ * SSH only (see bff/src/pi/ and docs/remote-pi-plan.md).
+ *
+ * Two things shape this form. The switch gates the fields, because a form you
+ * can fill in while it cannot be used is a form whose mistakes are discovered
+ * by an agent's failed run. And the two ways to get a deploy key are rendered
+ * as alternatives, never stacked: lettuce generating a pair (the operator only
+ * ever copies the PUBLIC half) or pasting a private key you already have. The
+ * private half never returns to this page, so `hasKey` and the public line are
+ * all the UI has to say about the key — and `keySource` says who made it, so
+ * the generated-key branch cannot claim credit for a pasted one.
  */
 export function PiSection() {
   const [settings, setSettings] = useState<PiSettings | null>(null);
@@ -50,14 +103,25 @@ export function PiSection() {
   const [pinning, setPinning] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [rotateArmed, setRotateArmed] = useState(false);
-  const [pasteOpen, setPasteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  /** The last word the BFF had about this host, and the form's staleness. */
+  const [check, setCheck] = useState<PiCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  /** A host key that does not match the pinned one needs a second, explicit click. */
+  const [pinArmed, setPinArmed] = useState(false);
+  /** Which key flow the form shows: lettuce's, or the operator's own PEM. */
+  const [keyChoice, setKeyChoice] = useState<"generated" | "pasted">("generated");
+  /** Agents that point at a host or folder of their own (Tools → Remote Pi). */
+  const [ownAgents, setOwnAgents] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
       const loaded = await fetchPiSettings();
       setSettings(loaded.settings);
       setDraft(draftOf(loaded.settings));
+      setKeyChoice(loaded.settings.keySource);
+      setCheck(loaded.check);
+      setOwnAgents((loaded.agents ?? []).filter((a) => a.mode === "own").map((a) => a.agentId));
       setStatus(null);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -83,9 +147,17 @@ export function PiSection() {
     setSaving(true);
     try {
       const saved = await savePiSettings(update);
-      setSettings(saved);
-      setDraft(draftOf(saved));
-      setStatus("Saved. Agents get the pi tools from their next turn.");
+      setSettings(saved.settings);
+      setDraft(draftOf(saved.settings));
+      setKeyChoice(saved.settings.keySource);
+      // Save answers the host question itself — the server checked on the way by.
+      setCheck(saved.check);
+      setPinArmed(false);
+      setStatus(
+        saved.check?.ok
+          ? "Saved. Agents get the pi tools from their next turn."
+          : "Saved, but the host check below is not clean yet.",
+      );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -93,11 +165,53 @@ export function PiSection() {
     }
   };
 
-  const pin = async () => {
+  /** The values a check or a pin should use: the form's, saved or not. */
+  const targetOf = (from: Draft) => ({
+    host: from.host.trim(),
+    port: Number(from.port) || 22,
+    user: from.user.trim(),
+    pathPrepend: from.pathPrepend.trim(),
+    workdir: from.workdir.trim(),
+  });
+
+  const runCheck = async () => {
+    const form = draft;
+    if (!form) return;
+    setChecking(true);
+    try {
+      setCheck(await checkPiHost(targetOf(form)));
+      setStatus(null);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  /**
+   * Pin, then check, in the one action the form offers: the two are always both
+   * wanted, and pinning alone tells you nothing about whether a run would work.
+   * A mismatched host key is refused (409) and needs a second click.
+   */
+  const pinAndCheck = async (force = false) => {
+    const form = draft;
+    if (!form) return;
     setPinning(true);
     try {
-      const pinned = await pinPiHostKey();
-      setStatus(`Pinned ${pinned.lines} host key(s) for ${pinned.target}.`);
+      const { host, port } = targetOf(form);
+      const pinned = await pinPiHostKey({ host, port, force });
+      if (pinned.changed) {
+        setPinArmed(true);
+        setStatus(
+          `${pinned.target} presents a different host key than the pinned one (${shortFingerprint(
+            pinned.oldFingerprint,
+          )} → ${shortFingerprint(pinned.newFingerprint)}). Press again only if the host really changed.`,
+        );
+        return;
+      }
+      setPinArmed(false);
+      setCheck(await checkPiHost(targetOf(form)));
+      setStatus(`Pinned ${pinned.target} (${shortFingerprint(pinned.fingerprint)}).`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -105,7 +219,7 @@ export function PiSection() {
     }
   };
 
-  /** Clipboard first; if the browser refuses (insecure origin), the textarea
+  /** Clipboard first; if the browser refuses (insecure origin), the input
    * still select-on-focus, so the key is never un-copyable. */
   const copyKey = async () => {
     if (!settings || !settings.publicKey) return;
@@ -136,6 +250,7 @@ export function PiSection() {
       const next = await generatePiKey();
       setSettings(next);
       setDraft(draftOf(next));
+      setKeyChoice("generated");
       setStatus(
         "Generated a fresh key pair. Add the public key below to the remote host's ~/.ssh/authorized_keys before the next run.",
       );
@@ -159,7 +274,16 @@ export function PiSection() {
     );
   }
 
-  const set = (patch: Partial<Draft>) => setDraft({ ...draft, ...patch });
+  const set = (patch: Partial<Draft>) => {
+    setDraft({ ...draft, ...patch });
+    setPinArmed(false);
+  };
+  const off = !draft.enabled;
+  const dirty = isDirty(draft, settings);
+  const pill = piStatusPill(check, dirty);
+  const hostTyped = draft.host.trim() !== "";
+  const needsPin = !check || check.state === "unpinned";
+  const busy = checking || pinning;
 
   return (
     <>
@@ -170,13 +294,28 @@ export function PiSection() {
       </p>
       {status ? <p className="muted small pad">{status}</p> : null}
 
+      {ownAgents.length ? (
+        <p className="muted small pad">
+          {ownAgents.length === 1
+            ? "One agent has its own Remote Pi settings"
+            : `${ownAgents.length} agents have their own Remote Pi settings`}
+          {" — "}their host or working folder is set per agent under Tools. This page is the default
+          they inherit and the key they all use: switching it off here stops every one of them.
+        </p>
+      ) : null}
+
       <div className="pad-x">
         <ToggleRow
-          title="Allow remote pi runs"
+          title="Allow Remote Pi"
           description="Agents may dispatch coding tasks to the remote pi agent"
           checked={draft.enabled}
           onChange={(enabled) => set({ enabled })}
         />
+        {off ? (
+          <p className="muted small">
+            Off — every field below is read-only, and no agent gets the pi tools.
+          </p>
+        ) : null}
 
         <label className="field">
           Host
@@ -184,6 +323,8 @@ export function PiSection() {
             value={draft.host}
             placeholder="pi.example.com"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ host: event.target.value })}
           />
         </label>
@@ -195,6 +336,7 @@ export function PiSection() {
             placeholder="22"
             inputMode="numeric"
             autoComplete="off"
+            disabled={off}
             onChange={(event) => set({ port: event.target.value })}
           />
         </label>
@@ -205,6 +347,8 @@ export function PiSection() {
             value={draft.user}
             placeholder="worker"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ user: event.target.value })}
           />
         </label>
@@ -215,6 +359,8 @@ export function PiSection() {
             value={draft.workdir}
             placeholder="/home/worker/pi"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ workdir: event.target.value })}
           />
           <span className="muted small">
@@ -229,6 +375,8 @@ export function PiSection() {
             value={draft.pathPrepend}
             placeholder="/opt/node/bin:/opt/pi/bin"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ pathPrepend: event.target.value })}
           />
           <span className="muted small">
@@ -243,95 +391,141 @@ export function PiSection() {
             value={draft.model}
             placeholder="Optional — the remote pi's own default if empty"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ model: event.target.value })}
           />
         </label>
 
-        {settings.publicKey ? (
-          <div className="field">
-            Public key — add this line to the remote host’s ~/.ssh/authorized_keys
-            <textarea
-              className="mono"
-              rows={2}
-              readOnly
-              value={settings.publicKey}
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            <div className="button-row">
-              <button type="button" className="button ghost" onClick={() => void copyKey()}>
-                {copied ? "Copied" : "Copy public key"}
-              </button>
+        <label className="field">
+          Deploy key
+          <select
+            value={keyChoice}
+            disabled={off}
+            onChange={(event) => {
+              setKeyChoice(event.target.value as "generated" | "pasted");
+              setRotateArmed(false);
+            }}
+          >
+            <option value="generated">Lettuce-generated key pair (recommended)</option>
+            <option value="pasted">A private key I already have</option>
+          </select>
+          <span className="muted small">
+            {keyChoice === "generated"
+              ? "Lettuce makes and keeps the private half — you only ever copy the public line to the remote host."
+              : "Paste an existing OpenSSH private key; it replaces whatever is stored when you save."}
+          </span>
+        </label>
+
+        {keyChoice === "generated" ? (
+          settings.publicKey ? (
+            <div className="field">
+              Public key — add this line to the remote host’s ~/.ssh/authorized_keys
+              <div className="field-inline">
+                <input
+                  className="mono-input"
+                  readOnly
+                  value={settings.publicKey}
+                  title={settings.publicKey}
+                  spellCheck={false}
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <button
+                  type="button"
+                  className="button compact ghost"
+                  onClick={() => void copyKey()}
+                >
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
               <span className="muted small">
-                The private half never leaves this server. Optionally prefix the line with
-                restrictions such as from="&lt;this server&gt;",no-pty.
+                The private half never leaves this server
+                {settings.keySource === "pasted" ? " (this key is the one you pasted)" : ""}.
+                Optionally prefix the line with restrictions such as from="&lt;this
+                server&gt;",no-pty.
               </span>
             </div>
-          </div>
-        ) : settings.hasKey ? (
-          <p className="muted small pad">
-            Private key stored — its public part could not be derived from the stored PEM.
-          </p>
-        ) : null}
-
-        {!settings.hasKey || pasteOpen ? (
+          ) : settings.hasKey ? (
+            <p className="muted small pad">
+              Private key stored — its public part could not be derived from the stored PEM.
+            </p>
+          ) : null
+        ) : (
           <label className="field">
-            …or paste an existing private key
+            Private key (PEM)
             <textarea
+              className="mono"
               rows={4}
               value={draft.privateKey}
-              placeholder="Paste the OpenSSH private key (-----BEGIN …)"
+              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+              disabled={off}
               onChange={(event) => set({ privateKey: event.target.value })}
             />
             <span className="muted small">
-              Only if you must reuse an existing key — generating stores a fresh, single-purpose one
-              instead. A pasted key replaces any stored key on save.
+              {settings.hasKey
+                ? "A key is already stored; pasting replaces it when you save."
+                : "Nothing is stored yet — the agent cannot run until a key is here."}
             </span>
           </label>
-        ) : (
-          <button type="button" className="button ghost" onClick={() => setPasteOpen(true)}>
-            Use an existing private key instead…
-          </button>
         )}
 
         <div className="button-row">
-          {settings.hasKey ? (
-            <button
-              type="button"
-              className="button ghost"
-              disabled={generating}
-              onClick={() => void generate()}
-            >
-              {generating ? "Generating…" : rotateArmed ? "Confirm rotation" : "Rotate key pair"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="button"
-              disabled={generating}
-              onClick={() => void generate()}
-            >
-              {generating ? "Generating…" : "Generate key pair"}
-            </button>
-          )}
+          {keyChoice === "generated" ? (
+            settings.hasKey ? (
+              <button
+                type="button"
+                className="button ghost"
+                disabled={generating || off}
+                onClick={() => void generate()}
+              >
+                {generating ? "Generating…" : rotateArmed ? "Confirm rotation" : "Rotate key pair"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="button"
+                disabled={generating || off}
+                onClick={() => void generate()}
+              >
+                {generating ? "Generating…" : "Generate key pair"}
+              </button>
+            )
+          ) : null}
+        </div>
+
+        <div className="button-row">
+          <span className={`pill ${pill.cls}`}>{pill.text}</span>
+        </div>
+
+        <div className="button-row">
+          <button
+            type="button"
+            className="button"
+            disabled={saving || !dirty}
+            onClick={() => void save()}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
           <button
             type="button"
             className="button ghost"
-            disabled={pinning || !draft.host.trim()}
-            onClick={() => void pin()}
+            disabled={busy || !hostTyped}
+            onClick={() => void (needsPin ? pinAndCheck(pinArmed) : runCheck())}
           >
-            {pinning ? "Pinning…" : "Verify & pin host key"}
+            {busy
+              ? "Checking…"
+              : needsPin
+                ? pinArmed
+                  ? "Replace pinned key & check"
+                  : "Check & pin host key"
+                : "Check host"}
           </button>
+          {dirty && !saving ? <span className="muted small">Unsaved changes</span> : null}
         </div>
         <p className="muted small">
-          Pin the host key after first setup or whenever the host or port changes — runs only accept
-          pinned hosts.
+          Checking runs a real ssh: it pins the host key the first time, then asks the remote for
+          its pi version with the same PATH a run gets. Runs only ever accept a pinned host.
         </p>
-
-        <div className="button-row">
-          <button type="button" className="button" disabled={saving} onClick={() => void save()}>
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
       </div>
     </>
   );

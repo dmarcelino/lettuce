@@ -47,7 +47,13 @@ import {
   suggestedCodexBaseUrl,
 } from "./codex/service.ts";
 import { InvalidCodexSettingsError, toPublicCodexSettings } from "./codex/settings.ts";
-import { type BffConfig, googleWritesAllowed, isAllowedUser, loadConfig } from "./config.ts";
+import {
+  type BffConfig,
+  enabledFeatureNames,
+  googleWritesAllowed,
+  isAllowedUser,
+  loadConfig,
+} from "./config.ts";
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
@@ -91,11 +97,16 @@ import { McpCatalog } from "./mcp-bridge/catalog.ts";
 import { mcpClient } from "./mcp-bridge/client.ts";
 import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
 import {
+  assertEffectiveUsable,
+  effectivePiSettings,
+  InvalidPiAgentSettingsError,
   InvalidPiSettingsError,
   isPiRunId,
   PI_TOOL_NAMES,
   PI_TOOL_SPECS,
   PiService,
+  parsePiAgentSettings,
+  piConfigured,
   toPublicPiSettings,
 } from "./pi/service.ts";
 import { parsePiRun, summarizePiRun } from "./pi/transcript.ts";
@@ -1323,10 +1334,34 @@ app.get("/api/claude/runs/:sessionId", async (c) => {
 // the BFF's own ssh spawns. No upstream file channel, no app-server involved.
 // See `pi/` and docs/remote-pi-plan.md.
 
+/** A body may carry form values that are not saved yet — a check tests those. */
+function piDraftFromBody(body: unknown): Partial<Record<string, unknown>> {
+  if (!body || typeof body !== "object") return {};
+  const r = body as Record<string, unknown>;
+  const draft: Partial<Record<string, unknown>> = {};
+  for (const field of ["host", "user", "pathPrepend", "workdir"] as const) {
+    if (typeof r[field] === "string") draft[field] = r[field];
+  }
+  if (r.port !== undefined) draft.port = r.port;
+  return draft;
+}
+
 app.get("/api/pi/settings", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  return c.json({ settings: toPublicPiSettings(await piService.load()) });
+  const settings = await piService.load();
+  return c.json({
+    settings: toPublicPiSettings(settings),
+    // What the last check said about the saved target, or null. The UI adds
+    // "changed since the last check" itself; the BFF only remembers facts.
+    check: await piService.lastCheck(settings),
+    // Which agents point somewhere of their own, so the shared section can say
+    // "2 agents use their own settings" instead of being surprised by them.
+    agents: Object.entries(piService.agentSettings.all()).map(([agentId, override]) => ({
+      agentId,
+      mode: override.mode,
+    })),
+  });
 });
 
 app.put("/api/pi/settings", async (c) => {
@@ -1336,19 +1371,121 @@ app.put("/api/pi/settings", async (c) => {
   try {
     const saved = await piService.save(body);
     const mod = await resyncMods("Settings → Remote pi", { refreshCatalog: false });
-    return c.json({ settings: toPublicPiSettings(saved), mod });
+    // Save answers the question automatically, because an unpinned or
+    // unreachable host is otherwise discovered by an agent's failed run. A
+    // check that cannot run never fails the save.
+    const check = await piService.checkHost(saved).catch(() => null);
+    return c.json({ settings: toPublicPiSettings(saved), mod, check });
   } catch (error) {
     if (error instanceof InvalidPiSettingsError) return c.text(error.message, 400);
     return c.text(errorMessage(error), 502);
   }
 });
 
-/** TOFU pin: ssh-keyscan the configured host and append what it answers. */
+/** What a check is about: saved values, or the form's, plus whose host to use. */
+function piCheckBody(body: unknown): { draft: Record<string, unknown>; agentId: string | null } {
+  const r = (body ?? {}) as Record<string, unknown>;
+  const agentId = typeof r.agent_id === "string" && isAgentId(r.agent_id) ? r.agent_id : null;
+  return { draft: piDraftFromBody(body), agentId };
+}
+
+/**
+ * One agent's own Remote Pi settings: its workdir, and if it must, its own host.
+ * Stored by the BFF beside the pi settings and resolved at tool-call time, so
+ * the four pi tools stay exactly the four tools upstream sees.
+ */
+async function piAgentPayload(agentId: string) {
+  const global = await piService.load();
+  const effective = await piService.settingsFor(agentId);
+  return {
+    agentId,
+    override: piService.agentSettings.get(agentId),
+    effective: toPublicPiSettings(effective),
+    globalConfigured: piConfigured(global),
+    globalTarget:
+      global.host && global.user ? `${global.user}@${global.host}:${global.port}` : null,
+    check: await piService.lastCheck(effective),
+  };
+}
+
+app.get("/api/pi/agent/:agentId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  return c.json(await piAgentPayload(agentId));
+});
+
+app.put("/api/pi/agent/:agentId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  const body = await c.req.json().catch(() => null);
+  const override = parsePiAgentSettings(body);
+  if (!override) {
+    return c.text("Body must be { mode, host, port, user, pathPrepend, workdir, model }", 400);
+  }
+  try {
+    assertEffectiveUsable(await effectivePiSettings(await piService.load(), override));
+  } catch (error) {
+    if (error instanceof InvalidPiAgentSettingsError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 500);
+  }
+  piService.agentSettings.set(agentId, override);
+  await piService.agentSettings.drain();
+  // Same courtesy as the shared settings: answer the host question right away.
+  const check = await piService.checkHost({}, agentId).catch(() => null);
+  return c.json({ ...(await piAgentPayload(agentId)), check });
+});
+
+/** Back to inheriting everything. */
+app.delete("/api/pi/agent/:agentId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  piService.agentSettings.remove(agentId);
+  await piService.agentSettings.drain();
+  return c.json(await piAgentPayload(agentId));
+});
+
+/** Check the host — saved values, or the form's, when they are not saved yet. */
+app.post("/api/pi/check", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const body = await c.req.json().catch(() => null);
+  try {
+    const { draft, agentId } = piCheckBody(body);
+    return c.json({ check: await piService.checkHost(draft as never, agentId) });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+/**
+ * TOFU pin: ssh-keyscan a host and write what it answers. A different key
+ * already pinned for that host is a 409 with both fingerprints — replacing it
+ * is a second, deliberate click.
+ */
 app.post("/api/pi/pin-host", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  const options = {
+    ...(typeof body?.host === "string" ? { host: body.host } : {}),
+    ...(Number.isFinite(Number(body?.port)) && body?.port !== undefined && body?.port !== ""
+      ? { port: Number(body.port) }
+      : {}),
+    ...(body?.force === true ? { force: true } : {}),
+    ...(typeof body?.agent_id === "string" && isAgentId(body.agent_id)
+      ? { agentId: body.agent_id }
+      : {}),
+  };
   try {
-    return c.json({ pinned: await piService.pinHostKey() });
+    const pinned = await piService.pinHost(options);
+    if (pinned.changed) return c.json({ pinned }, 409);
+    return c.json({ pinned });
   } catch (error) {
     return c.text(errorMessage(error), 400);
   }
@@ -1828,9 +1965,7 @@ const server = Bun.serve<SocketData>({
 });
 
 log(`Mode: ${config.mode}`);
-const featureNames = (["web", "google", "codex", "claude"] as const).filter(
-  (name) => config.features[name],
-);
+const featureNames = enabledFeatureNames(config.features);
 log(
   `Features: ${
     featureNames.length > 0 ? featureNames.join(", ") : "(none — no feature token in LETTA_MODE)"
