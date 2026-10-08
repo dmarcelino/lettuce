@@ -20,31 +20,25 @@
  *
  *   bun run release --deploy
  *       After that PR is merged: assert `origin/main`'s tip *is* the release commit,
- *       run `deploy-check`, print the Dockhand plan, ask for the one confirmation,
- *       then deploy → verify → upstream-log check → tag that commit → push the tag.
+ *       run `deploy-check`, ask for the one confirmation, then tag that commit and
+ *       push `main` (one-shot mode) and the tag. The tag is cut as part of the
+ *       release, immediately once the release PR has merged; the prod redeploy from
+ *       `origin/main` and its verification are the operator's own, not this script's.
  *
  *   bun run release --minor|--patch|--auto
  *       The original one-shot: the release commit on `main` locally, then push →
- *       deploy → verify → tag. Still supported and still correct while `main` accepts
+ *       tag. Still supported and still correct while `main` accepts
  *       direct pushes; once require-PR is on, this mode fails at the push.
  *
- * What never changes: a failed deploy is never tagged, nothing is rolled back, and
- * the confirmation names the exact tag. On a TTY it is typed; a non-interactive
+ * What never changes: nothing is pushed or tagged before the confirmation names
+ * the exact tag, and nothing is rolled back. On a TTY it is typed; a non-interactive
  * caller (an agent that has asked the human) sets RELEASE_CONFIRM=<the exact tag>.
  *
  * Usage (from the main checkout, on `main`, clean tree):
  *   bun run release --minor | --patch | --auto [--pr | --deploy] [--message "..."]
- *                   [--env letta] [--stack letta-code-ui-prod]
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 const ROOT = new URL("..", import.meta.url).pathname;
-// Where `dockhand.sh` lives is the operator's machine problem, not a tracked-file
-// problem: point DOCKHAND_SH at it, or put it on PATH. When it is not there the
-// release ends at the push — see "Stop before releasing to prod" in AGENTS.md.
-const DOCKHAND = process.env.DOCKHAND_SH || "dockhand.sh";
 
 // ── Arguments ────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -58,8 +52,6 @@ const bumpAuto = args.includes("--auto");
 const modePr = args.includes("--pr");
 const modeDeploy = args.includes("--deploy");
 const message = flag("--message") || "";
-const ENV = flag("--env") || "letta";
-const STACK = flag("--stack") || "letta-code-ui-prod";
 
 function die(step: string, why: string, next = ""): never {
   console.log(`\n✗ STOPPED at ${step}: ${why}`);
@@ -233,8 +225,8 @@ because branch protection will not take the direct push once require-PR is on.
 ## Notes for the reviewer
 
 Merge this last: anything merged after it would be deployed and tagged with no changelog entry.
-After it merges, \`bun run release --deploy\` runs deploy-check → Dockhand plan → the exact-tag
-confirmation → deploy → verify → tag.`;
+After it merges, \`bun run release --deploy\` runs deploy-check → the exact-tag confirmation →
+tag and push the tag; the prod redeploy from \`origin/main\` is the operator's own.`;
   await capture([
     "gh",
     "pr",
@@ -271,48 +263,22 @@ await capture(["git", "commit", "-m", `chore(release): ${next}`]);
 console.log(`  committed chore(release): ${next} (${current} → ${next}, pin letta_${pin})`);
 await deployAndTag(next, true);
 
-// ── 4. The shared deploy-and-tag chain ───────────────────────────────────────
-/** Resolve `dockhand.sh` the way a shell would, or null when this machine has none. */
-function findDockhand(): string | null {
-  if (DOCKHAND.includes("/")) return existsSync(DOCKHAND) ? DOCKHAND : null;
-  for (const dir of (process.env.PATH ?? "").split(":")) {
-    if (!dir) continue;
-    const candidate = join(dir, DOCKHAND);
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
+// ── 4. The shared confirm-push-tag chain ─────────────────────────────────────
 async function deployAndTag(tag: string, pushMain = false): Promise<void> {
-  // Checked first, before anything is pushed: a release that discovers mid-flight that this box
-  // cannot reach Dockhand has already landed the commit it cannot deploy.
-  const dockhand = findDockhand();
-  if (!dockhand)
-    die(
-      "preflight",
-      `no \`dockhand.sh\` found (${DOCKHAND}) — set DOCKHAND_SH or put it on PATH. Nothing was ` +
-        "deployed, and the release ends at the push: report the pushed commit range and leave " +
-        "the prod redeploy to the operator.",
-      pushMain
-        ? "undo the release commit with: git reset --soft HEAD~1 && git restore VERSION CHANGELOG.md"
-        : "",
-    );
-
   console.log("\n── deploy-check (the merged code must be what the local container runs)");
   if ((await run(["bun", "run", "deploy-check"])) !== 0) {
     die(
       "deploy-check",
       pushMain
         ? "undo the release commit with: git reset --soft HEAD~1 && git restore VERSION CHANGELOG.md"
-        : "fix whatever deploy-check named — nothing has been deployed",
+        : "fix whatever deploy-check named — nothing has been pushed or tagged",
     );
   }
 
-  console.log("\n── dockhand plan");
-  await capture([dockhand, "plan", ENV, STACK]);
-
   console.log(
-    `\nReleasing ${tag}: ${pushMain ? "push origin main → " : ""}deploy ${ENV}/${STACK} → verify → tag.`,
+    `\nReleasing ${tag}: ${pushMain ? "push origin main → " : ""}tag → push tag. The tag is cut` +
+      " as part of the release, immediately now that the release PR has merged; the prod" +
+      " redeploy from `origin/main` and its verification are the operator's own.",
   );
   let confirmed = false;
   if (process.stdin.isTTY) {
@@ -331,33 +297,19 @@ async function deployAndTag(tag: string, pushMain = false): Promise<void> {
     confirmed = process.env.RELEASE_CONFIRM === tag;
   }
   if (!confirmed)
-    die("confirmation", `the exact tag ${tag} was not confirmed — nothing was pushed or deployed`);
+    die("confirmation", `the exact tag ${tag} was not confirmed — nothing was pushed or tagged`);
 
   if (pushMain) {
     console.log("\n── git push origin main");
     await capture(["git", "push", "origin", "main"]);
   }
 
-  console.log("\n── dockhand deploy");
-  const deployOut = await capture([dockhand, "deploy", ENV, STACK, "--confirm"]);
-  if (!deployOut.includes("success exit=0")) die("deploy", "the deploy run did not report success");
-  const started = deployOut.match(/deploy started (\S+)/)?.[1];
-  if (!started) die("deploy", "could not parse the deploy start time for --since");
-
-  console.log("\n── dockhand verify");
-  const verifyOut = await capture([dockhand, "verify", ENV, STACK, "--since", started]);
-  if (!verifyOut.includes("VERIFY: PASS"))
-    die("verify", "verify did not PASS — review its output above");
-
-  console.log("\n── upstream connection");
-  const logs = await capture([dockhand, "logs", ENV, `${STACK}-bff-1`, "200"]);
-  if (!logs.includes(`Upstream connected: letta-code ${pin}`)) {
-    die("upstream", `the BFF log does not show "Upstream connected: letta-code ${pin}"`);
-  }
-
   console.log("\n── tag");
   await capture(["git", "tag", "-a", tag, "-m", message || `release ${tag}`]);
   await capture(["git", "push", "origin", tag]);
 
-  console.log(`\n✓ ${tag} released: ${pushMain ? "pushed, " : ""}deployed, verified, tagged.`);
+  console.log(
+    `\n✓ ${tag} released: ${pushMain ? "pushed and " : ""}tagged. ` +
+      "Redeploy prod from `origin/main` and verify it there.",
+  );
 }
