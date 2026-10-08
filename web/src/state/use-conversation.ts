@@ -25,6 +25,7 @@ import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../l
 import { planForceSend, type QueuedItem, readQueue } from "../lib/queue-actions.ts";
 import { type ResponseFormat, validateResponseFormat } from "../lib/structured-output.ts";
 import { pickTurnUsage, type TurnUsage } from "../lib/usage.ts";
+import { STALL_AFTER_MS } from "../lib/working.ts";
 import {
   agentWorkspace,
   isPermissionMode,
@@ -97,7 +98,8 @@ export interface ConversationApi {
     responseFormat?: ResponseFormat | null,
     images?: PreparedImage[],
   ) => Promise<void>;
-  abort: () => Promise<void>;
+  /** Resolves true when upstream confirmed a live turn was cancelled. */
+  abort: () => Promise<boolean>;
   respondToApproval: (requestId: string, approve: boolean, reason?: string) => void;
   /**
    * Answer (or dismiss) an async `AskUserQuestion` — letta-code 0.34.1+, where
@@ -312,6 +314,10 @@ export function useConversation(
   const [queue, setQueue] = useState<QueuedItem[]>([]);
   /** Mirror of `queue` for callbacks that must read the live snapshot. */
   const queueRef = useRef<QueuedItem[]>([]);
+  /** Ids exempt from the queue's echo erase (the `update_queue` case): a
+   * question answer's answered-card state renders from its echo, so that
+   * echo survives waiting in the queue. */
+  const keepEchoRef = useRef(new Set<string>());
   /** Mirror of `processing`, so `forceSend` can decide whether to abort. */
   const processingRef = useRef(false);
   /**
@@ -437,6 +443,61 @@ export function useConversation(
       });
   }, []);
 
+  /**
+   * Ask the app-server to re-emit this conversation's live state.
+   *
+   * An observer `sync` (never the owner's `resume_interrupted_turn` — the BFF
+   * owns recovery) with `force_device_status` makes the app-server re-emit
+   * device status and queue on the BFF's connection; the frame router fans
+   * them out here, and the normal status handlers re-prime everything the
+   * client keeps live-only: `processing`, the queue, the status pill. The
+   * client's `processing` is optimistic from the send — a client bug or a lost
+   * frame can strand it true on a finished conversation — and this is the
+   * cheap way back to the app-server's truth, which holds turn state anyway.
+   */
+  const reprimeLiveState = useCallback(() => {
+    if (!agentId || !conversationId) return;
+    void request("sync", {
+      runtime: { agent_id: agentId, conversation_id: conversationId },
+      force_device_status: true,
+    }).catch(() => {
+      // A dead socket rejects; the reconnect resyncs and reprimes anyway.
+    });
+  }, [agentId, conversationId, request]);
+
+  /**
+   * The stall watchdog's once-per-turn flag: the reconciliation probe fires
+   * again only after `processing` has been false since the last one.
+   */
+  const stallProbedRef = useRef(false);
+
+  /**
+   * Belt over every stranding path, known or not.
+   *
+   * The stall warning is client inference — "we claim a turn, and this client
+   * has heard nothing for a minute". Every bug that ever strands `processing`
+   * true ends up painting that warning over a finished conversation. So when
+   * it is about to light, ask the app-server once (per turn, per episode) to
+   * re-emit what it believes: a client-side stranding self-heals seconds
+   * after the warning would appear, while a genuinely hung turn is reported
+   * truthfully and keeps the warning — the probe answers "is it hung?" with
+   * the only opinion that can say.
+   */
+  useEffect(() => {
+    if (!processing) {
+      stallProbedRef.current = false;
+      return;
+    }
+    const timer = setInterval(() => {
+      if (stallProbedRef.current || stopping) return;
+      const last = lastActivityRef.current;
+      if (last === null || Date.now() - last < STALL_AFTER_MS + 15_000) return;
+      stallProbedRef.current = true;
+      reprimeLiveState();
+    }, 5_000);
+    return () => clearInterval(timer);
+  }, [processing, stopping, reprimeLiveState]);
+
   const loadHistory = useCallback(
     async (afterResync = false) => {
       if (!conversationId) return;
@@ -459,12 +520,22 @@ export function useConversation(
         // number that would otherwise flip the link back to "live" on its
         // own — see session-client.ts's markResynced. Only relevant when this
         // reload was resync-triggered; an ordinary load has nothing to un-stick.
-        if (afterResync) markResynced();
+        if (afterResync) {
+          markResynced();
+          // The reload fixed the transcript; it cannot fix turn state.
+          // `processing` is optimistic from the send, and every frame that
+          // would have corrected it died in the gap this resync is the answer
+          // to: a phone that slept through a turn's completion wakes to a
+          // finished answer still shown as working, and the stall line lights
+          // on a conversation that ended minutes ago.
+          setStopping(false);
+          reprimeLiveState();
+        }
       } catch (cause) {
         setError(errorMessage(cause));
       }
     },
-    [agentId, conversationId, request, flush, markResynced, refreshUsage],
+    [agentId, conversationId, request, flush, markResynced, refreshUsage, reprimeLiveState],
   );
 
   // Start (or resume) the runtime for this conversation, then load its history.
@@ -663,6 +734,26 @@ export function useConversation(
           const items = readQueue((frame as { queue?: unknown }).queue);
           queueRef.current = items;
           setQueue(items);
+          // A user message that is in the queue is not in the conversation —
+          // yet. Its optimistic echo retires here and the app-server's dequeue
+          // echo creates the transcript entry when the message is actually
+          // routed, so a waiting message lives only in its chip. The erase
+          // mirrors `dropLocalEcho` (declared below) inline: only the local
+          // echo ever goes, a server-echoed entry is the real record. Question
+          // answers keep their echo (their card state rides it) — `keepEchoRef`.
+          for (const item of items) {
+            const queuedId = item.clientMessageId;
+            if (
+              item.source === "user" &&
+              queuedId &&
+              !keepEchoRef.current.has(queuedId) &&
+              transcriptRef.current.get(queuedId)?.local
+            ) {
+              transcriptRef.current.delete(queuedId);
+              streamIndexRef.current.byOtid.delete(queuedId);
+              flushSync();
+            }
+          }
           break;
         }
         case "control_request": {
@@ -704,7 +795,10 @@ export function useConversation(
       // when it was queued behind a busy agent, so on the ordinary path no
       // frame ever arrives and the transcript would show the reply without the
       // question. The id doubles as the otid, so a queued echo merges into this
-      // entry rather than duplicating it.
+      // entry rather than duplicating it. A send that turns out to be queued
+      // loses this echo again when the `update_queue` snapshot carries the
+      // item — see `keepEchoRef` — so the chip is the queued message's only
+      // place on screen.
       seqRef.current += 1;
       addLocalUserMessage(
         transcriptRef.current,
@@ -738,7 +832,15 @@ export function useConversation(
   );
 
   const sendMessage = useCallback(
-    async (text: string, responseFormat?: ResponseFormat | null, images?: PreparedImage[]) => {
+    async (
+      text: string,
+      responseFormat?: ResponseFormat | null,
+      images?: PreparedImage[],
+      /** A send whose echo must survive the queue — a question answer, whose
+       * answered card state `splitInjectedBlocks` renders from the echo. The
+       * card must flip the moment you answer, not when the queue drains. */
+      opts?: { keepLocalEcho?: boolean },
+    ) => {
       const hasImages = Boolean(images && images.length > 0);
       if (!scope || (!text.trim() && !hasImages)) return;
 
@@ -763,7 +865,8 @@ export function useConversation(
         // is the honest outcome: a server-side normalization failure surfaces
         // as a `loop_error` in the transcript rather than silently vanishing.
         const raw = hasImages ? buildMessageContent(text, images ?? []) : text;
-        sendContent(raw, text, responseFormat, images);
+        const clientMessageId = sendContent(raw, text, responseFormat, images);
+        if (opts?.keepLocalEcho) keepEchoRef.current.add(clientMessageId);
       } catch (cause) {
         setProcessing(false);
         setError(errorMessage(cause));
@@ -790,8 +893,8 @@ export function useConversation(
     [flushSync],
   );
 
-  const abort = useCallback(async () => {
-    if (!scope) return;
+  const abort = useCallback(async (): Promise<boolean> => {
+    if (!scope) return false;
 
     // `send` was fire-and-forget, which threw away the only frame that says
     // whether anything was actually cancelled — and swallowed the "Not
@@ -804,7 +907,7 @@ export function useConversation(
 
       if (response?.success === false) {
         setError(response.error ?? "Could not stop the turn");
-        return;
+        return false;
       }
 
       if (response?.aborted === false) {
@@ -822,7 +925,7 @@ export function useConversation(
           seqRef.current,
         );
         flushSync();
-        return;
+        return false;
       }
 
       // Accepted, but NOT finished. The app-server flips its lifecycle to
@@ -843,8 +946,10 @@ export function useConversation(
         seqRef.current,
       );
       flushSync();
+      return true;
     } catch (cause) {
       setError(errorMessage(cause));
+      return false;
     }
   }, [scope, request, flush]);
 
@@ -869,10 +974,14 @@ export function useConversation(
 
   const answerQuestions = useCallback(
     (response: AskUserQuestionResponse) => {
-      // A question answer is just a message: same send path, same queueing,
-      // same optimistic echo — `splitInjectedBlocks` renders the echo as the
-      // answered state of the card, not as a raw XML bubble.
-      void sendMessage(prepareAskUserQuestionNotif(response));
+      // A question answer is just a message: same send path, same queueing —
+      // but its echo stays even when the answer waits in the queue, because
+      // `splitInjectedBlocks` renders the answered state of the card from
+      // the echo. The card must flip the moment you answer, not when the
+      // queue drains.
+      void sendMessage(prepareAskUserQuestionNotif(response), null, undefined, {
+        keepLocalEcho: true,
+      });
     },
     [sendMessage],
   );
@@ -919,7 +1028,17 @@ export function useConversation(
       for (const item of plan.removed) dropLocalEcho(item.clientMessageId);
       if (processingRef.current) {
         expectResentTurnRef.current = true;
-        await abort();
+        const stopped = await abort();
+        // The steer race: the turn can end between our `processing` check and
+        // the abort landing — upstream answers "nothing was aborted" and its
+        // `turn_finished` has usually been delivered already, so nothing left
+        // will ever consume the seam. A live seam then swallows the RESENT
+        // turn's `turn_finished`, ignores every idle status beside it, and
+        // strands `processing` true on a completed conversation — the only
+        // sign being the amber stall line a minute later. Arm the seam only
+        // for an abort that actually cancelled something: an accepted abort is
+        // upstream's promise that a `turn_finished` is coming for it.
+        if (!stopped) expectResentTurnRef.current = false;
       }
       try {
         // Optimistic, like `sendMessage`: the queue was just emptied, so the

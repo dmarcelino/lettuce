@@ -5,6 +5,15 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **The composer's one button follows the box.** A blue circle with an up-arrow sends whenever the box holds something: with the agent idle it sends now, and mid-turn it queues what was typed — the message waits in the queue strip and says so. With the box empty while the agent works, the same circle is red and **stops** the turn; while a stop unwinds it pulses instead of offering a second abort. The split square send/stop is gone — one button, a size smaller than the squares it replaces, and what you typed is what decides which it is.
+- **The queue strip runs on pills and one yellow Steer.** Queued messages are rounded pills that take only the width their text needs (capped, truncated, whole message on hover), each carrying **edit** — pull the text back into the input box to change and resend — and **delete**. Steering is one amber **Steer** pill at the strip's left edge: it stops the current turn and starts the queue from its head, the rest following in order. A waiting message lives *only* in its pill: no transcript bubble until it is actually routed into the conversation.
+- **Drag the input box taller.** The composer box's top border is a resize grip: drag it up to pin the box to any height up to half the screen — remembered on the device — and double-click it to hand the box back to the auto-grow that follows the text.
+
+### Fixed
+- **No more phantom “No activity” after a clean finish.** Steering a queued message raced with a turn that ended on its own: the steer armed the seam that holds the working indicator open for the replacement turn even when there was nothing left to stop, so the indicator was left waiting for a turn end that had already passed — and a minute later the amber `No activity` line lit up beside an answer that had completed fine. The seam is now armed only when the stop actually interrupts a running turn. The stall line also dropped a duplicate warning triangle it drew on its left.
+- **A phone that slept through a turn no longer stalls on its finished answer.** Coming back after the replay buffer had rolled over reloaded the transcript but kept the optimistic working state across the gap, so a completed answer stayed “working” and the amber warning lit minutes later. A resync reload now also has the app-server re-emit live state (a forced status sync, observer only), so the working line, queue and status say what actually happened while the device was away.
+
 ## [v0.8.0-letta_0.34.1] - 2026-10-07
 
 ### Added
