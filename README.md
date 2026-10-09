@@ -111,6 +111,10 @@ before exposing anything.
   run from the transcript.
 - **Claude Code workers.** The same for Claude Code, signed in with your Claude
   subscription or pointed at any Anthropic-compatible endpoint.
+- **Remote Pi.** Dispatch a coding task to a [`pi`](https://github.com/earendil-works/pi)
+  agent on another host over SSH, iterate on the same session, read the full
+  transcript under Tasks — and give each agent its own working folder or host for it
+  under Tools.
 - **Skills.** Reusable instructions at global, agent and project scope, with
   the ones the stack needs shipped in the image.
 

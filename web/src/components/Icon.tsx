@@ -15,7 +15,6 @@ export type IconName =
   | "menu"
   | "send"
   | "stop"
-  | "stop-solid"
   | "filter"
   | "shield"
   | "model"
@@ -45,6 +44,8 @@ export type IconName =
   | "back"
   | "more"
   | "search"
+  | "terminal"
+  | "globe"
   | "pin"
   | "trash"
   | "attach";
@@ -52,15 +53,9 @@ export type IconName =
 /** Path data on a 24×24 grid; stroked, except the icons in `FILLED`. */
 const PATHS: Record<IconName, string> = {
   menu: "M4 7h16M4 12h16M4 17h16",
-  // Paper plane, filled: the send verb everywhere it is one — the composer's
-  // send button, the queue half of its split variant, the queue chip's
-  // force-send. Filled so it carries the same visual weight as the stop
-  // square it shares the split button with.
+  // Paper plane, filled: the send verb on the queue chip's steer action.
   send: "M22 2 15 22l-4-9-9-4Z",
   stop: "M7 7h10v10H7z",
-  // The same square, filled: the split button's stop corner is 10px, where a
-  // 1.75-stroke outline dissolves.
-  "stop-solid": "M6.5 6.5h11v11h-11z",
   filter: "M4 6h16M7 12h10M10 18h4",
   shield: "M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z",
   model: "M4 8l8-4 8 4-8 4zM4 12l8 4 8-4M4 16l8 4 8-4",
@@ -110,6 +105,12 @@ const PATHS: Record<IconName, string> = {
   // Three dots in a row: a row's menu (rename, archive, edit).
   more: "M6 12h.01M12 12h.01M18 12h.01",
   search: "M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4",
+  // Angle brackets and a prompt line: a shell command is running (the working
+  // line's Bash verb). Path from Lucide's "terminal" — ISC License.
+  terminal: "M4 17l6-6-6-6M12 19h8",
+  // Meridian globe: fetching a web page, distinct from the magnifier's search.
+  globe:
+    "M12 3a9 9 0 100 18 9 9 0 000-18M3 12h18M12 3c2.5 2.6 4 5.6 4 9s-1.5 6.4-4 9c-2.5-2.6-4-5.6-4-9s1.5-6.4 4-9z",
   // Paper clip: attach an image to the message. Path from Lucide's
   // "paperclip" icon — ISC License, Copyright (c) Lucide Contributors.
   attach:
@@ -117,7 +118,7 @@ const PATHS: Record<IconName, string> = {
 };
 
 /** Icons painted solid rather than outlined — see the notes on their paths. */
-const FILLED: ReadonlySet<IconName> = new Set<IconName>(["send", "stop-solid"]);
+const FILLED: ReadonlySet<IconName> = new Set<IconName>(["send"]);
 
 interface Props {
   name: IconName;

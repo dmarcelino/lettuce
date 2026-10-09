@@ -1,6 +1,6 @@
 ---
 name: lettuce-telegram-channels
-description: lettuce Telegram/channel-gateway mechanics: why app-server, bff and the gateway share one network namespace, the --ws-auth vs no-bearer-token deadlock, why channel_* commands are excluded from the BFF allowlist, the opt-in `telegram` compose profile and how to stop a running gateway, and the one-time `letta channels configure/pair` setup. Read before touching channel-gateway in docker/compose.yml, the BFF's channel or profile code, or Telegram pairing.
+description: 'lettuce Telegram/channel-gateway mechanics: why app-server, bff and the gateway share one network namespace, the --ws-auth vs no-bearer-token deadlock, why channel_* commands are excluded from the BFF allowlist, the opt-in `telegram` compose profile and how to stop a running gateway, and the one-time `letta channels configure/pair` setup. Read before touching channel-gateway in docker/compose.yml, the BFF''s channel or profile code, or Telegram pairing.'
 ---
 
 # Telegram channels in lettuce
@@ -44,8 +44,9 @@ therefore excluded from the BFF's browser allowlist: a hang is worse than a refu
 `COMPOSE_PROFILES` includes `telegram` (e.g. `cloudflared,telegram`; `LETTA_MODE` matches
 `cloudflared` with `includes`, so extra profiles are safe). Removing the profile does **not**
 remove a running gateway — `up -d` merely stops managing it — so it must be stopped with
-`--profile telegram rm -sf channel-gateway`, and on prod that is a host-side step, since the
-dockhand skill cannot stop containers. With no gateway, agents simply have no `MessageChannel`
+`--profile telegram rm -sf channel-gateway`, and on prod that is a host-side step in the
+operator's own deploy tooling. With no
+gateway, agents simply have no `MessageChannel`
 tool.
 
 Telegram is set up once with the CLI inside the gateway container (see

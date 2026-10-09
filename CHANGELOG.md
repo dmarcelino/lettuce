@@ -11,6 +11,49 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ### Changed
 - Claude Code CLI 2.1.285 → 2.1.289. The app-server image is rebuilt, so the deploy recreates `app-server`.
 
+## [v0.9.0-letta_0.34.1] - 2026-10-08
+
+### Added
+- **The composer's one button follows the box.** A blue circle with an up-arrow sends whenever the box holds something: with the agent idle it sends now, and mid-turn it queues what was typed — the message waits in the queue strip and says so. With the box empty while the agent works, the same circle is red and **stops** the turn; while a stop unwinds it pulses instead of offering a second abort. The split square send/stop is gone — one button, a size smaller than the squares it replaces, and what you typed is what decides which it is.
+- **The queue strip runs on pills and one yellow Steer.** Queued messages are rounded pills that take only the width their text needs (capped, truncated, whole message on hover), each carrying **edit** — pull the text back into the input box to change and resend — and **delete**. Steering is one amber **Steer** pill at the strip's left edge: it stops the current turn and starts the queue from its head, the rest following in order. A waiting message lives *only* in its pill: no transcript bubble until it is actually routed into the conversation.
+- **Drag the input box taller.** The composer box's top border is a resize grip: drag it up to pin the box to any height up to half the screen — remembered on the device — and double-click it to hand the box back to the auto-grow that follows the text.
+
+### Fixed
+- **No more phantom “No activity” after a clean finish.** Steering a queued message raced with a turn that ended on its own: the steer armed the seam that holds the working indicator open for the replacement turn even when there was nothing left to stop, so the indicator was left waiting for a turn end that had already passed — and a minute later the amber `No activity` line lit up beside an answer that had completed fine. The seam is now armed only when the stop actually interrupts a running turn. The stall line also dropped a duplicate warning triangle it drew on its left.
+- **A phone that slept through a turn no longer stalls on its finished answer.** Coming back after the replay buffer had rolled over reloaded the transcript but kept the optimistic working state across the gap, so a completed answer stayed “working” and the amber warning lit minutes later. A resync reload now also has the app-server re-emit live state (a forced status sync, observer only), so the working line, queue and status say what actually happened while the device was away.
+
+## [v0.8.0-letta_0.34.1] - 2026-10-07
+
+### Added
+- **The composer's working line says what the agent is doing.** In place of "Agent is working": the action in flight, in whole and without truncation — `Read docker/compose.yml`, `Run docker compose build`, `Codex worker: fix flaky test` — `Thinking` and `Writing` when no tool is running, and an elapsed since the turn started pinned to the right edge at every width so it never moves. The generation rate (`24 tok/s`) appears only while the model is generating and never while a tool runs, so a frozen counter cannot read as a hang; `step N`, `+Nk tok` and `queue +N` join on desktop. A full minute of silence with nothing running turns the line amber — `No activity 1:30 · last: web_search` — with **Stop** beside it, so "is it hung?" finally has a visible answer.
+
+## [v0.7.0-letta_0.34.1] - 2026-10-07
+
+### Added
+- **Each agent can work in its own folder on the remote pi.** Tools → Remote Pi gives an agent **its own settings**, filled in field by field over the global ones: leave a field empty and it keeps the global value, so "this agent works in `/home/worker/research`" is one field, and a completely different host is a few. Follow-ups stay on the host that started the session however, and one lettuce deploy key still reaches every host — the key and the on/off switch are never per-agent. Settings → Remote Pi says how many agents point somewhere of their own.
+- **Settings → Remote Pi checks the host.** Pressing **Check & pin host key** pins the host key and probes the machine in one action, **Save** re-checks on its way by, and a line under the buttons says what a run would find: `pi v0.9.1 · worker@host:22 · pinned SHA256:ab12… · checked 4 min ago` — or exactly what is broken: host not pinned, deploy key refused, `pi` not on the PATH a run gets, workdir missing. Checks are remembered per `user@host:port` on the server, so the phone shows what the laptop just checked; editing a field marks the answer stale instead of deleting it, and a *different* host key than the pinned one needs a second deliberate click naming both fingerprints.
+
+### Changed
+- **Tools is a tab of its own**, next to Agent, instead of a section inside it. Every shared tool family (Google, Codex, Claude, Remote Pi) is a chip carrying its own on/off box — tick it and the change is saved at once, no **Save** waiting for the rest of a form — and clicking the name opens that family's per-agent settings, which is where an agent's own Remote Pi folder lives.
+- **Settings → Remote Pi** (was "Remote pi worker"): with the switch off every field is read-only instead of waiting to be filled in wrongly, the two ways of getting a deploy key are now one choice — a lettuce-generated pair *or* a private key you paste — instead of a paste box appearing under a key you already generated, the public key copies from a small button inside its own field, and **Save** waits until something actually changed.
+
+### Fixed
+- A Remote Pi **PATH prefix** that actually replaces a missing `pi`. A prefix typed with a trailing slash (`/home/worker/.pi/agent/bin/`) reached the remote as `bin//pi`, and pi's own launcher, which walks path elements off the name it was called by to find its install directory, then looked for `bin/install/current-version` and failed naming a file nobody asked for. Prefix entries are normalized on save and on dispatch.
+- A Remote Pi **run or check that died with `env: 'sh': No such file or directory`**, whatever the remote had. The PATH prefix was passed as one quoted value, so the `$PATH` inside it was never expanded by the remote shell: the command ran with a PATH of one directory plus five literal characters, and the program could not be found. The inherited PATH is kept, and the probe names `/bin/sh` outright.
+- A Remote Pi **check now says what is actually wrong** when `pi` is installed but refuses to start — the usual cause being a `node` on PATH too old for it. It used to report "pi not on PATH" or a bare first line of a module stack; now it reads `pi is installed but cannot run: SyntaxError: … enableCompileCache · node v20.19.2`, and a pi that answers with a plain `1.0.4` counts as ready (it always used to be reported as missing).
+- The **Remote pi** row in Agent → Tools takes effect, and can be turned back on. Flipping it alone was discarded — so an agent that had once been blocked from pi kept not seeing the `pi_*` tools while the switch showed it allowed, and no amount of toggling from the UI fixed it.
+- The BFF's startup line `Features:` can name `pi`. It listed from a hand-written set of feature names that never grew the newest one, so a `COMPOSE_PROFILES` that contained `pi` logged as if the token had not landed.
+- Fix a deploy aborting before a single container was created: the image build demanded git metadata in its build context, and a deploy manager builds from its own copy of the tree, which has none. Such a build now succeeds and Settings → About says `+unknown` rather than a commit — which commit was deployed is in the deploy manager's record, and `bun run deploy-check <origin> --allow-unstamped` checks it.
+
+### Added
+- **Remote pi worker** (`pi` compose profile token): agents dispatch coding tasks to a [`pi`](https://github.com/earendil-works/pi) install on another host over SSH — `pi_run` starts a background run, `pi_send` iterates on the same pi session, `pi_status`/`pi_stop` follow it; Settings → Remote pi worker holds the host and the host-key pin and **generates its own deploy key** — Settings shows the public half to paste into the remote's `authorized_keys`, with one-click rotation (pasting an existing PEM also works); Tasks lists every run with its full captured transcript. Nothing is installed on the remote host beyond pi. Design and spike evidence: `docs/remote-pi-plan.md`.
+- Settings → About names the exact commit the running build came from (`v0.6.1-letta_0.34.1+9400080`), so a build between releases is no longer indistinguishable from the last release.
+
+## [v0.6.1-letta_0.34.1] - 2026-10-04
+
+### Fixed
+- Fix image attachments failing at random with "the image processing worker is missing": letta-code can no longer update itself inside the app-server container, so it also stays on the pinned version.
+
 ## [v0.6.0-letta_0.34.1] - 2026-10-02
 
 ### Added

@@ -57,6 +57,12 @@ export interface BffConfig {
   /** Per-agent Codex and Google access (`agents/tool-access.ts`), on the `bff-data` volume. */
   agentToolAccessFile: string;
   /**
+   * Remote pi worker (`pi/`): settings + private key + captured run streams,
+   * all on the `bff-data` volume under one directory. None of it ever crosses
+   * the upstream connection — the BFF itself is the ssh client here.
+   */
+  piDir: string;
+  /**
    * Declared model capabilities (`providers/store.ts`), on the `bff-data`
    * volume: vision/thinking/real windows for models behind endpoints that
    * report none. Drives the providers mod.
@@ -83,12 +89,14 @@ export interface BffConfig {
   features: FeatureFlags;
 }
 
-/** The four profile-gated integrations. See `BffConfig.features`. */
+/** The profile-gated integrations. See `BffConfig.features`. */
 export interface FeatureFlags {
   web: boolean;
   google: boolean;
   codex: boolean;
   claude: boolean;
+  /** Virtual token like codex/claude, but BFF-side only: no image involvement. */
+  pi: boolean;
 }
 
 export interface GoogleConfig {
@@ -337,7 +345,22 @@ function readFeatures(): FeatureFlags {
     google: hasProfile(profiles, "google"),
     codex: hasProfile(profiles, "codex"),
     claude: hasProfile(profiles, "claude"),
+    pi: hasProfile(profiles, "pi"),
   };
+}
+
+/**
+ * The features that are on, by name — what the boot log prints as `Features:`.
+ *
+ * Derived from the flag record rather than a hand-written list of names:
+ * `pi` was absent from that list, so the one line an operator reads to confirm
+ * a compose token landed claimed the token was off while `config.features.pi`
+ * was true. A new flag now shows up here without anyone remembering to say so.
+ */
+export function enabledFeatureNames(features: FeatureFlags): string[] {
+  return Object.entries(features)
+    .filter(([, on]) => on)
+    .map(([name]) => name);
 }
 
 /** `SESSION_SECRET`, read and checked in one place so no path skips the floor. */
@@ -375,7 +398,7 @@ export function loadConfig(): BffConfig {
     allowedUsers: readAllowedUsers(needsCfAccess, devBypassEmail),
     frameBufferSize: optionalNumber("FRAME_BUFFER_SIZE", 5000),
     // 9 min: under `stop_grace_period` (10m), and drain + image build under
-    // Dockhand's 900 s `compose up` timeout — see docker/compose.yml.
+    // the prod deploy manager's 900 s `compose up` timeout — see docker/compose.yml.
     shutdownDrainTimeoutMs: optionalNumber("SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 9 * 60) * 1000,
     devBypassEmail,
     devBypassAllowRemote,
@@ -385,6 +408,7 @@ export function loadConfig(): BffConfig {
       process.env.ARCHIVED_AGENTS_FILE?.trim() || "/app/data/archived-agents.json",
     agentToolAccessFile:
       process.env.AGENT_TOOL_ACCESS_FILE?.trim() || "/app/data/agent-tool-access.json",
+    piDir: process.env.PI_DIR?.trim() || "/app/data/pi",
     modelCapsFile: process.env.MODEL_CAPS_FILE?.trim() || "/app/data/vision-models.json",
     webTools: {
       searxngUrl: process.env.SEARXNG_URL?.trim() || null,

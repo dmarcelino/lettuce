@@ -68,6 +68,26 @@ async function open(browser: Browser, viewport: { width: number; height: number 
 }
 
 /**
+ * The BFF's profile-gated features, read through the page's own session.
+ * Settings sections hide per token (web/google/codex/claude/pi), so any
+ * section-list assertion must derive what it expects instead of hardcoding —
+ * which stack is up varies between CI and a developer's docker/.env.
+ */
+async function readFeatures(page: Page): Promise<Record<string, boolean>> {
+  return page.evaluate(async () => {
+    const response = await fetch("/api/status");
+    if (!response.ok) return {};
+    const body = (await response.json()) as { features?: Record<string, boolean> };
+    // An absent flag means everything is on — the same rule the UI applies.
+    return body.features ?? {};
+  });
+}
+
+function featureOn(features: Record<string, boolean>, name: string): boolean {
+  return features[name] !== false;
+}
+
+/**
  * Elements the user can never reach, because they extend past the viewport and
  * nothing between them and the root scrolls.
  *
@@ -132,7 +152,7 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    check("all five tabs are reachable", (await page.locator("nav.tabs button").count()) === 5);
+    check("all six tabs are reachable", (await page.locator("nav.tabs button").count()) === 6);
     check(
       "the top bar names the agent",
       (await page.locator(".topbar .where-agent").innerText()).trim() !== "",
@@ -356,14 +376,23 @@ try {
       // centre: six 44px buttons fill most of a phone row.
       const gap = (row.querySelector(".spacer") as HTMLElement).getBoundingClientRect().left;
       const buttons = [...row.querySelectorAll("button")].filter((b) => b.offsetParent !== null);
+      // The round send/stop control is its own fingertip floor (40px) — it is
+      // deliberately a size under its flat neighbours — so it is checked
+      // against that floor instead of the row-wide 44px.
+      const round = buttons.find((b) => b.classList.contains("glyph-btn"));
+      const roundOk =
+        !round ||
+        (round.getBoundingClientRect().width >= 40 && round.getBoundingClientRect().height >= 40);
       return {
         small: buttons
+          .filter((b) => !b.classList.contains("glyph-btn"))
           .map((b) => ({
             name: b.getAttribute("aria-label"),
             ...b.getBoundingClientRect().toJSON(),
           }))
           .filter((b) => b.width < 44 || b.height < 44)
           .map((b) => `${b.name} ${Math.round(b.width)}x${Math.round(b.height)}`),
+        roundOk,
         left: buttons
           .filter((b) => b.getBoundingClientRect().right <= gap)
           .map((b) => b.getAttribute("aria-label")),
@@ -371,6 +400,7 @@ try {
       };
     });
     check("composer buttons are at least 44px", controls.small.length === 0, controls.small);
+    check("the round send/stop is at least 40px", controls.roundOk, controls.roundOk);
     check(
       "only the switcher is on the left",
       controls.left.length === 1 && controls.left[0] === "Agents and conversations",
@@ -407,6 +437,17 @@ try {
     check(
       "composer has a send button",
       (await page.locator('.composer-row button[aria-label="Send message"]').count()) === 1,
+    );
+    // The composer's one action button is the round glyph button; the box's
+    // top border carries the resize grip (drag to pin a height, double-click
+    // for auto-fit — see `Composer.tsx`).
+    check(
+      "composer has one round action button",
+      (await page.locator(".composer-row .glyph-btn").count()) === 1,
+    );
+    check(
+      "composer has a resize grip",
+      (await page.locator(".composer-box .composer-resize").count()) === 1,
     );
 
     // Every icon-only control must be nameable; today's regression was that
@@ -765,13 +806,15 @@ try {
     const phoneChips = (
       await page.locator(".settings-screen .section-tabs button").allInnerTexts()
     ).map((t) => t.trim());
+    const features = await readFeatures(page);
     const expectedPhoneChips = [
       "Models",
-      "Web",
+      ...(featureOn(features, "web") ? ["Web"] : []),
       "MCP",
-      "Google",
-      "Codex",
-      "Claude",
+      ...(featureOn(features, "google") ? ["Google"] : []),
+      ...(featureOn(features, "codex") ? ["Codex"] : []),
+      ...(featureOn(features, "claude") ? ["Claude"] : []),
+      ...(featureOn(features, "pi") ? ["Remote Pi"] : []),
       "Skills",
       "Push",
       "About",
@@ -926,7 +969,7 @@ try {
     // The Agent tab holds the selected agent's settings and nothing shared.
     await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.waitForTimeout(500);
-    const expectedChips = ["General", "Tools", "Secrets", "Reflection", "Skills"];
+    const expectedChips = ["General", "Secrets", "Reflection", "Skills"];
     const chipLabels = (await page.locator(".section-tabs button").allInnerTexts()).map((t) =>
       t.trim(),
     );
@@ -967,16 +1010,61 @@ try {
       check(`agent ${chip.toLowerCase()} has nothing clipped`, box.clipped.length === 0, box);
     }
 
-    // Agent → Tools: the per-agent Codex, Claude Code and Google access loads
-    // from the BFF.
-    await page.locator('.section-tabs button:text-is("Tools")').click();
-    await page.locator('.pane label:has-text("Codex workers") select').waitFor({ timeout: 10_000 });
+    // The Tools tab: one chip per shared family, the chip carries the on/off box
+    // (role=checkbox — the platform checkbox is still banned everywhere), and
+    // clicking the name opens that family's per-agent settings.
+    await page.locator('nav.tabs button:text-is("Tools")').click();
+    await page.waitForTimeout(700);
+    const toolsFeatures = await readFeatures(page);
+    const expectedToolChips = [
+      ["google", "Google"],
+      ["codex", "Codex"],
+      ["claude", "Claude"],
+      ["pi", "Remote Pi"],
+    ]
+      .filter(([key]) => featureOn(toolsFeatures, key))
+      .map(([, label]) => label);
+    const toolChipLabels = (
+      await page.locator(".tool-chips button:not(.chip-check)").allInnerTexts()
+    ).map((t) => t.trim());
     check(
-      "agent tools shows Google, Codex and Claude access, Save idle until changed",
-      (await page.locator('.pane label:has-text("Google") select').count()) === 1 &&
-        (await page.locator('.pane label:has-text("Claude Code workers") select').count()) === 1 &&
-        (await page.locator('.pane button:text-is("Save")').isDisabled()),
+      `tools chips are ${expectedToolChips.join(" / ")}`,
+      JSON.stringify(toolChipLabels) === JSON.stringify(expectedToolChips),
+      toolChipLabels,
     );
+    check(
+      "every tools chip carries its own box and no native checkbox exists",
+      (await page.locator(".tool-chips button[aria-pressed]").count()) ===
+        expectedToolChips.length &&
+        (await page.evaluate(() => document.querySelectorAll('input[type="checkbox"]').length)) ===
+          0,
+      {
+        boxes: await page.locator(".tool-chips button[aria-pressed]").count(),
+      },
+    );
+    check(
+      "the tools pane loads access from the BFF",
+      (await page.locator('.pane label:has-text("Google") select').count()) === 1,
+    );
+    if (featureOn(toolsFeatures, "pi")) {
+      await page.locator('.tool-chips button:text-is("Remote Pi")').click();
+      await page.locator('.pane label:has-text("Where this agent runs pi work") select').waitFor({
+        timeout: 10_000,
+      });
+      check(
+        "remote pi shows where this agent runs pi work",
+        (await page
+          .locator('.pane label:has-text("Where this agent runs pi work") select')
+          .count()) === 1,
+      );
+    }
+    const toolsBox = await overflow(page);
+    check("tools tab has nothing clipped", toolsBox.clipped.length === 0, toolsBox);
+    await shot(page, "desktop-tools");
+
+    // Back to the Agent tab for its own sections.
+    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await page.waitForTimeout(400);
 
     // Agent → Skills: the list comes from the BFF's own discovery, so it is
     // populated with no turn running (bundled skills alone are ~20). Bundled
@@ -1043,13 +1131,15 @@ try {
       (await page.locator(".settings-nav .menu-row.selected").count()) === 1 &&
         (await page.locator(".settings-nav .menu-row-check").count()) === 0,
     );
+    const desktopFeatures = await readFeatures(page);
     const expectedRows = [
       "Providers & models",
-      "Web search",
+      ...(featureOn(desktopFeatures, "web") ? ["Web search"] : []),
       "MCP servers",
-      "Google",
-      "Codex workers",
-      "Claude Code workers",
+      ...(featureOn(desktopFeatures, "google") ? ["Google"] : []),
+      ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
+      ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
+      ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
       "Global skills",
       "Notifications",
       "About",
@@ -1102,6 +1192,16 @@ try {
       (await page.locator('.menu-row:has-text("Allow Claude Code workers")').count()) === 1,
       await page.locator(".settings-content").innerText(),
     );
+
+    if (featureOn(desktopFeatures, "pi")) {
+      // Same for Remote Pi (GET /api/pi/settings).
+      await openSection("Remote Pi");
+      check(
+        "remote pi section loads its settings",
+        (await page.locator('.menu-row:has-text("Allow Remote Pi")').count()) === 1,
+        await page.locator(".settings-content").innerText(),
+      );
+    }
 
     // Google loads its status from the BFF (GET /api/google). Under dev bypass
     // the form must also say it is locked, not just grey its inputs out.

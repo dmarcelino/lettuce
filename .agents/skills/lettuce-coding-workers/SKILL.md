@@ -1,6 +1,6 @@
 ---
 name: lettuce-coding-workers
-description: lettuce external coding-worker mechanics: `subagent_type: "codex"` / "claude-code", the docker/codex shims on PATH, the workspaceWrite → externalSandbox rewrite, preflight commands (`codex --version`, `claude auth status --json`), CODEX_HOME / CLAUDE_CONFIG_DIR config rendering, Claude subscription (`claude setup-token`) vs endpoint auth, rollout and transcript files behind GET /api/codex/runs and /api/claude/runs, the codex_<thread>/claude_<session> agent ids, cwd of cron/channel workers, and the CODEX_VERSION / CLAUDE_CODE_VERSION pin sites. Read before touching docker/codex/, bff/src/codex/, bff/src/claude/, Settings → Codex/Claude Code workers, or the app-server Dockerfile.
+description: 'lettuce external coding-worker mechanics: `subagent_type: "codex"` / "claude-code", the docker/codex shims on PATH, the workspaceWrite → externalSandbox rewrite, preflight commands (`codex --version`, `claude auth status --json`), CODEX_HOME / CLAUDE_CONFIG_DIR config rendering, Claude subscription (`claude setup-token`) vs endpoint auth, rollout and transcript files behind GET /api/codex/runs and /api/claude/runs, the codex_<thread>/claude_<session> agent ids, cwd of cron/channel workers, and the CODEX_VERSION / CLAUDE_CODE_VERSION pin sites. Read before touching docker/codex/, bff/src/codex/, bff/src/claude/, Settings → Codex/Claude Code workers, or the app-server Dockerfile.'
 ---
 
 # Codex and Claude Code workers

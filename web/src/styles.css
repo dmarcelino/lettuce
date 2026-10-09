@@ -112,11 +112,13 @@ pre {
 }
 .tabs button {
   flex: 1;
-  min-width: 72px;
+  /* Six tabs have to fit a 390px phone without scrolling: Chat is the longest
+     name at 62, so this is what is left over. */
+  min-width: 58px;
   background: none;
   border: none;
   color: var(--muted);
-  padding: 8px 10px;
+  padding: 8px 8px;
   border-radius: 0;
   font-size: 14px;
   font-weight: 500;
@@ -942,19 +944,23 @@ pre {
 
 /* ── Queue + composer ────────────────────────────────────────────────────── */
 
-/* Why the button is split: three agent-green dots and a label, above the box
-   where the thumb is, so it stays visible even scrolled up the transcript. */
+/* What the agent is doing, and why the button under it is red: three
+   agent-green dots, a fixed icon slot, a bright activity phrase, and
+   right-aligned stats — elapsed last so its digits sit still at any width.
+   Segments and drop order are specified in `lib/working.ts`. */
 .working-line {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   font-size: 12px;
   color: var(--muted);
   padding: 0 2px;
+  min-width: 0;
 }
 .working-dots {
   display: inline-flex;
   gap: 3px;
+  flex: 0 0 auto;
 }
 .working-dots i {
   width: 5px;
@@ -969,6 +975,78 @@ pre {
 .working-dots i:nth-child(3) {
   animation-delay: 0.3s;
 }
+/* Stopping: the turn is unwinding, so the pulse freezes and greys. */
+.working-dots.still i {
+  animation: none;
+  background: var(--muted);
+  opacity: 0.7;
+}
+/* The stall's amber triangle, in the dots' slot. */
+.working-line .wl-glyph {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.working-line .wl-glyph .icon {
+  width: 13px;
+  height: 13px;
+}
+/* Fixed icon slot — the activity text starts in the same place whether or
+   not the phase has a glyph, so it never jumps sideways between phases. */
+.working-line .wl-ico {
+  width: 13px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--agent);
+}
+.working-line .wl-ico .icon {
+  width: 13px;
+  height: 13px;
+}
+.working-line .wl-act {
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.working-line .wl-obj.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+.working-line .wl-sep {
+  color: var(--border);
+}
+.working-line .wl-stat {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The stats cluster rides the right edge at every width, elapsed last. */
+.working-line .wl-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+/* Stall: amber, and Stop is the line's only control. */
+.working-line.warn {
+  color: var(--warn);
+}
+.working-line.warn .wl-act {
+  color: var(--warn);
+}
+.working-line .wl-stop {
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
+  background: none;
+  color: var(--warn);
+  font-size: 11px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+.working-line .wl-stop:hover {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
 
 .queue {
   display: flex;
@@ -978,52 +1056,83 @@ pre {
   overflow-x: auto;
   flex-shrink: 0;
 }
-/* A queued message: one chip, two actions — remove (the text) and force-send
-   (user items only). The chip is the container; the buttons inside are
-   transparent so it reads as a single object. Square, like everything else. */
+/* A queued message: one pill per item, edit + delete on user items and
+   delete alone on system items — steering the queue is one yellow pill at
+   the strip's left edge, not a per-message action. The chip is the
+   container; the buttons inside are transparent so it reads as a single
+   object. A chip takes only the width its text needs, capped so long texts
+   still align and the strip scrolls sideways rather than shrinking a chip
+   into its actions. */
 .queued {
   display: inline-flex;
   align-items: stretch;
   background: var(--surface-2);
   border: 1px solid var(--border);
+  border-radius: 999px;
   color: var(--muted);
   font-size: 12px;
   overflow: hidden;
   flex-shrink: 0;
 }
-/* Amber while it will drain, muted once an interrupt parked it. */
-.queued-dot {
-  width: 6px;
-  height: 6px;
-  align-self: center;
-  margin-left: 10px;
-  flex-shrink: 0;
+/* The one queue verb: amber, like the working line's — it interrupts, so it
+   borrows the color that already means “acting on the turn”. */
+.steer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
   background: var(--warn);
+  border: none;
+  color: #221607;
+  font-weight: 600;
+  cursor: pointer;
 }
-.queued.paused .queued-dot {
-  background: var(--muted);
+.steer-pill:hover {
+  filter: brightness(1.12);
 }
-.queued-remove {
-  display: inline-flex;
+.steer-pill .icon {
+  width: 12px;
+  height: 12px;
+}
+/* Text fits its content up to the cap, tail-truncated because the head
+   identifies the message. The ellipsis needs a real block inside the flex
+   row: a text node directly in `queued-text` is an anonymous flex item, which
+   no browser will clip with an ellipsis. */
+.queued-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 240px;
+  display: flex;
   align-items: center;
-  gap: 4px;
-  background: none;
-  border: 0;
-  color: inherit;
-  font: inherit;
-  padding: 4px 6px 4px 8px;
+  padding: 4px 4px 4px 8px;
+}
+.queued-text > span {
+  min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
-  cursor: pointer;
+  text-overflow: ellipsis;
 }
-.queued-force {
+.queued-act {
   display: inline-flex;
   align-items: center;
   background: none;
   border: 0;
-  border-left: 1px solid var(--border);
-  color: var(--accent);
-  padding: 4px 8px;
+  color: var(--muted);
+  padding: 4px 7px;
   cursor: pointer;
+}
+/* One divider only: between the text and the actions. The actions themselves
+   sit bare — the glyphs with air between them read as one group. */
+.queued-act:first-of-type {
+  border-left: 1px solid var(--border);
+}
+.queued-act:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.queued-act .icon {
+  width: 13px;
+  height: 13px;
 }
 .resume-queue {
   display: inline-flex;
@@ -1051,6 +1160,7 @@ pre {
 /* Textarea and the control row share one bordered container, so the whole thing
    reads as a single input rather than a field with a toolbar bolted under it. */
 .composer-box {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1058,6 +1168,33 @@ pre {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+/* The box's top border doubles as the resize grip: drag it up for a taller
+   textarea, double-click it to give auto-fit back. Absolutely placed on the
+   border line it costs the box no vertical space; the 12px strip is the hit
+   area and overhangs into the gap above. `touch-action: none` so a drag on a
+   phone is a drag, not a page scroll. */
+.composer-resize {
+  position: absolute;
+  top: -6px;
+  left: 0;
+  right: 0;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  cursor: ns-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.composer-resize i {
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.composer-box:hover .composer-resize i,
+.composer-resize:active i {
+  background: var(--muted);
 }
 /* The ring is box-shadow (no layout effect) and fits inside .composer's 12px
    inline padding. No `overflow` here: it would clip .composer-row's own
@@ -1090,6 +1227,14 @@ pre {
   max-height: 160px;
   /* Until it reaches max-height; see fitToContent in Composer.tsx. */
   overflow-y: hidden;
+}
+/* A manually sized box holds its height and scrolls inside; auto-fit is back
+   the moment the grip is double-clicked (see Composer.tsx). The auto-grow
+   `max-height` no longer applies — the drag's own clamp (half the viewport)
+   owns the range instead. */
+.composer textarea.manual {
+  overflow-y: auto;
+  max-height: none;
 }
 .composer textarea:focus {
   outline: none;
@@ -1213,15 +1358,8 @@ pre {
   font-size: 12px;
 }
 
-/* The send button must stay reachable however far the chips scroll. */
-.composer-row .icon-button.send,
-.composer-row .icon-button.stop {
-  width: 28px;
-  height: 28px;
-  font-size: 14px;
-  position: sticky;
-  right: 0;
-}
+/* The composer row's last control is the round action button (`.glyph-btn`),
+   sticky so it stays reachable however far the chips scroll. */
 .composer textarea:disabled {
   opacity: 0.5;
 }
@@ -1444,55 +1582,44 @@ pre {
   color: var(--text);
   font-size: 20px;
 }
-.icon-button.stop {
-  background: var(--bad);
-}
-/* The queue button: one square, two hit areas. The stop button is clipped to
-   the red triangle and clip-path clips hit-testing with it, so presses on the
-   blue field fall through to the queue button underneath. */
-.send-split {
-  width: 28px;
-  height: 28px;
+/* The composer's single action button: a circle — blue for go (send, or
+   queue while a turn runs), red for stop — kept as a vector so it stays crisp
+   and can pulse while stopping. No glow: the fill carries the verb. Sticky
+   like the square it replaces: it must stay reachable however far the chips
+   scroll. */
+.glyph-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
   flex-shrink: 0;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--accent);
-  position: sticky;
-  right: 0;
-}
-.send-split .split-queue {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  /* Shift the plane up-left: at 28px its bounding box would otherwise reach
-     into the stop corner, and the two glyphs would touch. */
-  padding: 0 5px 5px 0;
-  background: none;
-  color: #000;
   display: grid;
   place-items: center;
+  color: #fff;
   cursor: pointer;
+  padding: 0;
+  position: sticky;
+  right: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
-.send-split .split-queue .icon {
+.glyph-btn .icon {
   width: 14px;
   height: 14px;
 }
-.send-split .split-stop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  padding: 0 3px 3px 0;
-  background: var(--bad);
-  color: #000;
-  clip-path: polygon(100% 0, 100% 100%, 38% 100%);
-  display: grid;
-  place-items: end end;
-  cursor: pointer;
+.glyph-btn.go {
+  background: #2e7df6;
 }
-.send-split .split-stop .icon {
-  width: 10px;
-  height: 10px;
+.glyph-btn.halt {
+  background: #f0463c;
 }
+.glyph-btn.go:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* The round button replaces the flat send/stop squares entirely. */
 /* A long press must not select text or raise the callout menu on mobile. */
 .composer-row .icon-button {
   -webkit-user-select: none;
@@ -1502,17 +1629,17 @@ pre {
 }
 /* Stopping is a state, not a disabled control that failed — keep it legible
    rather than letting the generic :disabled fade hide it. */
-.icon-button.stop.pending:disabled {
+.glyph-btn.halt.pending:disabled {
   opacity: 0.75;
-  animation: stop-pending 1.2s ease-in-out infinite;
+  animation: halt-pending 1.2s ease-in-out infinite;
 }
-@keyframes stop-pending {
+@keyframes halt-pending {
   50% {
     opacity: 0.35;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .icon-button.stop.pending:disabled,
+  .glyph-btn.halt.pending:disabled,
   .activity-dot {
     animation: none;
   }
@@ -1945,28 +2072,20 @@ p.warning code {
     height: 44px;
     font-size: 16px;
   }
-  .composer-row .icon-button.send,
-  .composer-row .icon-button.stop {
-    width: 52px;
-    height: 44px;
-    font-size: 17px;
+  /* The round action button stays a fingertip target, just lighter than the
+     squares it replaced. */
+  .composer-row .glyph-btn {
+    width: 40px;
+    height: 40px;
   }
-  /* The split queue button is a composer control too: same fingertip box, and
-     the bigger square gives the stop corner a pressable triangle. */
-  .send-split {
-    width: 52px;
-    height: 44px;
+  .composer-row .glyph-btn .icon {
+    width: 20px;
+    height: 20px;
   }
-  .send-split .split-queue {
-    padding: 0 4px 4px 0;
-  }
-  .send-split .split-queue .icon {
-    width: 22px;
-    height: 22px;
-  }
-  .send-split .split-stop .icon {
-    width: 13px;
-    height: 13px;
+  /* Same chips at phone: a tighter cap keeps a long message clear of the
+     strip's right edge for longer. */
+  .queued-text {
+    max-width: 150px;
   }
   .composer-row .icon-button .icon {
     width: 22px;
@@ -2198,6 +2317,53 @@ p.warning code {
   border-color: var(--accent);
   color: var(--text);
 }
+/* Tools: a family's chip is its on/off box and its name, welded into one pill so the
+   box reads as part of the chip and not as a third chip. The box is a `<button
+   role="checkbox">` — nothing in the app uses a platform checkbox — and it draws its own
+   15px plate inside a 28px hit area: the name is what you read first, so the box stays
+   small. The plate keeps a grey outline when unchecked rather than going empty, because
+   "chip with no glyph" and "chip whose glyph you have not looked at" are indistinguishable.
+   React renders no tick when unchecked, so the outline plate stands alone. */
+.tool-chips .chip-pair {
+  display: inline-flex;
+  align-items: stretch;
+}
+.tool-chips .chip-pair .chip-check {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: none;
+  border-right: none;
+}
+.tool-chips .chip-pair .chip-check::before,
+.tool-chips .chip-pair .chip-check .icon {
+  grid-area: 1 / 1;
+}
+.tool-chips .chip-pair .chip-check::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  border: 2px solid color-mix(in srgb, var(--muted) 55%, transparent);
+  box-sizing: border-box;
+}
+.tool-chips .chip-pair .chip-check.on {
+  border-color: var(--border);
+  color: #0b1020;
+}
+.tool-chips .chip-pair .chip-check.on::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.tool-chips .chip-pair .chip-check.on + button {
+  border-left-color: var(--accent);
+}
+.tool-chips .chip-pair .chip-check .icon {
+  width: 11px;
+  height: 11px;
+}
+
 /* Under Settings' chips: who the section's settings apply to. */
 .scope-line {
   margin: 0;
@@ -2583,6 +2749,37 @@ p.warning code {
   flex-wrap: wrap;
   gap: 8px;
   margin: 8px 0;
+}
+/* A section whose switch is off keeps its fields on screen but unusable: the
+   shape of the setup stays visible, and a mistake cannot be typed in. */
+.field input:disabled,
+.field select:disabled,
+.field textarea:disabled {
+  background: var(--surface);
+  color: var(--muted);
+  opacity: 0.62;
+}
+/* One line of a value with its own action inside the control (Remote Pi's public
+   key + Copy), so the row costs no height and the button cannot be missed. */
+.field-inline {
+  position: relative;
+  display: flex;
+}
+.field-inline input {
+  width: 100%;
+  padding-right: 74px;
+  text-overflow: ellipsis;
+}
+.field-inline .button.compact {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Fixed-width glyphs for pasted keys and ids (Settings → Remote Pi). */
+textarea.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 /* A response in progress with no row to mark — the agent's unlisted default
    conversation, or one the list has not caught up with. See lib/activity.ts. */

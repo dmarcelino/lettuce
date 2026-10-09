@@ -2,7 +2,11 @@
  * The lettuce guard rules, as pure functions.
  *
  * Split out of `guard.ts` (the pi glue) so the matching logic is unit-testable
- * without a harness: `guard-core.test.ts` runs under `bun test`.
+ * without a harness: `tests/guard-core.test.ts` runs under `bun test`.
+ *
+ * It lives in `scripts/`, not in `.pi/extensions/`, because pi loads every direct
+ * file in that directory as an extension and a module with no default factory
+ * export fails the launch.
  */
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -27,31 +31,93 @@ export interface ProtectedFile {
 /** Every entry is a rule `AGENTS.md` already states in prose. */
 export const RULES: Rule[] = [
   {
-    pattern: /\bgit\b[^\n]*\bpush\b(?!\w)/,
-    title: "git push",
+    // Landing work on a branch is routine; landing it on `main` is the release. The PR flow made
+    // every push a confirmation, which meant a human was asked to approve nothing that matters and
+    // became the thing they clicked through — so the gate moved to where the risk is.
+    // A refspec that starts with `v<digits>` is the annotated tag `bun run release` created, and
+    // `refs/tags/` is the same thing spelled out. `release/v0.7.0-letta_0.34.1` as a *branch* name
+    // stays free — the refspec has to begin with the tag, not merely contain one.
+    pattern:
+      /\bgit\b[^\n]*\bpush\b(?!\w)[^\n]*(?:\bmain\b|--tags\b|--follow-tags\b|refs\/tags\/|(?:^|\s)v\d+\.\d+)/,
+    title: "git push to main or tags",
     message:
-      "AGENTS.md: never push without the operator's explicit confirmation for THIS change. " +
-      "Approving here is that confirmation — show them the commits first.",
+      "AGENTS.md: pushing `main` or a tag IS the release — never without the operator's " +
+      "confirmation for this specific change. Show them the commits first. A feature-branch push " +
+      "needs nothing.",
+  },
+  {
+    // A bare `git push` sends whatever branch this checkout is on, and on the main checkout that
+    // is `main`. Name the branch and it is free.
+    pattern:
+      /\bgit\b[^\n]*\bpush\b(?!\w)(?![^\n]*(?:origin|upstream)\s+[\w/.-]+)(?![^\n]*(?:-n\b|--dry-run))/,
+    title: "git push with no refspec",
+    message:
+      "AGENTS.md: a bare push sends the branch you are standing on — on the main checkout that is " +
+      "`main`. Name it: `git push origin <branch>`.",
+  },
+  {
+    pattern: /\bgh\b[^\n]*\bpr\s+merge\b/,
+    title: "gh pr merge",
+    message:
+      "AGENTS.md: the operator merges, or authorizes the merge of this specific PR after testing " +
+      "it in the container. A general 'continue' is not that authorization.",
+  },
+  {
+    pattern: /\bgh\b[^\n]*\bpr\s+review\b[^\n]*(?:--approve|\bapprove\b)/,
+    title: "gh pr review --approve",
+    message:
+      "AGENTS.md: an approval is the human's statement that they ran it in the container. Never " +
+      "approve the PR you authored.",
   },
   {
     pattern: /\bgit\b[^\n]*--force(?!\w)/,
     title: "git --force",
-    message: "Force operations are not part of this repo's workflow (fast-forward merges only).",
+    message:
+      "Force operations are not part of this repo's workflow: history stays linear because PRs " +
+      "squash-merge, so a PR branch is updated by merging `main` into it, never by force-pushing.",
     hard: true,
+  },
+  {
+    // The same force-push with a shorter spelling, which would otherwise slip past the rule above
+    // and reach a feature branch with no gate at all.
+    pattern: /\bgit\b[^\n]*\bpush\b(?!\w)[^\n]*\s-f(?!\w)/,
+    title: "git push -f",
+    message:
+      "AGENTS.md: `-f` is the force-push the `--force` rule blocks outright, just spelled shorter. " +
+      "Update a PR branch by merging `main` into it.",
+    hard: true,
+  },
+  {
+    // Merging through the raw API is the same act as `gh pr merge`, and had no gate of its own.
+    pattern: /\bgh\b[^\n]*\bapi\b[^\n]*\/merges?\b/,
+    title: "gh api merge",
+    message:
+      "AGENTS.md: this merges a PR without the `gh pr merge` gate. The operator merges, or " +
+      "authorizes the merge of this specific PR after testing it in the container.",
+  },
+  {
+    pattern: /\bgh\b[^\n]*\brelease\s+create\b/,
+    title: "gh release create",
+    message:
+      'AGENTS.md: a published release comes after the prod deploy is verified — see its "Stop ' +
+      "before releasing to prod\" steps — and only on the operator's confirmation for that " +
+      "specific change.",
   },
   {
     pattern: /\bgit\b[^\n]*\btag\b[^\n]*-a(?!\w)/,
     title: "git tag -a",
     message:
-      "AGENTS.md: a tag is created only after the prod deploy is verified (definition of done 7b).",
+      'AGENTS.md: a tag is created only after the prod deploy is verified — see its "Stop before ' +
+      'releasing to prod" steps.',
   },
   {
     pattern: /\bgit\b[^\n]*\bworktree remove\b/,
     title: "git worktree remove",
     message:
-      "AGENTS.md: report a merged worktree as safe to remove and let the operator decide. Confirm " +
-      "only because they asked for this specific one — another session may be sitting in it " +
-      "with uncommitted work.",
+      'AGENTS.md ("Never remove a worktree or delete a branch by hand"): `bun run cleanup` is the ' +
+      "supported path — it checks the PR state, the tree and live sessions first. Confirm a " +
+      "manual removal only because the operator asked for this specific worktree; another session " +
+      "may be sitting in it with uncommitted work.",
   },
   {
     pattern: /\bgit\b[^\n]*\bworktree\s+prune\b/,
@@ -70,15 +136,18 @@ export const RULES: Rule[] = [
   {
     pattern: /\bgit\b[^\n]*\bbranch\s+(?:-D\b|--delete\s+--force|--force\s+--delete)/,
     title: "git branch -D",
-    message: "Unmerged branch deletion is not part of this repo's workflow.",
-    hard: true,
+    message:
+      "This deletes a branch whose commits are not ancestors of main — which is what every " +
+      "squash-merged branch looks like to git, so `-d` will always refuse. Confirm only because " +
+      "the operator named these branches, and only for a branch whose PR is merged. " +
+      "`bun run cleanup` does the checking.",
   },
   {
     pattern: /\bdocker\b[^\n]*\bcompose\b[^\n]*\b(?:rm|down|stop|kill)\b/,
     title: "docker compose (destructive)",
     message:
-      "This stops or removes running containers. AGENTS.md: prod containers are Dockhand's " +
-      "business, and the app-server namespace also holds bff and channel-gateway.",
+      "This stops or removes running containers. AGENTS.md: prod containers are the deploy " +
+      "manager's business, and the app-server namespace also holds bff and channel-gateway.",
   },
   {
     pattern: /\bdocker\b[^\n]*\bcompose\b[^\n]*\brestart\b/,
@@ -95,7 +164,9 @@ export const RULES: Rule[] = [
   },
 ];
 
-/** Files an agent must never touch silently. */
+/** Files an agent must never touch silently — checked on the `edit` and `write` tools,
+ * which is where an agent writes a file. A shell redirect (`>`, `sed -i`) is not a
+ * protected-file check, only a command rule. */
 export const PROTECTED_FILES: ProtectedFile[] = [
   {
     path: "docker/.env",

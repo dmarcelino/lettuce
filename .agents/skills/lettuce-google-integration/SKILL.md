@@ -1,6 +1,6 @@
 ---
 name: lettuce-google-integration
-description: lettuce Google integration mechanics: the google-mcp sidecar and its --permissions level table, the BFF's OAuth consent invariants (scope narrowing revokes, a revoke is grant-wide, never revoke on reconnect), the google-policy and google-creds volumes and why they are never mounted into app-server, the curated gmail_/calendar_/tasks_/contacts_ mod tools and the pinned tools/list fixtures to refresh on a WORKSPACE_MCP_VERSION bump, token-loss detection and reconnect links, and the dev-bypass hole. Read before touching bff/src/google/, docker/google-mcp/, Settings → Google, or any OAuth scope level.
+description: 'lettuce Google integration mechanics: the google-mcp sidecar and its --permissions level table, the BFF''s OAuth consent invariants (scope narrowing revokes, a revoke is grant-wide, never revoke on reconnect), the google-policy and google-creds volumes and why they are never mounted into app-server, the curated gmail_/calendar_/tasks_/contacts_ mod tools and the pinned tools/list fixtures to refresh on a WORKSPACE_MCP_VERSION bump, token-loss detection and reconnect links, and the dev-bypass hole. Read before touching bff/src/google/, docker/google-mcp/, Settings → Google, or any OAuth scope level.'
 ---
 
 # Google (Gmail, Calendar, Tasks, Contacts)
@@ -49,7 +49,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   cookie, so a `GOOGLE_OAUTH_REDIRECT_URI` on another origin (localhost) works.
 
   Limits by design: the sidecar holds one policy for every agent (a per-agent *boundary* would
-  need per-agent containers; Agent → Tools narrows who is *offered* what, see the
+  need per-agent containers; the Tools tab narrows who is *offered* what, see the
   `lettuce-per-agent-tool-access` skill), and allowed tools still combine — Calendar `full` can invite any address, which
   mails them even with Gmail read-only, and email content is prompt-injection input.
 

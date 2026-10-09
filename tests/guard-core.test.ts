@@ -10,31 +10,70 @@ import {
   relativeToRoot,
   reviewCommand,
   reviewPath,
-} from "./guard-core.ts";
+} from "../scripts/guard-core.ts";
 
-const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 const titles = (command: string) => reviewCommand(command).map((hit) => hit.rule.title);
 const hard = (command: string) => reviewCommand(command).some((hit) => !!hit.rule.hard);
 
-test("git push is gated", () => {
-  expect(titles("git push origin main")).toEqual(["git push"]);
-  expect(titles("git -C /elsewhere push")).toEqual(["git push"]);
+test("landing a branch is free; landing main or a tag is the release", () => {
+  expect(titles("git push -u origin feat/build-sha")).toEqual([]);
+  expect(titles("git push origin HEAD")).toEqual([]);
+  expect(titles("git push origin release/v0.7.0-letta_0.34.1")).toEqual([]);
+  expect(titles("git push origin main")).toEqual(["git push to main or tags"]);
+  expect(titles("git push --follow-tags").sort()).toEqual([
+    "git push to main or tags",
+    "git push with no refspec",
+  ]);
+  expect(titles("git -C /elsewhere push")).toEqual(["git push with no refspec"]);
   expect(titles("git pushd .")).toEqual([]);
+  // Pushing the release tag is the release, whichever way it is spelled.
+  expect(titles("git push origin v0.8.0-letta_0.36.0")).toEqual(["git push to main or tags"]);
+  expect(titles("git push origin refs/tags/v0.8.0-letta_0.36.0")).toEqual([
+    "git push to main or tags",
+  ]);
+  // …but a *branch* that merely has a version in its name is ordinary work.
+  expect(titles("git push origin release/v0.8.0-letta_0.36.0")).toEqual([]);
+});
+
+test("merging and approving a PR is the operator's, not the agent's", () => {
+  expect(titles("gh pr merge 7 --squash")).toEqual(["gh pr merge"]);
+  expect(titles("gh pr review 7 --approve")).toEqual(["gh pr review --approve"]);
+  expect(titles('gh pr create --base main --title "x" --body "y"')).toEqual([]);
+  expect(titles("gh pr view 7 --json state")).toEqual([]);
+  expect(titles("gh pr checks 8")).toEqual([]);
+  // The raw API is the same act as `gh pr merge`, and a GitHub release is a publication.
+  expect(titles("gh api repos/o/r/pulls/12/merge -X PUT")).toEqual(["gh api merge"]);
+  expect(titles("gh api repos/o/r/merges -f head=x -f base=y")).toEqual(["gh api merge"]);
+  expect(titles("gh api repos/o/r/pulls/12 --jq .title")).toEqual([]);
+  expect(titles("gh release create v1.2.3 --generate-notes")).toEqual(["gh release create"]);
+});
+
+test("-f is the same force-push as --force, not a shorter way to be free", () => {
+  expect(hard("git push -f origin feature/x")).toBe(true);
+  expect(titles("git push -f origin feature/x")).toContain("git push -f");
+  // A long option that merely starts with -f is not a force flag.
+  expect(hard("git push origin feature/x --follow-tags")).toBe(false);
+  expect(hard("git push origin feature/x")).toBe(false);
 });
 
 test("force is blocked outright", () => {
   expect(hard("git push --force-with-lease origin main")).toBe(true);
 });
 
-test("removing a worktree or a merged branch needs the operator; forcing them does not exist", () => {
+test("removing a worktree or deleting a branch needs the operator; forcing them does not exist", () => {
   expect(titles("git worktree remove .worktrees/x")).toEqual(["git worktree remove"]);
   expect(hard("git worktree remove .worktrees/x")).toBe(false);
   expect(titles("git branch -d merged-branch")).toEqual(["git branch -d"]);
   expect(hard("git branch -d merged-branch")).toBe(false);
   expect(hard("git worktree prune")).toBe(true);
-  expect(hard("git branch -D unmerged")).toBe(true);
+  // -D is confirmable now: squash merges make every merged branch look unmerged to git, so
+  // `-d` can never work here and cleanup needs a deletable path. Still gated, never silent.
+  expect(titles("git branch -D chore/merged-thing")).toEqual(["git branch -D"]);
+  expect(hard("git branch -D chore/merged-thing")).toBe(false);
   expect(hard("git worktree remove --force .worktrees/x")).toBe(true);
+  expect(hard("git branch --delete --force chore/x")).toBe(true);
   expect(titles("git branch --show-current")).toEqual([]);
 });
 
@@ -70,7 +109,9 @@ test("reads that quote a forbidden command do not trip a gate", () => {
 });
 
 test("compound commands check every doing segment", () => {
-  expect(titles("git add -A && git commit -m x && git push origin main")).toEqual(["git push"]);
+  expect(titles("git add -A && git commit -m x && git push origin main")).toEqual([
+    "git push to main or tags",
+  ]);
 });
 
 test("protected files match by path, not by prefix accidents", () => {

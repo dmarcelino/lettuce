@@ -40,6 +40,7 @@ import { AgentTab } from "./tabs/AgentTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { MemoryTab } from "./tabs/MemoryTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
+import { ToolsTab } from "./tabs/ToolsTab.tsx";
 
 interface Status {
   authenticated: boolean;
@@ -51,7 +52,7 @@ interface Status {
   features?: FeatureFlags;
 }
 
-const TABS = ["Chat", "Files", "Tasks", "Memory", "Agent"] as const;
+const TABS = ["Chat", "Files", "Tasks", "Memory", "Tools", "Agent"] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -411,9 +412,28 @@ function Workspace({ status }: { status: Status }) {
 
             {conversation.queue.length > 0 ? (
               <div className="queue">
-                <span className="tag">
-                  {conversation.queue.some((item) => item.paused) ? "Paused" : "Queued"}
-                </span>
+                {/* No “Queued”/“Paused” label and no per-chip steer: one
+                    yellow pill at the strip's left edge stops the turn and
+                    starts the queue from its head — the rest follow in
+                    order (upstream has no per-item promote, so “make THIS
+                    next” for a later item is still what edit + delete are
+                    for). A parked queue shows Resume instead. */}
+                {conversation.queue.some((item) => item.source === "user" && !item.paused) ? (
+                  <button
+                    type="button"
+                    className="queued steer-pill"
+                    title="Steer — stop this turn and start the queued messages now"
+                    onClick={() => {
+                      const target = conversation.queue.find(
+                        (item) => item.source === "user" && !item.paused,
+                      );
+                      if (target) void conversation.forceSend(target.id);
+                    }}
+                  >
+                    <Icon name="send" />
+                    Steer
+                  </button>
+                ) : null}
                 {conversation.queue.some((item) => item.paused) ? (
                   <button
                     type="button"
@@ -427,30 +447,35 @@ function Workspace({ status }: { status: Status }) {
                 ) : null}
                 {conversation.queue.map((item) => (
                   <span key={item.id} className={`queued${item.paused ? " paused" : ""}`}>
-                    <span className="queued-dot" aria-hidden="true" />
-                    <button
-                      type="button"
-                      className="queued-remove"
-                      title="Remove from queue"
-                      onClick={() => conversation.removeQueued(item.id)}
-                      aria-label={`Remove queued message: ${item.content.slice(0, 40)}`}
-                    >
-                      {item.content.slice(0, 40)}
-                      <Icon name="close" />
-                    </button>
+                    <span className="queued-text" title={item.content}>
+                      <span>{item.content}</span>
+                    </span>
                     {item.source === "user" ? (
-                      // Upstream has no promote command; this stops the turn
-                      // and resends the queue with this message at the head.
+                      // Edit: out of the queue, back into the input box — the
+                      // same affordance as “Edit” on a sent message. Text
+                      // returns; attached images do not survive the trip.
                       <button
                         type="button"
-                        className="queued-force"
-                        title="Stop and send this now"
-                        onClick={() => void conversation.forceSend(item.id)}
-                        aria-label={`Force send queued message: ${item.content.slice(0, 40)}`}
+                        className="queued-act"
+                        title="Edit — put it back in the input"
+                        onClick={() => {
+                          conversation.removeQueued(item.id);
+                          setPrefill(item.content);
+                        }}
+                        aria-label={`Edit queued message: ${item.content.slice(0, 40)}`}
                       >
-                        <Icon name="send" />
+                        <Icon name="edit" />
                       </button>
                     ) : null}
+                    <button
+                      type="button"
+                      className="queued-act"
+                      title="Delete from queue"
+                      onClick={() => conversation.removeQueued(item.id)}
+                      aria-label={`Delete queued message: ${item.content.slice(0, 40)}`}
+                    >
+                      <Icon name="close" />
+                    </button>
                   </span>
                 ))}
               </div>
@@ -476,6 +501,14 @@ function Workspace({ status }: { status: Status }) {
               }}
               onAbort={() => void conversation.abort()}
               stopping={conversation.stopping}
+              turn={{
+                entries: conversation.entries,
+                queue: conversation.queue,
+                cwd: conversation.cwd,
+                turnStartedAt: conversation.turnStartedAt,
+                lastActivityAt: conversation.lastActivityAt,
+                usage: conversation.turnUsage,
+              }}
               filters={filters}
               onToggleFilter={toggleFilter}
               onClearFilters={() => setFilters(new Set())}
@@ -508,6 +541,14 @@ function Workspace({ status }: { status: Status }) {
           />
         ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />
+        ) : tab === "Tools" ? (
+          <ToolsTab
+            agents={agents}
+            features={status.features}
+            onOpenGlobalSettings={(section) =>
+              setGlobalSettings({ section: section as GlobalSection })
+            }
+          />
         ) : (
           <AgentTab
             session={session}
@@ -515,7 +556,6 @@ function Workspace({ status }: { status: Status }) {
             conversationId={agents.conversationId}
             cwd={conversation.cwd}
             skillsVersion={conversation.skillsVersion}
-            features={status.features}
             onOpenGlobalSettings={(section) => setGlobalSettings({ section })}
           />
         )}

@@ -12,8 +12,8 @@
  *   - every relative markdown link resolves to a file that exists.
  *   - every repo path mentioned in the guide or a skill exists.
  *   - every `bun run <name>` in the guide is a real script.
- *   - every skill has valid frontmatter, and is named in the guide so it is
- *     actually discoverable.
+ *   - every skill has valid frontmatter — one a real YAML parser accepts, not just
+ *     the regexes here — and is named in the guide so it is actually discoverable.
  *
  * Usage: bun scripts/check-docs.ts [--print-size]
  */
@@ -25,13 +25,14 @@ const ROOT = resolve(new URL("..", import.meta.url).pathname);
 
 /**
  * The always-loaded guide's budget. It moved ~46 KB of task-scoped mechanics to
- * `.agents/skills/` on 2026-10-02 (from 81 KB to ~35 KB); this number is that
- * state plus room to grow, not a target to fill. Raise it deliberately and say
- * what you added.
+ * `.agents/skills/` on 2026-10-02 (from 81 KB to ~35 KB), and on 2026-10-05 the prose that
+ * duplicated a skill description, an incident narrative already in `docs/upstream-notes.md`, or a
+ * gate that already enforces the rule came down to ~28 KB. This number is that state plus room to
+ * grow, not a target to fill. Raise it deliberately and say what you added.
  */
-// The always-loaded guide's context budget. ~9.8k tokens; raise only by deleting
-// something else, not by declaring the new size acceptable.
-const SIZE_BUDGET_BYTES = 40_000;
+// The always-loaded guide's context budget. ~7k tokens; raise only by deleting something else,
+// not by declaring the new size acceptable.
+const SIZE_BUDGET_BYTES = 30_000;
 
 const GUIDE = "AGENTS.md";
 
@@ -47,9 +48,14 @@ for (const dir of [".agents/skills", ".pi/prompts"]) {
   const abs = join(ROOT, dir);
   if (!existsSync(abs)) continue;
   for (const entry of readdirSync(abs, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const file = join(dir, entry.name, "SKILL.md");
-    if (existsSync(join(ROOT, file))) SCANNED.push(file);
+    // Skills are directories with a SKILL.md; prompt templates are flat .md files.
+    // Both are harness prose every session reads, so both get the same checks.
+    const file = entry.isDirectory()
+      ? join(dir, entry.name, "SKILL.md")
+      : entry.isFile() && entry.name.endsWith(".md")
+        ? join(dir, entry.name)
+        : "";
+    if (file && existsSync(join(ROOT, file))) SCANNED.push(file);
   }
 }
 
@@ -67,6 +73,8 @@ const ABSENT_OK = [
   ".pi/sessions/",
   ".pi/settings.json",
   ".pi/skills/",
+  ".pi/goals/",
+  ".pi/plans/",
   ".claude/",
 ];
 
@@ -75,6 +83,25 @@ const notes: string[] = [];
 
 function check(ok: boolean, label: string, detail?: string) {
   if (!ok) failures.push(detail ? `${label} — ${detail}` : label);
+}
+
+/**
+ * Is this frontmatter value a scalar a real YAML parser will read as a string?
+ *
+ * Pi parses `SKILL.md` frontmatter with the `yaml` package, and a plain (unquoted)
+ * YAML scalar may not contain `": "` — `description: a: b` is a nested mapping,
+ * which errors out as "Nested mappings are not allowed in compact mappings" and
+ * drops the *whole file*: pi loads no skill from it, with no warning in the UI.
+ * On 2026-10-04 that silently killed all twelve `lettuce-*` skills at once, while
+ * the regex below happily read the description back out. Quote the value (single
+ * quotes, doubling any `'`) when it needs a colon.
+ */
+function isYamlScalar(value: string): boolean {
+  if (value === "") return true;
+  if (value[0] === "'" || value[0] === '"') return true; // quoted: colons are inert inside
+  // Anchors, aliases, block scalars and flow collections are not plain scalars.
+  if ("[&*!|>`{[".includes(value[0])) return false;
+  return !value.includes(": ") && !value.endsWith(":");
 }
 
 /** GitHub's anchor rules: lowercase, drop punctuation, spaces to hyphens. */
@@ -237,10 +264,41 @@ for (const from of SCANNED) {
 const scripts = new Set(
   Object.keys(JSON.parse(read("package.json")).scripts as Record<string, string>),
 );
-for (const match of guideText.matchAll(/bun run ([a-z][a-z-]+)/g)) {
-  const name = match[1];
-  if (!name) continue;
-  check(scripts.has(name), `AGENTS.md: bun run ${name} is a real script`);
+for (const from of SCANNED) {
+  if (!existsSync(join(ROOT, from))) continue;
+  for (const match of read(from).matchAll(/bun run ([a-z][a-z-]+)/g)) {
+    const name = match[1];
+    if (!name) continue;
+    check(scripts.has(name), `${from}: bun run ${name} is a real script`);
+  }
+}
+
+/**
+ * The other direction: a real script the guide never mentions.
+ *
+ * `bun run check-release-hygiene` enforced the changelog rule for weeks before `AGENTS.md` named
+ * it, which is how a gate becomes folklore — the rule survives in prose while nobody reads the
+ * tool that enforces it. The self-explanatory ones are exempt because a row would only restate the
+ * name; everything else owes one.
+ */
+const COMMANDS_EXEMPT = new Set([
+  "lint",
+  "format",
+  "typecheck",
+  "test",
+  "build",
+  "dev",
+  "build-info",
+  "screenshots",
+]);
+for (const name of scripts) {
+  if (COMMANDS_EXEMPT.has(name)) continue;
+  check(
+    guideText.includes(name),
+    `${GUIDE}: mentions bun run ${name}`,
+    "add a row to the Commands table, or add the name to COMMANDS_EXEMPT in scripts/check-docs.ts " +
+      "if the name says everything",
+  );
 }
 
 // ------------------------------------------------------------------- skills
@@ -260,6 +318,22 @@ for (const dir of skillDirs) {
   const description = /^description:\s*(.+)$/m.exec(front[1] ?? "")?.[1]?.trim();
   check(name === dir, `${file}: name matches its directory`, `name: ${name}`);
   check(!!description && description.length > 40, `${file}: has a real description`);
+  check(
+    !!description && description.length <= 1024,
+    `${file}: description is within pi's 1024-character limit`,
+    `${description?.length ?? 0} chars`,
+  );
+  // Every key must be a scalar pi's YAML parser will accept, not just one the
+  // regex above can pull out of the raw text.
+  for (const line of (front[1] ?? "").split("\n")) {
+    const kv = /^([A-Za-z][A-Za-z0-9_-]*):(.*)$/.exec(line.trim());
+    if (!kv) continue;
+    check(
+      isYamlScalar(kv[2]?.trim() ?? ""),
+      `${file}: ${kv[1]} is a YAML scalar`,
+      "an unquoted `: ` fails the whole file to parse and the skill never loads — quote the value",
+    );
+  }
   check(
     guideText.includes(dir),
     `${file}: is named in ${GUIDE}`,

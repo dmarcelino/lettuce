@@ -49,6 +49,16 @@ RUN mkdir -p /opt/lettuce \
 COPY spawn-diagnostics.cjs /opt/lettuce/spawn-diagnostics.cjs
 ENV NODE_OPTIONS="--require /opt/lettuce/spawn-diagnostics.cjs"
 
+# letta-code's self-updater, off. Every `letta` process without a subcommand
+# (the reflection and other subagents the server spawns, an agent shell running
+# `letta -p`) otherwise runs `npm install -g @letta-ai/letta-code@latest` here
+# whenever npm has a newer release. npm moves the live install aside while it
+# works, so the running server loses files such as image-resize-worker.js
+# ("the image processing worker is missing"), and a successful update would
+# run a letta-code the UI was not compiled against. In ENV, not compose, so
+# `docker exec` shells and every child process get it too.
+ENV DISABLE_AUTOUPDATER=1
+
 COPY shim-core.mjs codex-shim.mjs /opt/codex-shim/
 RUN chmod 755 /opt/codex-shim/codex-shim.mjs \
     && ln -s /opt/codex-shim/codex-shim.mjs /usr/local/bin/codex

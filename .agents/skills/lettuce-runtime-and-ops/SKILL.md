@@ -1,6 +1,6 @@
 ---
 name: lettuce-runtime-and-ops
-description: lettuce runtime/ops mechanics: the LLM timeout bounds prefill and not generation (env names, parse rules, createLocalProviderFetch is dead code, a change recreates app-server), agent web apps on ports 3000-3099 with the serving-web-apps skill and the never-bind-mount-repo-files rule, and why "Subagent process exited with code unknown" means the spawn failed (init: true reaping, pids.max, EAGAIN, the spawn-diagnostics preload). Read before touching LLM timeout env, docker/compose.yml env for app-server, AGENT_APP_PORTS, or debugging failing subagent spawns.
+description: 'lettuce runtime/ops mechanics: the LLM timeout bounds prefill and not generation (env names, parse rules, createLocalProviderFetch is dead code, a change recreates app-server), agent web apps on ports 3000-3099 with the serving-web-apps skill and the never-bind-mount-repo-files rule, and why "Subagent process exited with code unknown" means the spawn failed (init: true reaping, pids.max, EAGAIN, the spawn-diagnostics preload). Read before touching LLM timeout env, docker/compose.yml env for app-server, AGENT_APP_PORTS, or debugging failing subagent spawns.'
 ---
 
 # App-server runtime limits and ops traps
@@ -32,7 +32,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   turns included, without touching anyone's memory. It ships in the **bff image** and
   `bff/src/agent-skills.ts` writes it into `/root/.letta/skills/` over the upstream connection
   on every connect (`write_file` creates the directories), overwriting any agent edit.
-  **Never bind-mount repo files into a service:** Dockhand runs compose inside its own
+  **Never bind-mount repo files into a service:** the prod deploy manager runs compose inside its own
   container, so a relative bind source (`./…`) names a path that does not exist on the host
   and the daemon mounts an empty directory — silently. Builds are fine (the context is
   streamed); anything from the repo must travel in an image. `AGENT_APP_PORTS` and

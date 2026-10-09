@@ -1,6 +1,6 @@
 ---
 name: lettuce-mcp-and-mods
-description: lettuce MCP and mod mechanics: the one shared MCP list under /root/.letta/mcp-home (why per-agent settings entries do not stick), the mcp-servers skill wrapper, the mcp_search/mcp_describe/mcp_call/mcp_call_write bridge and its readOnlyHint write rule, how a letta-code mod is rendered and reloaded (resyncMods, one reload), and the native web_search/fetch_webpage tools, searxng/ddg-mcp sidecars and /internal/tools loopback-only route. Read before touching bff/src/mcp/, bff/src/mcp-bridge/, bff/src/internal-tools/, Settings → MCP servers or Settings → Web search, or the search/google sidecars.
+description: 'lettuce MCP and mod mechanics: the one shared MCP list under /root/.letta/mcp-home (why per-agent settings entries do not stick), the mcp-servers skill wrapper, the mcp_search/mcp_describe/mcp_call/mcp_call_write bridge and its readOnlyHint write rule, how a letta-code mod is rendered and reloaded (resyncMods, one reload), and the native web_search/fetch_webpage tools, searxng/ddg-mcp sidecars and /internal/tools loopback-only route. Read before touching bff/src/mcp/, bff/src/mcp-bridge/, bff/src/internal-tools/, Settings → MCP servers or Settings → Web search, or the search/google sidecars.'
 ---
 
 # Shared MCP list, the MCP bridge, and mods

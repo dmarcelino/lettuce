@@ -13,6 +13,7 @@ import { Icon } from "./Icon.tsx";
 import { McpEditor } from "./McpEditor.tsx";
 import { MenuRow } from "./MenuRow.tsx";
 import { NotificationsSection } from "./NotificationsSection.tsx";
+import { PiSection } from "./PiSection.tsx";
 import { GlobalSkills } from "./SkillsSections.tsx";
 import { WebToolsSection } from "./WebToolsSection.tsx";
 
@@ -23,6 +24,7 @@ export type GlobalSection =
   | "google"
   | "codex"
   | "claude"
+  | "pi"
   | "skills"
   | "notifications"
   | "about";
@@ -48,6 +50,7 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
       { id: "google", label: "Google", short: "Google" },
       { id: "codex", label: "Codex workers", short: "Codex" },
       { id: "claude", label: "Claude Code workers", short: "Claude" },
+      { id: "pi", label: "Remote Pi", short: "Remote Pi" },
     ],
   },
   {
@@ -65,7 +68,14 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
 ];
 
 const ALL_SECTIONS = GLOBAL_SECTION_GROUPS.flatMap((group) => group.sections);
-const SHARED_NOTE = "Shared by every agent. An agent's own settings are in its Agent tab.";
+/**
+ * Every section here is global, and the per-agent half of the UI moved twice:
+ * what an agent may use is under Tools, what an agent *is* is under Agent. Naming
+ * only one of them sends a reader looking for Remote Pi's per-agent folder to the
+ * wrong tab.
+ */
+const SHARED_NOTE =
+  "Shared by every agent. What one agent may use is under Tools; what it is named and told is under Agent.";
 const LAST_SECTION_KEY = "lettuce:settings-section";
 
 /** The profile token each gated section rides on; others are always visible. */
@@ -74,6 +84,7 @@ const SECTION_FEATURE: Partial<Record<GlobalSection, FeatureName>> = {
   google: "google",
   codex: "codex",
   claude: "claude",
+  pi: "pi",
 };
 
 function isSectionVisible(id: GlobalSection, features?: FeatureFlags): boolean {
@@ -198,6 +209,7 @@ export function GlobalSettings({
     google: () => <GoogleSection />,
     codex: () => <CodexSection />,
     claude: () => <ClaudeSection />,
+    pi: () => <PiSection />,
     skills: () => (
       <GlobalSkills session={session} agentId={agentId} cwd={cwd} version={skillsVersion} />
     ),

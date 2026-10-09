@@ -11,14 +11,16 @@
  * With no UI (print / JSON mode) a confirmation cannot be shown, so a gated
  * action is blocked rather than silently allowed.
  *
- * The rules themselves live in `guard-core.ts` (unit-tested); this file is only
- * the pi wiring. Loaded automatically from `.pi/extensions/`; see
- * docs/extensions.md.
+ * The rules themselves live in `scripts/guard-core.ts` (unit-tested); this file is
+ * only the pi wiring. Loaded automatically from `.pi/extensions/`; see
+ * docs/extensions.md. The rules are NOT kept here on purpose: pi loads every
+ * direct file in `.pi/extensions/` as an extension, so a helper module without a
+ * default factory export there fails the whole launch.
  */
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { reviewCommand, reviewPath } from "./guard-core.ts";
+import { reviewCommand, reviewPath } from "../../scripts/guard-core.ts";
 
 /** Repo root: this file lives in `.pi/extensions/`. */
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));

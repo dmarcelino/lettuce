@@ -47,7 +47,13 @@ import {
   suggestedCodexBaseUrl,
 } from "./codex/service.ts";
 import { InvalidCodexSettingsError, toPublicCodexSettings } from "./codex/settings.ts";
-import { type BffConfig, googleWritesAllowed, isAllowedUser, loadConfig } from "./config.ts";
+import {
+  type BffConfig,
+  enabledFeatureNames,
+  googleWritesAllowed,
+  isAllowedUser,
+  loadConfig,
+} from "./config.ts";
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
@@ -90,6 +96,20 @@ import { MCP_SKILL_NAME } from "./mcp/skill.ts";
 import { McpCatalog } from "./mcp-bridge/catalog.ts";
 import { mcpClient } from "./mcp-bridge/client.ts";
 import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
+import {
+  assertEffectiveUsable,
+  effectivePiSettings,
+  InvalidPiAgentSettingsError,
+  InvalidPiSettingsError,
+  isPiRunId,
+  PI_TOOL_NAMES,
+  PI_TOOL_SPECS,
+  PiService,
+  parsePiAgentSettings,
+  piConfigured,
+  toPublicPiSettings,
+} from "./pi/service.ts";
+import { parsePiRun, summarizePiRun } from "./pi/transcript.ts";
 import { ProviderSight } from "./providers/sight.ts";
 import {
   ModelCapsError,
@@ -420,6 +440,17 @@ const webToolsBackends = (): WebToolsBackends => ({
   searxngUrl: config.webTools.searxngUrl,
   ddg: config.webTools.ddgMcpUrl ? ddgCaller(config.webTools.ddgMcpUrl) : null,
 });
+// The remote pi worker (docs/remote-pi-plan.md): settings, keys and captured
+// run streams are all BFF-local on `bff-data`; the BFF itself is the ssh
+// client, so nothing here crosses the upstream connection.
+const piService = new PiService({
+  paths: { dir: config.piDir },
+  featureEnabled: () => config.features.pi,
+  log,
+});
+void piService
+  .reconcile()
+  .catch((error) => log(`Remote pi: reconcile failed: ${errorMessage(error)}`));
 const mcpCatalog = new McpCatalog({
   servers: () => loadMcpServers(mcpIo),
   client: mcpClient,
@@ -445,6 +476,7 @@ const toolHandlers: ReadonlyMap<string, ToolHandler> = new Map<string, ToolHandl
     lostAccess: googleLostAccess,
     accessFor: googleAccessFor,
   }),
+  ...piService.handlers(),
 ]);
 const modsIo: ModsIo = {
   read: codexIo.read,
@@ -545,6 +577,24 @@ async function renderAllMods(): Promise<RenderedMod[]> {
       }),
     },
   ];
+  // The remote pi worker: the stored switch counts only when the `pi`
+  // profile token is on, and Agent → Tools access hides the pi tools from a
+  // blocked agent's turn the same way Google tools are hidden.
+  const pi = await piService.load();
+  const piHidden = Object.fromEntries(
+    Object.entries(access)
+      .filter(([, a]) => a.pi === false)
+      .map(([agentId]) => [agentId, [...PI_TOOL_NAMES]]),
+  );
+  mods.push({
+    path: `${MODS_DIR}/lettuce-pi-tools.mjs`,
+    source: renderToolsMod({
+      title: "lettuce pi-tools v1",
+      tools: pi.enabled && config.features.pi ? PI_TOOL_SPECS : [],
+      port: config.port,
+      hidden: piHidden,
+    }),
+  });
   // The providers mod mirrors the served model list, so it can only be
   // rendered from a complete mirror: `null` means the mirror is still empty
   // for a prefix that needs one (the BFF connected before the first model
@@ -688,6 +738,13 @@ app.get("/healthz", (c) => c.text("ok\n"));
 app.get("/readyz", (c) =>
   upstream.isReady() ? c.text("ok\n") : c.text(`app-server ${upstream.getState()}\n`, 503),
 );
+
+// Which build is this, unauthenticated like /readyz and for the same reason:
+// `bun run deploy-check` asks it from outside, with no session, to prove the
+// container runs the commit it was built from rather than an older artifact.
+// It reveals a version and a commit hash — the same things /readyz reveals about
+// state, and no more. The commit itself is not secret and the repo is public.
+app.get("/versionz", (c) => c.text(`${uiVersion}\n`));
 
 // Resolves the session for every other route, minting one transparently from
 // a Cloudflare Access JWT the first time it sees one with no cookie yet.
@@ -1004,7 +1061,7 @@ app.put("/api/agents/tool-access/:agentId", async (c) => {
   const access = parseToolAccess(await c.req.json().catch(() => null));
   if (!access) {
     return c.text(
-      'Body must be { codex: boolean, claude: boolean, google: "full" | "read" | "off" }',
+      'Body must be { codex: boolean, claude: boolean, google: "full" | "read" | "off", pi?: boolean }',
       400,
     );
   }
@@ -1270,6 +1327,197 @@ app.get("/api/claude/runs/:sessionId", async (c) => {
   } catch (error) {
     return c.text(errorMessage(error), 502);
   }
+});
+
+// ── Remote pi worker ─────────────────────────────────────────────────────
+// Everything BFF-local: settings and keys on `bff-data`, runs captured from
+// the BFF's own ssh spawns. No upstream file channel, no app-server involved.
+// See `pi/` and docs/remote-pi-plan.md.
+
+/** A body may carry form values that are not saved yet — a check tests those. */
+function piDraftFromBody(body: unknown): Partial<Record<string, unknown>> {
+  if (!body || typeof body !== "object") return {};
+  const r = body as Record<string, unknown>;
+  const draft: Partial<Record<string, unknown>> = {};
+  for (const field of ["host", "user", "pathPrepend", "workdir"] as const) {
+    if (typeof r[field] === "string") draft[field] = r[field];
+  }
+  if (r.port !== undefined) draft.port = r.port;
+  return draft;
+}
+
+app.get("/api/pi/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const settings = await piService.load();
+  return c.json({
+    settings: toPublicPiSettings(settings),
+    // What the last check said about the saved target, or null. The UI adds
+    // "changed since the last check" itself; the BFF only remembers facts.
+    check: await piService.lastCheck(settings),
+    // Which agents point somewhere of their own, so the shared section can say
+    // "2 agents use their own settings" instead of being surprised by them.
+    agents: Object.entries(piService.agentSettings.all()).map(([agentId, override]) => ({
+      agentId,
+      mode: override.mode,
+    })),
+  });
+});
+
+app.put("/api/pi/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const body = await c.req.json().catch(() => null);
+  try {
+    const saved = await piService.save(body);
+    const mod = await resyncMods("Settings → Remote pi", { refreshCatalog: false });
+    // Save answers the question automatically, because an unpinned or
+    // unreachable host is otherwise discovered by an agent's failed run. A
+    // check that cannot run never fails the save.
+    const check = await piService.checkHost(saved).catch(() => null);
+    return c.json({ settings: toPublicPiSettings(saved), mod, check });
+  } catch (error) {
+    if (error instanceof InvalidPiSettingsError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+/** What a check is about: saved values, or the form's, plus whose host to use. */
+function piCheckBody(body: unknown): { draft: Record<string, unknown>; agentId: string | null } {
+  const r = (body ?? {}) as Record<string, unknown>;
+  const agentId = typeof r.agent_id === "string" && isAgentId(r.agent_id) ? r.agent_id : null;
+  return { draft: piDraftFromBody(body), agentId };
+}
+
+/**
+ * One agent's own Remote Pi settings: its workdir, and if it must, its own host.
+ * Stored by the BFF beside the pi settings and resolved at tool-call time, so
+ * the four pi tools stay exactly the four tools upstream sees.
+ */
+async function piAgentPayload(agentId: string) {
+  const global = await piService.load();
+  const effective = await piService.settingsFor(agentId);
+  return {
+    agentId,
+    override: piService.agentSettings.get(agentId),
+    effective: toPublicPiSettings(effective),
+    globalConfigured: piConfigured(global),
+    globalTarget:
+      global.host && global.user ? `${global.user}@${global.host}:${global.port}` : null,
+    check: await piService.lastCheck(effective),
+  };
+}
+
+app.get("/api/pi/agent/:agentId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  return c.json(await piAgentPayload(agentId));
+});
+
+app.put("/api/pi/agent/:agentId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  const body = await c.req.json().catch(() => null);
+  const override = parsePiAgentSettings(body);
+  if (!override) {
+    return c.text("Body must be { mode, host, port, user, pathPrepend, workdir, model }", 400);
+  }
+  try {
+    assertEffectiveUsable(await effectivePiSettings(await piService.load(), override));
+  } catch (error) {
+    if (error instanceof InvalidPiAgentSettingsError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 500);
+  }
+  piService.agentSettings.set(agentId, override);
+  await piService.agentSettings.drain();
+  // Same courtesy as the shared settings: answer the host question right away.
+  const check = await piService.checkHost({}, agentId).catch(() => null);
+  return c.json({ ...(await piAgentPayload(agentId)), check });
+});
+
+/** Back to inheriting everything. */
+app.delete("/api/pi/agent/:agentId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  piService.agentSettings.remove(agentId);
+  await piService.agentSettings.drain();
+  return c.json(await piAgentPayload(agentId));
+});
+
+/** Check the host — saved values, or the form's, when they are not saved yet. */
+app.post("/api/pi/check", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const body = await c.req.json().catch(() => null);
+  try {
+    const { draft, agentId } = piCheckBody(body);
+    return c.json({ check: await piService.checkHost(draft as never, agentId) });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+/**
+ * TOFU pin: ssh-keyscan a host and write what it answers. A different key
+ * already pinned for that host is a 409 with both fingerprints — replacing it
+ * is a second, deliberate click.
+ */
+app.post("/api/pi/pin-host", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  const options = {
+    ...(typeof body?.host === "string" ? { host: body.host } : {}),
+    ...(Number.isFinite(Number(body?.port)) && body?.port !== undefined && body?.port !== ""
+      ? { port: Number(body.port) }
+      : {}),
+    ...(body?.force === true ? { force: true } : {}),
+    ...(typeof body?.agent_id === "string" && isAgentId(body.agent_id)
+      ? { agentId: body.agent_id }
+      : {}),
+  };
+  try {
+    const pinned = await piService.pinHost(options);
+    if (pinned.changed) return c.json({ pinned }, 409);
+    return c.json({ pinned });
+  } catch (error) {
+    return c.text(errorMessage(error), 400);
+  }
+});
+
+/** Generate or rotate the lettuce-held deploy key; only the public half is served. */
+app.post("/api/pi/generate-key", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  try {
+    const settings = await piService.generateKeyPair();
+    return c.json({ settings: toPublicPiSettings(settings) });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+app.get("/api/pi/runs", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
+  const runs = (await piService.listRuns(limit)).map(summarizePiRun);
+  return c.json({ runs });
+});
+
+app.get("/api/pi/runs/:runId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  const meta = await piService.getRun(runId);
+  if (!meta) return c.text("No such run", 404);
+  const events = (await piService.store.readEventsTail(runId, 8_000_000)) ?? "";
+  return c.json({ run: parsePiRun(meta, events), capturing: piService.runner.isRunning(runId) });
 });
 
 // ── Google (Gmail / Calendar / Tasks) ───────────────────────────────────────
@@ -1717,9 +1965,7 @@ const server = Bun.serve<SocketData>({
 });
 
 log(`Mode: ${config.mode}`);
-const featureNames = (["web", "google", "codex", "claude"] as const).filter(
-  (name) => config.features[name],
-);
+const featureNames = enabledFeatureNames(config.features);
 log(
   `Features: ${
     featureNames.length > 0 ? featureNames.join(", ") : "(none — no feature token in LETTA_MODE)"

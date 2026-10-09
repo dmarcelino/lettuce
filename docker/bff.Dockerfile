@@ -31,6 +31,31 @@ COPY web/vite.config.ts ./web/vite.config.ts
 
 RUN cd web && bun run build
 
+# ── Stage 2: this build's version string ─────────────────────────────────────
+FROM deps AS buildinfo
+
+WORKDIR /app
+
+COPY bff/src/build-info.ts ./bff/src/build-info.ts
+COPY scripts/build-info.ts ./scripts/build-info.ts
+COPY VERSION               ./VERSION
+# The whole tree, never `.git` itself, because a deploy manager does not build
+# from its clone. The prod deploy manager clones the repo, copies the checked-out files into its
+# stack directory and runs a plain `compose up` there, and that copy has no
+# `.git` at all — `COPY .git/` aborted the whole bake with `"/.git": not found`
+# and the prod deploy with it. So read the refs from wherever they happen to be:
+# a real checkout still stamps its own commit (.dockerignore keeps HEAD, refs and
+# packed-refs out of .git — metadata, never objects or history), and a builder
+# with none stamps `+unknown` and leaves "which commit" to the deploy manager's
+# record (docs/upstream-notes.md#prod-builds-without-git). A linked git
+# worktree is the other none: its `.git` is a file pointing outside the context,
+# which is what `bun run build:bff` is for.
+COPY .                     ./ctx
+# Optional override for a builder with no refs to read (CI passing
+# github.sha). Empty means: derive it from ctx/.git, else `+unknown`.
+ARG GIT_SHA=""
+RUN bun scripts/build-info.ts --emit BUILD_INFO --gitmeta ctx/.git --git-sha "$GIT_SHA"
+
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM deps AS runtime
 
@@ -42,21 +67,28 @@ FROM deps AS runtime
 # running on agent-authored repositories inside this container, mitigated by
 # the read-only mount, argv-only spawns, timeouts and output caps. Only `git`
 # itself is needed; --no-install-recommends keeps perl manpages etc. out.
+# `openssh-client` is the remote pi worker's transport (bff/src/pi/): the BFF
+# itself is the ssh client, so the app-server image carries nothing for it.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git \
+  && apt-get install -y --no-install-recommends git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY bff/src            ./bff/src
 COPY bff/tsconfig.json  ./bff/tsconfig.json
 # This build's release tag, served at /api/status and shown in Settings → About.
-# A file rather than `git describe`: .dockerignore excludes .git, and the git
+# A file rather than `git describe`: .dockerignore excludes .git objects, and the git
 # install above must not become the reason this build could not be derived
 # (see CLAUDE.md "Versioning and tags").
 COPY VERSION            ./VERSION
+# The commit this was built from, computed in the buildinfo stage above, so
+# /api/status can say "v0.6.1-letta_0.34.1+9400080" instead of the last release.
+# A dirty tree is invisible from inside an image build, so the metadata carries no
+# -dirty suffix here; deploy-check compares the SHA, not the suffix.
+COPY --from=buildinfo /app/BUILD_INFO ./BUILD_INFO
 # Skills the BFF installs into every agent's global skill directory on connect
-# (bff/src/agent-skills.ts). In the image, not a bind mount: under Dockhand a
-# relative mount source resolves inside Dockhand's container, not on the host.
+# (bff/src/agent-skills.ts). In the image, not a bind mount: under the deploy manager a
+# relative mount source resolves inside its container, not on the host.
 COPY docker/agent-skills ./docker/agent-skills
 
 # The BFF serves this build at / (see the static routes in bff/src/index.ts).
