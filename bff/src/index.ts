@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import type {
   AgentListResponseMessage,
@@ -17,6 +17,7 @@ import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { installAgentSkills, readSkillTree } from "./agent-skills.ts";
 import { AgentAncestry } from "./agents/ancestry.ts";
+import { AgentFacts } from "./agents/facts.ts";
 import { AgentIdList, isAgentId } from "./agents/id-list.ts";
 import {
   AgentToolAccessStore,
@@ -32,28 +33,11 @@ import {
   encodeSession,
   type SessionPayload,
 } from "./auth/session-cookie.ts";
-import {
-  type ClaudeFileIo,
-  getClaudeRun,
-  listClaudeRuns,
-  loadClaudeSettings,
-  reapplyClaudeSettings,
-  saveClaudeSettings,
-} from "./claude/service.ts";
-import { InvalidClaudeSettingsError, toPublicClaudeSettings } from "./claude/settings.ts";
-import { isClaudeSessionId } from "./claude/transcript.ts";
+import { registerClaudeRoutes } from "./claude/routes.ts";
+import { type ClaudeFileIo, reapplyClaudeSettings } from "./claude/service.ts";
 import { AGENT_POLICY_MOD_PATH, renderAgentPolicyMod } from "./codex/policy-mod.ts";
-import { isCodexThreadId } from "./codex/rollout.ts";
-import {
-  type CodexFileIo,
-  getCodexRun,
-  listCodexRuns,
-  loadCodexSettings,
-  reapplyCodexSettings,
-  saveCodexSettings,
-  suggestedCodexBaseUrl,
-} from "./codex/service.ts";
-import { InvalidCodexSettingsError, toPublicCodexSettings } from "./codex/settings.ts";
+import { registerCodexRoutes } from "./codex/routes.ts";
+import { type CodexFileIo, reapplyCodexSettings } from "./codex/service.ts";
 import {
   type BffConfig,
   enabledFeatureNames,
@@ -80,10 +64,9 @@ import {
 } from "./git/routes.ts";
 import { checkGitAvailability, runGit } from "./git/service.ts";
 import { createGoogleFsIo } from "./google/fs-io.ts";
-import { googleSettingsUrl, type LostAccessPort } from "./google/lost-access.ts";
-import { GoogleOAuthError } from "./google/oauth.ts";
-import { GoogleAccessError, GoogleService } from "./google/service.ts";
-import { InvalidGoogleSettingsError } from "./google/settings.ts";
+import type { LostAccessPort } from "./google/lost-access.ts";
+import { registerGoogleRoutes } from "./google/routes.ts";
+import { GoogleService } from "./google/service.ts";
 import {
   availableGoogleTools,
   GOOGLE_TOOLS_MOD_PATH,
@@ -100,7 +83,13 @@ import { type ModsIo, type RenderedMod, syncMods } from "./internal-tools/instal
 import { readRenamed } from "./internal-tools/legacy.ts";
 import { MODS_DIR, renderToolsMod } from "./internal-tools/mod.ts";
 import type { ToolHandler } from "./internal-tools/types.ts";
-import { ensureMcpServers, loadMcpServers, type McpIo, saveMcpServers } from "./mcp/service.ts";
+import {
+  ensureMcpServers,
+  loadMcpServers,
+  type McpIo,
+  saveMcpServers,
+  updateMcpServers,
+} from "./mcp/service.ts";
 import {
   InvalidMcpServersError,
   type McpServer,
@@ -111,35 +100,11 @@ import { MCP_SKILL_NAME } from "./mcp/skill.ts";
 import { McpCatalog } from "./mcp-bridge/catalog.ts";
 import { mcpClient } from "./mcp-bridge/client.ts";
 import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
-import {
-  assertEffectiveUsable,
-  effectivePiSettings,
-  InvalidPiAgentSettingsError,
-  InvalidPiSettingsError,
-  isPiRunId,
-  PI_TOOL_NAMES,
-  PI_TOOL_SPECS,
-  PiService,
-  parsePiAgentSettings,
-  piConfigured,
-  toPublicPiSettings,
-} from "./pi/service.ts";
-import { parsePiRun, summarizePiRun } from "./pi/transcript.ts";
-import {
-  type ParsedProvider,
-  PROVIDER_TYPES,
-  ProviderError,
-  parseProviderBody,
-  probeProviderModels,
-  slugifyName,
-} from "./providers/registry.ts";
+import { registerPiRoutes } from "./pi/routes.ts";
+import { PI_TOOL_NAMES, PI_TOOL_SPECS, PiService } from "./pi/service.ts";
+import { registerProviderRoutes } from "./providers/routes.ts";
 import { ProviderSight } from "./providers/sight.ts";
-import {
-  ModelCapsError,
-  ModelCapsStore,
-  parseModelCapsBody,
-  splitHandle,
-} from "./providers/store.ts";
+import { ModelCapsStore } from "./providers/store.ts";
 import {
   buildProviderModGroups,
   PROVIDERS_MOD_PATH,
@@ -150,10 +115,11 @@ import {
 import { AgentNames } from "./push/agent-names.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
 import { notify } from "./push/notify.ts";
-import { configureWebPush, sendPush } from "./push/send.ts";
+import { registerPushRoutes } from "./push/routes.ts";
+import { configureWebPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
-import { securityHeaders } from "./security-headers.ts";
+import { hardenedResponse, securityHeaders } from "./security-headers.ts";
 import { scopeKeyOf } from "./session/buffer.ts";
 import {
   accounting,
@@ -175,15 +141,10 @@ import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 import { readUiVersion } from "./version.ts";
 import { ddgCaller } from "./web-tools/ddg.ts";
-import {
-  loadWebToolsSettings,
-  retireSeededDdgMcp,
-  saveWebToolsSettings,
-} from "./web-tools/install.ts";
+import { loadWebToolsSettings, retireSeededDdgMcp } from "./web-tools/install.ts";
 import { renderWebToolsMod, WEB_TOOLS_MOD_PATH } from "./web-tools/mod.ts";
+import { registerWebToolsRoutes } from "./web-tools/routes.ts";
 import { fetchWebpage, type WebToolsBackends, webSearch } from "./web-tools/service.ts";
-import { InvalidWebToolsSettingsError } from "./web-tools/settings.ts";
-import { webToolsStatus } from "./web-tools/status.ts";
 
 const config: BffConfig = loadConfig();
 /** This build's release tag (see the `VERSION` file and CLAUDE.md). */
@@ -213,24 +174,22 @@ const googleAccessFor = (agentId: string | null) =>
   agentId ? agentToolAccess.get(agentId).google : "full";
 // A subagent's own id is in no stored entry, so what it may start is decided by
 // its ancestors too — letta-code tags every spawned subagent `parent:<id>`.
-const agentAncestry = new AgentAncestry(async (agentId) => {
+// Both ports ask about the same agents, so they share one retrieval.
+const agentFacts = new AgentFacts(async (agentId) => {
   const response = await upstream.request<AgentRetrieveResponseMessage>(
-    { type: "agent_retrieve", request_id: `bff-agent-tags-${randomUUID()}`, agent_id: agentId },
+    { type: "agent_retrieve", request_id: `bff-agent-${randomUUID()}`, agent_id: agentId },
     10_000,
   );
-  return response.success ? (response.agent?.tags ?? []) : [];
+  return response.success
+    ? { name: response.agent?.name ?? null, tags: response.agent?.tags ?? [] }
+    : { name: null, tags: [] };
 });
+const agentAncestry = new AgentAncestry(async (agentId) => (await agentFacts.get(agentId)).tags);
 const workerAccessFor = async (agentId: string) =>
   inheritAccess(await agentAncestry.chain(agentId), (id) => agentToolAccess.get(id));
 // Push titles name the agent. Looked up through the permanent connection and
 // cached; a failed lookup falls back to "Lettuce" rather than delaying the push.
-const agentNames = new AgentNames(async (agentId) => {
-  const response = await upstream.request<AgentRetrieveResponseMessage>(
-    { type: "agent_retrieve", request_id: `bff-agent-name-${randomUUID()}`, agent_id: agentId },
-    10_000,
-  );
-  return response.success ? (response.agent?.name ?? null) : null;
-});
+const agentNames = new AgentNames(async (agentId) => (await agentFacts.get(agentId)).name);
 const turnOutcomeWatcher = pushStore ? new TurnOutcomeWatcher(pushStore, log, agentNames) : null;
 const approvalWatcher = pushStore ? new ApprovalWatcher(pushStore, log, agentNames) : null;
 const turnErrors = new TurnErrorLog();
@@ -337,13 +296,27 @@ const contextSizer = new ContextSizer(
   contextSizes,
 );
 
-/** The model in force for a scope, resolved the way the model picker does. */
+/**
+ * The model in force for a scope, the way the model picker resolves it: the
+ * conversation's own override first, then the agent's.
+ */
+function modelHandleFrom(
+  conversation: ConversationRetrieveResponseMessage | null,
+  agent: unknown,
+): string | null {
+  const model = conversation?.conversation?.model;
+  if (typeof model === "string" && model) return model;
+  return agentModelHandle(agent);
+}
+
+/** Same, for a caller holding nothing but the ids. */
 async function modelHandleFor(
   agentId: string,
   conversationId: string | null,
 ): Promise<string | null> {
+  let conversation: ConversationRetrieveResponseMessage | null = null;
   if (conversationId && conversationId !== "default") {
-    const conversation = await upstream
+    conversation = await upstream
       .request<ConversationRetrieveResponseMessage>(
         {
           type: "conversation_retrieve",
@@ -353,14 +326,12 @@ async function modelHandleFor(
         10_000,
       )
       .catch(() => null);
-    const model = conversation?.conversation?.model;
-    if (typeof model === "string" && model) return model;
   }
   const agent = await upstream.request<AgentRetrieveResponseMessage>(
     { type: "agent_retrieve", request_id: `bff-sizer-agent-${randomUUID()}`, agent_id: agentId },
     10_000,
   );
-  return agentModelHandle(agent.success ? (agent.agent ?? null) : null);
+  return modelHandleFrom(conversation, agent.success ? (agent.agent ?? null) : null);
 }
 
 // Skills this repo ships to every agent (docker/agent-skills), installed into
@@ -369,10 +340,20 @@ async function modelHandleFor(
 // bff image at the same relative path as in the repo, so dev works unchanged.
 const agentSkillsDir =
   process.env.AGENT_SKILLS_DIR ?? new URL("../../docker/agent-skills", import.meta.url).pathname;
+/**
+ * What this process has already written, keyed by path and content. A reconnect
+ * to an app-server that never stopped does not need every skill file again, and
+ * a reconnect pass is exactly when a turn is waiting. A state directory replaced
+ * under a running BFF is re-synced on the BFF's next restart — the same restart
+ * that drops this record.
+ */
+const shippedSkillsWritten = new Set<string>();
 async function installShippedSkills(): Promise<void> {
   await installAgentSkills(
     readSkillTree(agentSkillsDir),
     async (path, content) => {
+      const written = `${path}|${createHash("sha256").update(content).digest("base64url")}`;
+      if (shippedSkillsWritten.has(written)) return;
       const response = await upstream.request<WriteFileResponseMessage>({
         type: "write_file",
         path,
@@ -380,9 +361,33 @@ async function installShippedSkills(): Promise<void> {
         request_id: `bff-skill-${randomUUID()}`,
       });
       if (response?.success !== true) throw new Error(response?.error ?? "write_file failed");
+      shippedSkillsWritten.add(written);
     },
     log,
   );
+}
+
+/**
+ * One app-server file command, decided the same way everywhere: the payload when
+ * it answered, `null` when the path is simply not there, and a thrown error
+ * quoting what the app-server said for anything else.
+ *
+ * A missing path is the normal state of a fresh install — no settings file has
+ * been written yet — so it is not a failure, and the rule belongs in one place:
+ * a call site that gets it wrong turns a first boot into a 502, which is the kind
+ * of bug only a new install ever sees.
+ */
+async function fileCommand<T extends ReadFileResponseMessage | ListInDirectoryResponseMessage, R>(
+  command: { type: string; request_id: string } & Record<string, unknown>,
+  // `null` from the payload means "answered, nothing there", which is the same
+  // answer as an absent path.
+  payload: (response: T) => R | null,
+  what: string,
+): Promise<R | null> {
+  const response = await upstream.request<T>(command);
+  if (response.success) return payload(response);
+  if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
+  throw new Error(response.error ?? `Could not ${what}`);
 }
 
 // Codex workers' files, reached through the app-server like every other file
@@ -390,15 +395,16 @@ async function installShippedSkills(): Promise<void> {
 // browser: `/root/.letta` is outside the workspace clamp on purpose.
 const codexIo: CodexFileIo = {
   async read(path) {
-    const response = await upstream.request<ReadFileResponseMessage>({
-      type: "read_file",
-      path,
-      encoding: "utf8",
-      request_id: `bff-codex-read-${randomUUID()}`,
-    });
-    if (response.success && typeof response.content === "string") return response.content;
-    if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
-    throw new Error(response.error ?? `Could not read ${path}`);
+    return fileCommand<ReadFileResponseMessage, string>(
+      {
+        type: "read_file",
+        path,
+        encoding: "utf8",
+        request_id: `bff-codex-read-${randomUUID()}`,
+      },
+      (response) => (typeof response.content === "string" ? response.content : null),
+      `read ${path}`,
+    );
   },
   async write(path, content) {
     const response = await upstream.request<WriteFileResponseMessage>({
@@ -410,15 +416,16 @@ const codexIo: CodexFileIo = {
     if (response?.success !== true) throw new Error(response?.error ?? `Could not write ${path}`);
   },
   async listFiles(dir) {
-    const response = await upstream.request<ListInDirectoryResponseMessage>({
-      type: "list_in_directory",
-      path: dir,
-      include_files: true,
-      request_id: `bff-codex-list-${randomUUID()}`,
-    });
-    if (response.success) return response.files ?? [];
-    if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
-    throw new Error(response.error ?? `Could not list ${dir}`);
+    return fileCommand<ListInDirectoryResponseMessage, string[]>(
+      {
+        type: "list_in_directory",
+        path: dir,
+        include_files: true,
+        request_id: `bff-codex-list-${randomUUID()}`,
+      },
+      (response) => response.files ?? [],
+      `list ${dir}`,
+    );
   },
 };
 
@@ -474,15 +481,16 @@ function deploymentRows(): Component[] {
 const claudeIo: ClaudeFileIo = {
   ...codexIo,
   async listDirs(dir) {
-    const response = await upstream.request<ListInDirectoryResponseMessage>({
-      type: "list_in_directory",
-      path: dir,
-      include_files: true,
-      request_id: `bff-claude-list-dirs-${randomUUID()}`,
-    });
-    if (response.success) return response.folders ?? [];
-    if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
-    throw new Error(response.error ?? `Could not list ${dir}`);
+    return fileCommand<ListInDirectoryResponseMessage, string[]>(
+      {
+        type: "list_in_directory",
+        path: dir,
+        include_files: true,
+        request_id: `bff-claude-list-dirs-${randomUUID()}`,
+      },
+      (response) => response.folders ?? [],
+      `list ${dir}`,
+    );
   },
 };
 
@@ -493,15 +501,16 @@ const skillCatalog = new SkillCatalog(
   hostSkillFs,
   upstreamSkillFs({
     async list(dir) {
-      const response = await upstream.request<ListInDirectoryResponseMessage>({
-        type: "list_in_directory",
-        path: dir,
-        include_files: true,
-        request_id: `bff-skills-list-${randomUUID()}`,
-      });
-      if (response.success) return { folders: response.folders, files: response.files ?? [] };
-      if (/ENOENT|no such file/i.test(response.error ?? "")) return null;
-      throw new Error(response.error ?? `Could not list ${dir}`);
+      return fileCommand<ListInDirectoryResponseMessage, { folders: string[]; files: string[] }>(
+        {
+          type: "list_in_directory",
+          path: dir,
+          include_files: true,
+          request_id: `bff-skills-list-${randomUUID()}`,
+        },
+        (response) => ({ folders: response.folders ?? [], files: response.files ?? [] }),
+        `list ${dir}`,
+      );
     },
     async read(path) {
       const content = await codexIo.read(path);
@@ -586,7 +595,12 @@ const piService = new PiService({
       void piService
         .settleReport(meta)
         .then((content) =>
-          upstream.send({
+          // `sendInternal`, not `send`: the app-server answers any `input` that
+          // carries a request_id with `input_accepted`, and unless the id is
+          // registered as BFF-internal that answer is treated as an
+          // unsolicited frame — sequenced, buffered, and relayed to every tab
+          // watching the conversation with a request id nobody issued.
+          upstream.sendInternal({
             type: "input",
             request_id: crypto.randomUUID(),
             runtime: { agent_id: meta.agentId, conversation_id: meta.conversationId },
@@ -694,7 +708,14 @@ const providerSight = new ProviderSight({
 
 /** Every mod as it should be now, from the saved switch and the last catalog. */
 async function renderAllMods(): Promise<RenderedMod[]> {
-  const web = await loadWebToolsSettings(codexIo);
+  // Three files over the connection, none of them waiting on another. A mod sync
+  // runs on connect, after every settings save and on a model-list change, so
+  // the two round-trips spent reading them in series were paid on every one.
+  const [web, pi, currentProvidersMod] = await Promise.all([
+    loadWebToolsSettings(codexIo),
+    piService.load(),
+    codexIo.read(PROVIDERS_MOD_PATH).catch(() => null),
+  ]);
   const { tools } = mcpCatalog.snapshot();
   const access = agentToolAccess.all();
   const googleHidden = Object.fromEntries(
@@ -739,7 +760,6 @@ async function renderAllMods(): Promise<RenderedMod[]> {
   // The remote pi worker: the stored switch counts only when the `pi`
   // profile token is on, and Agent → Tools access hides the pi tools from a
   // blocked agent's turn the same way Google tools are hidden.
-  const pi = await piService.load();
   const piHidden = Object.fromEntries(
     Object.entries(access)
       .filter(([, a]) => a.pi === false)
@@ -759,7 +779,6 @@ async function renderAllMods(): Promise<RenderedMod[]> {
   // for a prefix that needs one (the BFF connected before the first model
   // list landed) and the existing file must stand — a partial render would
   // erase live models. Retry until the mirror is filled.
-  const currentProvidersMod = await codexIo.read(PROVIDERS_MOD_PATH).catch(() => null);
   const providerGroups = buildProviderModGroups({
     models: modelCaps.models(),
     endpoints: modelCaps.endpoints(),
@@ -770,6 +789,7 @@ async function renderAllMods(): Promise<RenderedMod[]> {
     retired: modelCaps.retired(),
   });
   if (providerGroups) {
+    providersMirrorAttempts = 0;
     mods.push({ path: PROVIDERS_MOD_PATH, source: renderProvidersMod(providerGroups) });
   } else {
     log("Providers: served-model mirror incomplete — providers mod left as-is");
@@ -799,16 +819,34 @@ let modsChain: Promise<unknown> = Promise.resolve();
 let modsReloadRetry: ReturnType<typeof setInterval> | null = null;
 /** Retry for a providers render deferred on an empty model-list mirror. */
 let providersMirrorRetry: ReturnType<typeof setTimeout> | null = null;
+/**
+ * How long either retry keeps trying before it stops: ten minutes of 30-second
+ * attempts. Both wait on something outside this process (an agent to carry a
+ * `reload`, an endpoint to report its model list), and a retry that never gives
+ * up is background traffic plus a failing log line forever.
+ */
+const RETRY_MAX_ATTEMPTS = 20;
+const RETRY_INTERVAL_MS = 30_000;
+let providersMirrorAttempts = 0;
 
 function scheduleProvidersMirrorRetry(): void {
   if (providersMirrorRetry) return;
+  if (providersMirrorAttempts >= RETRY_MAX_ATTEMPTS) {
+    log(
+      `Providers: the served-model mirror never filled after ${RETRY_MAX_ATTEMPTS} attempts — ` +
+        "the providers mod keeps the models it has. It is retried on the next connection.",
+    );
+    providersMirrorAttempts = 0;
+    return;
+  }
+  providersMirrorAttempts += 1;
   providersMirrorRetry = setTimeout(() => {
     providersMirrorRetry = null;
     void resyncMods("providers mirror retry", {
       refreshCatalog: false,
       refreshProviders: true,
     }).catch(() => {});
-  }, 30_000);
+  }, RETRY_INTERVAL_MS);
 }
 
 function resyncMods(
@@ -833,8 +871,19 @@ function resyncMods(
 
 function scheduleModsReload(): void {
   if (modsReloadRetry) return;
+  let attempts = 0;
   modsReloadRetry = setInterval(() => {
     if (!upstream.isReady()) return;
+    attempts += 1;
+    if (attempts > RETRY_MAX_ATTEMPTS) {
+      if (modsReloadRetry) clearInterval(modsReloadRetry);
+      modsReloadRetry = null;
+      log(
+        `Native tools: the mods reload never ran after ${RETRY_MAX_ATTEMPTS} attempts — ` +
+          "it is retried on the next connection.",
+      );
+      return;
+    }
     void modsIo
       .reloadMods()
       .then((done) => {
@@ -844,7 +893,7 @@ function scheduleModsReload(): void {
         log("Native tools: mods reloaded");
       })
       .catch((error) => log(`Native tools: reload failed: ${errorMessage(error)}`));
-  }, 30_000);
+  }, RETRY_INTERVAL_MS);
 }
 
 /**
@@ -946,6 +995,30 @@ const throttle = async (c: Context, next: () => Promise<void>) => {
 app.use("/api/*", throttle);
 app.use("/push/*", throttle);
 
+// The session gate for everything under `/api` and `/push`. Thirty-four handlers
+// used to begin with the same hand-written check, which means a route that forgot
+// it served agent data to an anonymous visitor and nothing — no test, no lint
+// rule — would have noticed. Hono middleware only covers routes registered after
+// it, so this sits above every route, including the `register*Routes` calls that
+// mount their families where their handlers used to sit.
+const ANONYMOUS_API_PATHS = new Set([
+  // Renders a sign-in screen: it answers with `authenticated: false` by design.
+  "/api/status",
+  // An agent's link for a human to click; it redirects to Settings when signed out.
+  "/api/google/reconnect",
+  // Google's redirect back. No cookie rides along on another origin, and the
+  // single-use `state` minted by the gated /connect is what authorises it.
+  "/api/google/oauth/callback",
+]);
+const requireSession = async (c: Context, next: () => Promise<void>) => {
+  if (!c.get("session") && !ANONYMOUS_API_PATHS.has(c.req.path)) {
+    return c.text("Unauthorized", 401);
+  }
+  return next();
+};
+app.use("/api/*", requireSession);
+app.use("/push/*", requireSession);
+
 // The web client reads exactly three fields: `authenticated`, `auth_mode` and
 // `user.email`. Everything else here is operational detail — the running
 // letta-code version, backend kind, protocol version, how many sessions are
@@ -1009,10 +1082,7 @@ app.get("/auth/dev-login", (c) => {
 
   log(`Dev login as ${email} (NO AUTHENTICATION — loopback only)`);
   const { cookie } = mintSession(email);
-  return new Response(null, {
-    status: 302,
-    headers: { location: "/", "set-cookie": cookie, ...hardened },
-  });
+  return hardenedResponse(hardened, null, { location: "/", "set-cookie": cookie }, 302);
 });
 
 app.post("/auth/logout", (c) => {
@@ -1020,106 +1090,10 @@ app.post("/auth/logout", (c) => {
   return c.json({ ok: true });
 });
 
-app.get("/push/vapid-key", (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!config.push) return c.text("Push notifications are not configured on this instance", 404);
-  return c.json({ key: config.push.vapidPublicKey });
-});
-
-app.post("/push/subscribe", async (c) => {
-  const session = c.get("session");
-  if (!session) return c.text("Unauthorized", 401);
-  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
-
-  try {
-    const body = await c.req.json();
-    const record = pushStore.add(
-      body,
-      session.email,
-      (body as { preferences?: unknown })?.preferences,
-    );
-    return c.json({ ok: true, preferences: record.preferences });
-  } catch (error) {
-    return c.text(error instanceof Error ? error.message : "Malformed subscription", 400);
-  }
-});
-
-app.post("/push/unsubscribe", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
-
-  const body = await c.req.json().catch(() => null);
-  const endpoint = endpointOf(body);
-  if (!endpoint) return c.text("Missing endpoint", 400);
-
-  pushStore.remove(endpoint);
-  return c.json({ ok: true });
-});
-
-app.get("/push/preferences", (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
-
-  const endpoint = c.req.query("endpoint");
-  if (!endpoint) return c.text("Missing endpoint", 400);
-
-  const preferences = pushStore.getPreferences(endpoint);
-  if (!preferences) return c.text("Unknown push subscription", 404);
-  return c.json({ preferences });
-});
-
-app.post("/push/preferences", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
-
-  const body = await c.req.json().catch(() => null);
-  const endpoint = endpointOf(body);
-  if (!endpoint) return c.text("Missing endpoint", 400);
-
-  try {
-    const record = pushStore.updatePreferences(
-      endpoint,
-      (body as { preferences?: unknown }).preferences,
-    );
-    return c.json({ ok: true, preferences: record.preferences });
-  } catch (error) {
-    return c.text(error instanceof Error ? error.message : "Unknown push subscription", 404);
-  }
-});
-
-// Delivery, proven end to end, without staging an unwatched turn. Every real
-// trigger is suppressed while a visible session is on that conversation, so a
-// device that is subscribed but undeliverable is otherwise indistinguishable
-// from one that is simply being watched. This route skips that check and the
-// per-event preferences: it is the user asking for exactly this notification.
-app.post("/push/test", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!pushStore) return c.text("Push notifications are not configured on this instance", 404);
-
-  const body = await c.req.json().catch(() => null);
-  const endpoint = endpointOf(body);
-  if (!endpoint) return c.text("Missing endpoint", 400);
-
-  const record = pushStore.all().find((candidate) => candidate.endpoint === endpoint);
-  if (!record) return c.text("Unknown push subscription", 404);
-
-  try {
-    const result = await sendPush(record, {
-      title: "Lettuce",
-      body: "Test notification — push is working on this device.",
-      url: "/",
-    });
-    if (result === "gone") {
-      pushStore.remove(endpoint);
-      log(`Push test: ${endpoint} is gone; removed`);
-      return c.text("This device's subscription has expired — turn notifications off and on", 410);
-    }
-    log(`Push test: sent to ${endpoint}`);
-    return c.json({ ok: true });
-  } catch (error) {
-    log(`Push test to ${endpoint} failed: ${errorMessage(error)}`);
-    return c.text(errorMessage(error), 502);
-  }
+registerPushRoutes(app, {
+  store: pushStore,
+  vapidPublicKey: config.push?.vapidPublicKey ?? null,
+  log,
 });
 
 // ── MCP servers ─────────────────────────────────────────────────────────────
@@ -1130,7 +1104,6 @@ app.post("/push/test", async (c) => {
 // that agent shells will exec.
 
 app.get("/api/mcp", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
 
   try {
@@ -1142,7 +1115,6 @@ app.get("/api/mcp", async (c) => {
 });
 
 app.put("/api/mcp", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
 
   const body = await c.req.json().catch(() => null);
@@ -1175,13 +1147,11 @@ app.put("/api/mcp", async (c) => {
 // `agents/id-list.ts`. One GET for both, so a list renders once.
 
 app.get("/api/agents/flags", (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   return c.json({ pinned: agentPins.list(), archived: agentArchive.list() });
 });
 
 // Archiving also unpins: a hidden agent has no business leading the list.
 app.put("/api/agents/archived/:agentId", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   const body = (await c.req.json().catch(() => null)) as { archived?: unknown } | null;
   if (typeof body?.archived !== "boolean") return c.text("Body must be { archived: boolean }", 400);
   const agentId = c.req.param("agentId");
@@ -1192,12 +1162,10 @@ app.put("/api/agents/archived/:agentId", async (c) => {
 });
 
 app.get("/api/agents/pins", (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   return c.json({ pinned: agentPins.list() });
 });
 
 app.put("/api/agents/pins/:agentId", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   const body = (await c.req.json().catch(() => null)) as { pinned?: unknown } | null;
   if (typeof body?.pinned !== "boolean") return c.text("Body must be { pinned: boolean }", 400);
   const agentId = c.req.param("agentId");
@@ -1210,14 +1178,12 @@ app.put("/api/agents/pins/:agentId", async (c) => {
 // rendered mods, see `agents/tool-access.ts`.
 
 app.get("/api/agents/tool-access/:agentId", (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   const agentId = c.req.param("agentId");
   if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
   return c.json(agentToolAccess.get(agentId));
 });
 
 app.put("/api/agents/tool-access/:agentId", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   const agentId = c.req.param("agentId");
   if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
   const access = parseToolAccess(await c.req.json().catch(() => null));
@@ -1236,7 +1202,6 @@ app.put("/api/agents/tool-access/:agentId", async (c) => {
 });
 
 app.get("/api/skills", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   const agentId = c.req.query("agent_id");
   if (!agentId) return c.text("agent_id is required", 400);
@@ -1252,284 +1217,33 @@ app.get("/api/skills", async (c) => {
 // Settings → Codex, and the run viewer. See `codex/` for what the files are and
 // why the BFF, not the browser, touches them.
 
-app.get("/api/codex/settings", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  try {
-    const [settings, suggestedBaseUrl] = await Promise.all([
-      loadCodexSettings(codexIo),
-      suggestedCodexBaseUrl(codexIo),
-    ]);
-    return c.json({ settings: toPublicCodexSettings(settings), suggestedBaseUrl });
-  } catch (error) {
-    return c.text(errorMessage(error), 502);
-  }
+registerCodexRoutes(app, {
+  isReady: () => upstream.isReady(),
+  codexEnabled: config.features.codex,
+  io: codexIo,
 });
 
-app.put("/api/codex/settings", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  // Gated by the `codex` profile token: nothing to configure without the CLI,
-  // and the connect-time reapply has already forced the stored switch off.
-  if (!config.features.codex) return c.text("Codex workers are off: COMPOSE_PROFILES", 404);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  const body = await c.req.json().catch(() => null);
-  try {
-    const saved = await saveCodexSettings(codexIo, body);
-    return c.json({ settings: toPublicCodexSettings(saved) });
-  } catch (error) {
-    if (error instanceof InvalidCodexSettingsError) return c.text(error.message, 400);
-    return c.text(errorMessage(error), 502);
-  }
+// Settings → Web: the native web tools' switch, backend status and a test
+// search — all of it in `web-tools/routes.ts`.
+registerWebToolsRoutes(app, {
+  isReady: () => upstream.isReady(),
+  searchEnabled: config.features.web,
+  io: codexIo,
+  resyncMods,
+  backends: webToolsBackends,
+  searxngUrl: config.webTools.searxngUrl,
+  ddgMcpUrl: config.webTools.ddgMcpUrl,
 });
 
-// Settings → Web: the native web tools' switch, backend status and a test search.
-app.get("/api/web-tools/settings", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  try {
-    const settings = await loadWebToolsSettings(codexIo);
-    return c.json({ settings: { enabled: settings.enabled } });
-  } catch (error) {
-    return c.text(errorMessage(error), 502);
-  }
-});
-
-app.put("/api/web-tools/settings", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  // Gated by the `search` profile token: without the sidecars there is no
-  // backend to point the switch at.
-  if (!config.features.web) return c.text("Web search is off: COMPOSE_PROFILES", 404);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  const body = await c.req.json().catch(() => null);
-  try {
-    const saved = await saveWebToolsSettings(codexIo, body);
-    const mod = await resyncMods("Settings → Web", { refreshCatalog: false });
-    return c.json({ settings: { enabled: saved.enabled }, mod });
-  } catch (error) {
-    if (error instanceof InvalidWebToolsSettingsError) return c.text(error.message, 400);
-    return c.text(errorMessage(error), 502);
-  }
-});
-
-app.get("/api/web-tools/status", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  return c.json(
-    await webToolsStatus({
-      searxngUrl: config.webTools.searxngUrl,
-      ddgMcpUrl: config.webTools.ddgMcpUrl,
-      read: codexIo.read,
-    }),
-  );
-});
-
-// The same search an agent's `web_search` runs, so the settings screen can
-// prove the backends answer without starting a turn.
-app.post("/api/web-tools/test", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  const body = (await c.req.json().catch(() => null)) as { query?: unknown } | null;
-  return c.json(await webSearch({ query: body?.query, max_results: 5 }, webToolsBackends()));
-});
-
-// ── Model capabilities ──────────────────────────────────────────────────────
-// What the operator declares about models behind endpoints that report no
-// capabilities (plain OpenAI-compatible and its BYOK aliases): vision,
-// thinking, the real context window. The declarations drive the providers mod
-// — which is THE capability truth for every prefix it registers — so a save
-// re-renders and reloads it and answers with the same `mod` state the
-// web-tools switch uses ("reload-pending" when no agent exists yet).
-// Keys stored here are write-only: no route echoes them, same rule as the
-// provider connections themselves.
-
-app.get("/api/model-caps", (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  // Endpoint snapshots minus the key: a declared provider no Settings
-  // connection owns (an env-seeded one like halogen) still needs its URL and
-  // name to render as a served model. Keys stay write-only, same as everywhere.
-  const endpoints = Object.fromEntries(
-    Object.entries(modelCaps.endpoints()).map(([prefix, info]) => [
-      prefix,
-      {
-        ...(info.baseUrl ? { baseUrl: info.baseUrl } : {}),
-        ...(info.name ? { name: info.name } : {}),
-      },
-    ]),
-  );
-  return c.json({ models: modelCaps.models(), endpoints });
-});
-
-app.put("/api/model-caps", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  let saved: ReturnType<typeof parseModelCapsBody>;
-  try {
-    saved = parseModelCapsBody(await c.req.json().catch(() => null));
-  } catch (error) {
-    if (error instanceof ModelCapsError) return c.text(error.message, 400);
-    return c.text(errorMessage(error), 400);
-  }
-  modelCaps.setModel(saved.handle, saved.caps);
-  // Snapshot what the live connection currently has, so the group survives
-  // the connection going away; a blank key keeps the stored one (the protocol
-  // can never read it back, so the save form starts blank every time).
-  const prefix = saved.handle.slice(0, saved.handle.indexOf("/"));
-  const baseUrl = providerSight.baseUrlFor(prefix);
-  modelCaps.setEndpoint(prefix, {
-    ...(saved.apiKey ? { apiKey: saved.apiKey } : {}),
-    ...(baseUrl ? { baseUrl } : {}),
-  });
-  // Awaited so the answer says whether it is live; the reload retries on its
-  // own while no agent exists to carry it.
-  const mod = await resyncMods("Settings → model capabilities", {
-    refreshCatalog: false,
-    refreshProviders: true,
-  }).catch(() => null);
-  // A different declared window moves the point where the engine refuses, so
-  // every agent on this model is retuned to it (session/context-size.ts).
-  void contextSizer.applyHandle(saved.handle).catch(() => {});
-  return c.json({ model: { handle: saved.handle, ...saved.caps }, mod: mod ?? "failed" });
-});
-
-app.delete("/api/model-caps", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  const parts = splitHandle(c.req.query("handle"));
-  if (!parts) return c.text('handle must look like "provider/model"', 400);
-  const removed = modelCaps.removeModel(`${parts.prefix}/${parts.model}`);
-  const mod = await resyncMods("Settings → model capabilities", {
-    refreshCatalog: false,
-    refreshProviders: true,
-  }).catch(() => null);
-  return c.json({ removed, mod: mod ?? "failed" });
-});
-
-// The providers the operator added (Settings → Providers & models). Each is a
-// named endpoint with a handle prefix of its own, registered by the providers
-// mod — see `providers/registry.ts` for why this cannot be `connect_provider`.
-// The list never carries a key; a save with a blank key keeps the stored one.
-
-app.get("/api/providers", (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  const providers = Object.entries(modelCaps.endpoints()).map(([prefix, info]) => ({
-    prefix,
-    name: info.name ?? prefix,
-    type: info.type ?? "",
-    api: info.api ?? "openai-completions",
-    scope: info.scope ?? "local",
-    baseUrl: info.baseUrl ?? "",
-    models: info.models ?? [],
-    hasKey: Boolean(info.apiKey),
-  }));
-  return c.json({ types: PROVIDER_TYPES, providers });
-});
-
-app.post("/api/providers", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  let parsed: ParsedProvider;
-  try {
-    parsed = parseProviderBody(await c.req.json().catch(() => null));
-  } catch (error) {
-    if (error instanceof ProviderError) return c.text(error.message, 400);
-    return c.text(errorMessage(error), 400);
-  }
-  const stored = modelCaps.endpoints()[parsed.prefix];
-  if (stored?.name && stored.name !== parsed.name) {
-    return c.text(
-      `Another provider already answers to "${parsed.name}" — two providers cannot share the handle ${parsed.prefix}.`,
-      409,
-    );
-  }
-  if (!stored && providerSight.isConnected(parsed.prefix)) {
-    return c.text(
-      `The app-server already has a connection serving ${parsed.prefix}/ — name the provider something else.`,
-      409,
-    );
-  }
-  modelCaps.unretire(parsed.prefix);
-  modelCaps.setEndpoint(parsed.prefix, {
-    name: parsed.name,
-    type: parsed.type,
-    api: parsed.api,
-    scope: parsed.scope,
-    baseUrl: parsed.baseUrl,
-    models: parsed.models,
-    ...(parsed.apiKey ? { apiKey: parsed.apiKey } : {}),
-  });
-  // Nothing here declares what a model can do — vision, reasoning and the real
-  // context window are per model and set on the model, so a save here must not
-  // write (or flatten) a single capability.
-  const mod = await resyncMods("Settings → providers", {
-    refreshCatalog: false,
-    refreshProviders: true,
-  }).catch(() => null);
-  return c.json({
-    provider: {
-      prefix: parsed.prefix,
-      name: parsed.name,
-      type: parsed.type,
-      api: parsed.api,
-      scope: parsed.scope,
-      baseUrl: parsed.baseUrl,
-      models: parsed.models,
-    },
-    mod: mod ?? "failed",
-  });
-});
-
-app.delete("/api/providers", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  const prefix = slugifyName(c.req.query("prefix"));
-  if (!prefix) return c.text("prefix is required", 400);
-  const removed = modelCaps.removeProvider(prefix);
-  const mod = await resyncMods("Settings → providers", {
-    refreshCatalog: false,
-    refreshProviders: true,
-  }).catch(() => null);
-  return c.json({ removed, mod: mod ?? "failed" });
-});
-
-/**
- * What an endpoint says it serves. POST with the key in the body, not a query
- * string: a URL is the one thing that ends up in logs.
- */
-/**
- * What a probe is asked about: the endpoint fields of the form, with a blank key
- * falling back to the stored one — an edit form starts blank every time because
- * nothing can read a key back.
- */
-async function probeFields(c: Context): Promise<{ api: string; baseUrl: string; key: string }> {
-  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-  const typed = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
-  const prefix = slugifyName(body?.prefix);
-  const key = typed || (prefix ? (modelCaps.endpoints()[prefix]?.apiKey ?? "") : "");
-  return {
-    api: typeof body?.api === "string" ? body.api : "openai-completions",
-    baseUrl: typeof body?.baseUrl === "string" ? body.baseUrl : "",
-    key,
-  };
-}
-
-/** A failed probe says what the endpoint said — it is the operator's to read. */
-function providerText(error: unknown): string {
-  return error instanceof ProviderError ? error.message : errorMessage(error);
-}
-
-app.post("/api/providers/models", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  const probe = await probeFields(c);
-  if (!probe.baseUrl) return c.text("baseUrl is required", 400);
-  try {
-    const models = await probeProviderModels({
-      api: probe.api,
-      baseUrl: probe.baseUrl,
-      apiKey: probe.key,
-    });
-    return c.json({ models });
-  } catch (error) {
-    return c.text(providerText(error), 400);
-  }
+// Settings → Providers & models: the providers the operator added and what they
+// declared about each model. Both live in one store and both drive the providers
+// mod; the routes are in `providers/routes.ts`.
+registerProviderRoutes(app, {
+  isReady: () => upstream.isReady(),
+  modelCaps,
+  providerSight,
+  contextSizer,
+  resyncMods,
 });
 
 // The Context sheet's numbers: the context size in force (typed or declared),
@@ -1538,32 +1252,43 @@ app.post("/api/providers/models", async (c) => {
 // the last connect gets a window that matches its model. GET answers with the
 // values as they are; PUT stores a typed size and writes the window it implies.
 app.get("/api/context-size", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   const agentId = c.req.query("agent_id");
   if (!agentId) return c.text("agent_id is required", 400);
   const conversationId = c.req.query("conversation_id") || null;
   try {
-    // Before reading, so what is shown is what was just written: an agent whose
-    // window disagrees with its model's declaration is retuned here, once.
-    await contextSizer.ensure(agentId).catch(() => {});
-    const [agent, conversation] = await Promise.all([
-      upstream.request<AgentRetrieveResponseMessage>(
-        { type: "agent_retrieve", request_id: `bff-size-agent-${randomUUID()}`, agent_id: agentId },
-        10_000,
-      ),
-      conversationId && conversationId !== "default"
-        ? upstream.request<ConversationRetrieveResponseMessage>(
-            {
-              type: "conversation_retrieve",
-              request_id: `bff-size-conv-${randomUUID()}`,
-              conversation_id: conversationId,
-            },
-            10_000,
-          )
-        : Promise.resolve(null),
-    ]);
-    const handle = await modelHandleFor(agentId, conversationId);
+    const retrieve = () =>
+      Promise.all([
+        upstream.request<AgentRetrieveResponseMessage>(
+          {
+            type: "agent_retrieve",
+            request_id: `bff-size-agent-${randomUUID()}`,
+            agent_id: agentId,
+          },
+          10_000,
+        ),
+        conversationId && conversationId !== "default"
+          ? upstream.request<ConversationRetrieveResponseMessage>(
+              {
+                type: "conversation_retrieve",
+                request_id: `bff-size-conv-${randomUUID()}`,
+                conversation_id: conversationId,
+              },
+              10_000,
+            )
+          : Promise.resolve(null),
+      ]);
+    let [agent, conversation] = await retrieve();
+    // Retune before answering: an agent whose window disagrees with its model's
+    // declaration is retuned here, once. The agent just fetched is passed in, so
+    // this costs nothing extra; only the rare case that actually wrote a window (a
+    // newly created agent) is worth reading it back, and it is read back so the
+    // number shown is the number just written.
+    const resized = await contextSizer
+      .ensure(agentId, agent.success ? (agent.agent ?? null) : null)
+      .catch(() => false);
+    if (resized) [agent, conversation] = await retrieve();
+    const handle = modelHandleFrom(conversation, agent.success ? (agent.agent ?? null) : null);
     const declared = contextSizer.capsFor(handle);
     const inForce = effectiveContextLimit(
       agent.success ? (agent.agent ?? null) : null,
@@ -1604,7 +1329,6 @@ app.get("/api/context-size", async (c) => {
 const MIN_CONTEXT_SIZE = 30_000;
 
 app.put("/api/context-size", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   const body = (await c.req.json().catch(() => null)) as {
     agent_id?: unknown;
@@ -1653,7 +1377,10 @@ app.put("/api/context-size", async (c) => {
 // What agents currently have as native tools from the MCP side: the curated
 // Google tools the grant allows, and which servers the bridge reaches.
 app.get("/api/native-tools", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
+  // Gated like its siblings: the catalog is a cache, and an empty one after a
+  // BFF restart reads as "no MCP servers configured" unless the answer says
+  // the app-server is not connected yet.
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   const { tools, failures } = mcpCatalog.snapshot();
   const servers = [...new Set(tools.map((t) => t.server.name))];
   return c.json({
@@ -1662,335 +1389,26 @@ app.get("/api/native-tools", async (c) => {
   });
 });
 
-app.get("/api/codex/runs", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
-  try {
-    return c.json({ runs: await listCodexRuns(codexIo, limit) });
-  } catch (error) {
-    return c.text(errorMessage(error), 502);
-  }
-});
-
-app.get("/api/codex/runs/:threadId", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  const threadId = c.req.param("threadId");
-  // The id becomes part of a file lookup; only a real Codex thread id gets that far.
-  if (!isCodexThreadId(threadId)) return c.text("Not a Codex thread id", 400);
-  try {
-    const run = await getCodexRun(codexIo, threadId);
-    return run ? c.json({ run }) : c.text("No such Codex run", 404);
-  } catch (error) {
-    return c.text(errorMessage(error), 502);
-  }
-});
-
 // ── Claude Code workers ─────────────────────────────────────────────────────
 // Settings → Claude Code, and the run viewer. See `claude/` for what the files
 // are; the io plumbing is the same `codexIo` — one app-server file channel.
 
-app.get("/api/claude/settings", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  try {
-    return c.json({ settings: toPublicClaudeSettings(await loadClaudeSettings(claudeIo)) });
-  } catch (error) {
-    return c.text(errorMessage(error), 502);
-  }
-});
-
-app.put("/api/claude/settings", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  // Gated by the `claude` profile token, exactly like Codex above.
-  if (!config.features.claude) return c.text("Claude Code workers are off: COMPOSE_PROFILES", 404);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  const body = await c.req.json().catch(() => null);
-  try {
-    const saved = await saveClaudeSettings(claudeIo, body);
-    return c.json({ settings: toPublicClaudeSettings(saved) });
-  } catch (error) {
-    if (error instanceof InvalidClaudeSettingsError) return c.text(error.message, 400);
-    return c.text(errorMessage(error), 502);
-  }
-});
-
-app.get("/api/claude/runs", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
-  try {
-    return c.json({ runs: await listClaudeRuns(claudeIo, limit) });
-  } catch (error) {
-    return c.text(errorMessage(error), 502);
-  }
-});
-
-app.get("/api/claude/runs/:sessionId", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
-  const sessionId = c.req.param("sessionId");
-  // The id becomes part of a file lookup; only a real Claude session id gets that far.
-  if (!isClaudeSessionId(sessionId)) return c.text("Not a Claude session id", 400);
-  try {
-    const run = await getClaudeRun(claudeIo, sessionId);
-    return run ? c.json({ run }) : c.text("No such Claude run", 404);
-  } catch (error) {
-    return c.text(errorMessage(error), 502);
-  }
+registerClaudeRoutes(app, {
+  isReady: () => upstream.isReady(),
+  claudeEnabled: config.features.claude,
+  io: claudeIo,
 });
 
 // ── Remote pi worker ─────────────────────────────────────────────────────
-// Everything BFF-local: settings and keys on `bff-data`, runs captured from
-// the BFF's own ssh spawns. No upstream file channel, no app-server involved.
-// See `pi/` and docs/remote-pi-plan.md.
-
-/** A body may carry form values that are not saved yet — a check tests those. */
-function piDraftFromBody(body: unknown): Partial<Record<string, unknown>> {
-  if (!body || typeof body !== "object") return {};
-  const r = body as Record<string, unknown>;
-  const draft: Partial<Record<string, unknown>> = {};
-  for (const field of ["host", "user", "pathPrepend", "workdir"] as const) {
-    if (typeof r[field] === "string") draft[field] = r[field];
-  }
-  if (r.port !== undefined) draft.port = r.port;
-  return draft;
-}
-
-app.get("/api/pi/settings", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  const settings = await piService.load();
-  return c.json({
-    settings: toPublicPiSettings(settings),
-    // What the last check said about the saved target, or null. The UI adds
-    // "changed since the last check" itself; the BFF only remembers facts.
-    check: await piService.lastCheck(settings),
-    // Which agents point somewhere of their own, so the shared section can say
-    // "2 agents use their own settings" instead of being surprised by them.
-    agents: Object.entries(piService.agentSettings.all()).map(([agentId, override]) => ({
-      agentId,
-      mode: override.mode,
-    })),
-  });
-});
-
-app.put("/api/pi/settings", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  const body = await c.req.json().catch(() => null);
-  try {
-    const saved = await piService.save(body);
-    const mod = await resyncMods("Settings → Remote pi", { refreshCatalog: false });
-    // Save answers the question automatically, because an unpinned or
-    // unreachable host is otherwise discovered by an agent's failed run. A
-    // check that cannot run never fails the save.
-    const check = await piService.checkHost(saved).catch(() => null);
-    return c.json({ settings: toPublicPiSettings(saved), mod, check });
-  } catch (error) {
-    if (error instanceof InvalidPiSettingsError) return c.text(error.message, 400);
-    return c.text(errorMessage(error), 502);
-  }
-});
-
-/** What a check is about: saved values, or the form's, plus whose host to use. */
-function piCheckBody(body: unknown): { draft: Record<string, unknown>; agentId: string | null } {
-  const r = (body ?? {}) as Record<string, unknown>;
-  const agentId = typeof r.agent_id === "string" && isAgentId(r.agent_id) ? r.agent_id : null;
-  return { draft: piDraftFromBody(body), agentId };
-}
-
-/**
- * One agent's own Remote Pi settings: its workdir, and if it must, its own host.
- * Stored by the BFF beside the pi settings and resolved at tool-call time, so
- * the four pi tools stay exactly the four tools upstream sees.
- */
-async function piAgentPayload(agentId: string) {
-  const global = await piService.load();
-  const effective = await piService.settingsFor(agentId);
-  return {
-    agentId,
-    override: piService.agentSettings.get(agentId),
-    effective: toPublicPiSettings(effective),
-    globalConfigured: piConfigured(global),
-    globalTarget:
-      global.host && global.user ? `${global.user}@${global.host}:${global.port}` : null,
-    check: await piService.lastCheck(effective),
-  };
-}
-
-app.get("/api/pi/agent/:agentId", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  const agentId = c.req.param("agentId");
-  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
-  return c.json(await piAgentPayload(agentId));
-});
-
-app.put("/api/pi/agent/:agentId", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  const agentId = c.req.param("agentId");
-  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
-  const body = await c.req.json().catch(() => null);
-  const override = parsePiAgentSettings(body);
-  if (!override) {
-    return c.text("Body must be { mode, host, port, user, pathPrepend, workdir, model }", 400);
-  }
-  try {
-    assertEffectiveUsable(await effectivePiSettings(await piService.load(), override));
-  } catch (error) {
-    if (error instanceof InvalidPiAgentSettingsError) return c.text(error.message, 400);
-    return c.text(errorMessage(error), 500);
-  }
-  piService.agentSettings.set(agentId, override);
-  await piService.agentSettings.drain();
-  // Same courtesy as the shared settings: answer the host question right away.
-  const check = await piService.checkHost({}, agentId).catch(() => null);
-  return c.json({ ...(await piAgentPayload(agentId)), check });
-});
-
-/** Back to inheriting everything. */
-app.delete("/api/pi/agent/:agentId", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  const agentId = c.req.param("agentId");
-  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
-  piService.agentSettings.remove(agentId);
-  await piService.agentSettings.drain();
-  return c.json(await piAgentPayload(agentId));
-});
-
-/** Check the host — saved values, or the form's, when they are not saved yet. */
-app.post("/api/pi/check", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  const body = await c.req.json().catch(() => null);
-  try {
-    const { draft, agentId } = piCheckBody(body);
-    return c.json({ check: await piService.checkHost(draft as never, agentId) });
-  } catch (error) {
-    return c.text(errorMessage(error), 502);
-  }
-});
-
-/**
- * TOFU pin: ssh-keyscan a host and write what it answers. A different key
- * already pinned for that host is a 409 with both fingerprints — replacing it
- * is a second, deliberate click.
- */
-app.post("/api/pi/pin-host", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-  const options = {
-    ...(typeof body?.host === "string" ? { host: body.host } : {}),
-    ...(Number.isFinite(Number(body?.port)) && body?.port !== undefined && body?.port !== ""
-      ? { port: Number(body.port) }
-      : {}),
-    ...(body?.force === true ? { force: true } : {}),
-    ...(typeof body?.agent_id === "string" && isAgentId(body.agent_id)
-      ? { agentId: body.agent_id }
-      : {}),
-  };
-  try {
-    const pinned = await piService.pinHost(options);
-    if (pinned.changed) return c.json({ pinned }, 409);
-    return c.json({ pinned });
-  } catch (error) {
-    return c.text(errorMessage(error), 400);
-  }
-});
-
-/** Generate or rotate the lettuce-held deploy key; only the public half is served. */
-app.post("/api/pi/generate-key", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  try {
-    const settings = await piService.generateKeyPair();
-    return c.json({ settings: toPublicPiSettings(settings) });
-  } catch (error) {
-    return c.text(errorMessage(error), 502);
-  }
-});
-
-app.get("/api/pi/runs", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
-  const runs = (await piService.listRuns(limit)).map(summarizePiRun);
-  return c.json({ runs });
-});
-
-app.get("/api/pi/runs/:runId", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  const runId = c.req.param("runId");
-  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
-  const meta = await piService.getRun(runId);
-  if (!meta) return c.text("No such run", 404);
-  const events = (await piService.store.readEventsTail(runId, 8_000_000)) ?? "";
-  return c.json({ run: parsePiRun(meta, events), capturing: piService.runner.isRunning(runId) });
-});
-
-// Structured status for the in-transcript run card — the same facts pi_status
-// carries as prose, cheap enough to poll every few seconds.
-app.get("/api/pi/runs/:runId/status", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  const runId = c.req.param("runId");
-  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
-  const status = await piService.statusFacts(runId);
-  if (!status) return c.text("No such run", 404);
-  return c.json({ status });
-});
-
-// The card's Stop / Force stop buttons; same paths as the pi_stop tool.
-app.post("/api/pi/runs/:runId/stop", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  const runId = c.req.param("runId");
-  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
-  const body = (await c.req.json().catch(() => null)) as { force?: unknown } | null;
-  const answer = await piService.stopRun(runId, body?.force === true);
-  return c.json(answer, answer.isError ? 409 : 200);
-});
-
-// Artifacts a pi_fetch pulled in (C1): the card lists them, links open them.
-app.get("/api/pi/runs/:runId/files", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  const runId = c.req.param("runId");
-  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
-  return c.json({ files: await piService.store.listFiles(runId) });
-});
-
-const PI_FILE_TYPES: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  pdf: "application/pdf",
-  json: "text/plain; charset=utf-8",
-  md: "text/plain; charset=utf-8",
-  txt: "text/plain; charset=utf-8",
-  csv: "text/plain; charset=utf-8",
-  log: "text/plain; charset=utf-8",
-  // html and svg would run scripts on our own origin; they come back as text.
-};
-
-app.get("/api/pi/runs/:runId/files/:name", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  const runId = c.req.param("runId");
-  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
-  const bytes = await piService.store.readFile(runId, c.req.param("name"));
-  if (!bytes) return c.text("No such file", 404);
-  const ext = c.req.param("name").split(".").pop()?.toLowerCase() ?? "";
-  return new Response(bytes, {
-    headers: {
-      "content-type": PI_FILE_TYPES[ext] ?? "application/octet-stream",
-      "x-content-type-options": "nosniff",
-      "content-disposition": `inline; filename="${c.req.param("name")}"`,
-      "cache-control": "private, max-age=300",
-    },
-  });
+// Everything here is BFF-local: settings and keys on `bff-data`, runs captured
+// from the BFF's own ssh spawns. No upstream file channel, no app-server
+// involved — so `pi/routes.ts` holds the handlers and takes the service,
+// the profile token and the mod resync as arguments. See docs/remote-pi-plan.md.
+registerPiRoutes(app, {
+  piService,
+  piEnabled: config.features.pi,
+  resyncMods,
+  hardened,
 });
 
 // ── Google (Gmail / Calendar / Tasks) ───────────────────────────────────────
@@ -2005,16 +1423,16 @@ async function syncGoogleMcpEntry(serving: boolean): Promise<void> {
   // Every Google change passes through here (save, connect, disconnect,
   // reapply), and each can change which Google tools the sidecar offers.
   refreshToolsAfterGoogleChange();
-  const servers = await loadMcpServers(mcpIo);
-  const listed = servers.some((server) => server.url === config.google.mcpUrl);
-  if (serving === listed) return;
-  await saveMcpServers(
-    mcpIo,
-    serving
+  // Inside the queue, so a Google change landing next to a Settings → MCP save
+  // adds to the list as it is afterwards rather than as it was when this began.
+  const wrote = await updateMcpServers(mcpIo, (servers) => {
+    const listed = servers.some((server) => server.url === config.google.mcpUrl);
+    if (serving === listed) return servers;
+    return serving
       ? [...servers, { name: "google", transport: "http", url: config.google.mcpUrl }]
-      : servers.filter((server) => server.url !== config.google.mcpUrl),
-  );
-  log(`Google: ${serving ? "added to" : "removed from"} the shared MCP list`);
+      : servers.filter((server) => server.url !== config.google.mcpUrl);
+  });
+  if (wrote) log(`Google: ${serving ? "added to" : "removed from"} the shared MCP list`);
 }
 
 const googleService = new GoogleService({
@@ -2028,157 +1446,19 @@ const googleService = new GoogleService({
   log,
 });
 
-/** Whether the sidecar answers at all — it serves nothing while disabled. */
-async function googleSidecarUp(): Promise<boolean> {
-  try {
-    const response = await fetch(new URL("/health", config.google.mcpUrl), {
-      signal: AbortSignal.timeout(1500),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-function googleWriteRefusal(c: Context): Response | null {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  if (!googleWritesAllowed(config)) {
-    return c.text(
-      "Google access cannot be changed while DEV_BYPASS_EMAIL is set: agents can sign " +
-        "themselves in through the bypass. Use Cloudflare Access, or set " +
-        "GOOGLE_ALLOW_DEV_BYPASS=true on a machine only you use.",
-      403,
-    );
-  }
-  return null;
-}
-
-function googleErrorResponse(c: Context, error: unknown): Response {
-  if (error instanceof InvalidGoogleSettingsError || error instanceof GoogleAccessError) {
-    return c.text(error.message, 400);
-  }
-  if (error instanceof GoogleOAuthError) return c.text(error.message, 502);
-  return c.text(errorMessage(error), 500);
-}
-
-app.get("/api/google", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  try {
-    // Opening Settings → Google asks Google whether the token still works (at
-    // most every few minutes), so it shows the truth, not what consent said.
-    await googleService.checkIfDue(GOOGLE_STATUS_CHECK_MS);
-    const [settings, sidecarUp] = await Promise.all([googleService.status(), googleSidecarUp()]);
-    return c.json({
-      settings,
-      sidecarUp,
-      redirectUri: config.google.redirectUri,
-      writable: googleWritesAllowed(config),
-    });
-  } catch (error) {
-    return googleErrorResponse(c, error);
-  }
-});
-
-app.put("/api/google", async (c) => {
-  // Gated by the `google` profile token, which is also what starts the
-  // sidecar; the stored switch is treated as off while it is absent.
-  if (!config.features.google) return c.text("Google is off: COMPOSE_PROFILES", 404);
-  const refused = googleWriteRefusal(c);
-  if (refused) return refused;
-  const body = await c.req.json().catch(() => null);
-  try {
-    return c.json(await googleService.save(body));
-  } catch (error) {
-    return googleErrorResponse(c, error);
-  }
-});
-
-const GOOGLE_STATUS_CHECK_MS = 5 * 60 * 1000;
-
-// One click from a chat link to Google's consent screen: what an agent hands
-// the user when access is lost (`google/lost-access.ts`). A GET because it is a
-// link; it only mints a single-use `state` for the signed-in user and sends
-// them to Google, where nothing happens without their own consent. When it
-// cannot (signed out, read-only, no client saved) it lands on Settings → Google,
-// which says why.
-app.get("/api/google/reconnect", async (c) => {
-  const settingsPage = googleSettingsUrl(config.publicOrigin);
-  if (!c.get("session") || !googleWritesAllowed(config)) return c.redirect(settingsPage, 302);
-  try {
-    return c.redirect(await googleService.startConnect(), 302);
-  } catch {
-    return c.redirect(settingsPage, 302);
-  }
-});
-
-app.post("/api/google/connect", async (c) => {
-  const refused = googleWriteRefusal(c);
-  if (refused) return refused;
-  try {
-    return c.json({ url: await googleService.startConnect() });
-  } catch (error) {
-    return googleErrorResponse(c, error);
-  }
-});
-
-app.post("/api/google/disconnect", async (c) => {
-  const refused = googleWriteRefusal(c);
-  if (refused) return refused;
-  try {
-    return c.json(await googleService.disconnect());
-  } catch (error) {
-    return googleErrorResponse(c, error);
-  }
-});
-
-app.post("/api/google/verify", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
-  try {
-    return c.json(await googleService.verify());
-  } catch (error) {
-    return googleErrorResponse(c, error);
-  }
-});
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
-}
-
-function googleResultPage(title: string, detail: string, status: number): Response {
-  const html =
-    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
-    `<title>${escapeHtml(title)}</title>` +
-    `<body style="font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem">` +
-    `<h1 style="font-size:1.25rem">${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p>` +
-    `<p><a href="/?settings=google">Back to the app</a> — Settings → Google shows what agents can do.</p>`;
-  return new Response(html, {
-    status,
-    headers: { "content-type": "text/html; charset=utf-8", ...hardened },
-  });
-}
-
-// Google's redirect back. Deliberately not gated on the session: with a
-// GOOGLE_OAUTH_REDIRECT_URI override (local testing via localhost) the browser
-// arrives on another origin without our cookie. The single-use `state` minted
-// by the gated /connect is what authorises it.
-app.get("/api/google/oauth/callback", async (c) => {
-  try {
-    const { email } = await googleService.finishConnect({
-      state: c.req.query("state"),
-      code: c.req.query("code"),
-      error: c.req.query("error"),
-    });
-    return googleResultPage("Google connected", `Agents now act as ${email}.`, 200);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return googleResultPage("Google was not connected", detail, 400);
-  }
+registerGoogleRoutes(app, {
+  googleService,
+  profileEnabled: config.features.google,
+  writesAllowed: googleWritesAllowed(config),
+  mcpUrl: config.google.mcpUrl,
+  redirectUri: config.google.redirectUri,
+  publicOrigin: config.publicOrigin,
+  hardened,
 });
 
 // Failed turns for one conversation, which the transcript cannot reload on its
 // own: the app-server never stores them. See `session/turn-errors.ts`.
 app.get("/api/turn-errors", (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   const agentId = c.req.query("agent_id");
   const conversationId = c.req.query("conversation_id");
   if (!agentId || !conversationId) return c.text("Missing agent_id or conversation_id", 400);
@@ -2188,7 +1468,6 @@ app.get("/api/turn-errors", (c) => {
 // Token usage of the last turn and the one in flight, per conversation, so
 // every device shows the same gauge. See `session/turn-usage.ts`.
 app.get("/api/turn-usage", (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
   const agentId = c.req.query("agent_id");
   const conversationId = c.req.query("conversation_id");
   if (!agentId || !conversationId) return c.text("Missing agent_id or conversation_id", 400);
@@ -2200,9 +1479,17 @@ app.get("/api/turn-usage", (c) => {
 // WS command itself. Goes through the app-server exactly like every other
 // file command — no new upstream surface, just a new way to reach the
 // existing one over HTTP instead of the browser's multiplexed WS session.
-app.get("/api/files/download", async (c) => {
-  if (!c.get("session")) return c.text("Unauthorized", 401);
+// How much of a file `/api/files/download` will hold, and how many of them at
+// once. Upstream answers `read_file` in base64 (it caps the raw file at 25 MB),
+// and the response is held twice here — the base64 text and the decoded bytes —
+// so one 25 MB download is ~60 MB of heap. Nothing else bounds how many run at
+// the same time, and this is the process holding the only upstream connection:
+// an OOM here cancels every turn in flight, with no drain to save them.
+const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+const MAX_DOWNLOADS_IN_FLIGHT = 4;
+let downloadsInFlight = 0;
 
+app.get("/api/files/download", async (c) => {
   const path = c.req.query("path");
   if (!path) return c.text("Missing path", 400);
 
@@ -2216,6 +1503,19 @@ app.get("/api/files/download", async (c) => {
 
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
 
+  if (downloadsInFlight >= MAX_DOWNLOADS_IN_FLIGHT) {
+    return c.text("Too many downloads at once", 503);
+  }
+  downloadsInFlight += 1;
+  try {
+    return await readWorkspaceFile(path, c.req.query("inline") != null);
+  } finally {
+    downloadsInFlight -= 1;
+  }
+});
+
+/** One workspace file, read through the app-server and turned into a download. */
+async function readWorkspaceFile(path: string, inline: boolean): Promise<Response> {
   let response: ReadFileResponseMessage;
   try {
     response = await upstream.request<ReadFileResponseMessage>({
@@ -2225,11 +1525,22 @@ app.get("/api/files/download", async (c) => {
       encoding: "base64",
     });
   } catch (error) {
-    return c.text(errorMessage(error), 502);
+    return hardenedResponse(hardened, errorMessage(error), {}, 502);
   }
 
   if (!response.success || typeof response.content !== "string") {
-    return c.text(response.error ?? "Failed to read file", 404);
+    return hardenedResponse(hardened, response.error ?? "Failed to read file", {}, 404);
+  }
+
+  // Four base64 characters per three raw bytes. Checked before decoding, so an
+  // oversized file costs the base64 text only, never the second copy.
+  if ((response.content.length >> 2) * 3 > MAX_DOWNLOAD_BYTES) {
+    return hardenedResponse(
+      hardened,
+      `File is too large to download (${Math.floor(MAX_DOWNLOAD_BYTES / (1024 * 1024))} MB max)`,
+      {},
+      413,
+    );
   }
 
   // A Buffer IS a Uint8Array, so it goes straight to Response. Wrapping it in
@@ -2240,19 +1551,13 @@ app.get("/api/files/download", async (c) => {
   const filename = path.split("/").pop() || "download";
   // `?inline=1` (chat-message links) asks for a viewable response; only PDFs
   // and raster images actually get one — see `inlineContentType`.
-  const inlineType = c.req.query("inline") != null ? inlineContentType(filename) : null;
-  return new Response(bytes, {
-    headers: {
-      "content-type": inlineType ?? "application/octet-stream",
-      "content-disposition": contentDisposition(filename, inlineType ? "inline" : "attachment"),
-      "content-length": String(bytes.length),
-      // Spread last-but-one: the hardening set must survive, and `nosniff` in
-      // particular matters here because this is the route that hands the
-      // browser agent-authored bytes.
-      ...hardened,
-    },
+  const inlineType = inline ? inlineContentType(filename) : null;
+  return hardenedResponse(hardened, bytes, {
+    "content-type": inlineType ?? "application/octet-stream",
+    "content-disposition": contentDisposition(filename, inlineType ? "inline" : "attachment"),
+    "content-length": String(bytes.length),
   });
-});
+}
 
 // ── Git history (Files → History) ──────────────────────────────────────────
 // Upstream exposes only branch commands and the app-server image ships no git
@@ -2307,6 +1612,30 @@ function gitResponse(c: Context, result: GitRouteResult): Response {
 // proxies those paths here, so a missing build is not an error.
 const webDist = process.env.WEB_DIST ?? "web/dist";
 
+// An unknown path under the API namespaces is a mistake, not a client-side
+// route. Without these the fallback below answered `/api/typo` with 200 + the
+// HTML shell, so the browser client's `.json()` failed on `<` instead of
+// reporting a missing endpoint, and anything asserting a status code got a false
+// pass. Registered here (Hono matches in order) so every real route above wins.
+app.all("/api/*", (c) => c.text("Not found", 404));
+app.all("/push/*", (c) => c.text("Not found", 404));
+
+// Cache policy for the build, wrapping only the two static routes below. Every
+// name Vite emits under `/assets/` carries a content hash, so those bytes never
+// change and `immutable` for a year is honest; the shell, the service worker and
+// the manifest must be revalidated every visit or an update never lands. Bun's
+// file response carries no cache header at all, which is why a fresh install
+// refetched the whole bundle on every open.
+app.use("*", async (c, next) => {
+  await next();
+  c.header(
+    "cache-control",
+    c.req.path.startsWith("/assets/")
+      ? "public, max-age=31536000, immutable"
+      : "no-cache, no-store, must-revalidate",
+  );
+});
+
 // Any real file in the build — hashed `/assets/*`, and the root-level PWA files
 // `sw.js`, `manifest.webmanifest`, `icon-*.png`. Without this the catch-all
 // below answered `/sw.js` and `/manifest.webmanifest` with the HTML shell, so
@@ -2327,12 +1656,6 @@ function mintSession(email: string): { session: SessionPayload; cookie: string }
   };
   const token = encodeSession(session, config.sessionSecret);
   return { session, cookie: buildSessionCookie(token, config.sessionTtlSeconds, secureCookies) };
-}
-
-/** The non-empty `endpoint` a push request body names, or null. */
-function endpointOf(body: unknown): string | null {
-  const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
-  return typeof endpoint === "string" && endpoint ? endpoint : null;
 }
 
 // ── WebSocket ────────────────────────────────────────────────────────────────
@@ -2374,7 +1697,7 @@ const server = Bun.serve<SocketData>({
       );
       if (!origin.ok) {
         log(`Refused /ws upgrade: ${origin.reason}`);
-        return new Response("Forbidden origin", { status: 403, headers: hardened });
+        return hardenedResponse(hardened, "Forbidden origin", {}, 403);
       }
 
       // Signed out is accepted and then closed with AUTH_REQUIRED_CLOSE_CODE
@@ -2391,7 +1714,7 @@ const server = Bun.serve<SocketData>({
         } satisfies SocketData,
       });
       if (upgraded) return undefined;
-      return new Response("WebSocket upgrade failed", { status: 400, headers: hardened });
+      return hardenedResponse(hardened, "WebSocket upgrade failed", {}, 400);
     }
 
     // The web-tools mod's calls: loopback only, before Hono's session layer.
