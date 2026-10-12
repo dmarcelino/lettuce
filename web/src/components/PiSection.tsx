@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ago,
   checkPiHost,
   fetchPiSettings,
   generatePiKey,
@@ -10,7 +9,10 @@ import {
   pinPiHostKey,
   savePiSettings,
 } from "../lib/pi.ts";
+import { SAVED_NOW } from "../lib/save-result.ts";
 import { ToggleRow } from "./MenuRow.tsx";
+import { PiCheckBanner, PiStatusLine, shortFingerprint } from "./PiStatus.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Draft {
   enabled: boolean;
@@ -52,36 +54,6 @@ function isDirty(draft: Draft, settings: PiSettings): boolean {
   );
 }
 
-/** `SHA256:abcdef…uvwxyz` — a fingerprint you can read at a glance. */
-function shortFingerprint(value: string | null): string {
-  if (!value) return "none";
-  const hex = value.replace(/^SHA256:/, "");
-  return hex.length <= 12 ? value : `${hex.slice(0, 6)}…${hex.slice(-4)}`;
-}
-
-/**
- * The one line that says whether this host would work. "Saved" is not that
- * answer: every run pins, so a saved-but-unpinned host fails silently inside an
- * agent's run. The pill goes stale with the form on purpose — editing a field
- * after a good check means the good check is about another host.
- */
-export function piStatusPill(
-  check: PiCheck | null,
-  stale: boolean,
-): { cls: "ok" | "warn" | "bad"; text: string } {
-  if (stale) return { cls: "warn", text: "Changed since the last check" };
-  if (!check) return { cls: "warn", text: "Never checked — an unpinned host fails every run" };
-  const pinned = check.pinnedFingerprint
-    ? ` · pinned ${shortFingerprint(check.pinnedFingerprint)}`
-    : "";
-  if (check.ok)
-    return {
-      cls: "ok",
-      text: `${check.detail} · ${check.target}${pinned} · checked ${ago(check.at)}`,
-    };
-  return { cls: "bad", text: `${check.detail} · ${check.target} · ${ago(check.at)}` };
-}
-
 /**
  * Settings → Remote Pi: where agents reach a pi installed on another host, over
  * SSH only (see bff/src/pi/ and docs/remote-pi-plan.md).
@@ -98,12 +70,17 @@ export function piStatusPill(
 export function PiSection() {
   const [settings, setSettings] = useState<PiSettings | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  /** The lines that must stay on the page: a host-key mismatch, a rotation you
+   * are mid-way through. Everything a button just did is a toast instead. */
+  const [status, setStatus] = useState<{ text: string; warn?: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [pinning, setPinning] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [rotateArmed, setRotateArmed] = useState(false);
   const [copied, setCopied] = useState(false);
+  /** The two fields a failed check can point the operator straight at. */
+  const workdirRef = useRef<HTMLInputElement>(null);
+  const pathRef = useRef<HTMLInputElement>(null);
   /** The last word the BFF had about this host, and the form's staleness. */
   const [check, setCheck] = useState<PiCheck | null>(null);
   const [checking, setChecking] = useState(false);
@@ -124,7 +101,7 @@ export function PiSection() {
       setOwnAgents((loaded.agents ?? []).filter((a) => a.mode === "own").map((a) => a.agentId));
       setStatus(null);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      setStatus({ text: error instanceof Error ? error.message : String(error), warn: true });
     }
   }, []);
 
@@ -153,13 +130,17 @@ export function PiSection() {
       // Save answers the host question itself — the server checked on the way by.
       setCheck(saved.check);
       setPinArmed(false);
-      setStatus(
-        saved.check?.ok
-          ? "Saved. Agents get the pi tools from their next turn."
-          : "Saved, but the host check below is not clean yet.",
+      // Save answers the host question itself — the server checked on the way by,
+      // so "not clean" is part of the result and belongs in one message.
+      toast(
+        saved.check?.ok ? SAVED_NOW : "Saved — the host check below is not clean yet",
+        saved.check?.ok ? "ok" : "warn",
       );
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      toast(
+        `Could not save the Remote Pi settings: ${error instanceof Error ? error.message : String(error)}`,
+        "bad",
+      );
     } finally {
       setSaving(false);
     }
@@ -179,10 +160,16 @@ export function PiSection() {
     if (!form) return;
     setChecking(true);
     try {
-      setCheck(await checkPiHost(targetOf(form)));
-      setStatus(null);
+      const result = await checkPiHost(targetOf(form));
+      setCheck(result);
+      // A pass is a receipt, so it toasts; a failure is a state of this screen and
+      // stays on it as a banner (PiCheckBanner), where ssh's own words can be read.
+      if (result.ok) toast(`Checked — ${result.detail} on ${result.target}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      toast(
+        `Could not check the host: ${error instanceof Error ? error.message : String(error)}`,
+        "bad",
+      );
     } finally {
       setChecking(false);
     }
@@ -202,18 +189,26 @@ export function PiSection() {
       const pinned = await pinPiHostKey({ host, port, force });
       if (pinned.changed) {
         setPinArmed(true);
-        setStatus(
-          `${pinned.target} presents a different host key than the pinned one (${shortFingerprint(
+        // Not a toast: this one waits for a second press, and a message that
+        // fades in six seconds would take the confirmation with it.
+        setStatus({
+          text: `${pinned.target} presents a different host key than the pinned one (${shortFingerprint(
             pinned.oldFingerprint,
           )} → ${shortFingerprint(pinned.newFingerprint)}). Press again only if the host really changed.`,
-        );
+          warn: true,
+        });
         return;
       }
       setPinArmed(false);
-      setCheck(await checkPiHost(targetOf(form)));
-      setStatus(`Pinned ${pinned.target} (${shortFingerprint(pinned.fingerprint)}).`);
+      const after = await checkPiHost(targetOf(form));
+      setCheck(after);
+      toast(`Pinned ${pinned.target} (${shortFingerprint(pinned.fingerprint)}).`);
+      if (after.ok) toast(`Checked — ${after.detail} on ${after.target}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      toast(
+        `Could not pin the host key: ${error instanceof Error ? error.message : String(error)}`,
+        "bad",
+      );
     } finally {
       setPinning(false);
     }
@@ -228,8 +223,9 @@ export function PiSection() {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setStatus(
-        "Clipboard blocked by the browser — tap the public-key box to select it, then copy.",
+      toast(
+        "Clipboard blocked by the browser — tap the public-key box to select it, then copy",
+        "bad",
       );
     }
   };
@@ -239,9 +235,10 @@ export function PiSection() {
     if (!settings) return;
     if (settings.hasKey && !rotateArmed) {
       setRotateArmed(true);
-      setStatus(
-        "Click again to rotate. The new public key must be added on the remote host, and the old line removed there.",
-      );
+      setStatus({
+        text: "Click again to rotate. The new public key must be added on the remote host, and the old line removed there.",
+        warn: true,
+      });
       return;
     }
     setRotateArmed(false);
@@ -251,11 +248,16 @@ export function PiSection() {
       setSettings(next);
       setDraft(draftOf(next));
       setKeyChoice("generated");
-      setStatus(
-        "Generated a fresh key pair. Add the public key below to the remote host's ~/.ssh/authorized_keys before the next run.",
-      );
+      // Stays on the page on purpose: it is the next step of the thing you just
+      // started, not a receipt for it.
+      setStatus({
+        text: "Generated a fresh key pair. Add the public key below to the remote host's ~/.ssh/authorized_keys before the next run.",
+      });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      toast(
+        `Could not generate a key: ${error instanceof Error ? error.message : String(error)}`,
+        "bad",
+      );
     } finally {
       setGenerating(false);
     }
@@ -264,7 +266,13 @@ export function PiSection() {
   if (!draft || !settings) {
     return (
       <>
-        {status ? <p className="small bad pad">{status}</p> : <p className="muted pad">Loading…</p>}
+        {status ? (
+          <p className="warning small" role="alert">
+            <span>{status.text}</span>
+          </p>
+        ) : (
+          <p className="muted pad">Loading…</p>
+        )}
         <div className="pad-x">
           <button type="button" className="button ghost" onClick={() => void load()}>
             Reload
@@ -280,7 +288,11 @@ export function PiSection() {
   };
   const off = !draft.enabled;
   const dirty = isDirty(draft, settings);
-  const pill = piStatusPill(check, dirty);
+  // A check belongs to one target and one set of values: editing the host after a
+  // good check means the good check is about another machine, and editing PATH or
+  // the folder can flip the very thing the check tested.
+  const targetLabel = `${draft.user.trim()}@${draft.host.trim()}:${Number(draft.port) || 22}`;
+  const stale = check !== null && (dirty || check.target !== targetLabel);
   const hostTyped = draft.host.trim() !== "";
   const needsPin = !check || check.state === "unpinned";
   const busy = checking || pinning;
@@ -292,22 +304,26 @@ export function PiSection() {
         SSH. Runs start in the background, continue the same pi session with follow-ups, and their
         transcripts appear under Tasks. Nothing is installed on the remote host beyond pi itself.
       </p>
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {status ? (
+        <p
+          className={status.warn ? "warning small" : "muted small pad"}
+          role={status.warn ? "alert" : "status"}
+        >
+          {status.text}
+        </p>
+      ) : null}
 
       {ownAgents.length ? (
-        <p className="muted small pad">
+        <p className="warning small">
           {ownAgents.length === 1
-            ? "One agent has its own Remote Pi settings"
-            : `${ownAgents.length} agents have their own Remote Pi settings`}
-          {" — "}their host or working folder is set per agent under Tools. This page is the default
-          they inherit and the key they all use: switching it off here stops every one of them.
+            ? "1 agent has its own Remote Pi settings under Tools — this page is what they inherit"
+            : `${ownAgents.length} agents have their own Remote Pi settings under Tools — this page is what they inherit`}
         </p>
       ) : null}
 
       <div className="pad-x">
         <ToggleRow
           title="Allow Remote Pi"
-          description="Agents may dispatch coding tasks to the remote pi agent"
           checked={draft.enabled}
           onChange={(enabled) => set({ enabled })}
         />
@@ -356,6 +372,7 @@ export function PiSection() {
         <label className="field">
           Workdir
           <input
+            ref={workdirRef}
             value={draft.workdir}
             placeholder="/home/worker/pi"
             autoComplete="off"
@@ -372,6 +389,7 @@ export function PiSection() {
         <label className="field">
           PATH prefix
           <input
+            ref={pathRef}
             value={draft.pathPrepend}
             placeholder="/opt/node/bin:/opt/pi/bin"
             autoComplete="off"
@@ -461,11 +479,13 @@ export function PiSection() {
               disabled={off}
               onChange={(event) => set({ privateKey: event.target.value })}
             />
-            <span className="muted small">
-              {settings.hasKey
-                ? "A key is already stored; pasting replaces it when you save."
-                : "Nothing is stored yet — the agent cannot run until a key is here."}
-            </span>
+            {/* The "pasting replaces what is stored" half is already said under the
+                key choice above, so only the blocking case is worth a line here. */}
+            {!settings.hasKey ? (
+              <span className="muted small">
+                Nothing is stored yet — the agent cannot run until a key is here.
+              </span>
+            ) : null}
           </label>
         )}
 
@@ -493,9 +513,16 @@ export function PiSection() {
           ) : null}
         </div>
 
-        <div className="button-row">
-          <span className={`pill ${pill.cls}`}>{pill.text}</span>
-        </div>
+        <PiStatusLine check={check} stale={stale} checking={busy} />
+        <PiCheckBanner
+          check={check}
+          stale={stale}
+          checking={busy}
+          onCopyKey={settings.publicKey ? () => void copyKey() : undefined}
+          onFocusPath={() => pathRef.current?.focus()}
+          onFocusWorkdir={() => workdirRef.current?.focus()}
+          onRetry={() => void runCheck()}
+        />
 
         <div className="button-row">
           <button

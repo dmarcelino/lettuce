@@ -46,7 +46,6 @@ export function AgentTab({
 }: Props) {
   const [section, setSection] = useState<AgentSection>("general");
   const agentId = agents.agentId;
-  const agentName = agents.agents.find((agent) => agent.id === agentId)?.name ?? null;
 
   // Secrets need upstream's agent management; the chip is pointless without it.
   const agentManagement = session.appServerInfo?.capabilities.agent_management ?? false;
@@ -57,7 +56,7 @@ export function AgentTab({
   if (!agentId) {
     return (
       <div className="pane">
-        <p className="muted pad">No agent selected. Create one, or pick one to see its settings.</p>
+        <p className="muted pad">No agent selected. Pick one from the agent list.</p>
       </div>
     );
   }
@@ -76,12 +75,10 @@ export function AgentTab({
           </button>
         ))}
       </div>
-      <p className="scope-line small">
-        Settings for <strong>{agentName ?? "this agent"}</strong> only.{" "}
-        <button type="button" className="link inline" onClick={() => onOpenGlobalSettings()}>
-          Settings for every agent
-        </button>
-      </p>
+      {/* No scope line here: every section below belongs to this agent alone, and
+          the gear in the top bar is the way to the shared settings. A link that
+          read "Settings for every agent" above a per-agent section was read as a
+          heading claiming the opposite. */}
 
       {section === "general" ? (
         <AgentGeneralSection key={agentId} session={session} agents={agents} agentId={agentId} />

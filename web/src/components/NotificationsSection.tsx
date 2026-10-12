@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import {
   getPushPreferences,
@@ -13,6 +13,7 @@ import {
   updatePushPreferences,
 } from "../lib/push.ts";
 import { MenuRow } from "./MenuRow.tsx";
+import { toast } from "./Toast.tsx";
 
 const NOTIFICATION_EVENT_TYPES: { key: keyof PushPreferences; label: string }[] = [
   { key: "completed", label: "Turn completed" },
@@ -23,42 +24,51 @@ const NOTIFICATION_EVENT_TYPES: { key: keyof PushPreferences; label: string }[] 
 export function NotificationsSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [preferences, setPreferences] = useState<PushPreferences | null>(null);
+  /** Only "this device cannot push", which is a state — every press reports itself
+   * as a toast, so nothing else may leave this box filled. */
   const [status, setStatus] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!isPushSupported()) {
       setEnabled(false);
       return;
     }
-    // Without the catch a failed service worker left `enabled` null forever —
-    // a disabled button with no reason given. Surface the browser's own error;
-    // the button stays usable, and pressing it reports the same failure again.
-    void isSubscribed()
-      .then(async (subscribed) => {
-        setEnabled(subscribed);
-        if (subscribed) setPreferences(await getPushPreferences());
-      })
-      .catch((cause) => {
-        setEnabled(false);
-        setStatus(`Notifications are unavailable: ${errorMessage(cause)}`);
-      });
+    setStatus("");
+    try {
+      // Without the catch a failed service worker left `enabled` null forever —
+      // a disabled button with no reason given. Surface the browser's own error;
+      // the button stays usable, and pressing it reports the same failure again.
+      const subscribed = await isSubscribed();
+      setEnabled(subscribed);
+      if (subscribed) setPreferences(await getPushPreferences());
+    } catch (cause) {
+      setEnabled(false);
+      setStatus(`Notifications are unavailable: ${errorMessage(cause)}`);
+    }
   }, []);
 
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   const toggle = async () => {
-    setStatus(enabled ? "Disabling…" : "Enabling…");
     try {
       if (enabled) {
         await unsubscribeFromPush();
         setEnabled(false);
         setPreferences(null);
+        toast("Notifications off on this device.");
       } else {
         await subscribeToPush();
         setEnabled(true);
         setPreferences(await getPushPreferences());
+        toast("Notifications on for this device.");
       }
-      setStatus("");
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(
+        `Could not ${enabled ? "turn off" : "turn on"} notifications on this device: ${errorMessage(cause)}`,
+        "bad",
+      );
     }
   };
 
@@ -70,17 +80,19 @@ export function NotificationsSection() {
       await updatePushPreferences({ [key]: value });
     } catch (cause) {
       setPreferences(previous);
-      setStatus(errorMessage(cause));
+      toast(`Could not save that: ${errorMessage(cause)}`, "bad");
     }
   };
 
   const sendTest = async () => {
-    setStatus("Sending a test notification…");
     try {
       await sendTestPush();
-      setStatus("Test notification sent. If it doesn't appear, check this device's own settings.");
+      toast(
+        "Test notification sent — if it did not appear, check this device's own settings",
+        "warn",
+      );
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not send the test: ${errorMessage(cause)}`, "bad");
     }
   };
 
@@ -103,7 +115,14 @@ export function NotificationsSection() {
 
   return (
     <>
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+          <button type="button" className="link" onClick={() => void load()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
       <p className="muted small pad">
         Sends a notification to this device when the agent finishes a turn, hits an error, or needs
         a tool approval — while you're not watching that conversation.

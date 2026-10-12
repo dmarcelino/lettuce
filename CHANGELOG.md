@@ -5,6 +5,50 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- **A failed save is a failure everywhere.** The same fact — "that did not save" — was grey text in Secrets, Tasks, Files, Memory, MCP and Providers, red text in Reflection, Codex, Claude and Remote Pi, and an amber box in Web search, the model picker and the agent lists. Nothing said it to a screen reader either: no save failure in the app had a live region, so the message that matters most was the one a keyboard user never heard. A result of something you pressed is now a **toast** (which announces itself), a state the screen is about stays a box on the page, and every banner that can be retried has a **Try again** on it.
+- **The failure toast was not red.** It asked for a colour token that no rule defines, so an invalid property made its border and text fall back to whatever the page was already using — a failure looked exactly like a success.
+- **Saved said one thing, not nine.** "Saved. Agents see the change on their next turn", "Saved. Applies from this agent's next turn", "Saved. It applies once an agent exists to carry the reload", "Saved, but the app-server could not be reloaded…" and five more are now four phrases, each meaning exactly one thing, in one file: what applies on the next turn, what applies on reconnect, what waits for an agent to exist, and what the next worker picks up. When the record saved but the reload did not, the message is amber, not the same grey as a clean save.
+- **Rows stopped jumping when you pressed them.** "Saving…", "Creating…", "Deleting agent…" were paragraphs under the button, so saving changed the height of the page three times per press — progress, then "Saved.", then nothing. The button carries that now.
+- **A result no longer waits for a click to disappear.** The Tools tab's "Saved." sat on the page until some unrelated action overwrote it, and the app's only session-wide error had a dismiss button nobody found because nothing else surfaced it, so it never went away. They dismiss themselves now.
+
+### Changed
+* **The Agent tab no longer implies its settings are shared.** A line above every
+  agent section read *Settings for every agent* — a link to the global Settings,
+  but standing alone above a per-agent section it read as a heading saying the
+  section below was shared, which is the opposite of what it holds. It is gone;
+  the gear in the top bar is the way there, and the Tools tab keeps its own line
+  because that one says which agent the boxes belong to.
+
+* **Remote Pi states a failure, not a pill.** The status line said one long thing
+  — pi version, host, pinned fingerprint and age on a single unwrapping line — so
+  on a phone it ran off the right edge and what got cut was the age that says
+  whether the state is still true. It is now a row: a word of state first (*Ready*,
+  *Not pinned*, *Sign-in refused*, *Pi not on PATH*, *Working folder missing*,
+  *Unreachable*), the host and the age wrapped underneath, and the pinned
+  fingerprint on its own line with a **Copy** that copies it whole. A failed check
+  keeps ssh's own sentence in a banner next to the one thing that fixes it — copy
+  the public key, focus the PATH prefix or the working folder, or try again — and a
+  passed check says so as a toast, because pressing **Check host** and seeing
+  nothing move is how people press it twice. The per-agent pane now says whose host
+  it checked (`inherited from Settings`) and no longer lets a check made against a
+  different target borrow a green dot.
+
+- **Settings says less.** The line above every global section — "What one agent may use is under Tools; what it is named and told is under Agent." — is gone, along with the toggle descriptions that restated the toggle ("Allow Codex workers" / "Agents may hand coding work to a Codex subagent"), the hint under a field that repeated the value already typed in it, and "Settings for *Olla* only.", which named the tab you are in. The one cross-tab pointer that sentence was protecting for — that per-agent Remote Pi lives under Tools while its default lives here — is now said in Remote Pi settings, where it changes what you do.
+- **Two empty states, one sentence.** The Tools tab and the Agent tab each had their own wording for "no agent selected".
+- **Text that repeats is one constant.** "Leave blank to keep the stored value" was written three times, once as "stored key"; the JSON-output button's tooltip and its screen-reader name had drifted into "is required" and "required".
+
+### Fixed
+- **The Files tab stops breaking into three lines on a phone.** Its toolbar holds the folder, **Up** and **New file** on one row; a long conversation folder squeezed them until the buttons wrapped — "Up" over "Up", "New file" over three lines, the bar 70 px tall instead of 40. A text link is one line now, so the path is the only thing that gives up characters.
+- **The Agent tab's five sections share one row at phone width.** *Memory* wrapped onto a row of its own and took 40 px off the tallest form in the app; the chips now squeeze the way the six tab names already do at 390 px.
+- **An agent with no secrets is told once.** Agent → Secrets printed "0 secrets configured" and then "No secrets configured for this agent." The count line appears only when there is something to count.
+
+### Changed
+- **One blue.** The composer's round send and stop carried their own blue and red (`#2e7df6`, `#f0463c`) with white ink while every other filled control uses the accent with a dark ink; they take the accent now, and the ink that sits on a saturated fill is a token (`--on-accent`) instead of five different hexes.
+- **Send is a target, not a dot.** Send and stop were 26 px — the smallest controls in the app, for its main verb — and keep the 40 px every other control keeps. Text links (Up, New file, Find, Reveal, Edit, Delete) are untouched under a mouse and get a fingertip's padding under a finger.
+- **The top bar says what it means where there is room.** The amber triangle and the green dot stay the whole state on a phone; from 640 px they are joined by their words — **Dev bypass**, **Live**, **Reconnecting…**, **2 responding** — so a state is never colour alone.
+- **Shapes and states are tokens.** `--radius` is used at its call sites at last, joined by `--radius-pill`, `--radius-round` and one `--disabled` for every control that cannot be used; the Remote Pi card — the app's only rounded card — is square like everything else; and the half-step sizes (11.5, 12.5, 14.5 px) folded into the sizes around them.
+
 ## [v0.13.1-letta_0.34.9] - 2026-10-11
 
 ### Fixed

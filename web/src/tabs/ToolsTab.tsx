@@ -15,9 +15,10 @@
  * in the pi store. Both are BFF-side; upstream sees four pi tools either way.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
-import { piStatusPill } from "../components/PiSection.tsx";
+import { PiCheckBanner, PiStatusLine } from "../components/PiStatus.tsx";
+import { toast } from "../components/Toast.tsx";
 import {
   type AgentToolAccess,
   fetchAgentToolAccess,
@@ -49,11 +50,20 @@ const FAMILY_LABEL: Record<Family, string> = {
   pi: "Remote Pi",
 };
 
-const SAVED_NOTE: Record<ModsResult, string> = {
-  unchanged: "Saved.",
-  reloaded: "Saved. Applies from this agent's next turn.",
-  "reload-pending": "Saved. It takes effect once the app-server reloads its mods.",
-  failed: "Saved, but the tools could not be updated yet. They catch up on the next reconnect.",
+/**
+ * What a write to this agent's tool access reports, appended to what was just
+ * decided. Each mods outcome is a toast, not a line that sits on the page until
+ * something else overwrites it; `warn` is the one where the record saved and the
+ * second half did not happen.
+ */
+const SAVED_RESULT: Record<ModsResult, { tail: string; kind: "ok" | "warn" }> = {
+  unchanged: { tail: "", kind: "ok" },
+  reloaded: { tail: "it applies from this agent's next turn", kind: "ok" },
+  "reload-pending": { tail: "it applies once the app-server reloads its mods", kind: "ok" },
+  failed: {
+    tail: "the tools could not be updated yet: they catch up on the next reconnect",
+    kind: "warn",
+  },
 };
 
 interface Props {
@@ -67,7 +77,9 @@ export function ToolsTab({ agents, features, onOpenGlobalSettings }: Props) {
   const agentName = agents.agents.find((agent) => agent.id === agentId)?.name ?? null;
   const [access, setAccess] = useState<AgentToolAccess | null>(null);
   const [family, setFamily] = useState<Family | null>(null);
+  /** Only a failed read of this agent's access — a save result is a toast. */
   const [status, setStatus] = useState("");
+  const [accessKey, setAccessKey] = useState(0);
   const [piVersion, setPiVersion] = useState(0);
 
   const families = useMemo<Family[]>(
@@ -78,6 +90,7 @@ export function ToolsTab({ agents, features, onOpenGlobalSettings }: Props) {
     [features],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: accessKey is the retry trigger itself.
   useEffect(() => {
     if (!agentId) return;
     let cancelled = false;
@@ -93,7 +106,7 @@ export function ToolsTab({ agents, features, onOpenGlobalSettings }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, accessKey]);
 
   useEffect(() => {
     const first = families[0];
@@ -103,7 +116,7 @@ export function ToolsTab({ agents, features, onOpenGlobalSettings }: Props) {
   if (!agentId) {
     return (
       <div className="pane">
-        <p className="muted pad">No agent selected. Pick one to see what it may use.</p>
+        <p className="muted pad">No agent selected. Pick one from the agent list.</p>
       </div>
     );
   }
@@ -172,7 +185,14 @@ export function ToolsTab({ agents, features, onOpenGlobalSettings }: Props) {
         , and apply from this agent&apos;s next turn. They decide which tools the agent is offered,
         not what its shell can reach — every agent runs in the same container.
       </p>
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+          <button type="button" className="link" onClick={() => setAccessKey((n) => n + 1)}>
+            Try again
+          </button>
+        </p>
+      ) : null}
       {!access ? <p className="muted pad">Loading tool access…</p> : null}
 
       {access && family === "google" ? (
@@ -221,17 +241,19 @@ interface PaneProps {
  * whole decision, so there is no Save button waiting for a second one.
  */
 async function writeAccess(
-  { agentId, access, onAccess, onStatus }: PaneProps,
+  { agentId, access, onAccess }: PaneProps,
   patch: Partial<AgentToolAccess>,
   label: string,
 ): Promise<void> {
-  onStatus("Saving…");
   try {
     const { mods, ...saved } = await saveAgentToolAccess(agentId, { ...access, ...patch });
     onAccess(saved);
-    onStatus(`${label}. ${SAVED_NOTE[mods]}`);
+    const result = SAVED_RESULT[mods];
+    toast(result.tail ? `${label} — ${result.tail}` : `${label}.`, result.kind);
   } catch (cause) {
-    onStatus(errorMessage(cause));
+    // `label` reads as a result ("Remote Pi allowed"), so the failure does not use
+    // it — "Could not save Remote Pi allowed: …" is not a sentence.
+    toast(`Could not change this agent's tools: ${errorMessage(cause)}`, "bad");
   }
 }
 
@@ -328,8 +350,10 @@ function PiPane({
   const [globalConfigured, setGlobalConfigured] = useState(true);
   const [globalTarget, setGlobalTarget] = useState<string | null>(null);
   const [check, setCheck] = useState<PiCheck | null>(null);
+  /** The two fields a failed check can point the operator straight at. */
+  const workdirRef = useRef<HTMLInputElement>(null);
+  const pathRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState("");
-  const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -370,9 +394,9 @@ function PiPane({
       setOverride(saved.override);
       setForm(saved.override);
       setCheck(saved.check);
-      setNotice("Saved. This agent runs pi work where it says above, from its next turn.");
+      toast("Saved — it applies from this agent's next turn");
     } catch (cause) {
-      setNotice(errorMessage(cause));
+      toast(`Could not save: ${errorMessage(cause)}`, "bad");
     } finally {
       setBusy("");
     }
@@ -385,9 +409,9 @@ function PiPane({
       setOverride(back.override);
       setForm(back.override);
       setCheck(back.check);
-      setNotice("This agent uses the global Remote Pi settings again.");
+      toast("This agent follows the global Remote Pi settings again.");
     } catch (cause) {
-      setNotice(errorMessage(cause));
+      toast(`Could not reset to the global settings: ${errorMessage(cause)}`, "bad");
     } finally {
       setBusy("");
     }
@@ -397,16 +421,18 @@ function PiPane({
     setBusy("check");
     try {
       if (pinFirst) await pinPiHostKey({ host: target.host, port: target.port, agentId });
-      setCheck(await checkPiHost(target, agentId));
-      setNotice("");
+      const result = await checkPiHost(target, agentId);
+      setCheck(result);
+      // A pass is a receipt; a failure is a state of this pane and stays on it as
+      // a banner, where ssh's own words can be read at leisure.
+      if (result.ok) toast(`Checked — ${result.detail} on ${result.target}`);
     } catch (cause) {
-      setNotice(errorMessage(cause));
+      toast(errorMessage(cause), "bad");
     } finally {
       setBusy("");
     }
   };
 
-  const pill = piStatusPill(check, dirty || stale);
   const needsPin = !check || check.state === "unpinned";
 
   return (
@@ -511,6 +537,7 @@ function PiPane({
             Workdir
             <input
               value={form.workdir}
+              ref={workdirRef}
               placeholder="/home/worker/research"
               autoComplete="off"
               spellCheck={false}
@@ -524,6 +551,7 @@ function PiPane({
             PATH prefix
             <input
               value={form.pathPrepend}
+              ref={pathRef}
               placeholder={global.pathPrepend || "/opt/node/bin:/opt/pi/bin"}
               autoComplete="off"
               spellCheck={false}
@@ -544,9 +572,20 @@ function PiPane({
             </span>
           </label>
 
-          <div className="button-row">
-            <span className={`pill ${pill.cls}`}>{pill.text}</span>
-          </div>
+          <PiStatusLine
+            check={check}
+            stale={dirty || stale}
+            checking={busy === "check"}
+            targetNote={override?.mode === "own" ? null : "inherited from Settings"}
+          />
+          <PiCheckBanner
+            check={check}
+            stale={dirty || stale}
+            checking={busy === "check"}
+            onFocusPath={() => pathRef.current?.focus()}
+            onFocusWorkdir={() => workdirRef.current?.focus()}
+            onRetry={() => void runCheck(needsPin)}
+          />
           <div className="button-row">
             <button
               type="button"
@@ -583,7 +622,6 @@ function PiPane({
           </p>
         </>
       )}
-      {notice ? <p className="muted small">{notice}</p> : null}
       <p className="muted small">
         Wrong here?{" "}
         <button type="button" className="link inline" onClick={onReload}>

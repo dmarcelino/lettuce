@@ -816,7 +816,10 @@ try {
     // Skills on a phone: long names, badges and paths must wrap, not push the
     // pane sideways — measured on the pane for the same reason as above.
     await page.locator('.section-tabs button:text-is("Skills")').click();
-    await page.locator(".skill-group-head").first().waitFor({ timeout: 10_000 });
+    // The agent skills pane is empty until the BFF has walked the agent's memfs and
+    // the global list, which after a bff restart can take half a minute — a 10s
+    // budget failed the run for a reason that had nothing to do with the UI.
+    await page.locator(".skill-group-head").first().waitFor({ timeout: 45_000 });
     await page.locator('.skill-group-head:has-text("Bundled")').click();
     await page.locator('.skill-main[aria-expanded="false"]').first().click();
     const skillsWidth = await page.evaluate(() => {
@@ -889,6 +892,25 @@ try {
       sectionWidth,
     );
     await shot(page, "phone-settings-mcp");
+    if (featureOn(features, "pi")) {
+      // The status row used to be a single `nowrap` pill that ran off the right
+      // edge on a phone, cutting off the age that says whether the state is fresh.
+      await page.locator('.settings-screen .section-tabs button:text-is("Remote Pi")').click();
+      await page.waitForTimeout(900);
+      const statusRow = await page.evaluate(() => {
+        const el = document.querySelector(".settings-content .pi-status");
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, text: (el.textContent ?? "").trim().slice(0, 60) };
+      });
+      check("remote pi shows a status row on phone", statusRow !== null, statusRow);
+      check(
+        "remote pi status row fits the phone width",
+        statusRow !== null && statusRow.left >= 0 && statusRow.right <= PHONE.width,
+        statusRow,
+      );
+      await shot(page, "phone-settings-pi");
+    }
     await page.locator('.settings-screen button[aria-label="Close"]').click();
     check("close leaves settings", (await page.locator(".settings-screen").count()) === 0);
 
@@ -1102,7 +1124,10 @@ try {
     // populated with no turn running (bundled skills alone are ~20). Bundled
     // starts collapsed; descriptions are one line until a row is tapped.
     await page.locator('.section-tabs button:text-is("Skills")').click();
-    await page.locator(".skill-group-head").first().waitFor({ timeout: 10_000 });
+    // The agent skills pane is empty until the BFF has walked the agent's memfs and
+    // the global list, which after a bff restart can take half a minute — a 10s
+    // budget failed the run for a reason that had nothing to do with the UI.
+    await page.locator(".skill-group-head").first().waitFor({ timeout: 45_000 });
     const bundledHead = page.locator('.skill-group-head:has-text("Bundled")');
     check("skills list is populated without a turn", (await bundledHead.count()) === 1);
     check(
@@ -1208,22 +1233,23 @@ try {
       offenders,
     );
 
-    // Codex loads its settings from the BFF (GET /api/codex/settings); a form
-    // means the route answered, not just that the row exists.
-    await openSection("Codex workers");
-    check(
-      "codex section loads its settings",
-      (await page.locator('.menu-row:has-text("Allow Codex workers")').count()) === 1,
-      await page.locator(".settings-content").innerText(),
-    );
-
-    // Same for Claude Code (GET /api/claude/settings).
-    await openSection("Claude Code workers");
-    check(
-      "claude section loads its settings",
-      (await page.locator('.menu-row:has-text("Allow Claude Code workers")').count()) === 1,
-      await page.locator(".settings-content").innerText(),
-    );
+    // Codex and Claude Code load their settings from the BFF
+    // (GET /api/codex/settings, GET /api/claude/settings); a form means the route
+    // answered, not just that the row exists. Each is behind a compose token, so a
+    // stack without one has no row to open — the same guard the Remote Pi block
+    // below uses. Without it this hung for 30s on the click instead of skipping.
+    for (const [token, row, switchRow] of [
+      ["codex", "Codex workers", "Allow Codex workers"],
+      ["claude", "Claude Code workers", "Allow Claude Code workers"],
+    ] as const) {
+      if (!featureOn(desktopFeatures, token)) continue;
+      await openSection(row);
+      check(
+        `${token} section loads its settings`,
+        (await page.locator(`.menu-row:has-text("${switchRow}")`).count()) === 1,
+        await page.locator(".settings-content").innerText(),
+      );
+    }
 
     if (featureOn(desktopFeatures, "pi")) {
       // Same for Remote Pi (GET /api/pi/settings).
@@ -1231,6 +1257,11 @@ try {
       check(
         "remote pi section loads its settings",
         (await page.locator('.menu-row:has-text("Allow Remote Pi")').count()) === 1,
+        await page.locator(".settings-content").innerText(),
+      );
+      check(
+        "remote pi status row says one word of state",
+        (await page.locator(".settings-content .pi-status .pi-state").count()) === 1,
         await page.locator(".settings-content").innerText(),
       );
     }
@@ -1384,6 +1415,9 @@ try {
     await page.waitForTimeout(300);
     check("a toast dismisses on tap", (await page.locator(".toast").count()) === 0);
     await addSheet.locator('button:has-text("Speaks")').count(); // the api hint proves a type is chosen
+    // Blank the URL again first: choosing a type prefills an empty field and never
+    // clobbers what was typed, and the test above typed one.
+    await addSheet.locator('input[placeholder^="http://"]').fill("");
     await addSheet.locator(".field button.row").click();
     const typeSheet = page.locator('.sheet-panel[aria-label="Type"]');
     await typeSheet.waitFor({ timeout: 5_000 });
