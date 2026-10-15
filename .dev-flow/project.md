@@ -35,10 +35,9 @@ clean tree and only takes merged PRs. Area mechanics live in `.agents/skills/let
 read the one AGENTS.md's table names before planning. Upstream `letta-code/` is read-only and is never
 patched. A plan document rides its own feature's branch and PR, never a PR of its own.
 
-**Production deploy is the operator's alone.** The agent publishes — branch, PR, merge on the operator's
-word for that PR, annotated tag — and stops there. It never deploys prod, never asks whether a deploy
-happened, and keeps no prod host, address or deploy-manager detail in the tree
-(`bun run check-prod-info` is what enforces that).
+**Production deploy is the operator's alone:** the agent publishes — branch, PR, merge on the operator's
+word for that PR, annotated tag — and stops there. It never deploys prod and never asks whether a deploy
+happened.
 
 A `flow-guard` rule matches shell text, not intent: a `gh pr create --body "…git branch -D…"` trips the
 branch rule, so a body that quotes a command goes in a file and comes in with `--body-file`.
@@ -68,8 +67,7 @@ harness env does not guarantee: `bun: command not found` means pi was started wi
 the fix is a symlink into a directory already on PATH (`ln -s ~/.bun/bin/bun ~/.local/bin/bun`) — a
 machine fix, not a playbook edit. A fresh worktree has no `docker/.env`
 (gitignored) — `setup` copies it in when `flow approve` creates the worktree, or the state-dir default
-lands inside `.worktrees/`. Never recreate `app-server` on its own and never a scoped `up`: `bff` and
-`channel-gateway` share its network namespace. The local stack is one per machine and shared, so an
+lands inside `.worktrees/`. The local stack is one per machine and shared, so an
 `up -d` replaced whatever another session was testing — say so out loud. A web/ change needs `build:bff`
 first or the container serves the old bundle.
 
