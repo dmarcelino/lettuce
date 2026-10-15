@@ -8,7 +8,7 @@
 ```flow
 defaultBranch = main
 branchPattern = feat/{slug}
-worktreeDir = .worktrees/{slug}
+worktreeDir = .dev-flow/{slug}/worktree
 release.changelog = CHANGELOG.md
 release.github = false
 ```
@@ -20,9 +20,6 @@ deny    \bgit\b[^\n]*\bworktree\s+prune\b                 :: prunes other sessio
 confirm \bgit\b[^\n]*\bworktree remove\b                  :: `bun run cleanup` checks PR state and live sessions first
 confirm \bgit\b[^\n]*\bbranch\s+(?:-d\b|--delete\b)       :: report the branch instead; `bun run cleanup` does the checking
 confirm \bgit\b[^\n]*\bbranch\s+(?:-D\b|--delete\s+--force|--force\s+--delete) :: deletes a squash-merged branch git cannot see as merged
-confirm \bgh\b[^\n]*\bpr\s+merge\b                        :: the operator merges, or names this specific PR
-confirm \bgh\b[^\n]*\bpr\s+review\b[^\n]*(?:--approve|\bapprove\b) :: an approval is a human statement that they ran it
-confirm \bgh\b[^\n]*\bapi\b[^\n]*\/merges?\b              :: the same merge through the raw API
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\b(?:rm|down|stop|kill)\b :: stops running containers
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\brestart\b      :: drops the permanent upstream connection and any turn in flight
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\bup\b[^\n]*(?:^|\s)app-server(?=\s|$) :: that service shares a network namespace with two others
@@ -30,8 +27,8 @@ protect docker/.env                                       :: gitignored live sec
 forbid  docker/secrets                                    :: gitignored secret storage
 ```
 
-Feature work lives in a worktree under `.worktrees/<slug>`; the main checkout stays on `main` with a
-clean tree and only takes merged PRs. Area mechanics live in `.agents/skills/lettuce-*/SKILL.md` —
+Feature work lives in the worktree dev-flow creates at `.dev-flow/<slug>/worktree`; the main checkout
+stays on `main` with a clean tree and only takes merged PRs. Area mechanics live in `.agents/skills/lettuce-*/SKILL.md` —
 read the one AGENTS.md's table names before planning. Upstream `letta-code/` is read-only and is never
 patched. A plan document rides its own feature's branch and PR, never a PR of its own.
 
@@ -67,7 +64,7 @@ harness env does not guarantee: `bun: command not found` means pi was started wi
 the fix is a symlink into a directory already on PATH (`ln -s ~/.bun/bin/bun ~/.local/bin/bun`) — a
 machine fix, not a playbook edit. A fresh worktree has no `docker/.env`
 (gitignored) — `setup` copies it in when `flow approve` creates the worktree, or the state-dir default
-lands inside `.worktrees/`. The local stack is one per machine and shared, so an
+lands inside `.dev-flow/<slug>/`. The local stack is one per machine and shared, so an
 `up -d` replaced whatever another session was testing — say so out loud. A web/ change needs `build:bff`
 first or the container serves the old bundle.
 
@@ -104,11 +101,12 @@ the version before asking Release?, because the gate refuses a tag that already 
 ## release
 
 Publish only — the preparation happened above. Push the branch, open the PR from
-`.github/pull_request_template.md`, wait for the operator to confirm this specific PR and merge it
-(squash), `git fetch`, create the annotated tag at `main`'s tip and push it **by name**
-(`git push origin v<x>`, never `--follow-tags`), then `flow release-done`. No GitHub release is
-published (`release.github = false`). Nothing here deploys prod, and nothing is pushed or tagged without
-the operator's confirmation of that specific change — a standing yes from an earlier change is not one.
+`.github/pull_request_template.md`, wait for `ci` green, **squash-merge it yourself**
+(`gh pr merge <n> --squash`), `git fetch`, create the annotated tag at `main`'s tip and push it
+**by name** (`git push origin v<x>`, never `--follow-tags`), then `flow release-done`. No GitHub release
+is published (`release.github = false`). Nothing here deploys prod, and nothing is pushed, merged or
+tagged without the operator's **Release?** for that specific change — a standing yes from an earlier
+change is not one. The guard no longer intercepts `gh pr merge`: Release? is the authorization.
 
 - [ ] after the merge and from `main`: `bun run deploy-check` green, plus `bun run ui-check` and
       `bun run smoke` where they apply
