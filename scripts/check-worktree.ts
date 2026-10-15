@@ -4,9 +4,9 @@
  * The main checkout must stay on `main` with a clean tree — only merges happen
  * there. Two sessions sharing it collide: one switched the checkout to its
  * branch mid-work and `deploy-check`'s clean-tree and on-`main` assertions then
- * failed on the other's uncommitted changes (observed 2026-09-29). AGENTS.md
- * says worktrees live in `.worktrees/` inside the checkout; this makes the rule
- * a gate instead of a convention — and does not care where the worktree is.
+ * failed on the other's uncommitted changes (observed 2026-09-29). dev-flow creates one worktree per
+ * feature (`.dev-flow/<slug>/worktree`); this makes the rule a gate instead of a
+ * convention — and does not care where the worktree is.
  *
  * A linked worktree is detected the way Git does: its `--git-dir` (the
  * per-worktree dir under `.git/worktrees/…`) differs from its

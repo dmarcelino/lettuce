@@ -11,8 +11,8 @@ tests it there, and only then does it become a PR that squash-merges into `main`
 ## The lifecycle
 
 ```
-.worktrees/<slug>                         main
-─────────────────                        ────
+.dev-flow/<slug>/worktree                 main
+─────────────────────────                ────
 flow approve (plan) → the worktree and branch
 flow check green
 build + run locally
@@ -43,10 +43,10 @@ workflow-file trap below.
    answered, which is a precondition of the PR rather than a review checkbox. Note `gh` bodies are
    scanned by the guard too: a body that *quotes* `git branch -D` gets the `gh pr create` call
    blocked, so pass long bodies with `--body-file`.
-5. **CI green**, then the human merges. **An agent merges only after the operator confirms that
-   specific PR** — "continue" or a standing approval is not that confirmation. The guard asks for
-   confirmation on `gh pr merge` and `gh pr review --approve` to make that hard to get wrong; a
-   reviewer's `Approved` review is their decision, not permission to click merge.
+5. **CI green, then merge it yourself.** **Release? is the authorization** — the operator does not merge
+   by hand: once `ci` is green on the PR the agent runs `gh pr merge <n> --squash`. A standing
+   "continue" is not an authorization, and neither is a reviewer's `Approved` review — that says they
+   ran it, not that they own the merge.
 6. **Merge = squash** (`gh pr merge <n> --squash`), which is what keeps history linear with one
    commit per PR — squash discards the branch's own history, so nothing is lost by the merge shape
    below. Report the worktree as merged and safe to remove; never remove it yourself.
@@ -157,9 +157,10 @@ itself is never touched on a feature branch — see the `lettuce-releasing` skil
 - **Zero approving reviews, deliberately.** One human account and the agent's token are the same
   identity, and GitHub refuses self-approval flat out — *"Can not approve your own pull request"* —
   so a review requirement turned every merge into an admin bypass, which hides who decided. The gate
-  is now `ci` **plus a human commanding the specific merge**: the guard confirms every `gh pr merge`,
-  and the agent merges #N only when #N is named. A review is still welcome and still counts; it is
-  just not the thing standing between a branch and `main`.
+  is now `ci` **plus the operator's Release? for that release** — the guard deliberately no longer
+  intercepts `gh pr merge`, because the operator wants the release merged by the flow, so the human word
+  at the release gate is the one thing standing between a branch and `main`. A review is still welcome
+  and still counts; it is just not the gate.
 - **Conversation resolution is required**, and **squash is the repo's only merge method**, so history
   stays one commit per PR.
 - Force-push and deleting `main` are forbidden outright. **`enforce_admins` is false**, so the owner

@@ -11,7 +11,9 @@ docker/secrets/
 .kilo/
 .pendant/
 
-# One worktree per feature branch, inside the checkout (see AGENTS.md → Workflow).
+# Worktrees: dev-flow puts a feature worktree at .dev-flow/<slug>/worktree, and .dev-flow/ carries its
+# own `*` .gitignore, so nothing there needs listing here. `.worktrees/` is the previous location
+# (worktrees created before the alignment) — drop the entry once none is left.
 .worktrees/
 
 # pi harness: tracked config is .pi/extensions, .pi/prompts; the rest is local.

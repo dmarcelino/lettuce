@@ -27,18 +27,21 @@ narratives in `docs/upstream-notes.md`, pointed at as `docs/upstream-notes.md#<a
    tests passing is not done. A **docs-only** change stops at `bun run check-docs`. **UI changes**
    carry two more gates — approved target-state mockups (desktop + phone) before implementing, a
    holistic visual pass after: `lettuce-ui-verification`.
-7. **Every change happens in a worktree on a feature branch** under `.worktrees/` — a docs-only change
-   included, which is what `flow start <slug> --docs` is for. The main checkout stays on `main` with a
-   clean tree and only takes merged PRs.
-8. **Never remove a worktree or delete a branch by hand** — `bun run cleanup` does it once a PR is
-   merged, and refuses anything unmerged, dirty, or occupied by another session.
+7. **Every change happens in a worktree on a feature branch** — `flow approve` creates it at
+   `.dev-flow/<slug>/worktree` — a docs-only change included, which is what `flow start <slug> --docs` is
+   for. The main checkout stays on `main` with a clean tree and only takes merged PRs.
+8. **Never remove a worktree or delete a branch by hand** — `flow finish` closes the feature whose PR
+   merged, and `bun run cleanup` sweeps what sessions left behind, refusing anything unmerged, dirty, or
+   occupied by another session.
 
 ## Workspace layout
 
 ```
 ~/work/
   lettuce/            this repo — everything we own (the app is **Lettuce**)
-    .worktrees/       one worktree per feature branch (git- and docker-ignored)
+    .dev-flow/<slug>/worktree/
+                      one worktree per feature branch — dev-flow's default location, inside the
+                      self-ignored `.dev-flow/`; `.dockerignore` keeps it out of build contexts
   letta-code/         plain clone of letta-ai/letta-code at the pinned release tag — read-only.
                       A sibling of `lettuce/` because that is what `scripts/sync-upstream.sh`
                       assumes: `${LETTA_CODE_DIR:-<repo parent>/letta-code}`. A fresh machine has
@@ -128,7 +131,7 @@ $LETTA_STATE_DIR/
 ```
 
 It defaults to `../..` relative to the compose file, which is **a trap in a worktree** — `../..` from
-`.worktrees/<feature>/docker/` resolves to `.worktrees`. Prod sets an absolute path in `docker/.env`
+`.dev-flow/<slug>/worktree/docker/` resolves to `.dev-flow/<slug>`. Prod sets an absolute path in `docker/.env`
 (hard rule 3), and container work always happens from the main checkout.
 
 Three named volumes remain, none precious: `bff-data` (web-push endpoints, rebuilt by re-subscribing)
@@ -233,8 +236,9 @@ lives in a skill — the table above says which.
 ### Branches and PRs
 
 Worktrees per branch, then a **PR into `main`, squash-merged** (one commit per PR, no merge commits).
-Nothing lands on `main` except through a merged PR — a release included. **An agent merges only after
-the operator confirms that specific PR.** Mechanics, labels, protection and CI tiers:
+Nothing lands on `main` except through a merged PR — a release included. **Release? is the merge
+authorization** — the operator does not merge by hand: the agent opens the PR, waits for `ci`, and
+squash-merges it. Mechanics, labels, protection and CI tiers:
 **`lettuce-pr-and-ci`**.
 
 **Why the worktree rule is a gate and not a preference** (dev-flow enforces it — see *Definition of
