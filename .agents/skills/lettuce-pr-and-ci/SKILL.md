@@ -29,8 +29,9 @@ the operator already verified, so Tier A is an independent re-check of something
 the verifier. A red CI check after the human gate means environment drift — or the branch-only-
 workflow-file trap below.
 
-1. **Branch and worktree** as usual (`git worktree add .worktrees/<name> -b <branch>` from the main
-   checkout). Never branch in the main checkout.
+1. **The worktree and the branch are dev-flow's, not yours.** `flow approve` creates both from
+   `.dev-flow/project.md` (`branchPattern`, `worktreeDir`), and an unbound session cannot edit source at
+   all — there is no hand-made worktree and no bypass. Never branch in the main checkout.
 2. **Commit on the branch.** Commit and push are separate commands — the guard blocks a compound line
    containing `git push`, so `git add … && git commit … && git push` runs *none* of it and the commit
    silently never happened.
@@ -68,7 +69,7 @@ protects a dev box, not a runner.
 
 GitHub runs `pull_request` workflows from the **PR head branch**, not from `main`. A branch cut
 before `.github/workflows/` existed reports *no* checks and looks green while being unverified —
-merge `main` in (step 6) and the jobs appear. Check the checks list, not the absence of red.
+merge `main` in (step 7) and the jobs appear. Check the checks list, not the absence of red.
 
 ## Tier A (`ci.yml`) — what runs and why
 
@@ -138,10 +139,10 @@ live state and needs an agent to exist.
 `bump:minor`, `bump:patch`, `bump:none` declare what a merged PR means for the next release;
 `check-release-hygiene.ts` fails a PR that touches `bff/`, `web/` or `docker/` without a
 `CHANGELOG.md` `[Unreleased]` entry and without `bump:none`, and warns when a label contradicts
-the changelog section it adds (an `Added` section with `bump:patch` is a MINOR, not a PATCH). With
-no label it derives from the squash subject (`feat` → minor, `docs` → none, else patch), which is
-why the squash title must be a Conventional Commit. `VERSION` itself is never touched on a feature
-branch — see the `lettuce-releasing` skill.
+the changelog section it adds. With no label it derives from the squash subject (`feat` → minor,
+`docs` → none, else patch), which is why the squash title must be a Conventional Commit. Which
+heading a patch entry belongs under is a `pre-release` rule in `.dev-flow/project.md`. `VERSION`
+itself is never touched on a feature branch — see the `lettuce-releasing` skill.
 
 ## Branch protection: what is on
 
@@ -201,13 +202,10 @@ the output, never assumed.
 Abandoned branches — the kind a merge never triggers on — are not the script's business. The weekly
 `stale-report` workflow lists branches with no open PR and lets a human decide; it never deletes.
 
-The guard follows the same shape, and it is now the playbook's: the rules are the `flow-guard` block in
-`.dev-flow/project.md` `## global`, which dev-flow judges **ahead of** its own stage rules, at every
-stage. `git branch -D` is confirmable (it has to be, because squash ancestry means `-d` can never
-succeed); every `--force` variant, `git push -f` and worktree pruning are hard denies; and
-`bun run cleanup` carries its own confirmation because a rule only ever sees what an agent types.
-
-What it sees, exactly, is worth knowing before you rely on it:
+The guard is dev-flow's: the rules are the `flow-guard` block in `.dev-flow/project.md` `## global`,
+judged **ahead of** dev-flow's own stage rules, at every stage. Read that block for what is denied and
+what needs the operator — what belongs here is *how* it matches, because that decides whether a rule is
+protecting you or only looks like it:
 
 - A rule matches one **segment** of a command line (`&&`, `||`, `;`, `|`, newline) whose head verb is
   *doing* something. Read-only heads are skipped — `grep "git push --force" AGENTS.md` and
@@ -220,6 +218,5 @@ What it sees, exactly, is worth knowing before you rely on it:
 - Path rules (`protect docker/.env`, `forbid docker/secrets`) are matched on the `edit` and `write`
   tools only. A shell redirect (`echo … > docker/.env`) or `sed -i` is invisible to them, because
   parsing a path out of arbitrary shell is how you get a rule nobody trusts.
-- What the rules no longer gate, because dev-flow's stages own them: pushing `main` or a tag
-  (only the release stage may write the default branch), `git tag -a`, `gh release create`, and edits
-  to `VERSION` — which is bumped on the feature branch at `pre-release` now, not by a release commit.
+- A rule sees what an agent types, never what a script does internally — which is why
+  `bun run cleanup` carries its own typed confirmation.

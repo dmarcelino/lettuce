@@ -7,8 +7,6 @@ description: 'lettuce UI conventions that are ours, not the protocol''s: pin and
 
 Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protocol, so the whole feature is ours.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 - **Pinning and archiving an agent are not in the protocol, so both are ours.** letta-code
   keeps a pinned list in `settings.json` for its CLI picker, but the app-server only sets it at
   creation (`create_agent.pin_global`), and it has no agent archive — its `hidden` flag marks

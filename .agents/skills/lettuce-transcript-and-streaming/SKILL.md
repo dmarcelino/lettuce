@@ -7,8 +7,6 @@ description: 'lettuce wire-shape mechanics the UI depends on: tool_return_messag
 
 Loaded from `AGENTS.md`. Several of these are behavioural, not typed, so `bun run typecheck` cannot catch drift here.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 - **Stop cannot actually cancel a local generation, and the app-server says it did.** The abort
   controller is wired to nothing, so the turn can only end when the model's **next chunk**
   arrives; press Stop during prefill and llama.cpp finishes the whole response. The UI **must**

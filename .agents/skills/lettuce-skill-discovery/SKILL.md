@@ -7,8 +7,6 @@ description: 'lettuce skill-scope mechanics: the four discovery scopes (bundled,
 
 Loaded from `AGENTS.md`. Four scopes, none of them per-conversation.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 - **Skills have four scopes, and none of them is per-conversation.** Discovery
   (`src/agent/skills.ts`, `src/agent/client-skills.ts`) reads, lowest priority first: bundled
   (in the package), global `/root/.letta/skills/`, agent `~/.letta/agents/<id>/memory/skills/`,

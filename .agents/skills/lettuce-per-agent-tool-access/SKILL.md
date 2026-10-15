@@ -7,12 +7,12 @@ description: 'lettuce per-agent tool access mechanics: agent-tool-access.json on
 
 Loaded from `AGENTS.md`. Settings decide what exists; this narrows who is offered it.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 - **Per-agent tool access (the Tools tab) narrows Google, Codex, Claude Code and Remote Pi through
   the mods, with no upstream change.** Settings → Codex workers, → Claude Code workers, → Google and
   → Remote Pi decide what exists; each agent can be cut down from there (Google full / read-only /
-  off, Codex, Claude Code and Remote Pi allowed / blocked). The BFF
+  off, Codex, Claude Code and Remote Pi allowed / blocked). Each family is gated twice — its compose
+  token and that stored switch — and `pi` is a virtual token like codex/claude but BFF-side only, so
+  with it off `bff/src/pi/routes.ts` answers 404 and `web/` hides the section. The BFF
   keeps it in `agent-tool-access.json` on `bff-data` (`bff/src/agents/tool-access.ts`, only
   non-default entries), and a save re-renders the mods and sends one `reload`. Three upstream
   hooks carry it (0.33.3):

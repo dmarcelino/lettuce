@@ -7,8 +7,6 @@ description: 'lettuce MCP and mod mechanics: the one shared MCP list under /root
 
 Loaded from `AGENTS.md`. Mods are thin and the BFF does the work; MCP is one shared list that upstream never loads.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 - **MCP is one shared list, kept out of upstream's `settings.json`, and agents learn it from a
   skill.** Upstream MCP is per-agent only (`settings.json` → `agents[].mcpServers`), and in
   app-server mode it is not native tools: agents run `letta mcp search|tools|schema|call`

@@ -7,8 +7,6 @@ description: 'lettuce external coding-worker mechanics: `subagent_type: "codex"`
 
 Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit this container, and the Settings switch decides whether they run at all.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 - **Codex workers: letta-code runs them, a shim makes them fit this container.** Since 0.33,
   `Task` / `launch_subagent` accept `subagent_type: "codex"` and spawn `codex app-server
   --stdio` from PATH (`tools/impl/external-coding-agent.ts`, `codex-app-server.ts`). Our

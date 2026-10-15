@@ -7,8 +7,6 @@ description: 'lettuce Telegram/channel-gateway mechanics: why app-server, bff an
 
 Loaded from `AGENTS.md`. Two facts in letta-code combine into the topology: the app-server refuses a non-loopback listener without `--ws-auth`, and `letta channel-gateway` sends no bearer token at all.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 ### Channels (Telegram) — why the topology looks like this
 
 Two facts in letta-code combine into one hard constraint:

@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-verification
-description: 'lettuce UI-change gates: before implementing any web/ change, mock the target state at phone (390px) and desktop width and get the mockups approved; after implementing, a holistic visual pass over screenshots and the live page — task accomplishment, consistency with sibling screens, broken layout, overflows, stray scrollbars — never pixel diffs. Mechanics: the gitignored .mockups/ page linking web/src/styles.css for fidelity, Playwright element screenshots, ui-check output in .ui-check/. Read before implementing any web/ UI change, before handing a UI change off for the container test, or when a review asks "does this fit the app".'
+description: 'lettuce UI-change gates: before implementing any web/ change, mock the target state at phone (390px) and desktop (1280px) into the flow plan and get the mockups approved; after implementing, a holistic visual pass over screenshots and the live page — task accomplishment, consistency with sibling screens, broken layout, overflows, stray scrollbars — never pixel diffs. Mechanics: a static mock page linking web/src/styles.css for fidelity, rendered to plan/mockups/ PNGs with headless chromium and embedded in plan.md, plus Playwright screenshots and ui-check output in .ui-check/. Read before implementing any web/ UI change, before handing a UI change off for the container test, or when a review asks "does this fit the app".'
 ---
 
 # UI change gates: mockups before, visual pass after
@@ -11,20 +11,24 @@ review cannot see that a row wraps, a timer wobbles, or a control reads wrong at
 
 ## Gate 1 — target state approved before implementing
 
-When the change is more than a trivial fix, before writing UI code:
+When the change is more than a trivial fix, before writing UI code, in the **plan** stage — dev-flow's UI
+feature gate requires rendered mockups in the plan directory and refuses a plan without them
+(`mockupGlobs`, default `*.png`):
 
-1. Build a static mock at `.mockups/<name>.html` (gitignored) that **links the real stylesheet**
-   (`../web/src/styles.css`) and reuses the app's own class names and tokens. Fidelity is then by
-   construction, not by effort — colours, type scale, borders, square corners all real.
-2. Render one section per variant/state at **both widths**: phone 390px, desktop (the component's
-   real container width). `scripts/screenshots.ts` and `scripts/ui-check.ts` show the Playwright
-   pattern; a tiny `shot.ts` beside the mock (element screenshot per `section`, deviceScaleFactor 2)
-   is enough.
-3. Show the variants with `present_files`, name a recommendation, and **stop for approval**. Carry
-   the approved mock into the PR body or at least reference it; the approved mock is the spec.
+1. Write one static mock per screen/state at `.dev-flow/<slug>/plan/mockups/<screen>.html` that **links
+   the real stylesheet** — from `plan/mockups/` that is `../../../../web/src/styles.css` — and
+   reuses the app's own class names and tokens. Fidelity is then by construction, not by effort —
+   colours, type scale, borders, square corners all real.
+2. Render each one at **both widths — phone 390 and desktop 1280** with headless chromium (the command the
+   plan stage prescribes: `--no-sandbox --disable-gpu --hide-scrollbars --window-size=<width>,<height>
+   --screenshot=…`), one section per variant/state, and **embed every PNG in plan.md** so the plan is one
+   reviewable document. A mock that was never rendered is not a mockup.
+3. Name a recommendation and **stop for Approve?** — the gate question is the mockup approval, and the
+   approved mock is the spec.
 
 Skip mockups only for changes a screenshot of the fix would explain better than a mock (one-line
-label, colour token); say so in the PR.
+label, colour token); say so in the PR. `--ui` is what makes the gate demand them: `flow start <slug>
+--ui`.
 
 ## Gate 2 — holistic visual pass after implementing
 
