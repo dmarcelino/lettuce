@@ -7,8 +7,6 @@ description: 'lettuce Google integration mechanics: the google-mcp sidecar and i
 
 Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; what it may do is fixed in two places no agent can change.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 - **Google (Gmail / Calendar / Tasks / Contacts) is a sidecar whose access no agent can change.**
   Agents reach `http://google-mcp:8000/mcp` (`docker/google-mcp`:
   taylorwilsdon/google_workspace_mcp, pinned `WORKSPACE_MCP_VERSION`, under `supervisor.py`),

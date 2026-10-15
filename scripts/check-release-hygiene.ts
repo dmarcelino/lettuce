@@ -22,10 +22,10 @@
  * `web/` or `docker/` actually added the changelog entry, and whether its declared
  * bump (a `bump:*` label, else the Conventional Commit subject, else the sections
  * it added under `[Unreleased]`) is self-consistent. Labels arrive as `--labels` or
- * the `PR_LABELS` environment variable, and the squash-commit subject as `--subject`,
- * so this script needs no GitHub token — CI passes what `gh pr view` already fetched.
- * On a PR head the local HEAD is not the squash commit, so `--subject` (the PR title)
- * beats `git log` there.
+ * the `PR_LABELS` environment variable, and the PR title (what a merge commit quotes) as
+ * `--subject`, so this script needs no GitHub token — CI passes what `gh pr view` already
+ * fetched. On a PR head the local HEAD is not the merge commit, so `--subject` beats
+ * `git log` there.
  *
  * An unknown bump type is a warning, not a failure: the release command takes
  * `--minor`/`--patch` from a human, and a wrong label is worth printing rather
@@ -79,7 +79,7 @@ export function appDirsTouched(files: string[]): string[] {
 /**
  * The bump, decided by label first (a PR's author knows what it changed), then by
  * the Conventional Commit subject, then by the changelog headings the PR added.
- * Labels win because squash titles are auto-filled and routinely stale.
+ * Labels win because a PR title is auto-filled from the first commit and routinely stale.
  */
 export function decideBump(input: PrInput): { bump: Bump | "unknown"; why: string } {
   const labels = input.labels ?? [];

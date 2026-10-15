@@ -1,13 +1,11 @@
 ---
 name: lettuce-upstream-sync
-description: 'Run `bun run sync-upstream v<x.y.z>` to move lettuce to a new letta-code release: what the script does, why only published release tags are acceptable, typed vs behavioural drift and the five upstream files whose changes typecheck cannot catch (connection-lifecycle, gateway supervisor/local, background-process-protocol, toolset-catalog, AskUserQuestion), the six version literal sites and the stale-pin precedence trap, and why a version bump is a full redeploy. Read when bumping LETTA_CODE_VERSION or running sync-upstream.'
+description: 'Run `bun run sync-upstream v<x.y.z>` to move lettuce to a new letta-code release: what the script does, why only published release tags are acceptable, typed vs behavioural drift and the five upstream files whose changes typecheck cannot catch (connection-lifecycle, gateway supervisor/local, background-process-protocol, toolset-catalog, AskUserQuestion), the seven version literal sites and the stale-pin precedence trap, and why a version bump is a full redeploy. Read when bumping LETTA_CODE_VERSION or running sync-upstream.'
 ---
 
 # Upstream sync and version pinning
 
 Loaded from `AGENTS.md`. Everything the stack runs comes from a published artifact; the checkout sitting one commit past a tag has nothing to pin to.
-
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
 
 ## Upstream sync
 
@@ -82,7 +80,8 @@ both artifacts exist before re-pinning.
 app-server patterns are fenced to that service's block: a plain lazy match ran on into
 channel-gateway's image line once the app-server stopped naming `letta/letta` directly.
 `sync-upstream.sh` rewrites all of them for you (its sed replaces every
-`LETTA_CODE_VERSION:-…}`).
+`LETTA_CODE_VERSION:-…}`). The other pins in compose — `GH_VERSION`, `CODEX_VERSION`,
+`CLAUDE_CODE_VERSION`, the sidecar versions — are separate and not what this check covers.
 
 **`docker/.env` must not set `LETTA_CODE_VERSION` at all.** Compose reads that file and its value
 outranks compose's own default, so a leftover freezes the host on an older release and survives
@@ -98,7 +97,7 @@ case.
 
 **A version bump is a full redeploy.** `docker compose -f docker/compose.yml up -d --build` —
 rebuilds the app-server image on the new base, pulls the new channel-gateway image and
-rebuilds bff. This is the documented exception to "Only `bff` is rebuilt in step 4" under
-Definition of done; that note governs ordinary UI and BFF changes, this one governs version
-bumps. Recreating `app-server` drops the BFF's permanent upstream connection, so any in-flight
-turn is lost and the cron scheduler and Telegram gateway restart on the BFF's reconnect.
+rebuilds bff. This is the documented exception to "Only `bff` is rebuilt to prove an artifact" in
+`AGENTS.md` → "Stop before publishing"; that note governs ordinary UI and BFF changes, this one
+governs version bumps. Recreating `app-server` drops the BFF's permanent upstream connection, so any
+in-flight turn is lost and the cron scheduler and Telegram gateway restart on the BFF's reconnect.

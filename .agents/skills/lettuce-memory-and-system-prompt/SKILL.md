@@ -7,8 +7,6 @@ description: 'lettuce memory mechanics: `agent.system` is a letta-code-managed p
 
 Loaded from `AGENTS.md`. Two different things are called "the system prompt" and memory lives outside every agent workspace.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 - **Two different things are called "the system prompt", and an agent can only change one.**
   `agent.system` — what Agent → General shows — is a letta-code-**managed** preset, tracked in
   `settings.json` as `systemPromptPreset` + `systemPromptHash` + `systemPromptVersion`;

@@ -7,8 +7,6 @@ description: 'lettuce runtime/ops mechanics: the LLM timeout bounds prefill and 
 
 Loaded from `AGENTS.md`. Timeouts, ports, and the two things that break spawns.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
-
 - **The LLM timeout bounds prefill, not generation — and there is no idle timeout.** A
   streaming fetch resolves on headers, so the clock covers connect + queueing + prompt eval
   and stops the moment tokens start; a long generation is never cut off and a stalled stream is

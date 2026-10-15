@@ -1,18 +1,19 @@
 ---
 name: lettuce-pr-and-ci
-description: 'lettuce PR and CI mechanics: worktree → local container test → PR → squash merge (the human test happens before the branch is pushed), which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, the gates that stay local because CI has no stack and no secret, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and the rule that an agent merges only after the operator confirms that specific PR. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the `flow-guard` rules around merges.'
+description: 'lettuce PR and CI mechanics: worktree → local container test → PR → merge commit (the human test happens before the branch is pushed), which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, the gates that stay local because CI has no stack and no secret, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and that the operator's Release? is what authorizes the agent to merge. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the `flow-guard` rules around merges.'
 ---
 
 # PR flow and CI
 
 Loaded from `AGENTS.md`. The short version: work happens in a worktree driven by dev-flow, the operator
-tests it there, and only then does it become a PR that squash-merges into `main`. Landing is not shipping.
+tests it there, and only then does it become a PR that lands on `main` as a merge commit. Landing is not
+shipping.
 
 ## The lifecycle
 
 ```
-.worktrees/<slug>                         main
-─────────────────                        ────
+.dev-flow/<slug>/worktree                 main
+─────────────────────────                ────
 flow approve (plan) → the worktree and branch
 flow check green
 build + run locally
@@ -20,7 +21,7 @@ user tests it in the browser  ←── the gate, and it happens here, before an
   │  pre-release: ponytail-review, then VERSION bump + changelog rename in one commit
   └──push──▶  PR opens (template filled, test already recorded)
               ├─ CI Tier A (`.github/workflows/ci.yml`)
-              ├─ the operator confirms this PR and squash-merges ──▶ main
+              ├─ ci green → the agent merges it (--merge) ──▶ main
               └─ tag main's tip, push it by name ──▶ flow release-done → flow finish
 ```
 
@@ -29,8 +30,9 @@ the operator already verified, so Tier A is an independent re-check of something
 the verifier. A red CI check after the human gate means environment drift — or the branch-only-
 workflow-file trap below.
 
-1. **Branch and worktree** as usual (`git worktree add .worktrees/<name> -b <branch>` from the main
-   checkout). Never branch in the main checkout.
+1. **The worktree and the branch are dev-flow's, not yours.** `flow approve` creates both from
+   `.dev-flow/project.md` (`branchPattern`, `worktreeDir`), and an unbound session cannot edit source at
+   all — there is no hand-made worktree and no bypass. Never branch in the main checkout.
 2. **Commit on the branch.** Commit and push are separate commands — the guard blocks a compound line
    containing `git push`, so `git add … && git commit … && git push` runs *none* of it and the commit
    silently never happened.
@@ -40,19 +42,20 @@ workflow-file trap below.
 4. **Then push (`git push -u origin <branch>`) and open the PR** with `gh pr create`, filling in
    `.github/pull_request_template.md` — its container-test section records who ran it and what they
    answered, which is a precondition of the PR rather than a review checkbox. Note `gh` bodies are
-   scanned by the guard too: a body that *quotes* `git branch -D` gets the `gh pr create` call
-   blocked, so pass long bodies with `--body-file`.
-5. **CI green**, then the human merges. **An agent merges only after the operator confirms that
-   specific PR** — "continue" or a standing approval is not that confirmation. The guard asks for
-   confirmation on `gh pr merge` and `gh pr review --approve` to make that hard to get wrong; a
-   reviewer's `Approved` review is their decision, not permission to click merge.
-6. **Merge = squash** (`gh pr merge <n> --squash`), which is what keeps history linear with one
-   commit per PR — squash discards the branch's own history, so nothing is lost by the merge shape
-   below. Report the worktree as merged and safe to remove; never remove it yourself.
+   scanned by the guard too: a body that *quotes* `docker compose stop` still trips the compose rule,
+   so pass long bodies with `--body-file`.
+5. **CI green, then merge it yourself.** **Release? is the authorization** — the operator does not merge
+   by hand: once `ci` is green on the PR the agent runs `gh pr merge <n> --merge`. A standing
+   "continue" is not an authorization, and neither is a reviewer's `Approved` review — that says they
+   ran it, not that they own the merge.
+6. **Merge = merge commit** (`--merge`, the repo's only enabled method). The branch's own commits are
+   what reach `main`, so a landed branch really is an ancestor of `main` and `git branch -d` can delete
+   it — no PR API needed to know what merged. Report the worktree as merged and let `flow finish`
+   remove it; never remove it yourself.
 7. **Updating a PR branch with `main`:** merge `main` in (`git merge main` in the worktree), do not
    rebase and force-push — `--force` is blocked outright and `gh pr update-branch` does nothing on
-   the `gh` version installed here. A merge commit on a PR branch is harmless because the merge to
-   `main` squashes it away.
+   the `gh` version installed here. Merge commits are how a PR lands anyway, so one more on the branch
+   costs nothing.
 
 ## What CI cannot do, so the machine still does
 
@@ -68,7 +71,7 @@ protects a dev box, not a runner.
 
 GitHub runs `pull_request` workflows from the **PR head branch**, not from `main`. A branch cut
 before `.github/workflows/` existed reports *no* checks and looks green while being unverified —
-merge `main` in (step 6) and the jobs appear. Check the checks list, not the absence of red.
+merge `main` in (step 7) and the jobs appear. Check the checks list, not the absence of red.
 
 ## Tier A (`ci.yml`) — what runs and why
 
@@ -138,10 +141,10 @@ live state and needs an agent to exist.
 `bump:minor`, `bump:patch`, `bump:none` declare what a merged PR means for the next release;
 `check-release-hygiene.ts` fails a PR that touches `bff/`, `web/` or `docker/` without a
 `CHANGELOG.md` `[Unreleased]` entry and without `bump:none`, and warns when a label contradicts
-the changelog section it adds (an `Added` section with `bump:patch` is a MINOR, not a PATCH). With
-no label it derives from the squash subject (`feat` → minor, `docs` → none, else patch), which is
-why the squash title must be a Conventional Commit. `VERSION` itself is never touched on a feature
-branch — see the `lettuce-releasing` skill.
+the changelog section it adds. With no label it derives from the PR title (`feat` → minor,
+`docs` → none, else patch), which is why the PR title must be a Conventional Commit. Which
+heading a patch entry belongs under is a `pre-release` rule in `.dev-flow/project.md`. `VERSION`
+itself is never touched on a feature branch — see the `lettuce-releasing` skill.
 
 ## Branch protection: what is on
 
@@ -156,11 +159,13 @@ branch — see the `lettuce-releasing` skill.
 - **Zero approving reviews, deliberately.** One human account and the agent's token are the same
   identity, and GitHub refuses self-approval flat out — *"Can not approve your own pull request"* —
   so a review requirement turned every merge into an admin bypass, which hides who decided. The gate
-  is now `ci` **plus a human commanding the specific merge**: the guard confirms every `gh pr merge`,
-  and the agent merges #N only when #N is named. A review is still welcome and still counts; it is
-  just not the thing standing between a branch and `main`.
-- **Conversation resolution is required**, and **squash is the repo's only merge method**, so history
-  stays one commit per PR.
+  is now `ci` **plus the operator's Release? for that release** — the guard deliberately no longer
+  intercepts `gh pr merge`, because the operator wants the release merged by the flow, so the human word
+  at the release gate is the one thing standing between a branch and `main`. A review is still welcome
+  and still counts; it is just not the gate.
+- **Conversation resolution is required**, and **a merge commit is the repo's only enabled merge
+  method** (`allow_squash_merge` and `allow_rebase_merge` are off in the repo settings, not in the
+  branch protection payload), so a PR's commits survive onto `main` and ancestry stays meaningful.
 - Force-push and deleting `main` are forbidden outright. **`enforce_admins` is false**, so the owner
   keeps an emergency direct push; an agent reaches for `--admin` only when told to override something
   protection still requires, and says so in the same breath.
@@ -172,54 +177,41 @@ branch — see the `lettuce-releasing` skill.
 Because a PR is required, the tag is always cut *after* the merge: the version and its changelog section
 ride the feature's own branch — see `lettuce-releasing`.
 
-## After merge: `bun run cleanup`
+## After merge: `flow finish`
 
-Worktree and local-branch bookkeeping is a script, not a habit: `scripts/cleanup-merged.ts` with
-the decision rules in `scripts/cleanup-core.ts` (tests: `tests/cleanup-core.test.ts`). Default mode
-only reports; `--apply` removes, and only after you type the exact phrase it printed, which is
-derived from the counts so a plan that changed mid-run cannot be confirmed by the old phrase.
+Bookkeeping is dev-flow's, not a script and not a habit. Once the PR is merged and
+`flow release-done` has recorded the tag, `flow finish` closes the feature: it refuses a dirty main
+checkout or a `HEAD` that is not on `origin/main`, blocks on uncommitted changes inside the worktree,
+notes any commit that never reached `main`, then removes the worktree and the local branch and deletes
+`origin/<branch>` only on proof it was released. With merge commits that proof is plain ancestry —
+which is also why `git branch -d` works here: a merged branch is an ancestor of `main`.
 
-Why a script and not `git worktree remove` in a loop — three checks a human would otherwise have to
-remember, each one a way to eat someone's work:
+Two things a per-feature close cannot see, both handled elsewhere:
 
-- **PR state decides, never git ancestry.** This repo squash-merges, so a merged branch is not an
-  ancestor of `main` and `git branch --merged` is permanently meaningless here; `-d` always refuses
-  and `-D` deletes anything, merged or not. The script asks the API.
-- **A dirty tree is a refusal.** A follow-up fix made only in the worktree is exactly what a
-  merge-triggered auto-delete would lose. Untracked files count as dirty.
-- **A live process with its cwd inside is a refusal** (read from `/proc/*/cwd`; unknown is treated
-  as occupied, not empty). This is the case the hand-removal rule exists for — another session sitting
-  in the worktree — and nothing about the PR being merged tells you.
+- **Abandoned branches** — no PR ever, or a closed one — have no merge event to hang a rule on. The
+  weekly `stale-report` workflow lists branches with no open PR and lets a human decide; it never
+  deletes.
+- **Orphans** — a worktree no unfinished feature owns, a `feat/*` branch nobody claims, or a feature
+  whose worktree vanished — are what `flow init`'s doctor reports.
 
-A branch some worktree holds is normally that worktree's decision and never touched separately —
-unless that worktree is being removed in the same pass, in which case one run finishes the job
-(worktrees go first). There is no `--force`. A refusal is an instruction to go look. `--remote` additionally deletes the
-merged branches on `origin` for branches that were created before auto-delete existed, and
-`--skip-session-check` exists for a platform that cannot report live sessions; both are stated in
-the output, never assumed.
+Finish only your own slug. `flow finish` checks dirt and unmerged commits — it does not look for a live
+process sitting in that worktree, so closing a slug another session holds can delete committed-but-
+unpushed work. `flow status` names the claim holder.
 
-Abandoned branches — the kind a merge never triggers on — are not the script's business. The weekly
-`stale-report` workflow lists branches with no open PR and lets a human decide; it never deletes.
-
-The guard follows the same shape, and it is now the playbook's: the rules are the `flow-guard` block in
-`.dev-flow/project.md` `## global`, which dev-flow judges **ahead of** its own stage rules, at every
-stage. `git branch -D` is confirmable (it has to be, because squash ancestry means `-d` can never
-succeed); every `--force` variant, `git push -f` and worktree pruning are hard denies; and
-`bun run cleanup` carries its own confirmation because a rule only ever sees what an agent types.
-
-What it sees, exactly, is worth knowing before you rely on it:
+The guard is dev-flow's: the rules are the `flow-guard` block in `.dev-flow/project.md` `## global`,
+judged **ahead of** dev-flow's own stage rules, at every stage. Read that block for what is denied and
+what needs the operator — what belongs here is *how* it matches, because that decides whether a rule is
+protecting you or only looks like it:
 
 - A rule matches one **segment** of a command line (`&&`, `||`, `;`, `|`, newline) whose head verb is
   *doing* something. Read-only heads are skipped — `grep "git push --force" AGENTS.md` and
   `git log --grep=--force` are free, so writing about a forbidden command is not a violation.
-- A quoted body is still shell text: `gh pr create --body "…git branch -D…"` trips the branch rule,
-  because `gh pr create` is a doing-verb. A body that quotes a command goes in a file written with the
-  file tools and comes in with `--body-file`.
-- Merging is gated on `gh pr merge`, and on `gh api …/merge` / `…/merges`, which is the same act with
-  the gate walked around.
+- A quoted body is still shell text: `gh pr create --body "…docker compose stop…"` trips the compose
+  rule, because `gh pr create` is a doing-verb. A body that quotes a command goes in a file written
+  with the file tools and comes in with `--body-file`.
 - Path rules (`protect docker/.env`, `forbid docker/secrets`) are matched on the `edit` and `write`
   tools only. A shell redirect (`echo … > docker/.env`) or `sed -i` is invisible to them, because
   parsing a path out of arbitrary shell is how you get a rule nobody trusts.
-- What the rules no longer gate, because dev-flow's stages own them: pushing `main` or a tag
-  (only the release stage may write the default branch), `git tag -a`, `gh release create`, and edits
-  to `VERSION` — which is bumped on the feature branch at `pre-release` now, not by a release commit.
+- A rule sees what an agent types, never what a script does internally — so `flow finish` removing a
+  worktree and branch is not guarded; it is checked (dirty tree, commits that never reached `main`,
+  verified-merged remote delete).
