@@ -194,6 +194,10 @@ Two things a per-feature close cannot see, both handled elsewhere:
 - **Orphans** — a worktree no unfinished feature owns, a `feat/*` branch nobody claims, or a feature
   whose worktree vanished — are what `flow init`'s doctor reports.
 
+Finish only your own slug. `flow finish` checks dirt and unmerged commits — it does not look for a live
+process sitting in that worktree, so closing a slug another session holds can delete committed-but-
+unpushed work. `flow status` names the claim holder.
+
 The guard is dev-flow's: the rules are the `flow-guard` block in `.dev-flow/project.md` `## global`,
 judged **ahead of** dev-flow's own stage rules, at every stage. Read that block for what is denied and
 what needs the operator — what belongs here is *how* it matches, because that decides whether a rule is
