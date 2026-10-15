@@ -31,8 +31,8 @@ narratives in `docs/upstream-notes.md`, pointed at as `docs/upstream-notes.md#<a
    `.dev-flow/<slug>/worktree` — a docs-only change included, which is what `flow start <slug> --docs` is
    for. The main checkout stays on `main` with a clean tree and only takes merged PRs.
 8. **Never remove a worktree or delete a branch by hand** — `flow finish` closes the feature whose PR
-   merged, and `bun run cleanup` sweeps what sessions left behind, refusing anything unmerged, dirty, or
-   occupied by another session.
+   merged: it checks the worktree is clean, notes commits that never reached `main`, and deletes
+   `origin/<branch>` only on proof it was released.
 
 ## Workspace layout
 
@@ -235,10 +235,11 @@ lives in a skill — the table above says which.
 
 ### Branches and PRs
 
-Worktrees per branch, then a **PR into `main`, squash-merged** (one commit per PR, no merge commits).
-Nothing lands on `main` except through a merged PR — a release included. **Release? is the merge
+Worktrees per branch, then a **PR into `main`, landed as a merge commit** — a PR's commits are what
+reach `main`, so `git branch --merged main` stays truthful and `git branch -d` can delete a merged
+branch. Nothing lands on `main` except through a merged PR — a release included. **Release? is the merge
 authorization** — the operator does not merge by hand: the agent opens the PR, waits for `ci`, and
-squash-merges it. Mechanics, labels, protection and CI tiers:
+merges it (`gh pr merge <n> --merge`). Mechanics, labels, protection and CI tiers:
 **`lettuce-pr-and-ci`**.
 
 **Why the worktree rule is a gate and not a preference** (dev-flow enforces it — see *Definition of
@@ -341,7 +342,6 @@ Google sidecar only when its own pin or `docker/<name>/` changes. `bun run lint`
 | `bun run ui-check` | Layout/interaction assertions in a real browser; screenshots to `.ui-check/` |
 | `bun run smoke` | Live acceptance suite against a running stack — mutates state |
 | `bun run build:bff` | Rebuild the bff image (it bakes `web/dist`) — **required** to ship UI changes |
-| `bun run cleanup` | Report merged worktrees/branches; `--apply` removes ones merged, clean, unoccupied |
 | `bun run sync-upstream v<x.y.z>` | Move the upstream checkout to a release, report drift, re-pin |
 | `flow` / `/flow` | The stage gates: `start`, `use`, `status`, `check`, `approve`, `verify`, `release` (`--no-version`), `release-done`, `finish` |
 | `bun run migrate-state` | Older installs only: copy the old `letta-home`/`letta-data` named volumes onto the host |
@@ -365,7 +365,8 @@ cannot desync them.
   `protect` / `forbid`, judged at every stage **ahead of** flow discipline, and blocked rather than
   silently allowed when there is no UI to confirm in. Read that block for what is refused outright and what
   needs the operator; this file does not copy it. The rules see what an agent *types*, not what a script
-  does internally — which is why `bun run cleanup` carries its own typed confirmation.
+  does internally. Bookkeeping is not guarded because nothing hand-removes a worktree: `flow finish`
+  does it, with its own checks (hard rule 8).
 - `.dev-flow/project.md` — the operator-owned playbook: default branch, worktree path, the tier-1 check
   commands, each stage's checklist, and the prose rules. It is tracked; feature plans and flow state are
   not. Since it is tracked, a change rides a flow and a PR like any other file; `flow init --write` is

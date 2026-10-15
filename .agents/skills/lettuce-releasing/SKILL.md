@@ -29,7 +29,7 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
 - **Derive the number in `pre-release`, from your own changelog entry** — the heading rule and what
   `flow release` then refuses are in `.dev-flow/project.md`. What that means for the writing: a wrong
   derivation shows up as a wrong *number*, never as a silent collision.
-- **The tag is cut at the `release` stage, immediately after the operator squash-merges the PR**,
+- **The tag is cut at the `release` stage, immediately after the PR merges**,
   annotated (`git tag -a`), at `main`'s tip, and pushed **by name** (`git push origin v<x.y.z>…`).
   Never `git push --follow-tags` — it silently skips annotated tags and the tag never reaches the
   remote. Nothing is tagged before the operator confirmed that specific merge

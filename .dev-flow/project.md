@@ -14,12 +14,8 @@ release.github = false
 ```
 
 ```flow-guard
-deny    \bgit\b[^\n]*--force(?!\w)                        :: history stays linear — PRs squash-merge, update a branch by merging main into it
+deny    \bgit\b[^\n]*--force(?!\w)                        :: a pushed branch is shared with CI and other sessions — update it by merging main into it
 deny    \bgit\b[^\n]*\bpush\b(?!\w)[^\n]*\s-f(?!\w)       :: the short spelling of the force push above
-deny    \bgit\b[^\n]*\bworktree\s+prune\b                 :: prunes other sessions' worktrees
-confirm \bgit\b[^\n]*\bworktree remove\b                  :: `bun run cleanup` checks PR state and live sessions first
-confirm \bgit\b[^\n]*\bbranch\s+(?:-d\b|--delete\b)       :: report the branch instead; `bun run cleanup` does the checking
-confirm \bgit\b[^\n]*\bbranch\s+(?:-D\b|--delete\s+--force|--force\s+--delete) :: deletes a squash-merged branch git cannot see as merged
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\b(?:rm|down|stop|kill)\b :: stops running containers
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\brestart\b      :: drops the permanent upstream connection and any turn in flight
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\bup\b[^\n]*(?:^|\s)app-server(?=\s|$) :: that service shares a network namespace with two others
@@ -101,8 +97,8 @@ the version before asking Release?, because the gate refuses a tag that already 
 ## release
 
 Publish only — the preparation happened above. Push the branch, open the PR from
-`.github/pull_request_template.md`, wait for `ci` green, **squash-merge it yourself**
-(`gh pr merge <n> --squash`), `git fetch`, create the annotated tag at `main`'s tip and push it
+`.github/pull_request_template.md`, wait for `ci` green, **merge it yourself**
+(`gh pr merge <n> --merge`), `git fetch`, create the annotated tag at `main`'s tip and push it
 **by name** (`git push origin v<x>`, never `--follow-tags`), then `flow release-done`. No GitHub release
 is published (`release.github = false`). Nothing here deploys prod, and nothing is pushed, merged or
 tagged without the operator's **Release?** for that specific change — a standing yes from an earlier

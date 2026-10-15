@@ -1,9 +1,9 @@
 name: stale-report
 
-# Layer 3 of the cleanup policy: the staleness a merge never triggers on.
+# Layer 3 of the tidiness policy: the staleness a merge never triggers on.
 #
-# `bun run cleanup` (see the `lettuce-pr-and-ci` skill) removes merged worktrees and branches, and
-# `delete_branch_on_merge` makes merges tidy `origin` by themselves. What neither can see is a
+# `flow finish` closes the worktree and branch of the feature it ends, and `delete_branch_on_merge`
+# makes merges tidy `origin` by themselves. What neither can see is a
 # branch that was abandoned — no PR ever, or a PR that was closed — because there is no merge event
 # to hang a rule on, and nobody knows from the outside whether a three-day-old branch is finished
 # or mid-thought. So this workflow does not delete anything. It prints a list once a week and a
