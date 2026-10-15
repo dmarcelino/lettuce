@@ -51,7 +51,7 @@ setup = cp -n ../../docker/.env docker/.env && bun install
 test = bun run verify
 run = docker compose -f docker/compose.yml up -d
 dev = bun run build:bff && docker compose -f docker/compose.yml up -d
-health = curl -fsS http://127.0.0.1:${BFF_PORT:-8090}/readyz
+health = for i in $(seq 1 30); do curl -fsS http://127.0.0.1:${BFF_PORT:-8090}/readyz && exit 0; sleep 2; done; exit 1
 ```
 
 `bun run verify` is the whole offline half (worktree, version pins, prod-info, release hygiene, docs,
