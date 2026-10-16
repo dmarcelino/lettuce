@@ -47,7 +47,7 @@ operator's grant in chat, never self-selected. Before asking for approval check
 ## implement
 
 ```flow
-setup = cp -n ../../docker/.env docker/.env && bun install
+setup = cp -n "$(git rev-parse --git-common-dir)/../docker/.env" docker/.env && bun install
 test = bun run verify
 run = docker compose -f docker/compose.yml up -d
 dev = bun run build:bff && docker compose -f docker/compose.yml up -d
@@ -60,7 +60,9 @@ harness env does not guarantee: `bun: command not found` means pi was started wi
 the fix is a symlink into a directory already on PATH (`ln -s ~/.bun/bin/bun ~/.local/bin/bun`) — a
 machine fix, not a playbook edit. A fresh worktree has no `docker/.env`
 (gitignored) — `setup` copies it in when `flow approve` creates the worktree, or the state-dir default
-lands inside `.dev-flow/<slug>/`. The local stack is one per machine and shared, so an
+lands inside `.dev-flow/<slug>/`. It reads the file from the **main** checkout through
+`git rev-parse --git-common-dir`, because a linked worktree has no `docker/.env` of its own and a
+relative `../../` breaks the moment `worktreeDir` changes depth. The local stack is one per machine and shared, so an
 `up -d` replaced whatever another session was testing — say so out loud. A web/ change needs `build:bff`
 first or the container serves the old bundle.
 

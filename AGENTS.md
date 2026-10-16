@@ -279,7 +279,9 @@ full-redeploy rule are in **`lettuce-upstream-sync`** — read it before running
 ## Definition of done
 
 Every change runs through dev-flow — the `flow` tool for an agent, `/flow` for the operator: **plan →
-implement → pre-release → release → done**, one feature at a time, one worktree and branch each. Each
+implement → pre-release → release → done**, one worktree and branch per feature, and one feature at a
+time **per session** — dev-flow keeps parallel features apart by worktree, so a second session may run
+its own flow while this one is open. Each
 stage's commands, scripted checks and checklist live in `.dev-flow/project.md`, and dev-flow's guard
 refuses work outside the stage or outside the session's worktree — so this file states only what a gate
 cannot check.

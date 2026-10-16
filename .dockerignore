@@ -21,8 +21,9 @@ web/dist/
 !.git/refs/**
 !.git/packed-refs
 .ui-check/
-# Worktrees are build context twice over otherwise: `.dev-flow/<slug>/worktree` is where dev-flow puts
-# them now, and `.worktrees/` is where the ones made before that change still live.
+# Worktrees are build context twice over otherwise — `.dev-flow/<slug>/worktree` is where dev-flow puts
+# them now. `.worktrees/` stays listed for a machine still holding checkouts from before the move: it
+# is no longer created, but if one is left on disk the build context (the repo root) drags it in.
 .dev-flow/
 .worktrees/
 *.log
