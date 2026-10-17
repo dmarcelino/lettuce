@@ -107,11 +107,20 @@ jobs:
           LETTA_IMAGE_TAG="${{ steps.tag.outputs.tag }}" \
           docker compose -f docker/compose.yml --profile search --profile google \
             build --push app-server bff searxng ddg-mcp google-mcp
+        env:
+          # Compose interpolates every service before it builds anything, and the
+          # bff declares `SESSION_SECRET` as `:?`-required. The file holding it is
+          # gitignored, so on a runner it does not exist and compose refuses to
+          # parse at all. A throwaway value is enough — service `environment` is
+          # runtime, nothing here is baked into an image. Same trick as the
+          # `compose-config` job in ci.yml.
+          SESSION_SECRET: not-a-secret-ci-only-not-a-secret-at-all
 
       - name: Point latest at it too
         # Server-side retag: no second build, and `latest` ends up byte-identical
-        # to the release it just published. Skipped when `latest` is the tag built.
-        if: github.ref_type == 'tag'
+        # to the release it just published. Only for a real tag push: a dispatched
+        # throwaway tag must not become what `latest` means.
+        if: github.ref_type == 'tag' && steps.tag.outputs.tag == github.ref_name
         run: |
           set -eu
           tag="${{ steps.tag.outputs.tag }}"

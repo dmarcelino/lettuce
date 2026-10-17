@@ -151,7 +151,11 @@ alone, which is what `LETTA_IMAGE_TAG=latest` runs without a release.
   `GIT_SHA=$GITHUB_SHA` so Settings → About names a commit a deploy-manager build could not.
 - **No secret, and no pull credential either.** Push uses the job's own `GITHUB_TOKEN` with
   `packages: write`; the repo is public, so its GHCR packages are public and a host pulls without a
-  login. That is what keeps publishing inside the no-secrets rule.
+  login. That is what keeps publishing inside the no-secrets rule. But compose still *parses* the whole
+  file before it builds, and the bff declares `SESSION_SECRET` with `:?`, so the build step passes a
+  throwaway value — `docker/.env` is gitignored and does not exist on a runner, and without it compose
+  refuses to even start the build (`error while interpolating services.bff.environment.SESSION_SECRET`).
+  A service's `environment` is runtime, so nothing fake is baked into an image.
 - **A tag push must match `VERSION`,** or the run refuses: images under a tag no checkout names are
   how a host ends up running bytes nobody can point at. `check-release-hygiene` holds compose's
   `LETTA_IMAGE_TAG` default to `VERSION` for the same reason from the other side.

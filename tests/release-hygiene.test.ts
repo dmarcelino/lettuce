@@ -99,7 +99,7 @@ test("this checkout satisfies its own release contract", () => {
 });
 
 const imageLine = (tag: string) =>
-  `    image: \${LETTA_IMAGE_NS:-}lettuce-bff:\${LETTA_IMAGE_TAG:-${tag}}\n`;
+  `    build:\n      context: ..\n    image: \${LETTA_IMAGE_NS:-}lettuce-bff:\${LETTA_IMAGE_TAG:-${tag}}\n`;
 
 test("the compose image tag default must name the release VERSION names", () => {
   expect(reviewImageTags("v1.2.3-letta_0.34.1", imageLine("v1.2.3-letta_0.34.1"))).toEqual([]);
@@ -113,6 +113,13 @@ test("the compose image tag default must name the release VERSION names", () => 
   ).toContain("has no ${LETTA_IMAGE_TAG");
   // A malformed VERSION is reported once, by reviewReleaseState.
   expect(reviewImageTags("0.6.1", imageLine("anything"))).toEqual([]);
+  // A built service that lost its tag default is caught by the count, not the value.
+  expect(
+    reviewImageTags(
+      "v1.2.3-letta_0.34.1",
+      imageLine("v1.2.3-letta_0.34.1") + imageLine("v1.2.3-letta_0.34.1") + "    build:\n",
+    ).join(" "),
+  ).toContain("but 2 image tags");
 });
 
 test("this checkout's published image tags name its VERSION", () => {

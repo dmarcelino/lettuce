@@ -182,9 +182,16 @@ export function reviewImageTags(versionText: string, composeText: string): strin
   const tags = [...composeText.matchAll(/\$\{LETTA_IMAGE_TAG:-([^}]*)\}/g)].map((m) => m[1]);
   if (tags.length === 0)
     return [
-      "docker/compose.yml has no \${LETTA_IMAGE_TAG:-…} default — every image we build must name the release it was published under",
+      "docker/compose.yml has no ${LETTA_IMAGE_TAG:-…} default — every image we build must name the release it was published under",
     ];
   const stale = [...new Set(tags.filter((t) => t !== version))];
+  // One default per built service: a service whose `image:` line went missing (or
+  // lost its tag default) would otherwise build something nobody publishes.
+  const built = (composeText.match(/^ {4}build:$/gm) ?? []).length;
+  if (tags.length !== built)
+    return [
+      `docker/compose.yml has ${built} services with a build: section but ${tags.length} image tags — every built service needs an image: line carrying the tag default`,
+    ];
   if (stale.length === 0) return [];
   return [
     `docker/compose.yml image tag default(s) ${stale.join(", ")} do not name VERSION ${version} — the release-prep commit bumps both (see the playbook's pre-release stage)`,
