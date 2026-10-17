@@ -107,4 +107,5 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
   - **A shim change reaches prod only with a new image tag.** The tag names version pins, not
     shim content, and `compose up` without `--build` keeps the old image — so a change to
     `claude-shim*.mjs` ships together with a `CLAUDE_CODE_VERSION` bump (subscription mode came
-    with 2.1.289), and that recreates `app-server`.
+    with 2.1.289), and that recreates `app-server`. The agent-tools ENV at the end of the
+    Dockerfile has its own `-tools<n>` tag suffix for this (`lettuce-runtime-and-ops`).

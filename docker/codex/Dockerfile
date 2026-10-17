@@ -100,7 +100,23 @@ RUN set -eu; \
 # or `npm i -g npm` must not shadow the pinned `letta` the container starts, or
 # the `codex`/`claude` shims. In ENV, not compose, so `docker exec` shells, every
 # child process, and anything else run from this image get them too.
-ENV NPM_CONFIG_PREFIX=/opt/agent-tools \
+# Login shells are the exception: Debian's /etc/profile resets PATH for root, and
+# letta-code's exec_command tool and the coding workers run `bash -lc`. The
+# profile.d script appends AGENT_TOOLS_PATH again; the other variables survive a
+# login shell untouched.
+# uv only ever uses its own Pythons (only-managed), kept in the folder: a tool
+# environment built on the image's /usr/bin/python3 would break the day the base
+# image moves to a new Python. Its cache sits beside its targets so installs can
+# hardlink and a recreate does not throw it away.
+# Bump the `-tools<n>` suffix of the image tag in compose.yml with any change to
+# this block: the rest of the tag names version pins only, and `compose up`
+# without `--build` keeps an image whose tag did not change.
+RUN printf '%s\n' \
+      '# Login shells reset PATH (/etc/profile); add the agent-tools dirs back. See docker/codex/Dockerfile.' \
+      'case ":$PATH:" in *":$AGENT_TOOLS_PATH:"*) ;; *) [ -n "$AGENT_TOOLS_PATH" ] && PATH="$PATH:$AGENT_TOOLS_PATH" ;; esac' \
+      > /etc/profile.d/agent-tools.sh
+ENV AGENT_TOOLS_PATH=/opt/agent-tools/bin:/opt/agent-tools/cargo/bin:/opt/agent-tools/go/bin \
+    NPM_CONFIG_PREFIX=/opt/agent-tools \
     CARGO_HOME=/opt/agent-tools/cargo \
     RUSTUP_HOME=/opt/agent-tools/rustup \
     GOPATH=/opt/agent-tools/gopath \
@@ -109,5 +125,7 @@ ENV NPM_CONFIG_PREFIX=/opt/agent-tools \
     UV_TOOL_DIR=/opt/agent-tools/uv/tools \
     UV_TOOL_BIN_DIR=/opt/agent-tools/bin \
     UV_PYTHON_INSTALL_DIR=/opt/agent-tools/uv/python \
-    UV_PYTHON_BIN_DIR=/opt/agent-tools/bin
-ENV PATH="${PATH}:/opt/agent-tools/bin:/opt/agent-tools/cargo/bin:/opt/agent-tools/go/bin"
+    UV_PYTHON_BIN_DIR=/opt/agent-tools/bin \
+    UV_PYTHON_PREFERENCE=only-managed \
+    UV_CACHE_DIR=/opt/agent-tools/uv/cache
+ENV PATH="${PATH}:${AGENT_TOOLS_PATH}"

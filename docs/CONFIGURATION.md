@@ -343,10 +343,12 @@ image points the package managers at `/opt/agent-tools` instead, the `tools/`
 directory under `LETTA_STATE_DIR`, so `npm install -g`, `go install`, uv's
 installer, `uv tool install` and Rust's `cargo-binstall` survive a recreate.
 The bundled `installing-tools` skill tells agents the rest: downloaded binaries
-go in `/opt/agent-tools/bin`, Go installs into the same folder, Python goes
-through uv, and Rust tools come prebuilt because the image has no C linker.
-Every agent shares the folder, and its bin directories come last on `PATH`, so
-nothing installed there replaces a command the image ships.
+are checked against the release's sha256 and go in `/opt/agent-tools/bin`, Go
+installs into the same folder, Python goes through uv (with its own Python,
+downloaded into the folder on first use), and Rust tools come prebuilt because
+the image has no C linker. Every agent shares the folder, and its bin
+directories come last on `PATH`, so nothing installed there replaces a command
+the image ships. Cron jobs do not get that `PATH`: they call tools by full path.
 
 `apt-get install` still does not survive: it writes to system directories.
 A tool that stops working after an upgrade (a new Node.js or base image) needs
