@@ -159,9 +159,13 @@ alone, which is what `LETTA_IMAGE_TAG=latest` runs without a release.
   byte-identical to the release it just pointed at, and `cancel-in-progress: false` because a
   half-published set of five is a deploy that pulls four. The run's last step inspects every image
   back out of the registry — that is the receipt, and it fails the run if one is missing.
-- **`workflow_dispatch` with a tag input exists to prove the workflow before a release needs it** (it
-  pushes `latest`, or whatever tag you type). Run it from the branch whenever `publish.yml` itself
-  changed — a broken publisher is only noticed by the deploy that needed the images.
+- **`workflow_dispatch` with a tag input proves the workflow only after it ships**, and **not before**:
+  GitHub lets a workflow be dispatched once its file exists on the default branch, so a brand-new
+  `publish.yml` sitting on a feature branch is not dispatchable at all — `gh workflow run publish.yml`
+  answers 404 and the workflow is not even in `gh api …/actions/workflows`. **The first real run is the
+  merge to `main`**, whose push publishes `latest`; prove it with an unauthenticated pull —
+  `DOCKER_CONFIG=$(mktemp -d) docker buildx imagetools inspect ghcr.io/<owner>/lettuce-bff:latest` —
+  before cutting the tag. After that, dispatch is how you republish.
 - **`linux/amd64` only** — that is the runner and prod. The upstream images are multi-arch, so an
   arm64 host would need a real multi-platform build, which this is not. No build cache either: `docker
   compose build` exposes no `--cache-from`/`--cache-to`, and public repos are not short of minutes.

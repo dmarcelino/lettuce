@@ -29,8 +29,9 @@ on:
     tags:
       - "v*"
     branches: [main]
-  # Prove the publisher before a release exists, or republish `latest` from a
-  # branch: a release tag push always runs it anyway.
+  # Republish `latest`, or publish a throwaway tag to test the publisher. Available
+  # only once this file sits on the default branch, so the merge to `main` is what
+  # proves it the first time — a branch cannot dispatch its own new workflow.
   workflow_dispatch:
     inputs:
       tag:
