@@ -31,6 +31,11 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
   derivation shows up as a wrong *number*, never as a silent collision.
 - **The tag is cut at the `release` stage, immediately after the PR merges**,
   annotated (`git tag -a`), at `main`'s tip, and pushed **by name** (`git push origin v<x.y.z>…`).
+  **The tag is the publish trigger** — pushing it runs `.github/workflows/publish.yml`, which pushes all
+  five images to GHCR at that tag and retags `latest`, and `release.artifact` in the playbook makes
+  `flow release-done` inspect the registry before recording the release. A tag pushed while that workflow
+  fails is a release with nothing in it: read the run before `release-done`, and never pass
+  `--no-artifact-check` to get past a registry that has no tag.
   Never `git push --follow-tags` — it silently skips annotated tags and the tag never reaches the
   remote. Nothing is tagged before the operator confirmed that specific merge
   (`AGENTS.md` → "Stop before publishing").
