@@ -141,7 +141,9 @@ load-bearing invariants.
 ## Requirements
 
 A host with **`git`** and **`docker`**. That is the whole list — no Node, no
-Bun, no pre-built images, and no second checkout.
+Bun, no pre-built images on the host, and no second checkout. The images this
+stack runs are published, so a deploy pulls them; leave that off and Compose
+builds them from the checkout instead.
 
 A model server (llama.cpp or anything OpenAI-compatible) needs to be reachable
 from the container. The app does not ship a model.
@@ -157,8 +159,10 @@ cp docker/.env.example docker/.env
 #   SESSION_SECRET   -> openssl rand -hex 32
 #   LETTA_STATE_DIR  -> an absolute path, e.g. /srv/letta
 #   PUBLIC_ORIGIN    -> the URL you will actually open
+#   LETTA_IMAGE_NS   -> ghcr.io/dmarchevsky/  (pull the published images; omit
+#                        it to build from this checkout, and add --build below)
 
-docker compose -f docker/compose.yml up -d --build
+docker compose -f docker/compose.yml up -d
 ```
 
 Open `http://localhost:8090`.
