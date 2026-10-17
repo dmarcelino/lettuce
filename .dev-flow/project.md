@@ -122,10 +122,10 @@ change is not one. The guard no longer intercepts `gh pr merge`: Release? is the
 
 The tag *is* the publish trigger — pushing it runs `.github/workflows/publish.yml`, which pushes all five
 images to GHCR and retags `latest` — so **`release.artifact` is what proves a release shipped**:
-`flow release-done` fails if the registry does not hold the tag. It exists because two publishes came
-back green and pushed nothing (`lettuce-pr-and-ci`); the publisher now builds with Compose and pushes with
-`docker push`, since a multi-service `compose build --push` can skip the registry entirely and exit 0.
-A green pipeline is not the artifact; the registry is.
+`flow release-done` fails if the registry does not hold the tag. It exists because two publishes came back
+green and pushed nothing — `lettuce-pr-and-ci` says why a green Compose build is not proof of a push. A
+green pipeline is not the artifact; the registry is. (An unversioned flow tags nothing, so this gate and
+the artifact check both stand down.)
 
 - [ ] after the merge and from `main`: `bun run deploy-check` green, plus `bun run ui-check` and
       `bun run smoke` where they apply
