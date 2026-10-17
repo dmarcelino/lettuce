@@ -128,6 +128,7 @@ $LETTA_STATE_DIR/
   letta-home/     -> /root/.letta   settings.json, mcp-home/ (shared MCP list), global skills
   letta-data/     -> /data          conversations + agent memory (memfs git repos)
   workspaces/     -> /work          agent working directories
+  tools/          -> /opt/agent-tools  what agents install (npm -g, cargo, go, uv), via image ENV
 ```
 
 It defaults to `../..` relative to the compose file, which is **a trap in a worktree** — `../..` from

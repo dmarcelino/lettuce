@@ -1,6 +1,6 @@
 ---
 name: lettuce-runtime-and-ops
-description: 'lettuce runtime/ops mechanics: the LLM timeout bounds prefill and not generation (env names, parse rules, createLocalProviderFetch is dead code, a change recreates app-server), agent web apps on ports 3000-3099 with the serving-web-apps skill and the never-bind-mount-repo-files rule, and why "Subagent process exited with code unknown" means the spawn failed (init: true reaping, pids.max, EAGAIN, the spawn-diagnostics preload). Read before touching LLM timeout env, docker/compose.yml env for app-server, AGENT_APP_PORTS, or debugging failing subagent spawns.'
+description: 'lettuce runtime/ops mechanics: the LLM timeout bounds prefill and not generation (env names, parse rules, createLocalProviderFetch is dead code, a change recreates app-server), agent web apps on ports 3000-3099 with the serving-web-apps skill and the never-bind-mount-repo-files rule, agent-installed tools in /opt/agent-tools (image ENV, PATH appended), and why "Subagent process exited with code unknown" means the spawn failed (init: true reaping, pids.max, EAGAIN, the spawn-diagnostics preload). Read before touching LLM timeout env, docker/compose.yml env for app-server, AGENT_APP_PORTS, or debugging failing subagent spawns.'
 ---
 
 # App-server runtime limits and ops traps
@@ -37,6 +37,20 @@ Loaded from `AGENTS.md`. Timeouts, ports, and the two things that break spawns.
   `AGENT_APP_HOST` (the address to put in URLs, from `docker/.env`) are in the app-server env
   for it. No auth in front of those ports, and the processes die with the container. The
   skill's frontmatter `name` must match its directory.
+
+- **Agent-installed tools live in `/opt/agent-tools`, by image ENV.** A recreate wipes the
+  container layer, so `npm i -g` into `/usr/local` or the uv installer into `~/.local` did not
+  last. `docker/codex/Dockerfile` sets `NPM_CONFIG_PREFIX`, `CARGO_HOME`, `RUSTUP_HOME`,
+  `GOPATH`/`GOBIN` and the `UV_*` dirs to `/opt/agent-tools`, the `tools/` bind mount under
+  `LETTA_STATE_DIR`, and **appends** its bin dirs to `PATH`. Appended, never prepended: the
+  container's own `letta server` resolves through `PATH`, so an agent's
+  `npm i -g @letta-ai/letta-code` would otherwise replace the pinned server on the next start,
+  and the `codex`/`claude` shims with it. ENV, not compose, so `docker exec` shells and anything
+  else run from the image get the same view. What no variable covers (downloaded binaries, the
+  go toolchain, uv for Python, Rust only prebuilt via cargo-binstall since the image has no C
+  linker, no apt) is in `docker/agent-skills/installing-tools`.
+  The image's own `npm install --global --prefix /opt/codex|/opt/claude-code` is explicit, so
+  the new default prefix does not move it.
 
 - **"Subagent process exited with code unknown before returning a result" = the spawn failed.**
   Subagents are child `letta` processes (`executeSubagent`); on Node a null exit code *and*

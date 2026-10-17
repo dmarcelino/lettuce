@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **Tools agents install survive a restart.** `npm install -g`, `go install`, uv and cargo now install into `tools/` under `LETTA_STATE_DIR` (`/opt/agent-tools` in the container) instead of the container itself, which every update and recreate wiped; a new `installing-tools` skill tells agents where downloaded binaries and toolchains go, and to avoid apt. Tools installed before this release are still in the old places and need installing once more.
+
 ## [v0.13.3-letta_0.34.9] - 2026-10-15
 
 ### Removed

@@ -1,6 +1,7 @@
 # The app-server image: upstream's letta/letta, unmodified, plus optionally the
 # Codex and Claude Code CLIs that letta-code's external coding workers run, and
-# always the GitHub CLI its `WatchPR` tool shells out to. Build context is this
+# always the GitHub CLI its `WatchPR` tool shells out to, and the variables that
+# send what agents install to /opt/agent-tools (the end). Build context is this
 # directory only (see compose.yml), so nothing else from the repo — least of
 # all docker/.env — ever reaches the daemon.
 #
@@ -87,3 +88,26 @@ RUN set -eu; \
     v="$(gh --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
     test -n "$v"; \
     printf 'gh %s\n' "$v" >> /opt/lettuce/features
+
+# Where the tools agents install go: /opt/agent-tools, the `tools/` bind mount
+# under LETTA_STATE_DIR (see compose.yml), so they survive a recreate. Each
+# package manager's own variable points there, so `npm i -g`, `go install`,
+# uv's installer, `uv tool install` and cargo land in it without the agent
+# having to remember; the installing-tools agent skill covers what no variable
+# can (downloaded binaries, the go toolchain, prebuilt Rust tools because there
+# is no C linker, no apt).
+# Appended to PATH, never prepended: an agent's `npm i -g @letta-ai/letta-code`
+# or `npm i -g npm` must not shadow the pinned `letta` the container starts, or
+# the `codex`/`claude` shims. In ENV, not compose, so `docker exec` shells, every
+# child process, and anything else run from this image get them too.
+ENV NPM_CONFIG_PREFIX=/opt/agent-tools \
+    CARGO_HOME=/opt/agent-tools/cargo \
+    RUSTUP_HOME=/opt/agent-tools/rustup \
+    GOPATH=/opt/agent-tools/gopath \
+    GOBIN=/opt/agent-tools/bin \
+    UV_INSTALL_DIR=/opt/agent-tools/bin \
+    UV_TOOL_DIR=/opt/agent-tools/uv/tools \
+    UV_TOOL_BIN_DIR=/opt/agent-tools/bin \
+    UV_PYTHON_INSTALL_DIR=/opt/agent-tools/uv/python \
+    UV_PYTHON_BIN_DIR=/opt/agent-tools/bin
+ENV PATH="${PATH}:/opt/agent-tools/bin:/opt/agent-tools/cargo/bin:/opt/agent-tools/go/bin"
