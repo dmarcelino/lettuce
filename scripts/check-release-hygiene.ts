@@ -4,7 +4,9 @@
  * `AGENTS.md` and the `lettuce-releasing` skill state three rules that nothing
  * used to enforce: a user-visible change carries a `CHANGELOG.md` `[Unreleased]`
  * entry in the same commit; the bump type follows from what that entry says; and
- * `VERSION` agrees with the changelog's newest released section. That last one is what
+ * `VERSION` agrees with the changelog's newest released section. A fourth came with
+ * published images: `docker/compose.yml`'s `LETTA_IMAGE_TAG` default — the release
+ * whose images a deploy host pulls — names the same release as `VERSION`. That last one is what
  * makes a per-feature release safe — the release-prep commit bumps VERSION and renames
  * `[Unreleased]` together, and this gate is red if either half is missing. `deploy-check`
  * asserts the same pair, but only after the merge and only on a machine with a
@@ -162,6 +164,40 @@ export function reviewReleaseState(versionText: string, changelogText: string): 
   return errors;
 }
 
+/**
+ * The release tag every published image carries, as `docker/compose.yml` defaults it.
+ *
+ * Each built service names its image `${LETTA_IMAGE_NS:-}lettuce-<name>:
+ * ${LETTA_IMAGE_TAG:-<release>}`, and that default is the only place in the tree
+ * besides `VERSION` that states which release's images a deploy host pulls. It is
+ * therefore the same commit's decision as `VERSION`: bump one without the other and
+ * prod either pulls images built for another release or pulls nothing. A dev
+ * checkout leaves the namespace unset, so it names un-pullable local images and
+ * always builds (see the note at the top of the compose file).
+ */
+export function reviewImageTags(versionText: string, composeText: string): string[] {
+  const version = versionText.trim();
+  // A malformed VERSION is already an error above; do not pile on.
+  if (!VERSION_RE.test(version)) return [];
+  const tags = [...composeText.matchAll(/\$\{LETTA_IMAGE_TAG:-([^}]*)\}/g)].map((m) => m[1]);
+  if (tags.length === 0)
+    return [
+      "docker/compose.yml has no ${LETTA_IMAGE_TAG:-…} default — every image we build must name the release it was published under",
+    ];
+  const stale = [...new Set(tags.filter((t) => t !== version))];
+  // One default per built service: a service whose `image:` line went missing (or
+  // lost its tag default) would otherwise build something nobody publishes.
+  const built = (composeText.match(/^ {4}build:$/gm) ?? []).length;
+  if (tags.length !== built)
+    return [
+      `docker/compose.yml has ${built} services with a build: section but ${tags.length} image tags — every built service needs an image: line carrying the tag default`,
+    ];
+  if (stale.length === 0) return [];
+  return [
+    `docker/compose.yml image tag default(s) ${stale.join(", ")} do not name VERSION ${version} — the release-prep commit bumps both (see the playbook's pre-release stage)`,
+  ];
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 function arg(flag: string): string | null {
@@ -200,6 +236,17 @@ if (import.meta.main) {
   }
   if (failures === 0)
     console.log(`  PASS  VERSION ${versionText.trim()} matches CHANGELOG's newest section`);
+
+  const composeText = await Bun.file(`${ROOT}docker/compose.yml`)
+    .text()
+    .catch(() => "");
+  const tagErrors = reviewImageTags(versionText, composeText);
+  for (const error of tagErrors) {
+    console.error(`  FAIL  ${error}`);
+    failures += 1;
+  }
+  if (tagErrors.length === 0)
+    console.log(`  PASS  docker/compose.yml images name ${versionText.trim()}`);
 
   if (process.argv.includes("--pr")) {
     const base = arg("--base") || process.env.PR_BASE || "origin/main";

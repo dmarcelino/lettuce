@@ -482,11 +482,14 @@ Two details that bite:
 ### Production (any compose deploy manager)
 
 The host needs `git` + `docker` and a clone of this repo only — no Bun, no
-letta-code checkout, no pre-built images.
+letta-code checkout, no build toolchain. It pulls the images CI publishes; it
+builds nothing unless a publish failed (every service keeps its `build:` section
+as that fallback).
 
 | Variable | Value |
 |---|---|
 | `COMPOSE_PROFILES` | `cloudflared,google,search,codex,claude` (drop what you don't want) |
+| `LETTA_IMAGE_NS` | `ghcr.io/dmarchevsky/` — set once; the packages are public, so no login |
 | `LETTA_STATE_DIR` | `/srv/letta` |
 | `PUBLIC_ORIGIN` | `https://<your-hostname>` |
 | `SESSION_SECRET` | `openssl rand -hex 32` |
@@ -500,11 +503,22 @@ letta-code checkout, no pre-built images.
 Optional: the three `PUSH_VAPID_*` values, `BFF_PORT`,
 `SESSION_TTL_SECONDS`, `FRAME_BUFFER_SIZE`, `CF_ACCESS_ISSUER`.
 
+**Which release runs is decided by the checkout, not by this file.** Every image
+is published under the release tag (`.github/workflows/publish.yml`, from the tag
+push) and `docker/compose.yml`'s `LETTA_IMAGE_TAG` default names that tag, so a
+host deployed at `v0.13.3-letta_0.34.9` pulls `v0.13.3-letta_0.34.9`. Do not put
+`LETTA_IMAGE_TAG` in this file — a stale value there outranks the tree the same
+way a stale `LETTA_CODE_VERSION` does. `latest` is published too, from every
+merge to `main`, and passing `LETTA_IMAGE_TAG=latest` in the command is how you
+run main's tip without cutting a release.
+
 **A build made by the deploy manager cannot name its commit, and says so.**
-Compose builds the `bff` image from the deploy manager's own copy of the tree, and that
-copy has no `.git`, so Settings → About and `/versionz` report the release tag
-with `+unknown` (e.g. `v0.6.1-letta_0.34.1+unknown`). Which commit was deployed
-is in the deploy manager's record for the stack, not in the image
+Pulling the published `bff` image names a real commit, because CI had one to
+stamp. When a host falls back to building — a publish run failed, or the namespace
+was left unset — Compose builds from the deploy manager's own copy of the tree,
+and that copy has no `.git`, so Settings → About and `/versionz` report the
+release tag with `+unknown` (e.g. `v0.6.1-letta_0.34.1+unknown`). Which commit was
+deployed is then in the deploy manager's record for the stack, not in the image
 (`docs/upstream-notes.md#prod-builds-without-git`). Set `GIT_SHA` as a stack
 variable only if you mean it: a value nobody updates claims the wrong commit,
 which is worse than claiming none. From a machine with a real checkout, `bun run

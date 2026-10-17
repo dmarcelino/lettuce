@@ -1,0 +1,143 @@
+# Publish the images a deploy host pulls, so a prod deploy is a pull and not a
+# build (see the image-naming note at the top of `docker/compose.yml`).
+#
+# **What this proves.** That the real compose file builds every service we own and
+# that the result is pullable by an unauthenticated host — the repo is public, so
+# its GHCR packages are public, and prod needs no registry credentials. Tag pushes
+# publish `<release tag>` plus `latest`; a merge to `main` publishes `latest`
+# only, which is what `LETTA_IMAGE_TAG=latest` runs without cutting a release.
+#
+# **No secrets, same rule as CI.** Pushing to GHCR uses the job's own `GITHUB_TOKEN`
+# with `packages: write` — there is nothing to store. Pulling needs nothing at all.
+#
+# **One build command, not a matrix.** It runs `docker compose build --push` over
+# the services, so the publisher cannot drift from the file prod reads: same
+# contexts, same build args, same image names, with `LETTA_IMAGE_TAG` deciding the
+# tag. It also means a compose or Dockerfile mistake fails the publish rather than
+# only the deploy.
+#
+# Runner arch is `linux/amd64`, and that is the only arch published — prod is amd64.
+# No build cache here on purpose: `docker compose build` exposes no `--cache-from`
+# / `--cache-to`, and the repo is public so runner minutes are not the scarce
+# thing. If a release ever gets slow, the escape hatch is
+# `docker compose build --print > bake.json && docker buildx bake -f bake.json
+# --set '*.cache-to=type=gha,mode=max' --push`, not a second workflow.
+name: Publish images
+
+on:
+  push:
+    tags:
+      - "v*"
+    branches: [main]
+  # Republish `latest`, or publish a throwaway tag to test the publisher. Available
+  # only once this file sits on the default branch, so the merge to `main` is what
+  # proves it the first time — a branch cannot dispatch its own new workflow.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish (empty = the tag ref, or latest on main)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  # Never cancel a half-pushed set of images: a deploy that pulls the tag must
+  # find all five, so a re-run is a re-run, not a race.
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OWNER: ${{ github.repository_owner }}
+      INPUT_TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        # `github.actor` because the token is the job's own; the username is only
+        # what GHCR wants to see, and any logged-in identity may push its packages.
+        run: echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${ACTOR}" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+
+      - name: Decide what to publish
+        id: tag
+        run: |
+          set -eu
+          # GHCR names must be lowercase; a login might not be.
+          echo "NS=$(printf '%s' "${OWNER}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          case "${GITHUB_REF}" in
+            refs/tags/*) tag="${GITHUB_REF_NAME}" ;;
+            *) tag="latest" ;;
+          esac
+          if [ "${INPUT_TAG}" != "" ]; then
+            tag="${INPUT_TAG}"
+          fi
+          case "${tag}" in
+            *[!A-Za-z0-9._-]*) echo "::error::refusing to publish image tag '${tag}'"; exit 1 ;;
+          esac
+          # A release tag must name the release the tree claims, or we would push
+          # images under a tag nothing references and deploy the wrong bytes.
+          if [ "${GITHUB_REF}" = "refs/tags/${tag}" ] && [ "$(cat VERSION)" != "${tag}" ]; then
+            echo "::error::tag ${tag} does not match VERSION ($(cat VERSION))"
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "publishing :${tag}"
+
+      - name: Build and push every image we build
+        # COMPOSE_PROFILES=codex,claude is the one deliberate difference from a
+        # dev build: the published app-server always carries both coding CLIs, so
+        # toggling a coding token in prod is a Settings flip, not a rebuild.
+        # GIT_SHA is what lets Settings → About name a real commit — a deploy
+        # manager's build had no refs to read and could only say `+unknown`.
+        run: |
+          set -eu
+          COMPOSE_PROFILES=codex,claude \
+          GIT_SHA="${GITHUB_SHA}" \
+          LETTA_IMAGE_TAG="${{ steps.tag.outputs.tag }}" \
+          docker compose -f docker/compose.yml --profile search --profile google \
+            build --push app-server bff searxng ddg-mcp google-mcp
+        env:
+          # Compose interpolates every service before it builds anything, and the
+          # bff declares `SESSION_SECRET` as `:?`-required. The file holding it is
+          # gitignored, so on a runner it does not exist and compose refuses to
+          # parse at all. A throwaway value is enough — service `environment` is
+          # runtime, nothing here is baked into an image. Same trick as the
+          # `compose-config` job in ci.yml.
+          SESSION_SECRET: not-a-secret-ci-only-not-a-secret-at-all
+
+      - name: Point latest at it too
+        # Server-side retag: no second build, and `latest` ends up byte-identical
+        # to the release it just published. Only for a real tag push: a dispatched
+        # throwaway tag must not become what `latest` means.
+        if: github.ref_type == 'tag' && steps.tag.outputs.tag == github.ref_name
+        run: |
+          set -eu
+          tag="${{ steps.tag.outputs.tag }}"
+          for name in app-server bff searxng ddg-mcp google-mcp; do
+            docker buildx imagetools create \
+              -t "ghcr.io/${NS}/lettuce-${name}:latest" \
+              "ghcr.io/${NS}/lettuce-${name}:${tag}"
+          done
+
+      - name: Show what the registry now holds
+        # The receipts, on the run page: `flow release-done` and any operator who
+        # wants proof a deploy can pull. Also fails the run if a push silently
+        # skipped a service.
+        run: |
+          set -eu
+          for name in app-server bff searxng ddg-mcp google-mcp; do
+            echo "lettuce-${name}:${{ steps.tag.outputs.tag }}"
+            docker buildx imagetools inspect "ghcr.io/${NS}/lettuce-${name}:${{ steps.tag.outputs.tag }}" \
+              --format '{{.Manifest.Digest}}'
+          done
