@@ -103,11 +103,16 @@ jobs:
         # GIT_SHA is what lets Settings → About name a real commit — a deploy
         # manager's build had no refs to read and could only say `+unknown`.
         #
-        # The pre-flight is not ceremony. `docker compose build --push` over several
-        # services prints `failed to solve: failed to push …` for every one of them
-        # and EXITS 0 (reproduced on Compose v5.5.1), so a wrong image name is a
-        # green publish that pushed nothing. Assert each service resolves to the
-        # ghcr name before spending two minutes building.
+        # Build, then push, as two commands: `docker compose build --push` over
+        # several services is not trustworthy about pushing. The first two real runs
+        # had compose resolve the ghcr names correctly, export every image to the
+        # LOCAL docker store (`exporting to docker image format`, `sending tarball`),
+        # never touch the registry, and exit 0 — and the registry really was empty.
+        # `docker push` is not shy: it names the image and fails the step.
+        #
+        # The pre-flight still runs first because a wrong name is the other way this
+        # fails silently: compose prints `failed to push` per target in a multi-service
+        # build and still returns 0.
         run: |
           set -eu
           export COMPOSE_PROFILES=codex,claude
@@ -127,7 +132,10 @@ jobs:
             fi
           done
           docker compose -f docker/compose.yml --profile search --profile google \
-            build --push app-server bff searxng ddg-mcp google-mcp
+            build app-server bff searxng ddg-mcp google-mcp
+          for name in app-server bff searxng ddg-mcp google-mcp; do
+            docker push "ghcr.io/${NS}/lettuce-${name}:${LETTA_IMAGE_TAG}"
+          done
         env:
           # Compose interpolates every service before it builds anything, and the
           # bff declares `SESSION_SECRET` as `:?`-required. The file holding it is
