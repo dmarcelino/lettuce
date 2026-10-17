@@ -12,9 +12,11 @@
 #
 # **One build command, not a matrix.** It runs `docker compose build --push` over
 # the services, so the publisher cannot drift from the file prod reads: same
-# contexts, same build args, same image names, with `LETTA_IMAGE_TAG` deciding the
-# tag. It also means a compose or Dockerfile mistake fails the publish rather than
-# only the deploy.
+# contexts, same build args, same image names, with `LETTA_IMAGE_NS` and
+# `LETTA_IMAGE_TAG` deciding where the five land. It also means a compose or
+# Dockerfile mistake fails the publish rather than only the deploy — and it asserts
+# those names first, because compose does not: a multi-service `build --push` whose
+# pushes all fail still exits 0.
 #
 # Runner arch is `linux/amd64`, and that is the only arch published — prod is amd64.
 # No build cache here on purpose: `docker compose build` exposes no `--cache-from`
@@ -100,11 +102,30 @@ jobs:
         # toggling a coding token in prod is a Settings flip, not a rebuild.
         # GIT_SHA is what lets Settings → About name a real commit — a deploy
         # manager's build had no refs to read and could only say `+unknown`.
+        #
+        # The pre-flight is not ceremony. `docker compose build --push` over several
+        # services prints `failed to solve: failed to push …` for every one of them
+        # and EXITS 0 (reproduced on Compose v5.5.1), so a wrong image name is a
+        # green publish that pushed nothing. Assert each service resolves to the
+        # ghcr name before spending two minutes building.
         run: |
           set -eu
-          COMPOSE_PROFILES=codex,claude \
-          GIT_SHA="${GITHUB_SHA}" \
-          LETTA_IMAGE_TAG="${{ steps.tag.outputs.tag }}" \
+          export COMPOSE_PROFILES=codex,claude
+          export GIT_SHA="${GITHUB_SHA}"
+          export LETTA_IMAGE_NS="ghcr.io/${NS}/"
+          export LETTA_IMAGE_TAG="${{ steps.tag.outputs.tag }}"
+          # One call, then a set lookup: `config --images <service>` also prints the
+          # images of that service's dependencies, so per-service equality is wrong.
+          images="$(docker compose -f docker/compose.yml --profile search --profile google \
+            config --images app-server bff searxng ddg-mcp google-mcp)"
+          for name in app-server bff searxng ddg-mcp google-mcp; do
+            want="ghcr.io/${NS}/lettuce-${name}:${LETTA_IMAGE_TAG}"
+            if ! grep -qxF "${want}" <<<"${images}"; then
+              echo "::error::compose does not resolve ${name} to ${want}; it resolves:"
+              echo "${images}"
+              exit 1
+            fi
+          done
           docker compose -f docker/compose.yml --profile search --profile google \
             build --push app-server bff searxng ddg-mcp google-mcp
         env:

@@ -170,6 +170,15 @@ alone, which is what `LETTA_IMAGE_TAG=latest` runs without a release.
   merge to `main`**, whose push publishes `latest`; prove it with an unauthenticated pull —
   `DOCKER_CONFIG=$(mktemp -d) docker buildx imagetools inspect ghcr.io/<owner>/lettuce-bff:latest` —
   before cutting the tag. After that, dispatch is how you republish.
+- **`docker compose build --push` over several services exits 0 even when every push
+  fails** — reproduced on Compose v5.5.1: it prints `target p: failed to solve: failed to
+  push docker.io/library/probe-a:t1: push access denied` for each target and still returns
+  0. That is why the step asserts the resolved names *before* building and the last step
+  inspects the pushed tags *after*; neither is decoration. The first real run proved the
+  point — `LETTA_IMAGE_NS` was not passed, so compose built local `lettuce-*:latest` names,
+  the build step came back green, and only the receipts step noticed the registry was empty.
+  (`docker compose config --images <service>` also prints its dependencies' images, so
+  compare the whole set, not one service at a time.)
 - **`linux/amd64` only** — that is the runner and prod. The upstream images are multi-arch, so an
   arm64 host would need a real multi-platform build, which this is not. No build cache either: `docker
   compose build` exposes no `--cache-from`/`--cache-to`, and public repos are not short of minutes.
