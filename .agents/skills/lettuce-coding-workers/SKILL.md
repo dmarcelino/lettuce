@@ -12,7 +12,9 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
   --stdio` from PATH (`tools/impl/external-coding-agent.ts`, `codex-app-server.ts`). Our
   app-server image (`docker/codex/Dockerfile`) installs the real CLI under `/opt/codex` only
   when the `codex` profile token is in `CODING_FEATURES` (see "Compose profiles are the one
-  feature list" in `AGENTS.md`), and always puts `docker/codex/codex-shim.mjs` on PATH as `codex` — with the
+  feature list" in `AGENTS.md`) — the **published** image is always built with `codex,claude`, so
+  prod carries both CLIs and the token there is only the Settings gate — and always puts
+  `docker/codex/codex-shim.mjs` on PATH as `codex` — with the
   CLI absent the shim's preflight fails with ENOENT and the task reports it. Upstream
   unmodified.
   - The shim's one rewrite: letta hard-codes `sandboxPolicy: workspaceWrite` on every
@@ -101,10 +103,12 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
     heuristic. `GET /api/claude/runs[/:sessionId]` parse it leniently (`claude/transcript.ts`;
     the format is internal to Claude Code and may change between versions). The task
     notification carries `agent_id=claude_<session id>`.
-  - Pin site: `CLAUDE_CODE_VERSION` in compose (build arg + image tag), like `CODEX_VERSION` —
-    separate from `LETTA_CODE_VERSION` and not checked by `check-version-pin`. The shim depends
-    on the preflight shape and the stream-json flags; re-verify on every bump.
-  - **A shim change reaches prod only with a new image tag.** The tag names version pins, not
-    shim content, and `compose up` without `--build` keeps the old image — so a change to
-    `claude-shim*.mjs` ships together with a `CLAUDE_CODE_VERSION` bump (subscription mode came
-    with 2.1.289), and that recreates `app-server`.
+  - Pin site: `CLAUDE_CODE_VERSION` in compose (a build arg; the image tag is the release tag now),
+    like `CODEX_VERSION` — separate from `LETTA_CODE_VERSION` and not checked by
+    `check-version-pin`. The shim depends on the preflight shape and the stream-json flags;
+    re-verify on every bump.
+  - **A shim change ships with the next release, not with a pin bump.** Locally the image tag names
+    version pins rather than shim content, so `compose up` without `--build` keeps the old image; the
+    release rebuilds and publishes it either way. Either way it recreates `app-server`, and a
+    `CLAUDE_CODE_VERSION` bump re-verifies the preflight shape anyway (subscription mode came with
+    2.1.289).

@@ -116,8 +116,16 @@ process services start on *first client attach* (`listener/lifecycle.ts` →
 
 **`web/dist` is baked into the bff image, never mounted** — the image builds the SPA in its
 `web-build` stage and copies it in. So `docker compose up -d` alone serves a months-old UI and a
-local `bun run build` changes nothing the container sees: the release stage builds the image and `bun run
+local `bun run build` changes nothing the container sees: the release stage publishes the image and `bun run
 deploy-check` compares the served `assets/index-*.js` with the local one.
+
+**A prod deploy pulls published images; the deploy host builds nothing.** Every release publishes
+the five images we build to GHCR under the release tag (`.github/workflows/publish.yml`; public
+packages, so a host needs no registry credentials), and `docker/compose.yml`'s `LETTA_IMAGE_TAG`
+default — the release literal, moved with `VERSION` in the same release-prep commit and asserted by
+`check-release-hygiene` — names them. The namespace default is **empty** on purpose: an un-namespaced
+name cannot be pulled, so a dev checkout always builds from source, and `build:` stays on every
+service as that fallback.
 
 ### All durable state lives under one host root
 
@@ -166,9 +174,10 @@ nothing in the image. Every token is matched as an exact comma-delimited entry (
   the shims refuse (the stored endpoint/model/key survive, so re-enabling is one switch flip). Their
   Settings and worker routes answer 404 while the token is off, and `web/` hides the matching sections,
   Tasks run lists and Tools tab rows from `features` in `/api/status` (absent = all on).
-- The coding tokens and the image marker (`CODING_FEATURES`, `/opt/lettuce/features`,
-  `coding_installed`) are the `lettuce-coding-workers` skill: toggling one needs an app-server rebuild,
-  because the image tag does not change with the token list. A Compose warning about unknown profiles is
+- **The coding tokens and the image marker (`CODING_FEATURES`, `/opt/lettuce/features`,
+  `coding_installed`) are the `lettuce-coding-workers` skill: toggling one needs an app-server
+  rebuild locally, because a local image tag does not change with the token list** — the published
+  images bake both CLIs, so in prod it is a Settings flip. A Compose warning about unknown profiles is
   fine — `docker compose config` accepts tokens no service declares.
 
 ## Where the details live
@@ -312,7 +321,7 @@ them; `lettuce-ui-verification` holds the mechanics.
 **Never push `main` or a tag without asking, every time** (hard rule 5). Halt before the push and ask for
 explicit confirmation of that specific release. Standing approval does not carry over: a yes on one change
 is not a yes on the next, and "go ahead" before the commits were shown is not a yes. Pushing is the one
-step that leaves this machine, and `origin` (`dmarchevsky/lettuce`, private) is the only copy of this
+step that leaves this machine, and `origin` (`dmarchevsky/lettuce`) is the only copy of this
 project not on one laptop. `docker/.env` and `docker/secrets/` are gitignored and no secret values are in
 history — re-check that before pushing a configuration change.
 

@@ -1,6 +1,6 @@
 ---
 name: lettuce-pr-and-ci
-description: 'lettuce PR and CI mechanics: worktree → local container test → PR → merge commit (the human test happens before the branch is pushed), which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, the gates that stay local because CI has no stack and no secret, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and that the operator's Release? is what authorizes the agent to merge. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the `flow-guard` rules around merges.'
+description: 'lettuce PR and CI mechanics: worktree → local container test → PR → merge commit (the human test happens before the branch is pushed), which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, the publish workflow that pushes the images a prod deploy pulls (.github/workflows/publish.yml), the gates that stay local because CI has no stack and no secret, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and that the operator's Release? is what authorizes the agent to merge. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the `flow-guard` rules around merges.'
 ---
 
 # PR flow and CI
@@ -92,13 +92,14 @@ Hard rules about the file itself:
 - **No job gets a secret.** Fork `pull_request` runs get a read-only token and none of the repo's
   secrets, so the tier has to stay runnable under that. Anything needing a credential
   (`smoke`, anything deploy-manager, anything Google) is not in here.
-- **CI builds the image the way prod does, and prod's builder is not a checkout.** The prod deploy
-  manager copies the tree into its stack directory and builds there, and that copy carries no `.git`
-  — a `COPY .git/` in the Dockerfile aborted a whole prod deploy that way (2026-10-05,
-  docs/upstream-notes.md#prod-builds-without-git). So the `image` job also exports the tree
-  with `git archive`, builds it with `GIT_SHA=` and asserts `BUILD_INFO` names no commit. Any
-  Dockerfile change that makes the image depend on git metadata has to pass that shape too, and
-  a deployment whose image cannot name its commit is checked with
+- **CI still builds the image the way a *fallback* deploy would, and that builder is not a checkout.**
+  Prod pulls the published images, but every service keeps its `build:` section for a host that must
+  build (a failed publish run, a namespace left unset), and such a builder is the deploy manager's copy
+  of the tree, which carries no `.git` — a `COPY .git/` in the Dockerfile aborted a whole prod deploy
+  that way (2026-10-05, docs/upstream-notes.md#prod-builds-without-git). So the `image` job also
+  exports the tree with `git archive`, builds it with `GIT_SHA=` and asserts `BUILD_INFO` names no
+  commit. Any Dockerfile change that makes the image depend on git metadata has to pass that shape
+  too, and a deployment whose image cannot name its commit is checked with
   `bun run deploy-check <origin> --allow-unstamped`.
 - **Actions are pinned to commit SHAs** with the tag in a trailing comment. Get the SHA with
   `gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq .object.sha`.
@@ -135,6 +136,35 @@ It is **deliberately not in the required `ci` aggregate**, and it carries no `co
 `live` check is loud and honest, it just does not block the merge. Whether it becomes a gate for
 `web/**` PRs now hinges on the seed gap above, not on cost. `smoke` is in neither tier: it mutates
 live state and needs an agent to exist.
+
+## Publish (`publish.yml`) — what a release leaves behind
+
+A prod deploy pulls images instead of building them, so publishing is part of shipping. On a `v*` tag
+push the workflow builds **all five images this repo builds** (`app-server bff searxng ddg-mcp
+google-mcp`) and pushes them under the release tag and `latest`; a merge to `main` publishes `latest`
+alone, which is what `LETTA_IMAGE_TAG=latest` runs without a release.
+
+- **The build *is* the compose file:** one `docker compose build --push` over the five services, so
+  contexts, build args and image names cannot drift from what a host reads, with `LETTA_IMAGE_TAG`
+  deciding the tag. It builds with `COMPOSE_PROFILES=codex,claude` so the published app-server always
+  carries both coding CLIs (a coding token in prod is then a Settings flip, not a rebuild), and with
+  `GIT_SHA=$GITHUB_SHA` so Settings → About names a commit a deploy-manager build could not.
+- **No secret, and no pull credential either.** Push uses the job's own `GITHUB_TOKEN` with
+  `packages: write`; the repo is public, so its GHCR packages are public and a host pulls without a
+  login. That is what keeps publishing inside the no-secrets rule.
+- **A tag push must match `VERSION`,** or the run refuses: images under a tag no checkout names are
+  how a host ends up running bytes nobody can point at. `check-release-hygiene` holds compose's
+  `LETTA_IMAGE_TAG` default to `VERSION` for the same reason from the other side.
+- **`latest` is retagged server-side** (`docker buildx imagetools create`), never rebuilt, so it is
+  byte-identical to the release it just pointed at, and `cancel-in-progress: false` because a
+  half-published set of five is a deploy that pulls four. The run's last step inspects every image
+  back out of the registry — that is the receipt, and it fails the run if one is missing.
+- **`workflow_dispatch` with a tag input exists to prove the workflow before a release needs it** (it
+  pushes `latest`, or whatever tag you type). Run it from the branch whenever `publish.yml` itself
+  changed — a broken publisher is only noticed by the deploy that needed the images.
+- **`linux/amd64` only** — that is the runner and prod. The upstream images are multi-arch, so an
+  arm64 host would need a real multi-platform build, which this is not. No build cache either: `docker
+  compose build` exposes no `--cache-from`/`--cache-to`, and public repos are not short of minutes.
 
 ## Labels and the bump
 

@@ -64,24 +64,29 @@ Everything the stack runs comes from a **published artifact**: the images are
 pin to, and quietly stops being the code the app-server runs. `sync-upstream.sh` now asserts
 both artifacts exist before re-pinning.
 
-**The version literal lives in seven tracked places and they must move together:**
+**The version literal lives in six tracked places and they must move together:**
 
 | File | Form |
 |---|---|
 | `docker/compose.yml` | `LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-<v>}` — app-server build arg (its `FROM`) |
-| `docker/compose.yml` | `image: lettuce-app-server:${LETTA_CODE_VERSION:-<v>}-codex…` — app-server local tag |
 | `docker/compose.yml` | `image: letta/letta:${LETTA_CODE_VERSION:-<v>}` — channel-gateway |
 | `package.json` | `"@letta-ai/letta-code": "<v>"` |
 | `bff/package.json` | same |
 | `web/package.json` | same |
 | `docs/CONFIGURATION.md` | the `LETTA_CODE_VERSION` row of its defaults table — what a reader is told |
 
+The app-server's own image tag used to be a seventh site (`lettuce-app-server:${LETTA_CODE_VERSION:-…}
+-codex…-gh…-claude…`). It is now the **release** tag (`${LETTA_IMAGE_TAG:-v…-letta_…}`), which the sync
+must not rewrite: it names the images CI published, so it moves with `VERSION` in the release-prep
+commit and `check-release-hygiene.ts` — not this checker — holds it there.
+
 `scripts/check-version-pin.ts` asserts they agree and runs first in `bun run verify`. Its
 app-server patterns are fenced to that service's block: a plain lazy match ran on into
 channel-gateway's image line once the app-server stopped naming `letta/letta` directly.
 `sync-upstream.sh` rewrites all of them for you (its sed replaces every
-`LETTA_CODE_VERSION:-…}`). The other pins in compose — `GH_VERSION`, `CODEX_VERSION`,
-`CLAUDE_CODE_VERSION`, the sidecar versions — are separate and not what this check covers.
+`LETTA_CODE_VERSION:-…}`, and deliberately leaves `LETTA_IMAGE_TAG:-…}` alone). The other pins in
+compose — `GH_VERSION`, `CODEX_VERSION`, `CLAUDE_CODE_VERSION`, the sidecar versions — are separate
+and not what this check covers.
 
 **`docker/.env` must not set `LETTA_CODE_VERSION` at all.** Compose reads that file and its value
 outranks compose's own default, so a leftover freezes the host on an older release and survives

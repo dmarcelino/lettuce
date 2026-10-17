@@ -1,6 +1,6 @@
 ---
 name: lettuce-releasing
-description: 'Cutting a lettuce release from inside a feature flow: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, why the tag is not valid semver and must not be "fixed", the VERSION file as the only machine-readable record (and why no package.json version exists), the CHANGELOG.md sections and entry voice, and the README / docs/CONFIGURATION.md docs-sync duty. The stage sequence itself is `.dev-flow/project.md`. Read when bumping VERSION, tagging, or writing a changelog entry.'
+description: 'Cutting a lettuce release from inside a feature flow: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, why the tag is not valid semver and must not be "fixed", the VERSION file as the only machine-readable record (and why no package.json version exists), the docker/compose.yml image-tag default that rides the same release-prep commit, the CHANGELOG.md sections and entry voice, and the README / docs/CONFIGURATION.md docs-sync duty. The stage sequence itself is `.dev-flow/project.md`. Read when bumping VERSION, tagging, or writing a changelog entry.'
 ---
 
 # Versioning, tags, changelog, docs sync
@@ -48,8 +48,9 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
 - Upstream's `v<x.y.z>` tags live in the **letta-code checkout**, a different repo — no collision with
   these, and `sync-upstream` is unaffected.
 - `-letta_0.33.7` is not valid semver (underscore is not a legal prerelease character), and strict semver
-  tools would sort such a tag below a bare `v0.1.0`. Deliberate — we never publish to a registry and
-  never emit bare `v0.1.0`. Do not "fix" the format.
+  tools would sort such a tag below a bare `v0.1.0`. Deliberate — we ship no npm package and never emit
+  bare `v0.1.0`. Do not "fix" the format. (The tag *is* also an image tag: the release publishes the
+  five images we build under this exact string — see `lettuce-pr-and-ci`.)
 
 #### Changelog
 
@@ -67,8 +68,14 @@ to this repo's tag scheme:
   `## [v<new-tag>] - <YYYY-MM-DD>` (that commit's date) and leaves a fresh empty `[Unreleased]` above it.
   `check-release-hygiene` requires the `[Unreleased]` heading *and* asserts `VERSION` equals the newest
   released section, so the two must move together.
+- **The same commit bumps `docker/compose.yml`.** Every built service's image is
+  `${LETTA_IMAGE_NS:-}lettuce-<name>:${LETTA_IMAGE_TAG:-v…-letta_…}`, and that default names the
+  release whose images CI published, so it is rewritten to the new tag in the same commit as `VERSION`
+  — `check-release-hygiene` fails the branch when the two disagree. Forgetting it does not break CI; it
+  makes a prod deploy pull the previous release's images.
 - **`deploy-check`** re-asserts the same pair after the merge, from `main`, next to the tag at `HEAD`.
-- **No links section** — private repo, no GitHub releases; do not add Keep-a-Changelog link references.
+- **No links section** — no GitHub releases are published (`release.github = false`), public repo or
+  not; do not add Keep-a-Changelog link references.
 
 #### Docs sync (README and CONFIGURATION)
 
