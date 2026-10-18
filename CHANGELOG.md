@@ -5,6 +5,18 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.15.0-letta_0.34.16] - 2026-10-18
+
+### Changed
+- Synced letta-code 0.34.9 → 0.34.16. A running Codex or Claude Code worker can now be steered, resumed or stopped by the agent that spawned it; a workflow worker gets the same mod tools the parent agent has, so a workflow step can read Gmail or search the web; a `Monitor` watch can arm a backup wake, so a watch that goes silent brings the agent back instead of leaving you waiting; and a long conversation's transcript is streamed rather than read whole, so an old conversation cannot outgrow the string limit on open. The app-server image is rebuilt, so the deploy recreates `app-server` and drops any turn in flight.
+- **Two more bundled skills are hidden from local agents.** `managing-agent-webhooks` and `speech-generation` arrived upstream in 0.34.13 and are Letta Cloud features — inbound webhooks and cloud speech — so a local agent could only fail with them. Settings → Skills no longer lists them, matching what the app-server hides on its own.
+- Codex CLI 0.162.0 → 0.163.0 and Claude Code CLI 2.1.295 → 2.1.302 — both are built into the app-server image, and letta-code drives each over its own protocol, so a worker run is the thing to re-check after the deploy.
+- SearXNG 2026.10.9 → 2026.10.17 — the search sidecar the BFF asks for JSON results; newer engine definitions are what keep `web_search` returning things.
+- cloudflared 2026.10.0 → 2026.10.1 — the tunnel container only. Recreating it drops the tunnel for a few seconds, so the app is briefly unreachable while everything else keeps running.
+
+### Removed
+- **`/clear` is gone, because the app-server took it away.** letta-code 0.34.15 removed the remote clear: it re-pointed a runtime at a new conversation while its own key still named the old one, which corrupted the durable record of what had been accepted. The slash palette no longer offers it (it lists what the app-server advertises, and that no longer includes it) and the BFF refuses the command id outright. Starting a fresh conversation is the **+** in the sidebar or the switcher, which is the path the app has always had.
+
 ## [v0.14.0-letta_0.34.9] - 2026-10-17
 
 ### Added
