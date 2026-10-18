@@ -182,12 +182,7 @@ function SignIn({ status }: { status: Status }) {
 function Workspace({ status }: { status: Status }) {
   const session = useSession(true);
   const agents = useAgents(session);
-  // /clear creates a new conversation server-side instead of clearing this one,
-  // so the UI has to follow it there or it sits on a conversation the runtime
-  // has already moved off.
-  const conversation = useConversation(session, agents.agentId, agents.conversationId, () => {
-    void agents.adoptNewConversation();
-  });
+  const conversation = useConversation(session, agents.agentId, agents.conversationId);
 
   // A BFF error nothing else claimed is an event, so it is a toast: it says its
   // piece and leaves, instead of covering the transcript until someone finds the

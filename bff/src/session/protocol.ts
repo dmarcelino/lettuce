@@ -231,6 +231,12 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
  *   that swaps the installed global out from under a pinned image, silently
  *   breaking the invariant `scripts/check-version-pin.ts` exists to hold, and
  *   restarts the process that owns every conversation's turn.
+ * - `clear` / `clear-messages` were remote commands until letta-code 0.34.15,
+ *   which removed them: the remote clear reassigned the conversation on a
+ *   runtime whose key still addressed the old scope and poisoned the durable
+ *   input ledger. They now answer "use /new", so admitting them would only let a
+ *   browser fire a command that always fails. A new conversation is created
+ *   client-side (`createConversation`), not by clearing one.
  * - `channels` needs a gateway attached over stdio; see CLAUDE.md.
  * - `secret` and `toolset` have no `execute_command` case at all — the UI's
  *   toolset picker uses `update_toolset`, and the Secrets screen uses the
@@ -243,8 +249,6 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
  * `registry.ts`), so the palette and the boundary cannot disagree.
  */
 export const ALLOWED_EXECUTE_COMMAND_IDS: ReadonlySet<string> = new Set([
-  "clear",
-  "clear-messages",
   "compact",
   "context-limit",
   "doctor",
