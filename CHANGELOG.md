@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.15.0-letta_0.34.9] - 2026-10-18
+
 ### Added
 - Keep the tools agents install across updates and restarts, in a new `tools/` state folder; reinstall older ones once.
 

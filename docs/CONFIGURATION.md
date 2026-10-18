@@ -352,7 +352,8 @@ the image ships. Cron jobs do not get that `PATH`: they call tools by full path.
 
 `apt-get install` still does not survive: it writes to system directories.
 A tool that stops working after an upgrade (a new Node.js or base image) needs
-reinstalling.
+reinstalling. A recreate no longer resets what agents installed; to start
+clean, stop the stack and delete `$LETTA_STATE_DIR/tools`.
 
 ## Telegram
 
