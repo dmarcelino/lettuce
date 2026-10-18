@@ -98,7 +98,7 @@ services:
         LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.34.16}
         CODEX_VERSION: ${CODEX_VERSION:-0.163.0}
         GH_VERSION: ${GH_VERSION:-2.102.0}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.295}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.302}
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
     # Tagged by release, not by pins: what is inside is what the tag's commit
     # built, and /opt/lettuce/features plus Settings → About report the CLIs.
