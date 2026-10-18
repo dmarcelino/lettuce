@@ -73,6 +73,8 @@ const result = await discoverSkills({
     skills: [
       bundledSkill("image-generation"),
       bundledSkill("curating-memory-palace"),
+      bundledSkill("managing-agent-webhooks"),
+      bundledSkill("speech-generation"),
       bundledSkill("proj"),
     ],
     errors: [],
@@ -104,6 +106,10 @@ describe("discoverSkills", () => {
   test("bundled skills upstream hides from local agents are hidden", () => {
     expect(byId.has("image-generation")).toBe(false);
     expect(byId.has("curating-memory-palace")).toBe(false);
+    // Added upstream in 0.34.13; both talk to Letta Cloud, so a local agent
+    // could only fail with them.
+    expect(byId.has("managing-agent-webhooks")).toBe(false);
+    expect(byId.has("speech-generation")).toBe(false);
   });
 
   test("a local agent's own copy of a hidden bundled skill is still listed", async () => {
