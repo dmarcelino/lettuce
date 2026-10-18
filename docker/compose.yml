@@ -309,7 +309,7 @@ services:
       # features), but a sidecar has no version endpoint and the BFF cannot read
       # Compose, so these pins are handed over as env — the same literal that
       # picks the tag two services below, never a second copy of it.
-      SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
+      SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.17-1c10abe2d}
       DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
       WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
       CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.10.1}
@@ -456,7 +456,7 @@ services:
     build:
       context: searxng
       args:
-        SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
+        SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.17-1c10abe2d}
     image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.14.0-letta_0.34.9}
     environment:
       TZ: ${TZ:-America/Los_Angeles}

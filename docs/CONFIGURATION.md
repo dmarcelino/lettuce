@@ -165,7 +165,7 @@ the app-server's own handshake, the sidecars from the tag compose pulled.
 | `CLAUDE_CODE_VERSION` | `2.1.302` | the Claude Code CLI worker |
 | `GH_VERSION` | `2.102.0` | GitHub CLI, used by the `WatchPR` tool |
 | `WORKSPACE_MCP_VERSION` | `2.1.0` | the workspace MCP server |
-| `SEARXNG_VERSION` | `2026.10.9-9f042d2f6` | `searxng/searxng` image tag |
+| `SEARXNG_VERSION` | `2026.10.17-1c10abe2d` | `searxng/searxng` image tag |
 | `DDG_MCP_VERSION` | `0.7.0` | `duckduckgo-mcp-server` release |
 | `CLOUDFLARED_VERSION` | `2026.10.1` | the tunnel container |
 
