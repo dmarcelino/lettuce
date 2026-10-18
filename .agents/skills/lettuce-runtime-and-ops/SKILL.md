@@ -1,6 +1,6 @@
 ---
 name: lettuce-runtime-and-ops
-description: 'lettuce runtime/ops mechanics: the LLM timeout bounds prefill and not generation (env names, parse rules, createLocalProviderFetch is dead code, a change recreates app-server), agent web apps on ports 3000-3099 with the serving-web-apps skill and the never-bind-mount-repo-files rule, agent-installed tools in /opt/agent-tools (image ENV, PATH appended, the profile.d re-append for login shells, the -tools<n> image tag), and why "Subagent process exited with code unknown" means the spawn failed (init: true reaping, pids.max, EAGAIN, the spawn-diagnostics preload). Read before touching LLM timeout env, docker/compose.yml env for app-server, AGENT_APP_PORTS, the agent-tools ENV in docker/codex/Dockerfile, or debugging failing subagent spawns.'
+description: 'lettuce runtime/ops mechanics: the LLM timeout bounds prefill and not generation (env names, parse rules, createLocalProviderFetch is dead code, a change recreates app-server), agent web apps on ports 3000-3099 with the serving-web-apps skill and the never-bind-mount-repo-files rule, agent-installed tools in /opt/agent-tools (image ENV, PATH appended, the profile.d re-append for login shells), and why "Subagent process exited with code unknown" means the spawn failed (init: true reaping, pids.max, EAGAIN, the spawn-diagnostics preload). Read before touching LLM timeout env, docker/compose.yml env for app-server, AGENT_APP_PORTS, the agent-tools ENV in docker/codex/Dockerfile, or debugging failing subagent spawns.'
 ---
 
 # App-server runtime limits and ops traps
@@ -50,10 +50,9 @@ Loaded from `AGENTS.md`. Timeouts, ports, and the two things that break spawns.
   `/etc/profile` resets `PATH` for root, and letta-code's `exec_command` tool and the coding
   workers run `bash -lc`, so `/etc/profile.d/agent-tools.sh` appends `AGENT_TOOLS_PATH` again
   (the other variables survive). uv is `only-managed`, so its tool environments never point at
-  the image's `/usr/bin/python3`, and its cache is on the mount beside its targets. **Bump the
-  image tag's `-tools<n>` with any change to that block:** the rest of the tag is version pins,
-  and `up -d` without `--build` keeps an image whose tag did not change. Cron jobs get none of
-  this env. What no variable covers (verified release downloads, the Go toolchain replaced
+  the image's `/usr/bin/python3`, and its cache is on the mount beside its targets. A change to
+  that block reaches a host with the next release's image tag, like any other image change.
+  Cron jobs get none of this env. What no variable covers (verified release downloads, the Go toolchain replaced
   whole, uv for Python, Rust only prebuilt via cargo-binstall since the image has no C linker,
   full paths in cron, no apt) is in `docker/agent-skills/installing-tools`. The image's own
   `npm install --global --prefix /opt/codex|/opt/claude-code` is explicit, so the new default

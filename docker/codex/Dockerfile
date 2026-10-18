@@ -108,9 +108,6 @@ RUN set -eu; \
 # environment built on the image's /usr/bin/python3 would break the day the base
 # image moves to a new Python. Its cache sits beside its targets so installs can
 # hardlink and a recreate does not throw it away.
-# Bump the `-tools<n>` suffix of the image tag in compose.yml with any change to
-# this block: the rest of the tag names version pins only, and `compose up`
-# without `--build` keeps an image whose tag did not change.
 RUN printf '%s\n' \
       '# Login shells reset PATH (/etc/profile); add the agent-tools dirs back. See docker/codex/Dockerfile.' \
       'case ":$PATH:" in *":$AGENT_TOOLS_PATH:"*) ;; *) [ -n "$AGENT_TOOLS_PATH" ] && PATH="$PATH:$AGENT_TOOLS_PATH" ;; esac' \
