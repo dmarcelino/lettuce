@@ -78,7 +78,9 @@ const MEMFS_DIR = "/data/local-backend/memfs";
 const LOCAL_AGENT_EXCLUDED_BUNDLED = new Set([
   "curating-memory-palace",
   "image-generation",
+  "managing-agent-webhooks",
   "managing-shared-memory",
+  "speech-generation",
   "working-across-computers",
 ]);
 

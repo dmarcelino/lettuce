@@ -204,9 +204,14 @@ describe("execute_command allowlist", () => {
     expect(executeCommandViolation(id, mods)).toBeString();
 
   test("the commands the UI actually offers are allowed", () => {
-    for (const id of ["clear", "compact", "context-limit", "doctor", "init", "reload"]) {
+    for (const id of ["compact", "context-limit", "doctor", "init", "reload"]) {
       allow(id);
     }
+  });
+
+  test("the remote clear removed in letta-code 0.34.15 stays refused", () => {
+    refuse("clear");
+    refuse("clear-messages");
   });
 
   test("upgrade-letta-code is refused", () => {

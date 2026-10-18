@@ -153,7 +153,6 @@ export interface AgentsApi {
   archivedAgents: ReadonlySet<string>;
   setAgentArchived: (agentId: string, archived: boolean) => Promise<void>;
   createConversation: () => Promise<void>;
-  adoptNewConversation: () => Promise<void>;
   renameConversation: (conversationId: string, summary: string) => Promise<void>;
   /** Name an untitled conversation after the first thing the user said. */
   autoTitleConversation: (conversationId: string, firstMessage: string) => void;
@@ -424,30 +423,6 @@ export function useAgents(session: SessionApi): AgentsApi {
     if (typeof id === "string") setConversationId(id);
   }, [agentId, request, refreshConversations]);
 
-  /**
-   * Select whichever conversation appeared since the last list — the follow-up
-   * to a `/clear`, which creates one server-side rather than clearing in place.
-   *
-   * `refreshConversations` alone cannot do this: it deliberately keeps the
-   * current selection whenever it still exists, and after a clear the old
-   * conversation still does. So the new one has to be identified by diffing.
-   */
-  const adoptNewConversation = useCallback(async () => {
-    if (!agentId) return;
-    const known = new Set(conversations.map((conversation) => conversation.id));
-    try {
-      const response = await request("conversation_list", {
-        query: { agent_id: agentId, limit: 100 },
-      });
-      const list = readConversations(response);
-      setConversations(list);
-      const appeared = list.find((conversation) => !known.has(conversation.id));
-      if (appeared) setConversationId(appeared.id);
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  }, [agentId, conversations, request]);
-
   const renameConversation = useCallback(
     async (target: string, summary: string) => {
       await request("conversation_update", {
@@ -510,7 +485,6 @@ export function useAgents(session: SessionApi): AgentsApi {
     archivedAgents: archivedSet,
     setAgentArchived,
     createConversation,
-    adoptNewConversation,
     renameConversation,
     autoTitleConversation,
     setArchived,

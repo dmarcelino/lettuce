@@ -690,16 +690,17 @@ try {
     // and it must not be the thing that pushes the composer off-screen — it
     // sits above a textarea the on-screen keyboard has already crowded.
     const textarea = page.locator(".composer textarea");
-    await textarea.fill("/cl");
+    await textarea.fill("/ref");
     const popover = page.locator(".composer-suggestions");
     check("typing a slash opens the suggestions", await popover.isVisible());
     check(
       "suggestions are filtered to the prefix",
-      // An id match, not has-text: "/clear" is a text substring of
-      // "/clear-messages" too, so has-text(/clear) over-counted once a second
-      // command shared the prefix.
+      // An id match, not has-text: "/reflect" is a text substring of
+      // "/reflection" too, so has-text(/reflect) over-counts while two commands
+      // share the prefix. (This asserted /clear until letta-code 0.34.15 removed
+      // the remote clear.)
       (await popover.locator("li").count()) > 0 &&
-        (await popover.locator("#composer-suggestion-clear").count()) === 1,
+        (await popover.locator("#composer-suggestion-reflect").count()) === 1,
     );
     check(
       "a suggestion is highlighted by default",
