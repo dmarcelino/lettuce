@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- **The browser tab names the open agent.** With a chat open with Alfred the tab reads "Alfred | Lettuce", so a row of tabs — or a backgrounded one on a phone — says which agent it belongs to.
+
 ## [v0.21.1-letta_0.34.21] - 2026-10-26
 
 ### Fixed
