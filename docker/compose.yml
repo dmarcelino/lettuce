@@ -95,7 +95,7 @@ services:
     build:
       context: codex
       args:
-        LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.34.9}
+        LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.34.16}
         CODEX_VERSION: ${CODEX_VERSION:-0.162.0}
         GH_VERSION: ${GH_VERSION:-2.102.0}
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.295}
@@ -407,7 +407,7 @@ services:
   channel-gateway:
     profiles: ["telegram"]
     # Upstream's published image, used as-is — same image as the app-server.
-    image: letta/letta:${LETTA_CODE_VERSION:-0.34.9}
+    image: letta/letta:${LETTA_CODE_VERSION:-0.34.16}
     depends_on:
       app-server:
         condition: service_healthy
