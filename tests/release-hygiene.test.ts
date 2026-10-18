@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   appDirsTouched,
   decideBump,
+  reviewImageTags,
   reviewPr,
   reviewReleaseState,
 } from "../scripts/check-release-hygiene.ts";
@@ -95,6 +96,36 @@ test("this checkout satisfies its own release contract", () => {
   const version = readFileSync(`${ROOT}VERSION`, "utf8");
   const changelog = readFileSync(`${ROOT}CHANGELOG.md`, "utf8");
   expect(reviewReleaseState(version, changelog)).toEqual([]);
+});
+
+const imageLine = (tag: string) =>
+  `    build:\n      context: ..\n    image: \${LETTA_IMAGE_NS:-}lettuce-bff:\${LETTA_IMAGE_TAG:-${tag}}\n`;
+
+test("the compose image tag default must name the release VERSION names", () => {
+  expect(reviewImageTags("v1.2.3-letta_0.34.1", imageLine("v1.2.3-letta_0.34.1"))).toEqual([]);
+  expect(
+    reviewImageTags("v1.2.3-letta_0.34.1", imageLine("v1.2.2-letta_0.34.1")).join(" "),
+  ).toContain("do not name VERSION");
+  // A built service that lost its `image:` line is the same class of mistake: the
+  // published tag would exist while the deploy built something nameless.
+  expect(
+    reviewImageTags("v1.2.3-letta_0.34.1", "    build:\n      context: ..\n").join(" "),
+  ).toContain("has no ${LETTA_IMAGE_TAG");
+  // A malformed VERSION is reported once, by reviewReleaseState.
+  expect(reviewImageTags("0.6.1", imageLine("anything"))).toEqual([]);
+  // A built service that lost its tag default is caught by the count, not the value.
+  expect(
+    reviewImageTags(
+      "v1.2.3-letta_0.34.1",
+      imageLine("v1.2.3-letta_0.34.1") + imageLine("v1.2.3-letta_0.34.1") + "    build:\n",
+    ).join(" "),
+  ).toContain("but 2 image tags");
+});
+
+test("this checkout's published image tags name its VERSION", () => {
+  const version = readFileSync(`${ROOT}VERSION`, "utf8");
+  const compose = readFileSync(`${ROOT}docker/compose.yml`, "utf8");
+  expect(reviewImageTags(version, compose)).toEqual([]);
 });
 
 test("reviewReleaseState catches a bump that forgot the changelog, and vice versa", () => {

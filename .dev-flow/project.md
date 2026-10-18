@@ -39,6 +39,11 @@ branch rule, so a body that quotes a command goes in a file and comes in with `-
 
 - [ ] (ui) mockups of every changed surface, rendered at 390 and 1280 and embedded in plan.md
 
+Write the plan to `plan/` **as the discussion goes**, not when it ends: pi has auto-compacted at the
+`release` stage twice now, and a plan that lived only in the transcript was gone with it — the gates read
+the file, so the file is the work's memory. Pace the gates the same way: land each one's output on disk
+before moving on.
+
 Anything user-visible starts with `flow start <slug> --ui`. A docs-only change (nothing under `bff/`,
 `web/` or `docker/`) still needs a flow: `flow start <slug> --patch` — and `--patch` / `--docs` are the
 operator's grant in chat, never self-selected. Before asking for approval check
@@ -62,7 +67,10 @@ machine fix, not a playbook edit. A fresh worktree has no `docker/.env`
 (gitignored) — `setup` copies it in when `flow approve` creates the worktree, or the state-dir default
 lands inside `.dev-flow/<slug>/`. It reads the file from the **main** checkout through
 `git rev-parse --git-common-dir`, because a linked worktree has no `docker/.env` of its own and a
-relative `../../` breaks the moment `worktreeDir` changes depth. The local stack is one per machine and shared, so an
+relative `../../` breaks the moment `worktreeDir` changes depth. **A failed `setup` does not re-run on the
+next `approve`** — dev-flow reuses the worktree and prints `plan approved` with no `docker/.env` and no
+`node_modules` (upstream dev-flow#49; it also runs `setup` for a `--docs` feature, which docs mode should
+skip), so after a setup failure check both exist before trusting `flow check`. The local stack is one per machine and shared, so an
 `up -d` replaced whatever another session was testing — say so out loud. A web/ change needs `build:bff`
 first or the container serves the old bundle.
 
@@ -77,6 +85,7 @@ versionFile = VERSION
 versionTag = {version}
 changelog = CHANGELOG.md
 github = false
+artifact = docker buildx imagetools inspect ghcr.io/dmarchevsky/lettuce-bff:{tag}
 ```
 
 VERSION holds the whole release tag (`v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>`), which is
@@ -90,9 +99,14 @@ without a bump is red. The heading an entry lands under is what CI derives the b
 word instead. Parallel branches collide on `VERSION` and `CHANGELOG.md`: merge `main` in and re-derive
 the version before asking Release?, because the gate refuses a tag that already exists.
 
+`VERSION` is not the only release literal: the compose image-tag default (`${LETTA_IMAGE_TAG:-v…}`) is a
+release-literal site too and moves in the same commit — it is the tag a host without `LETTA_IMAGE_NS`
+builds, and what CI compares against `VERSION` after the merge. `sync-upstream` leaves it alone on purpose.
+
 - [ ] `ponytail-review` run on the change and every must-have and should-have finding fixed
 - [ ] the CHANGELOG entry, the VERSION bump and any README / docs/CONFIGURATION.md sync in that one
       release-prep commit, and the `bump:minor` / `bump:patch` / `bump:none` label agrees with it
+- [ ] the compose image-tag default moved with VERSION in that same commit
 - [ ] the operator confirmed this exact tag, after being told the commit range and whether `app-server`
       gets recreated (an `app-server` recreate kills every in-flight turn; the BFF drain covers only bff)
 
@@ -105,6 +119,13 @@ Publish only — the preparation happened above. Push the branch, open the PR fr
 is published (`release.github = false`). Nothing here deploys prod, and nothing is pushed, merged or
 tagged without the operator's **Release?** for that specific change — a standing yes from an earlier
 change is not one. The guard no longer intercepts `gh pr merge`: Release? is the authorization.
+
+The tag *is* the publish trigger — pushing it runs `.github/workflows/publish.yml`, which pushes all five
+images to GHCR and retags `latest` — so **`release.artifact` is what proves a release shipped**:
+`flow release-done` fails if the registry does not hold the tag. It exists because two publishes came back
+green and pushed nothing — `lettuce-pr-and-ci` says why a green Compose build is not proof of a push. A
+green pipeline is not the artifact; the registry is. (An unversioned flow tags nothing, so this gate and
+the artifact check both stand down.)
 
 - [ ] after the merge and from `main`: `bun run deploy-check` green, plus `bun run ui-check` and
       `bun run smoke` where they apply

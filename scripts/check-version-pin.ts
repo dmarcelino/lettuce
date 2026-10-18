@@ -2,10 +2,15 @@
  * Asserts every copy of the letta-code version literal agrees.
  *
  * The app-server image, the channel-gateway image and the protocol types the UI
- * compiles against must all be the SAME release, or the UI is typechecked
- * against one protocol and talks to another. The literal is repeated in six
- * tracked places and nothing used to check them — AGENTS.md said so outright
- * ("Nothing asserts they agree").
+ * compiles against must all be the SAME release, or the UI is typechecked against
+ * one protocol and talks to another. The literal is repeated in six tracked places
+ * and nothing used to check them — AGENTS.md said so outright ("Nothing asserts
+ * they agree").
+ *
+ * The app-server is built FROM letta/letta, so its literal lives in the build arg.
+ * Its image tag used to carry the literal too (`lettuce-app-server:${LETTA_CODE_VERSION:-…}
+ * -codex…-gh…-claude…`); the tag is now the release tag, which `sync-upstream` must
+ * NOT rewrite — `check-release-hygiene.ts` holds it to `VERSION` instead.
  *
  * `docker/.env` must not carry the key at all: Compose reads that file and its
  * value outranks the pin in `docker/compose.yml`, so a leftover there quietly
@@ -29,21 +34,14 @@ interface Site {
 
 const SITES: Site[] = [
   // The app-server is built FROM letta/letta (docker/codex/Dockerfile), so its
-  // literal lives in the build arg and in the local image tag. The
-  // `(?:(?!^ {2}\S)…)` guard keeps each match inside the app-server block: a
-  // plain lazy `[\s\S]*?` would run on into channel-gateway's image line and
-  // report that one instead.
+  // literal lives in the build arg. The `(?:(?!^ {2}\S)…)` guard keeps each match
+  // inside the app-server block: a plain lazy `[\s\S]*?` would run on into
+  // channel-gateway's image line and report that one instead.
   {
     file: "docker/compose.yml",
     label: "compose app-server base image (build arg)",
     pattern:
       /^ {2}app-server:(?:(?!^ {2}\S)[\s\S])*?LETTA_CODE_VERSION:\s*\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/m,
-  },
-  {
-    file: "docker/compose.yml",
-    label: "compose app-server image tag",
-    pattern:
-      /^ {2}app-server:(?:(?!^ {2}\S)[\s\S])*?image:\s*lettuce-app-server:\$\{LETTA_CODE_VERSION:-([0-9][^}]*)\}/m,
   },
   {
     file: "docker/compose.yml",

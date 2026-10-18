@@ -202,6 +202,11 @@ cd "$UI_ROOT"
 sed -i -E "s|(\"@letta-ai/letta-code\": \")[^\"]+(\")|\1$VERSION\2|" \
   package.json bff/package.json web/package.json
 sed -i -E "s|(LETTA_CODE_VERSION:-)[^}]+(\})|\1$VERSION\2|g" docker/compose.yml
+# NOTE: this deliberately does not touch `LETTA_IMAGE_TAG:-v…` in the same file.
+# That literal names the RELEASE whose images CI published, not the letta-code pin,
+# so it moves with VERSION in the release-prep commit — and check-release-hygiene.ts
+# fails the branch when the two disagree. Rewriting it here would point a synced but
+# unreleased branch at images that do not exist yet.
 # The docs' defaults table states the same default, so a sync that missed it told
 # every reader the wrong version. check-version-pin.ts counts it as a site now.
 # In JS rather than sed: the row is a markdown pair of backticked cells, and a
@@ -226,7 +231,9 @@ if bun run typecheck; then
   say "Sync complete. No typed protocol breakage."
   echo "  A host whose docker/.env sets LETTA_CODE_VERSION needs the line gone before "
   echo "  its next deploy — the stale-pin story: docs/upstream-notes.md#stale-pin-story."
-  echo "  A version bump is a full rebuild: docker compose -f docker/compose.yml up -d --build"
+  echo "  Locally a version bump is a full rebuild: docker compose -f docker/compose.yml up -d --build"
+  echo "  In prod the release publishes the images instead: LETTA_IMAGE_TAG's default in"
+  echo "  docker/compose.yml is bumped with VERSION at pre-release, and publish.yml pushes them."
 else
   fail "Typecheck failed — the protocol changed under us. Fix the UI — upstream is not ours to patch."
 fi

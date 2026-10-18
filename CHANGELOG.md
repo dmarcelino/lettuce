@@ -8,6 +8,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ### Added
 - Keep the tools agents install across updates and restarts, in a new `tools/` state folder; reinstall older ones once.
 
+## [v0.14.0-letta_0.34.9] - 2026-10-17
+
+### Added
+- **Production deploys pull our images instead of building them.** Each release publishes the five images we build to GHCR under its tag (and as `latest`), and one setting on the host points at them — no build on deploy, no registry login, and Settings → About names the commit CI built.
+
 ## [v0.13.3-letta_0.34.9] - 2026-10-15
 
 ### Removed

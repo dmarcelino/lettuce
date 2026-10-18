@@ -3,6 +3,28 @@
 # build input. A host needs only `git` and `docker` to deploy:
 #   docker compose -f lettuce/docker/compose.yml up -d
 #
+# ── Published images, and why the defaults name local ones ───────────────────
+# Every image this file builds is published to GHCR by .github/workflows/publish.yml
+# — at the release tag, and as `latest` from main. The repo is public, so the
+# packages are public: a deploy host pulls with no registry credentials at all.
+# Pointing it at them is ONE variable in docker/.env, set once:
+#
+#   LETTA_IMAGE_NS=ghcr.io/dmarchevsky/
+#
+# and no tag bump, ever: the checkout at a release already names that release's
+# images, because `LETTA_IMAGE_TAG`'s default is the release tag. The release-prep
+# commit bumps VERSION and these defaults together, and check-release-hygiene.ts
+# fails the branch when the two disagree.
+#
+# The namespace default is deliberately EMPTY, which is the load-bearing part of
+# the scheme: an un-namespaced name cannot be pulled, so a dev checkout without
+# the variable always builds from source (Compose tries the pull, gets `denied`,
+# and builds — verified on Compose v5.5.1). Defaulting to ghcr.io instead would
+# let a branch that bumped LETTA_CODE_VERSION pull the LAST release's app-server
+# and container-test code that is not its own. `LETTA_IMAGE_TAG=latest` runs
+# main's tip without a release; `build:` stays on every service as dev's path and
+# as prod's fallback when a publish run did not happen.
+#
 # ── Durable state lives under one host root ──────────────────────────────────
 # LETTA_STATE_DIR anchors every bind mount. Relative values resolve against
 # this file's directory, and the `../..` default reproduces the original dev
@@ -57,10 +79,12 @@ services:
     # writes what it actually baked into /opt/lettuce/features, and the BFF
     # logs loudly when a token is on but the CLI is missing.
     #
-    # The image TAG does not change with the token list (it names version
-    # pins), so toggling a coding token REQUIRES a rebuild — `compose up`
-    # without `--build` silently keeps the old image. Enabling needs the exact
-    # comma-delimited token: `…codex…,`.
+    # The PUBLISHED image always bakes both coding CLIs (the publish workflow
+    # builds it with `COMPOSE_PROFILES=codex,claude`), so toggling a coding token
+    # in prod is a Settings flip, not a rebuild. A local build is still gated by
+    # the token list above, and its tag does not change with it, so toggling one
+    # locally REQUIRES a rebuild — `compose up` without `--build` silently keeps
+    # the old image. Enabling needs the exact comma-delimited token: `…codex…,`.
     #
     # Default container hardening (seccomp, AppArmor, default capabilities) is
     # deliberately left intact: this is the one service agent-authored shell
@@ -76,10 +100,9 @@ services:
         GH_VERSION: ${GH_VERSION:-2.102.0}
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.295}
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
-    # `-tools<n>` is the revision of the agent-tools ENV in docker/codex/Dockerfile:
-    # the only part of the tag that is not a version pin, so a change to that
-    # block still reaches a host that runs `up -d` without `--build`.
-    image: lettuce-app-server:${LETTA_CODE_VERSION:-0.34.9}-codex${CODEX_VERSION:-0.162.0}-gh${GH_VERSION:-2.102.0}-claude${CLAUDE_CODE_VERSION:-2.1.295}-tools1
+    # Tagged by release, not by pins: what is inside is what the tag's commit
+    # built, and /opt/lettuce/features plus Settings → About report the CLIs.
+    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.14.0-letta_0.34.9}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -254,6 +277,7 @@ services:
       # and `bun run build:bff` passes it from the host checkout.
       args:
         GIT_SHA: ${GIT_SHA:-}
+    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.14.0-letta_0.34.9}
     depends_on:
       app-server:
         condition: service_healthy
@@ -438,7 +462,7 @@ services:
       context: searxng
       args:
         SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
-    image: lettuce-searxng:${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
+    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.14.0-letta_0.34.9}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
@@ -455,7 +479,7 @@ services:
       context: ddg-mcp
       args:
         DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
-    image: lettuce-ddg-mcp:${DDG_MCP_VERSION:-0.7.0}
+    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.14.0-letta_0.34.9}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       DDG_REGION: ${DDG_REGION:-us-en}
@@ -486,7 +510,7 @@ services:
       context: google-mcp
       args:
         WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
-    image: lettuce-google-mcp:${WORKSPACE_MCP_VERSION:-2.1.0}
+    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.14.0-letta_0.34.9}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:
