@@ -167,7 +167,7 @@ the app-server's own handshake, the sidecars from the tag compose pulled.
 | `WORKSPACE_MCP_VERSION` | `2.1.0` | the workspace MCP server |
 | `SEARXNG_VERSION` | `2026.10.9-9f042d2f6` | `searxng/searxng` image tag |
 | `DDG_MCP_VERSION` | `0.7.0` | `duckduckgo-mcp-server` release |
-| `CLOUDFLARED_VERSION` | `2026.10.0` | the tunnel container |
+| `CLOUDFLARED_VERSION` | `2026.10.1` | the tunnel container |
 
 ## Claude Code workers
 
