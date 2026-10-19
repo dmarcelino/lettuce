@@ -551,6 +551,7 @@ function Workspace({ status }: { status: Status }) {
               onPermissionMode={conversation.setPermissionMode}
               commands={conversation.commands}
               onRunCommand={(id, args) => conversation.runCommand(id, args)}
+              onNewConversation={() => void agents.createConversation()}
               onOpenModels={() => setShowModels(true)}
               modelsDisabled={!scope}
               modelLabel={modelLabel}
