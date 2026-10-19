@@ -54,6 +54,8 @@ interface Props {
   conversationId: string | null;
   backgroundProcesses: BackgroundProcessSummary[];
   onStopMonitor: (processId: string) => void;
+  /** Stops a running subagent; resolves to the error to show, or nothing when it stopped. */
+  onStopSubagent: (subagentId: string) => Promise<string | null>;
   /** Every conversation for this agent, used to name each task's target. */
   conversations: ConversationSummary[];
 }
@@ -96,6 +98,7 @@ export function TasksTab({
   conversationId,
   backgroundProcesses,
   onStopMonitor,
+  onStopSubagent,
   conversations,
 }: Props) {
   const [tasks, setTasks] = useState<CronTask[]>([]);
@@ -108,6 +111,22 @@ export function TasksTab({
   const [launching, setLaunching] = useState(false);
   const [subagent, setSubagent] = useState({ ...BLANK_SUBAGENT });
   const [launchBusy, setLaunchBusy] = useState(false);
+
+  /**
+   * Which stop a running row answers to, if any. A monitor stops by process id and a subagent by
+   * the child agent the app-server still owns (`subagent_stop`); a shell job has no client verb —
+   * `task_stop` is an agent tool — so its row never gets one.
+   */
+  const stopRow = (process: BackgroundProcessSummary): (() => void) | null => {
+    if (!process.stoppable) return null;
+    if (process.kind === "monitor") return () => onStopMonitor(process.processId);
+    const subagentId = process.subagentId;
+    if (process.kind !== "agent_task" || !subagentId) return null;
+    return () =>
+      void onStopSubagent(subagentId).then((error) => {
+        if (error) setStatus(error);
+      });
+  };
 
   const load = useCallback(async () => {
     if (!agentId) return;
@@ -309,26 +328,25 @@ export function TasksTab({
         <>
           <p className="section-note">Running now</p>
           <ul className="list">
-            {backgroundProcesses.map((process) => (
-              <li key={process.processId} className="task">
-                <div className="task-head">
-                  <span className="tag muted">{PROCESS_KIND_LABEL[process.kind]}</span>
-                  <span className="small">{process.label}</span>
-                </div>
-                <div className="muted small">{process.status}</div>
-                {process.stoppable ? (
-                  <div className="task-actions">
-                    <button
-                      type="button"
-                      className="link danger"
-                      onClick={() => onStopMonitor(process.processId)}
-                    >
-                      Stop
-                    </button>
+            {backgroundProcesses.map((process) => {
+              const stop = stopRow(process);
+              return (
+                <li key={process.processId} className="task">
+                  <div className="task-head">
+                    <span className="tag muted">{PROCESS_KIND_LABEL[process.kind]}</span>
+                    <span className="small">{process.label}</span>
                   </div>
-                ) : null}
-              </li>
-            ))}
+                  <div className="muted small">{process.status}</div>
+                  {stop ? (
+                    <div className="task-actions">
+                      <button type="button" className="link danger" onClick={() => void stop()}>
+                        Stop
+                      </button>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
           <p className="section-note">Scheduled</p>
         </>

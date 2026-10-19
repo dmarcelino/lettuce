@@ -171,6 +171,12 @@ describe("session command allowlist", () => {
     }
   });
 
+  test("a running subagent can be stopped from the browser", () => {
+    // The Tasks tab's Stop on a running subagent row rides on this verb
+    // (letta-code 0.34.16). Without it upstream never sees the request.
+    expect(ALLOWED_SESSION_COMMANDS.has("subagent_stop")).toBe(true);
+  });
+
   test("the process-level surface stays off the allowlist", () => {
     // Terminals, arbitrary shell, and the raw settings write path. None of
     // these have a screen, so none of them are reachable.
