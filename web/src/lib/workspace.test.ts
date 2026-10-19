@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  clearsToNewConversation,
   matchSlashCommands,
   parseSlashCommand,
   readCommands,
@@ -7,8 +8,7 @@ import {
 } from "./workspace.ts";
 
 const COMMANDS: SlashCommand[] = [
-  { id: "clear", description: "Clear the conversation history" },
-  { id: "compact", description: "Summarise the conversation" },
+  { id: "compact", description: "Compact the conversation to free context" },
   { id: "remember", description: "Save something to long-term memory" },
   { id: "resume", description: "A mod command", args: "<role>" },
 ];
@@ -16,10 +16,10 @@ const COMMANDS: SlashCommand[] = [
 describe("readCommands", () => {
   test("drops the ids the app-server advertises but cannot dispatch", () => {
     const commands = readCommands(
-      ["clear", "secret", "toolset", "channels", "upgrade-letta-code"],
+      ["compact", "secret", "toolset", "channels", "upgrade-letta-code"],
       [],
     );
-    expect(commands.map((command) => command.id)).toEqual(["clear"]);
+    expect(commands.map((command) => command.id)).toEqual(["compact"]);
   });
 
   test("mod commands keep their description and args hint", () => {
@@ -33,7 +33,7 @@ describe("readCommands", () => {
 
 describe("parseSlashCommand", () => {
   test("a bare advertised command is recognised", () => {
-    expect(parseSlashCommand("/clear", COMMANDS)).toEqual({ id: "clear" });
+    expect(parseSlashCommand("/compact", COMMANDS)).toEqual({ id: "compact" });
   });
 
   test("everything after the name becomes args", () => {
@@ -70,8 +70,8 @@ describe("matchSlashCommands", () => {
   });
 
   test("filters on the id prefix, case-insensitively", () => {
-    expect(matchSlashCommands("/C", COMMANDS).map((c) => c.id)).toEqual(["clear", "compact"]);
-    expect(matchSlashCommands("/cle", COMMANDS).map((c) => c.id)).toEqual(["clear"]);
+    expect(matchSlashCommands("/R", COMMANDS).map((c) => c.id)).toEqual(["remember", "resume"]);
+    expect(matchSlashCommands("/comp", COMMANDS).map((c) => c.id)).toEqual(["compact"]);
   });
 
   test("collapses once arguments are being typed", () => {
@@ -81,5 +81,23 @@ describe("matchSlashCommands", () => {
 
   test("text that is not a slash command offers nothing", () => {
     expect(matchSlashCommands("hello", COMMANDS)).toEqual([]);
+  });
+});
+
+// The app-server removed the remote `clear` in 0.34.15, so these words are not commands here — the
+// composer answers them with a new conversation instead of sending the word to the agent.
+describe("clearsToNewConversation", () => {
+  test("only the bare habit words", () => {
+    expect(clearsToNewConversation("/clear")).toBe(true);
+    expect(clearsToNewConversation("/clear-messages")).toBe(true);
+  });
+
+  test("anything else stays a message", () => {
+    // A request about clearing, not the habit.
+    expect(clearsToNewConversation("/clear the cache please")).toBe(false);
+    // A pasted path, and the plain word.
+    expect(clearsToNewConversation("/clear/subdir")).toBe(false);
+    expect(clearsToNewConversation("clear")).toBe(false);
+    expect(clearsToNewConversation("")).toBe(false);
   });
 });

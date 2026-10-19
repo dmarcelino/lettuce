@@ -23,6 +23,7 @@ import type { QueuedItem } from "../lib/queue-actions.ts";
 import { parseResponseFormat, type ResponseFormat } from "../lib/structured-output.ts";
 import type { TurnUsage } from "../lib/usage.ts";
 import {
+  clearsToNewConversation,
   matchSlashCommands,
   PERMISSION_MODES,
   type PermissionMode,
@@ -86,6 +87,8 @@ interface Props {
   onPermissionMode: (mode: PermissionMode) => void;
   commands: SlashCommand[];
   onRunCommand: (id: string, args?: string) => void;
+  /** A typed `/clear` — the CLI habit — starts a fresh conversation instead of sending the word. */
+  onNewConversation: () => void;
   onOpenModels: () => void;
   modelsDisabled: boolean;
   /** The model in force for this conversation; shown on the button on desktop. */
@@ -150,6 +153,7 @@ export function Composer({
   onPermissionMode,
   commands,
   onRunCommand,
+  onNewConversation,
   onOpenModels,
   modelsDisabled,
   modelLabel,
@@ -446,6 +450,16 @@ export function Composer({
     const command = text ? parseSlashCommand(text, commands) : null;
     if (command) {
       onRunCommand(command.id, command.args);
+      reset();
+      return;
+    }
+
+    // The CLI habit, which has no command behind it any more (0.34.15 removed the remote `clear`).
+    // A fresh conversation is what the app can honestly do: nothing is deleted, the old one keeps
+    // its messages in the sidebar list. Checked after the command branch so that if the app-server
+    // ever advertises `clear` again, the real command wins.
+    if (clearsToNewConversation(text)) {
+      onNewConversation();
       reset();
       return;
     }

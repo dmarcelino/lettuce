@@ -941,6 +941,37 @@ try {
       }),
     );
 
+    // The CLI habit. letta-code 0.34.15 removed the remote `clear`, so a typed `/clear` would
+    // otherwise reach the agent as an ordinary message; the app answers it the way the sidebar +
+    // does — a new conversation, and nothing is deleted.
+    const openBefore = await page
+      .locator(".conversation-row.active")
+      .getAttribute("data-conversation-id");
+    await page.locator(".composer textarea").fill("/clear");
+    await page.locator('.composer .glyph-btn[aria-label="Send message"]').click();
+    await page.waitForTimeout(800);
+    const openAfter = await page
+      .locator(".conversation-row.active")
+      .getAttribute("data-conversation-id");
+    check(
+      "a typed /clear starts a new conversation",
+      Boolean(openAfter) && openAfter !== openBefore,
+      { openBefore, openAfter },
+    );
+    check(
+      "a typed /clear leaves nothing in the box",
+      (await page.locator(".composer textarea").inputValue()) === "",
+    );
+    check(
+      "the new conversation is empty",
+      (await page.locator('.empty:has-text("No messages yet")').count()) === 1,
+    );
+    // Back to where we were: the rest of this pass assumes that conversation's transcript.
+    if (openBefore) {
+      await page.locator(`.conversation-row[data-conversation-id="${openBefore}"]`).first().click();
+      await page.waitForTimeout(400);
+    }
+
     // The agents are a list on a panel of their own, not a dropdown, and look
     // unlike the conversations under them.
     check("no agent dropdown on desktop", (await page.locator(".sidebar select").count()) === 0);
