@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.15.2-letta_0.34.16] - 2026-10-19
+
+### Fixed
+- **A typed `/clear` starts a new conversation** instead of sending the word to the agent, which is what the CLI habit now hits since the app-server removed the command. Nothing is deleted: the old conversation stays in the list with its messages.
+
 ## [v0.15.1-letta_0.34.16] - 2026-10-19
 
 ### Fixed
