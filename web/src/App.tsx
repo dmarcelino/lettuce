@@ -569,6 +569,7 @@ function Workspace({ status }: { status: Status }) {
             conversationId={agents.conversationId}
             backgroundProcesses={conversation.backgroundProcesses}
             onStopMonitor={conversation.stopMonitor}
+            onStopSubagent={conversation.stopSubagent}
             conversations={agents.conversations}
           />
         ) : tab === "Runs" ? (

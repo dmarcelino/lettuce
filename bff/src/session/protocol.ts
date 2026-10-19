@@ -200,6 +200,10 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   // conversation when it finishes. Answered within 25s upstream, inside the
   // browser's 30s request deadline.
   "launch_subagent",
+  // Abort a running background subagent that the caller's own conversation spawned
+  // (`{runtime: <parent scope>, agent_id: <child agent id>}`). Upstream refuses a task the parent
+  // runtime does not own, so the parent scope stays the boundary. Since letta-code 0.34.16.
+  "subagent_stop",
   // NOTE: channel_* commands are deliberately absent. The app-server only
   // dispatches them when a gateway registered `serviceCommandHandler`, which
   // happens over the CLI's stdio pipe to a child gateway process — never over

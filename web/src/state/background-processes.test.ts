@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readBackgroundProcesses } from "./use-conversation.ts";
+import { readBackgroundProcesses, readSubagentAgents } from "./use-conversation.ts";
 
 /**
  * Since letta-code 0.33 the snapshot builder emits workflows natively as
@@ -85,5 +85,51 @@ describe("background process parsing", () => {
     expect(readBackgroundProcesses([{ kind: "bash", command: "ls" }])).toEqual([]);
     expect(readBackgroundProcesses("nope")).toEqual([]);
     expect(readBackgroundProcesses([])).toEqual([]);
+  });
+
+  // A subagent row is stoppable only while the snapshot list still names its child agent —
+  // `subagent_stop` takes that id, not the process id (letta-code 0.34.16).
+  const runningTask = {
+    process_id: "task_1",
+    subagent_id: "sub_1",
+    kind: "agent_task",
+    description: "summarise the repo",
+    status: "running",
+  };
+
+  test("a subagent with a live child agent is stoppable", () => {
+    const [process] = readBackgroundProcesses([runningTask], { sub_1: "agent_9" });
+    expect(process?.subagentId).toBe("sub_1");
+    expect(process?.stoppable).toBe(true);
+  });
+
+  test("a subagent the app-server no longer owns has no Stop", () => {
+    // No snapshot (never had one, or an app-server restart dropped it) …
+    expect(readBackgroundProcesses([runningTask])[0]?.stoppable).toBe(false);
+    // … or a snapshot whose child carries no agent id.
+    expect(readBackgroundProcesses([runningTask], {})[0]?.stoppable).toBe(false);
+  });
+
+  test("a finished subagent is not stoppable", () => {
+    // Leaving a finished snapshot out of the live map is what takes the Stop away.
+    const snapshots = [{ subagent_id: "sub_1", agent_id: "agent_9", status: "completed" }];
+    const live = readSubagentAgents(snapshots);
+    const [process] = readBackgroundProcesses([{ ...runningTask, status: "completed" }], live);
+    expect(live).toEqual({});
+    expect(process?.stoppable).toBe(false);
+  });
+
+  test("readSubagentAgents keeps live snapshots with an agent id", () => {
+    expect(
+      readSubagentAgents([
+        { subagent_id: "sub_1", agent_id: "agent_9", status: "running" },
+        { subagent_id: "sub_2", agent_id: "agent_10", status: "pending" },
+        { subagent_id: "sub_3", agent_id: "agent_11", status: "error" },
+        { subagent_id: "sub_4", status: "running" }, // a child id is not known yet
+        { agent_id: "agent_12", status: "running" },
+        null,
+      ]),
+    ).toEqual({ sub_1: "agent_9", sub_2: "agent_10" });
+    expect(readSubagentAgents(undefined)).toEqual({});
   });
 });
