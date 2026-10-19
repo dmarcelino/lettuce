@@ -44,7 +44,7 @@ const PROCESS_KIND_LABEL: Record<BackgroundProcessSummary["kind"], string> = {
   bash: "Shell",
   agent_task: "Subagent",
   monitor: "Monitor",
-  // Not stoppable from here — see stopMonitor's doc.
+  // No client-side command stops a workflow.
   workflow: "Workflow",
 };
 

@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.15.1-letta_0.34.16] - 2026-10-19
+
+### Fixed
+- **A subagent that went the wrong way could not be interrupted.** Tasks → Running now offers **Stop** on a subagent row and the app-server aborts that worker; a shell job still has no stop — that one is an agent tool.
+
 ## [v0.15.0-letta_0.34.16] - 2026-10-18
 
 ### Changed

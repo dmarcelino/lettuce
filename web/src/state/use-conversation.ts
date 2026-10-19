@@ -147,8 +147,8 @@ export interface ConversationApi {
   /**
    * Stops a persistent monitor. No-op for bash, agent_task and workflow
    * processes — `stopMonitor` upstream refuses anything whose
-   * `process.kind !== "monitor"` with "Monitor not found", so a stop button
-   * for those would always fail.
+   * `process.kind !== "monitor"` with "Monitor not found", which is why a subagent row stops
+   * through `stopSubagent` instead.
    */
   stopMonitor: (processId: string) => void;
   /**
