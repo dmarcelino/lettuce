@@ -57,6 +57,13 @@ import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
 import {
+  declaredSizeViolation,
+  MAX_UPLOAD_BYTES,
+  putWorkspaceFile,
+  readUploadBody,
+  uploadViolation,
+} from "./files/upload.ts";
+import {
   type GitRouteResult,
   gitCommitResponse,
   gitLogResponse,
@@ -1558,6 +1565,45 @@ async function readWorkspaceFile(path: string, inline: boolean): Promise<Respons
     "content-length": String(bytes.length),
   });
 }
+
+// ── Upload a file into the workspace (Files → Upload) ─────────────────────
+// The mirror of /api/files/download above: raw bytes in, one base64 `write_file`
+// out, so a phone can put a photo or a PDF where an agent can read it. The
+// handlers live in `files/upload.ts` because the app-server applies no workspace
+// root to a base64 write: the whole guard chain — clamp, plain filename, symlink
+// walk, size cap, in-flight cap — is ours, and it is unit-tested there. The
+// per-user limiter and the session gate already cover `/api/*`.
+app.post("/api/files/upload", async (c) => {
+  const path = c.req.query("path");
+  if (!path) return c.text("Missing path", 400);
+  const violation = uploadViolation(path);
+  if (violation) return hardenedResponse(hardened, violation, {}, 400);
+
+  const tooLarge = declaredSizeViolation(c.req.header("content-length") ?? null);
+  if (tooLarge) return hardenedResponse(hardened, tooLarge, {}, 413);
+
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+
+  // Read chunk-wise so an undeclared body over the cap is refused while it
+  // arrives rather than after it is buffered.
+  const bytes = await readUploadBody(c.req.raw.body);
+  if (!bytes) {
+    return hardenedResponse(
+      hardened,
+      `File is too large to upload (${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB max)`,
+      {},
+      413,
+    );
+  }
+
+  const result = await putWorkspaceFile(path, bytes, (frame) =>
+    upstream.request<WriteFileResponseMessage>(frame),
+  );
+  if (result.status !== 200) {
+    return hardenedResponse(hardened, result.text ?? "Failed to write file", {}, result.status);
+  }
+  return c.json(result.json);
+});
 
 // ── Git history (Files → History) ──────────────────────────────────────────
 // Upstream exposes only branch commands and the app-server image ships no git
