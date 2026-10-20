@@ -21,13 +21,9 @@
  * a live upstream. `index.ts` mounts them.
  */
 
-import { lstatSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import {
-  normalizePosixPath,
-  WORKSPACE_ROOT,
-  workspaceViolation,
-} from "../session/protocol.ts";
+import { lstatSync } from "node:fs";
+import { normalizePosixPath, WORKSPACE_ROOT, workspaceViolation } from "../session/protocol.ts";
 import { type Lstat, symlinkViolation } from "../session/symlink-guard.ts";
 
 /**

@@ -93,6 +93,9 @@ before exposing anything.
 
 - Every agent works in a **real directory** on the host, visible in a file
   browser with inline previews for images, PDFs and text.
+- **Upload puts a file in.** A photo or PDF from a phone lands in the folder
+  you are looking at (up to 25 MB), so the agent can read what you just
+  photographed. A name that exists there is refused until you type another.
 - **Git branch switcher** for the workspace, including checking out remote
   branches.
 - **Git history** in the Files tab: the commit log of the open folder and a

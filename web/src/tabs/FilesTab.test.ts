@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { isEditableFile } from "../components/FileViewer.tsx";
-import { gitActionsVisible, newFilePath, parentDirectory, resolve } from "./FilesTab.tsx";
+import {
+  gitActionsVisible,
+  newFilePath,
+  parentDirectory,
+  resolve,
+  uploadNameProblem,
+} from "./FilesTab.tsx";
 
 const ROOT = "/work";
 const AGENT = "/work/agent-local-e596ee28-7374-4a66-b410-f4f8cab1abdf";
@@ -87,5 +93,27 @@ describe("editable files", () => {
     expect(isEditableFile(".gitignore")).toBe(true);
     expect(isEditableFile("photo.png")).toBe(false);
     expect(isEditableFile("photo.jpeg")).toBe(false);
+  });
+});
+
+describe("upload names", () => {
+  const existing = ["IMG_0421.jpg", "weekly-review.md"];
+
+  test("a fresh name in this folder is fine", () => {
+    expect(uploadNameProblem("IMG_0430.jpg", existing)).toBeNull();
+    expect(uploadNameProblem("  report.pdf  ", existing)).toBeNull();
+  });
+
+  test("a name that exists here is refused, not auto-suffixed", () => {
+    expect(uploadNameProblem("IMG_0421.jpg", existing)).toContain("already exists here");
+    // The suffix is the user's to type — Files has no rename to undo a silent one.
+    expect(uploadNameProblem("IMG_0421 (1).jpg", existing)).toBeNull();
+  });
+
+  test("a name the folder cannot hold is refused before the request", () => {
+    expect(uploadNameProblem("", existing)).toContain("plain filename");
+    expect(uploadNameProblem("a/b.jpg", existing)).toContain("plain filename");
+    expect(uploadNameProblem("..", existing)).toContain("plain filename");
+    expect(uploadNameProblem("/etc/passwd", existing)).toContain("plain filename");
   });
 });

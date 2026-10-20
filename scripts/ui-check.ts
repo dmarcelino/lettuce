@@ -128,6 +128,72 @@ async function overflow(page: Page): Promise<{ clientWidth: number; clipped: str
   });
 }
 
+/**
+ * Files → Upload: the affordance, the bar that has to hold it, and the sheet.
+ * The native picker is a browser dialog and cannot be driven, so the file is set
+ * on the hidden input — which is exactly what the picker's change event does.
+ * The upload is never started: a layout check has no business writing into the
+ * agent's workspace.
+ */
+async function uploadSheetChecks(page: Page, label: string): Promise<void> {
+  const bar = page.locator(".pane-bar.wrap").first();
+  const widths = await bar.evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  }));
+  check(
+    `the Files pane bar fits without scrolling (${label})`,
+    widths.scrollWidth <= widths.clientWidth + 1,
+    widths,
+  );
+  check(
+    `Upload is on the Files pane bar (${label})`,
+    (await page.locator('.pane-bar button:has-text("Upload")').count()) > 0,
+  );
+
+  await page.setInputFiles(".pane-bar.wrap .attach-input", {
+    name: "ui-check-upload.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  });
+  const sheet = page.locator('.sheet-panel[aria-label="Upload file"]');
+  await sheet.waitFor({ state: "visible", timeout: 5000 });
+  const field = sheet.locator("input").first();
+  check(
+    `the upload sheet prefills the picked name (${label})`,
+    (await field.inputValue()) === "ui-check-upload.png",
+    await field.inputValue(),
+  );
+
+  // The collision rule: a name that exists here is refused until it is retyped.
+  const taken = await page
+    .locator(".list > li.file-row .file-name-text")
+    .first()
+    .textContent()
+    .catch(() => null);
+  if (taken) {
+    await field.fill(taken.trim());
+    check(
+      `an existing name is refused in the upload sheet (${label})`,
+      (await sheet.locator(".bad").count()) > 0 &&
+        (await sheet.locator(".sheet-actions .button:not(.ghost)").isDisabled()),
+      taken,
+    );
+    await field.fill("ui-check-upload.png");
+  }
+
+  await shot(page, `${label}-files-upload`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check(
+    `escape closes the upload sheet (${label})`,
+    (await page.locator('.sheet-panel[aria-label="Upload file"]').count()) === 0,
+  );
+}
+
 async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: join(OUT_DIR, `${name}.png`) });
 }
@@ -786,6 +852,10 @@ try {
         (await page.locator('.sheet-panel[aria-label="History"]').count()) === 0,
       );
     }
+    // Upload shares the same bar as New file and the git buttons; the phone bar
+    // is the one at risk of not fitting.
+    await uploadSheetChecks(page, "phone");
+
     await page.locator('nav.tabs button:text-is("Chat")').click();
 
     // The Agent tab's section switcher wraps rather than widening the pane.
@@ -1665,6 +1735,10 @@ try {
       check("files list has nothing clipped", filesBox.clipped.length === 0, filesBox);
       await shot(page, "desktop-files");
     }
+
+    // The same affordance at desktop width, where the bar has room for all six
+    // controls on one row.
+    await uploadSheetChecks(page, "desktop");
 
     // Git history: the controls only exist for a folder inside a repository,
     // and the probed workspace usually is not one — so a missing pair is

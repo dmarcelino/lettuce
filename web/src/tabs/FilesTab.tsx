@@ -10,6 +10,7 @@ import { downloadUrl, formatBytes, triggerDownload } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { fetchGitRepo } from "../lib/git.ts";
 import { formatEntryTimeFull } from "../lib/timestamps.ts";
+import { MAX_UPLOAD_BYTES, uploadWorkspaceFile } from "../lib/upload.ts";
 import { agentWorkspace, WORKSPACE_ROOT } from "../lib/workspace.ts";
 import type { SessionApi } from "../state/use-session.ts";
 
@@ -66,17 +67,37 @@ export function parentDirectory(path: string): string | null {
  */
 export function newFilePath(root: string, name: string): string | null {
   const trimmed = name.trim();
-  if (
-    trimmed === "" ||
-    trimmed === "." ||
-    trimmed === ".." ||
-    trimmed.startsWith("/") ||
-    trimmed.includes("/") ||
-    trimmed.includes("\\")
-  ) {
-    return null;
-  }
+  if (!isPlainFileName(trimmed)) return null;
   return resolve(root, trimmed);
+}
+
+/** A name a file in this folder may have: not empty, not traversal, no separators. */
+export function isPlainFileName(name: string): boolean {
+  return !(
+    name === "" ||
+    name === "." ||
+    name === ".." ||
+    name.startsWith("/") ||
+    name.includes("/") ||
+    name.includes("\\")
+  );
+}
+
+/**
+ * Why this upload cannot go under `name`, or null when it can. A collision is
+ * refused rather than auto-suffixed: Files has no rename and no delete, so the
+ * name field is where a clash has to be resolved — and a silent ` (1)` would
+ * hide that the file you meant to replace is still there.
+ *
+ * The check is against the listing on screen. A file the agent wrote a moment
+ * ago is not in it and would be overwritten: upstream's base64 write has no
+ * create-only mode, and this is a UX guard, not a guarantee.
+ */
+export function uploadNameProblem(name: string, existing: string[]): string | null {
+  const trimmed = name.trim();
+  if (!isPlainFileName(trimmed)) return "Enter a plain filename — no path separators.";
+  if (existing.includes(trimmed)) return `${trimmed} already exists here — type a different name.`;
+  return null;
 }
 
 /**
@@ -121,6 +142,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [branchesOpen, setBranchesOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newFileOpen, setNewFileOpen] = useState(false);
+  /** The picked file is what keeps the Upload sheet open; null closes it. */
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
   /** The last git answer we trust, tagged with the folder it was about. */
   const [repoProbe, setRepoProbe] = useState<{ path: string; repo: boolean } | null>(null);
   /** The folder the last `load` asked for — what a probe answer must match. */
@@ -273,7 +297,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
 
   return (
     <div className="pane">
-      <div className="pane-bar">
+      <div className="pane-bar wrap">
         <button
           type="button"
           className="link"
@@ -315,6 +339,31 @@ export function FilesTab({ session, cwd, agentId }: Props) {
           title="Create a text file here"
         >
           <Icon name="plus" /> New file
+        </button>
+        {/* The picker is invisible and the button is its label — the composer's
+            paperclip pattern (`attach-input`). No `accept`: any file type is
+            allowed, since the workspace is the user's own and inline serving is
+            allowlisted to PDFs and rasters. One file at a time, because a
+            collision is resolved by typing a new name. */}
+        <input
+          ref={fileInput}
+          type="file"
+          className="attach-input"
+          tabIndex={-1}
+          onChange={(event) => {
+            const [picked] = Array.from(event.target.files ?? []);
+            // Clear it so picking the same file twice re-opens the sheet.
+            event.target.value = "";
+            if (picked) setUploadFile(picked);
+          }}
+        />
+        <button
+          type="button"
+          className="link"
+          onClick={() => fileInput.current?.click()}
+          title="Upload a file here"
+        >
+          <Icon name="upload" /> Upload
         </button>
       </div>
 
@@ -499,6 +548,20 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         />
       ) : null}
 
+      {uploadFile ? (
+        <UploadSheet
+          file={uploadFile}
+          root={root}
+          existing={entries.filter((entry) => entry.type === "file").map((entry) => entry.path)}
+          onClose={() => setUploadFile(null)}
+          onUploaded={(name) => {
+            setUploadFile(null);
+            void load(root);
+            toast(`${name} uploaded`, "ok");
+          }}
+        />
+      ) : null}
+
       {branchesOpen && showGitActions ? (
         <BranchSheet session={session} cwd={root} onClose={() => setBranchesOpen(false)} />
       ) : null}
@@ -609,6 +672,113 @@ function NewFileSheet({
         onChange={(event) => setContent(event.target.value)}
         spellCheck={false}
       />
+    </Sheet>
+  );
+}
+
+/**
+ * Put the picked file into the current directory. The name arrives prefilled
+ * and is editable, because a collision is refused rather than auto-suffixed (see
+ * `uploadNameProblem`); Cancel during an upload aborts the request, which leaves
+ * nothing behind — the BFF only builds the write frame once the whole body is
+ * in. Percent lives in the button because that is the only thing changing.
+ */
+function UploadSheet({
+  file,
+  root,
+  existing,
+  onClose,
+  onUploaded,
+}: {
+  file: File;
+  root: string;
+  existing: string[];
+  onClose: () => void;
+  onUploaded: (name: string) => void;
+}) {
+  const [name, setName] = useState(file.name);
+  /** null while idle, otherwise the percent handed up by the request. */
+  const [percent, setPercent] = useState<number | null>(null);
+  const [status, setStatus] = useState("");
+  const controller = useRef<AbortController | null>(null);
+  /** Set once the sheet is going away, so a late abort is not an error. */
+  const settled = useRef(false);
+
+  const uploading = percent !== null;
+  const tooLarge =
+    file.size > MAX_UPLOAD_BYTES
+      ? `${file.name} is ${formatBytes(file.size)} — the limit is ${formatBytes(MAX_UPLOAD_BYTES)}.`
+      : null;
+  const problem = tooLarge ?? uploadNameProblem(name, existing);
+
+  const close = () => {
+    settled.current = true;
+    controller.current?.abort();
+    onClose();
+  };
+
+  const upload = async () => {
+    const path = newFilePath(root, name);
+    if (!path || problem) return;
+    const abort = new AbortController();
+    controller.current = abort;
+    setPercent(0);
+    setStatus("");
+    try {
+      await uploadWorkspaceFile(path, file, setPercent, abort.signal);
+      if (settled.current) return;
+      settled.current = true;
+      onUploaded(path.split("/").pop() ?? name);
+    } catch (cause) {
+      if (settled.current) return;
+      setPercent(null);
+      setStatus(errorMessage(cause));
+    }
+  };
+
+  return (
+    <Sheet
+      title="Upload file"
+      onClose={close}
+      actions={
+        <>
+          <button type="button" className="button ghost" onClick={close}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={uploading || problem !== null}
+            onClick={() => void upload()}
+          >
+            {uploading ? `Uploading ${percent}%` : "Upload"}
+          </button>
+        </>
+      }
+    >
+      <label className="field">
+        File name
+        <input
+          value={name}
+          disabled={uploading}
+          onChange={(event) => {
+            setName(event.target.value);
+            setStatus("");
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void upload();
+          }}
+        />
+      </label>
+      {problem || status ? (
+        <p className="small bad" role="alert">
+          {problem ?? status}
+        </p>
+      ) : null}
+      <p className="muted small">
+        {[file.name, formatBytes(file.size), file.type || null].filter(Boolean).join(" · ")}
+      </p>
+      <p className="muted small">Uploading to {root}</p>
     </Sheet>
   );
 }

@@ -2497,6 +2497,14 @@ p.warning code {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+/* The Files bar carries Up, the path, History, Branch, New file and Upload, and
+   on a phone that is more than one row can hold (it measured 423px against a
+   390px bar with the path crushed to nothing). It wraps onto a second row
+   instead of scrolling sideways — the same reasoning as `.section-tabs`, and
+   scoped to the one bar that needs it rather than every `.pane-bar`. */
+.pane-bar.wrap {
+  flex-wrap: wrap;
+}
 /* A pane's own section switcher (Settings). Bordered chips, not the main
    `.tabs` look: two identical tab bars stacked read as one level. Wraps onto a
    second row instead of scrolling: the sections are wider than a phone, and a
