@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.17.0-letta_0.34.16] - 2026-10-20
+
+### Added
+- **Running children show live progress.** Tasks → Running names what each subagent or coding worker is doing right now (its last tool call, tokens, elapsed), and a workflow row gained its agent counts and per-phase progress. While a turn waits on a delegated subagent, the working line carries the child's activity instead of just "Thinking".
+
 ## [v0.16.0-letta_0.34.16] - 2026-10-19
 
 ### Added
