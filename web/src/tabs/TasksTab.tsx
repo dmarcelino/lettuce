@@ -12,6 +12,7 @@ import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { describeCron } from "../lib/cron-describe.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { findMonitorBackupWake } from "../lib/monitor-backup.ts";
 import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
 import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
@@ -330,12 +331,19 @@ export function TasksTab({
           <ul className="list">
             {backgroundProcesses.map((process) => {
               const stop = stopRow(process);
+              const backup =
+                process.kind === "monitor" ? findMonitorBackupWake(process.label, tasks) : null;
               return (
                 <li key={process.processId} className="task">
                   <div className="task-head">
                     <span className="tag muted">{PROCESS_KIND_LABEL[process.kind]}</span>
                     <span className="small">{process.label}</span>
                   </div>
+                  {backup?.scheduled_for ? (
+                    <div className="muted small">
+                      Backup wake armed — fires if silent by {shortDate(backup.scheduled_for)}
+                    </div>
+                  ) : null}
                   <div className="muted small">{process.status}</div>
                   {stop ? (
                     <div className="task-actions">
