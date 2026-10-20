@@ -106,8 +106,8 @@ before exposing anything.
 
 - **Scheduled tasks.** Cron-style jobs that fire into a conversation — "brief
   me every morning at 7" — whether or not anything is open.
-- **Subagents.** Fan work out to a parallel agent, watch it report back, and stop
-  one from Tasks if it goes the wrong way.
+- **Subagents.** Fan work out to a parallel agent, watch what it is doing live — in
+  the working line and in Tasks — and stop one from Tasks if it goes the wrong way.
 - **Monitors.** A watch wakes the agent as events arrive; when it arms a backup wake,
   Tasks shows when a silent watch brings the agent back to check the real state.
 - **Codex workers.** Hand a coding job to a Codex CLI worker and follow its

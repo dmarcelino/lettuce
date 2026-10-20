@@ -541,6 +541,7 @@ function Workspace({ status }: { status: Status }) {
                 turnStartedAt: conversation.turnStartedAt,
                 lastActivityAt: conversation.lastActivityAt,
                 usage: conversation.turnUsage,
+                liveSubagents: conversation.liveSubagents,
               }}
               filters={filters}
               onToggleFilter={toggleFilter}
@@ -569,6 +570,7 @@ function Workspace({ status }: { status: Status }) {
             agentId={agents.agentId}
             conversationId={agents.conversationId}
             backgroundProcesses={conversation.backgroundProcesses}
+            liveSubagents={conversation.liveSubagents}
             onStopMonitor={conversation.stopMonitor}
             onStopSubagent={conversation.stopSubagent}
             conversations={agents.conversations}
