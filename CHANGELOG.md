@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.18.0-letta_0.34.16] - 2026-10-20
+
+### Added
+- **Upload puts a file where an agent can read it.** Files gained an Upload button: pick a photo or a PDF on your phone and it lands in the folder you are browsing (up to 25 MB), and a name that already exists there is refused until you type another.
+
 ## [v0.17.0-letta_0.34.16] - 2026-10-20
 
 ### Added
