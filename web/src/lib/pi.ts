@@ -119,7 +119,8 @@ export interface PiRun extends PiRunSummary {
   usage: { inputTokens: number; outputTokens: number } | null;
 }
 
-/** How often an open viewer re-reads a run that is still being captured. */
+/** The sheet's refetch throttle: frames arrive every ~2 s and each read is
+ * the whole captured stream, so growth is coalesced to one read per interval. */
 export const LIVE_POLL_MS = 3000;
 
 async function ok(response: Response): Promise<Response> {

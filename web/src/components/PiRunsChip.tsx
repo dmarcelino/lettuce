@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchPiRuns, type PiRunSummary } from "../lib/pi.ts";
 import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
 
@@ -26,21 +26,20 @@ export function usePiActiveRuns(enabled: boolean): number {
       });
   }, [enabled]);
 
-  const running = new Set(
-    [
-      ...fetched.map((run) => ({ runId: run.runId, running: run.status === "running" })),
-      ...Object.values(live).map((fact) => ({
-        runId: fact.runId,
-        running: fact.state === "running",
-      })),
-    ]
-      .filter((run) => run.running)
-      .map((run) => run.runId),
-  );
-  const active = enabled ? running.size : 0;
+  // The frames override the fetch per run: a run that settled after the page
+  // loaded must not stay counted because the older list row still says running.
+  const running = useMemo(() => {
+    const byRun = new Map<string, boolean>();
+    for (const run of fetched) byRun.set(run.runId, run.status === "running");
+    for (const fact of Object.values(live)) byRun.set(fact.runId, fact.state === "running");
+    let n = 0;
+    for (const isRunning of byRun.values()) if (isRunning) n += 1;
+    return n;
+  }, [fetched, live]);
+  const active = enabled ? running : 0;
 
   useEffect(() => {
-    if (!enabled || running.size === 0) return;
+    if (!enabled || running === 0) return;
     const timer = setInterval(() => {
       if (msSinceLastPiFrame() > stalenessWatchdogMs) {
         void fetchPiRuns(10)
@@ -51,8 +50,7 @@ export function usePiActiveRuns(enabled: boolean): number {
       }
     }, 5_000);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- size is the signal
-  }, [enabled, running.size]);
+  }, [enabled, running]);
 
   return active;
 }

@@ -31,16 +31,22 @@ export function applyPiProgressFrame(frame: PiRunFacts): void {
   if (!frame || typeof frame.runId !== "string") return;
   frames.set(frame.runId, frame);
   lastFrameAtMs = Date.now();
-  // Terminal frames are the useful ones to keep; running ones are worthless
-  // once superseded, and a reconnect must not replay a day of stale ticks.
-  if (frames.size > MAX_KEEP) {
-    for (const [runId, fact] of frames) {
-      if (fact.state === "running") frames.delete(runId);
-      if (frames.size <= MAX_KEEP) break;
-    }
-  }
+  prune();
   snapshot = Object.fromEntries(frames);
   for (const listener of listeners) listener();
+}
+
+/** Prune on arrival: a long-lived tab must not grow one entry per run forever.
+ * Running entries are kept (their next frame is expected and losing one would
+ * blank a live row); when there is nothing running to drop, the oldest go, and
+ * a pruned running entry simply returns with its next frame. */
+function prune(): void {
+  if (frames.size <= MAX_KEEP) return;
+  for (const [runId, fact] of frames) {
+    if (frames.size <= MAX_KEEP) return;
+    if (fact.state !== "running") frames.delete(runId);
+  }
+  while (frames.size > MAX_KEEP) frames.delete(frames.keys().next().value as string);
 }
 
 /** Minutes since the last frame arrived — Infinity before the first one. */

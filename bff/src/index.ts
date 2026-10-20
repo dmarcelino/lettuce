@@ -572,22 +572,38 @@ const webToolsBackends = (): WebToolsBackends => ({
 // The remote pi worker (docs/remote-pi-plan.md): settings, keys and captured
 // run streams are all BFF-local on `bff-data`; the BFF itself is the ssh
 // client, so nothing here crosses the upstream connection.
+/** One in-flight progress chain per remote-pi run; see `onProgress`. */
+const piProgressChain = new Map<string, Promise<void>>();
 const piService = new PiService({
   paths: { dir: config.piDir },
   featureEnabled: () => config.features.pi,
   log,
+  // Push-over-poll: each throttled meta flush (and the settle) rides the
+  // browser WSS as `__bff_pi_progress`, so the card/list/chip retire their
+  // polling. The factory runs only when a session opted in, so the tail read
+  // never happens for nobody. Two flushes of one run may overlap their tail
+  // reads; a per-run chain keeps them ordered, because a card that reads its
+  // events counter going backwards is worse than one that lags a beat.
+  onProgress: (meta) => {
+    const runId: string = meta.runId;
+    const last = piProgressChain.get(runId) ?? Promise.resolve();
+    const chain = last
+      .then(() => registry.broadcastPiProgress(() => piService.progressFacts(meta)))
+      .catch(() => {
+        /* a dropped frame is not a dropped run; the next tick (or the browser's
+         * watchdog) recovers the facts */
+      })
+      .finally(() => {
+        // Only retire our own link: a newer frame may already own the chain.
+        if (piProgressChain.get(runId) === chain) piProgressChain.delete(runId);
+      });
+    piProgressChain.set(runId, chain);
+  },
   // Settle pushes: a finished remote run is exactly what a waiting human wants
   // without an agent turn relaying it. Deep link lands on the Runs tab once
   // that view ships; unknown query params are inert before then. And the
   // dispatching conversation gets the same news as a <task-notification>, so
   // the agent learns by event instead of a pi_wait/pi_status poll loop.
-  // Push-over-poll: each throttled meta flush (and the settle) rides the
-  // browser WSS as `__bff_pi_progress`, so the card/list/chip retire their
-  // polling. The factory runs only when a session opted in, so the tail read
-  // never happens for nobody.
-  onProgress: (meta) => {
-    void registry.broadcastPiProgress(() => piService.progressFacts(meta));
-  },
   onSettle: (meta) => {
     const verdict =
       meta.state === "completed" || meta.state === "failed" || meta.state === "cancelled"

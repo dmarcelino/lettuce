@@ -25,4 +25,13 @@ describe("pi-live store", () => {
     applyPiProgressFrame({ state: "running" } as unknown as PiRunFacts);
     expect(peekPiLiveRuns().undefined).toBeUndefined();
   });
+
+  test("the store stays capped: terminal frames go first, the oldest after them", () => {
+    for (let i = 0; i < 40; i += 1) {
+      applyPiProgressFrame(fact(`bulk-${i}`, i === 39 ? "running" : "completed"));
+    }
+    const kept = peekPiLiveRuns();
+    expect(Object.keys(kept).length).toBeLessThanOrEqual(32);
+    expect(kept["bulk-39"]?.state).toBe("running");
+  });
 });
