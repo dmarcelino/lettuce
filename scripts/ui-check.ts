@@ -1127,7 +1127,15 @@ try {
 
     // The Agent tab holds the selected agent's settings and nothing shared.
     await page.locator('nav.tabs button:text-is("Agent")').click();
-    await page.waitForTimeout(500);
+    // Wait for the tab to render rather than sleeping a fixed 500ms: the checks
+    // below counted nodes in the pane straight after the sleep, so a slow Agent
+    // tab read as an empty pane and failed from an otherwise identical tree. Soft
+    // failure on purpose — the harness reports every check instead of throwing.
+    const agentRendered = await page
+      .locator('.pane label:has-text("Name") input')
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
     const expectedChips = ["General", "Secrets", "Reflection", "Skills", "Memory"];
     const chipLabels = (await page.locator(".section-tabs button").allInnerTexts()).map((t) =>
       t.trim(),
@@ -1139,8 +1147,7 @@ try {
     );
     check(
       "the agent's General section edits it in place",
-      (await page.locator('.pane label:has-text("Name") input').count()) === 1 &&
-        (await page.locator('.pane button:text-is("Delete agent…")').count()) === 1,
+      agentRendered && (await page.locator('.pane button:text-is("Delete agent…")').count()) === 1,
     );
     const agentBox = await overflow(page);
     check("agent tab has nothing clipped", agentBox.clipped.length === 0, agentBox);

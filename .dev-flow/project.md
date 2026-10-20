@@ -63,10 +63,14 @@ health = for i in $(seq 1 30); do curl -fsS http://127.0.0.1:${BFF_PORT:-8090}/r
 lint, typecheck, tests, build), so no separate `build` key. The commands assume `bun` on PATH, which the
 harness env does not guarantee: `bun: command not found` means pi was started without `~/.bun/bin`, and
 the fix is a symlink into a directory already on PATH (`ln -s ~/.bun/bin/bun ~/.local/bin/bun`) — a
-machine fix, not a playbook edit. A fresh worktree has no `docker/.env`
-(gitignored) — `setup` copies it in when `flow approve` creates the worktree, or the state-dir default
-lands inside `.dev-flow/<slug>/`. It reads the file from the **main** checkout through
-`git rev-parse --git-common-dir`, because a linked worktree has no `docker/.env` of its own and a
+machine fix, not a playbook edit. `bun run ui-check` can fail the same way from a fresh worktree: its
+`bun install` resolves a Playwright whose pinned Chromium build is not the one this machine caches, so
+either `npx playwright install chromium` once, or set `PLAYWRIGHT_CHROMIUM` to the cached
+`~/.cache/ms-playwright/chromium_headless_shell-<build>/chrome-headless-shell-linux64/chrome-headless-shell`.
+A fresh worktree has no `docker/.env` (gitignored) — `setup` copies it in when `flow approve` creates
+the worktree, or the state-dir default lands inside `.dev-flow/<slug>/`. It reads the file from the
+**main** checkout through `git rev-parse --git-common-dir`, because a linked worktree has no
+`docker/.env` of its own and a
 relative `../../` breaks the moment `worktreeDir` changes depth. **A failed `setup` does not re-run on the
 next `approve`** — dev-flow reuses the worktree and prints `plan approved` with no `docker/.env` and no
 `node_modules` (upstream dev-flow#49; it also runs `setup` for a `--docs` feature, which docs mode should
