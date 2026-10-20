@@ -3,12 +3,12 @@ import type { PiRunFacts, PiRunFile } from "../lib/pi.ts";
 import {
   ago,
   fetchPiRunFacts,
-  LIVE_POLL_MS,
   listPiRunFiles,
   piRunFileUrl,
   STATUS_LABELS,
   stopPiRun,
 } from "../lib/pi.ts";
+import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
 import { formatElapsed } from "../lib/working.ts";
 
 const TONES: Record<PiRunFacts["state"], string> = {
@@ -21,11 +21,13 @@ const TONES: Record<PiRunFacts["state"], string> = {
 
 /**
  * The live card for one remote-pi run, standing in the transcript where the
- * agent dispatched it (`pi_run`/`pi_send` return). Polls the BFF's structured
- * status until the run settles: the step in flight, the last thing pi said,
- * event and byte counters that tick with the stream, and the stop buttons that
- * used to be an ssh session away. This is what the olla incident bought: an
- * agent no longer needs to relay pi_status for a human to follow the work.
+ * agent dispatched it (`pi_run`/`pi_send` return). Facts arrive pushed on the
+ * browser socket (the BFF's ~2-s progress frames, `web/src/lib/pi-live.ts`)
+ * after one initial fetch for history: the step in flight, the last thing pi
+ * said, event and byte counters that tick with the stream, and the stop
+ * buttons that used to be an ssh session away. This is what the olla incident
+ * bought: an agent no longer needs to relay pi_status for a human to follow
+ * the work.
  */
 export function PiRunCard({ runId }: { runId: string }) {
   const [facts, setFacts] = useState<PiRunFacts | null>(null);
@@ -45,34 +47,26 @@ export function PiRunCard({ runId }: { runId: string }) {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let misses = 0;
+    // One fetch for history (a card rendered from replayed transcript has
+    // past to show); live updates arrive as frames below.
     const load = async () => {
       try {
         const next = await fetchPiRunFacts(runId);
         if (cancelled) return;
         setFacts(next);
         setGone(false);
-        misses = 0;
-        // Artifacts ride along: a pi_fetch mid-run shows up without a reload.
         try {
-          const nextFiles = await listPiRunFiles(runId);
-          if (!cancelled)
-            setFiles((prev) =>
-              prev.length === nextFiles.length &&
-              prev.every((f, i) => nextFiles[i]?.name === f.name && nextFiles[i]?.size === f.size)
-                ? prev
-                : nextFiles,
-            );
+          setFiles(await listPiRunFiles(runId));
         } catch {
           /* no artifacts is also an answer */
         }
-        if (next.state === "running") timer = setTimeout(load, LIVE_POLL_MS);
       } catch {
         if (cancelled) return;
         // A run's files may not exist yet seconds after dispatch; give up on
         // the card quietly after a few misses, never on a settled run.
         misses += 1;
         if (misses >= 4) setGone(true);
-        else timer = setTimeout(load, LIVE_POLL_MS * 2);
+        else timer = setTimeout(load, 6_000);
       }
     };
     void load();
@@ -81,6 +75,33 @@ export function PiRunCard({ runId }: { runId: string }) {
       if (timer) clearTimeout(timer);
     };
   }, [runId]);
+
+  // Pushed facts patch the card; frames also carry the artifact list, so the
+  // card polls nothing while the stream flows.
+  const liveRuns = usePiLiveRuns();
+  useEffect(() => {
+    const frame = liveRuns[runId];
+    if (!frame) return;
+    setFacts((prev) => (prev ? { ...prev, ...frame } : frame));
+    if (frame.files) setFiles(frame.files);
+  }, [liveRuns, runId]);
+
+  // The safety net: a frame lost to a reconnect, or a BFF restart mid-run,
+  // used to be covered by the next poll; now the card re-reads by fetch once
+  // the frame stream has been silent past the watchdog window.
+  useEffect(() => {
+    if (facts?.state !== "running") return;
+    const timer = setInterval(() => {
+      if (msSinceLastPiFrame() > stalenessWatchdogMs) {
+        void fetchPiRunFacts(runId)
+          .then((next) => setFacts((prev) => (prev ? { ...prev, ...next } : next)))
+          .catch(() => {
+            /* the next tick tries again; the run may have been swept */
+          });
+      }
+    }, 5_000);
+    return () => clearInterval(timer);
+  }, [facts?.state, runId]);
 
   if (gone && !facts) return null;
   if (!facts) {

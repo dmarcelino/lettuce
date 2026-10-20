@@ -159,6 +159,9 @@ export interface PiServiceOptions {
   log?: (message: string) => void;
   /** Fires once per run as it settles (completed/failed/cancelled) — the push hook. */
   onSettle?: (meta: PiRunMeta) => void;
+  /** Fires on each throttled meta flush while running, once more at settle —
+   * the browser's pushed progress, never a per-line event. */
+  onProgress?: (meta: PiRunMeta) => void;
 }
 
 /** How long a run may go without a captured line before `pi_status` says `quiet`. */
@@ -202,6 +205,7 @@ export class PiService {
       options.spawner ?? sshSpawner,
       options.now,
       options.onSettle,
+      options.onProgress,
     );
     this.agentSettings = new PiAgentSettingsStore(piAgentSettingsFile(options.paths), () => {});
   }
@@ -757,8 +761,46 @@ export class PiService {
   async statusFacts(runId: string): Promise<Record<string, unknown> | null> {
     const meta = await this.store.read(runId);
     if (!meta) return null;
-    const facts: Record<string, unknown> = {
-      runId,
+    const facts = this.factsBase(meta);
+    if (meta.state === "running") {
+      const live = await this.liveView(meta);
+      this.applyLiveView(facts, live);
+    } else {
+      const tail = await this.store.readEventsTail(runId, 262_144);
+      const said = tail ? lastAssistantText(tail) : null;
+      if (said) facts.lastSaid = said.slice(0, 600);
+    }
+    return facts;
+  }
+
+  /**
+   * The pushed progress frame for a live meta (the runner's throttled tick and
+   * its settle) — the `statusFacts` shape, off the in-memory meta, plus the two
+   * fields the Runs list patches by. Callers reach it only through the
+   * registry's watcher gate, so a nobody-watching deployment never runs it and
+   * the 256 KB liveView tail is at most one read per tick globally.
+   */
+  async progressFacts(meta: PiRunMeta): Promise<Record<string, unknown> | null> {
+    try {
+      const facts = this.factsBase(meta);
+      facts.kind = meta.kind;
+      facts.model = meta.model;
+      if (meta.state === "running") {
+        this.applyLiveView(facts, await this.liveView(meta));
+        // Artifacts ride the frame so a mid-run pi_fetch shows without the
+        // card polling the files endpoint; a readdir is noise beside the tail.
+        facts.files = await this.store.listFiles(meta.runId);
+      }
+      return facts;
+    } catch {
+      // A broken frame is dropped; the card's slow re-sync still finds the truth.
+      return null;
+    }
+  }
+
+  private factsBase(meta: PiRunMeta): Record<string, unknown> {
+    return {
+      runId: meta.runId,
       state: meta.state,
       exitCode: meta.exitCode,
       error: meta.error,
@@ -772,20 +814,18 @@ export class PiService {
       lastEventAt: meta.lastEventAt,
       quietSeconds: 0,
     };
-    if (meta.state === "running") {
-      const live = await this.liveView(meta);
-      facts.quietSeconds = Math.round(live.quietMs / 1000);
-      if (live.now) {
-        facts.nowTool = live.now.tool;
-        facts.nowInput = live.now.input;
-      }
-      if (live.lastSaid) facts.lastSaid = live.lastSaid;
-    } else {
-      const tail = await this.store.readEventsTail(runId, 262_144);
-      const said = tail ? lastAssistantText(tail) : null;
-      if (said) facts.lastSaid = said.slice(0, 600);
+  }
+
+  private applyLiveView(
+    facts: Record<string, unknown>,
+    live: { now?: { tool: string; input: string }; lastSaid?: string; quietMs: number },
+  ): void {
+    facts.quietSeconds = Math.round(live.quietMs / 1000);
+    if (live.now) {
+      facts.nowTool = live.now.tool;
+      facts.nowInput = live.now.input;
     }
-    return facts;
+    if (live.lastSaid) facts.lastSaid = live.lastSaid;
   }
 
   /** Retention sweep, called at boot and every few hours from index.ts. */

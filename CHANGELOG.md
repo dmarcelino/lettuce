@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.19.0-letta_0.34.16] - 2026-10-20
+
+### Changed
+- **Remote Pi progress arrives on its own.** The run card, the Runs list and the topbar `pi` chip now follow a run as it streams instead of re-reading the server every few seconds, so a tab left open asks nothing at all while nothing is running — and a finished run flips to its verdict without a reload.
+
 ## [v0.18.0-letta_0.34.16] - 2026-10-20
 
 ### Added

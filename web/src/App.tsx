@@ -209,8 +209,13 @@ function Workspace({ status }: { status: Status }) {
   /** `?tab=runs&run=<id>`: the run card's and settle pushes' landing spot. */
   const [runsLink] = useState(readRunsDeepLink);
   const [tab, setTab] = useState<Tab>(runsLink.tab ? "Runs" : "Chat");
-  // One poll feeds both the Runs tab dot and the topbar chip.
-  const piActive = usePiActiveRuns(featureEnabled(status?.features, "pi"));
+  // One pushed feed feeds both the Runs tab dot and the topbar chip; the
+  // socket only carries pi frames while the feature is on.
+  const piEnabled = featureEnabled(status?.features, "pi");
+  useEffect(() => {
+    session.setPiWatch(piEnabled);
+  }, [session, piEnabled]);
+  const piActive = usePiActiveRuns(piEnabled);
   /** The responding-conversations list behind the pulsing status dot. */
   const [activityOpen, setActivityOpen] = useState(false);
   /** The agents-and-conversations menu (phone); see `Switcher`. */

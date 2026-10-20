@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { claimAutoReload } from "../lib/auth-probe.ts";
+import { applyPiProgressFrame } from "../lib/pi-live.ts";
 import {
   type AppServerInfo,
   type ConnectionState,
@@ -18,6 +19,8 @@ export interface SessionApi {
   request: <T = unknown>(type: string, body?: Record<string, unknown>) => Promise<T>;
   send: (command: Record<string, unknown> & { type: string }) => void;
   setScopes: (scopes: RuntimeScope[]) => void;
+  /** Opt this socket into pushed remote-pi progress (`web/src/lib/pi-live.ts`). */
+  setPiWatch: (enabled: boolean) => void;
   markResynced: () => void;
   /** Subscribe to inbound app-server frames. Returns an unsubscribe function. */
   onFrame: (handler: (frame: SequencedFrame) => void) => () => void;
@@ -72,6 +75,7 @@ export function useSession(enabled: boolean): SessionApi {
       onAppServerInfo: (info) => setAppServerInfo(info),
       onError: (error) => setLastError(error.message),
       onActivity: (next) => setActive(next),
+      onPiProgress: (facts) => applyPiProgressFrame(facts),
       // The reload is what takes the page through Cloudflare Access's login —
       // the manual refresh that used to be the only way out. Only while
       // visible (a hidden tab retries on return), and at most once per
@@ -104,6 +108,11 @@ export function useSession(enabled: boolean): SessionApi {
 
   const setScopes = useCallback((scopes: RuntimeScope[]) => {
     clientRef.current?.setScopes(scopes);
+  }, []);
+
+  /** Opt this socket into pushed remote-pi progress frames. */
+  const setPiWatch = useCallback((enabled: boolean) => {
+    clientRef.current?.setPiWatch(enabled);
   }, []);
 
   const markResynced = useCallback(() => {
@@ -145,6 +154,7 @@ export function useSession(enabled: boolean): SessionApi {
       request,
       send,
       setScopes,
+      setPiWatch,
       markResynced,
       onFrame,
       onResync,
@@ -160,6 +170,7 @@ export function useSession(enabled: boolean): SessionApi {
       request,
       send,
       setScopes,
+      setPiWatch,
       markResynced,
       onFrame,
       onResync,

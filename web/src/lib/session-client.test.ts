@@ -50,6 +50,7 @@ function setup(probeResult: AuthProbe) {
     onAppServerInfo: noop,
     onError: noop,
     onActivity: noop,
+    onPiProgress: noop,
     onAuthExpired,
   } satisfies SessionClientEvents;
   const client = new SessionClient("ws://test/ws", events, probe);
