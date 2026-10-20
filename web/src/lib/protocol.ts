@@ -41,6 +41,16 @@ export interface BffActivity {
   active: RuntimeScope[];
 }
 
+/**
+ * One remote-pi run's facts, pushed on the browser socket in place of the
+ * card/list/chip polling (`web/src/lib/pi-live.ts`). Same payload as the
+ * `/api/pi/runs/:id/status` facts the card used to poll.
+ */
+export interface BffPiProgress {
+  type: "__bff_pi_progress";
+  [key: string]: unknown;
+}
+
 export interface BffError {
   type: "__bff_error";
   message: string;
@@ -54,6 +64,7 @@ export type BffControlFrame =
   | BffResumeResult
   | BffUpstreamState
   | BffActivity
+  | BffPiProgress
   | BffError;
 
 export function isBffControlFrame(frame: unknown): frame is BffControlFrame {

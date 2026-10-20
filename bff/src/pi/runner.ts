@@ -470,6 +470,9 @@ export class PiRunner {
     private readonly now: () => Date = () => new Date(),
     /** Fires once per run as it reaches a terminal state (push-on-settle). */
     private readonly onSettle?: (meta: PiRunMeta) => void,
+    /** Fires on every meta flush while running, and once more at the terminal
+     * state — the push-over-poll feed for the browser (throttled with the meta). */
+    private readonly onProgress?: (meta: PiRunMeta) => void,
   ) {}
 
   /** Anything still marked running at boot is an orphan from a previous BFF: capture ended, remote unknown. */
@@ -568,6 +571,11 @@ export class PiRunner {
     // thousands of lines.
     let lastFlushMs = this.now().getTime();
     let linesSinceFlush = 0;
+    /** One durable flush; each *running* flush doubles as the progress frame. */
+    const flushMeta = async () => {
+      await this.store.update(meta);
+      if (meta.state === "running") this.onProgress?.(meta);
+    };
     const handleLine = async (line: string) => {
       if (!line.trim()) return;
       await this.store.appendEvent(meta, line);
@@ -596,7 +604,7 @@ export class PiRunner {
       } catch {
         // Lenient: a line that is not JSON is still part of the captured stream.
       }
-      if (flushedNow) await this.store.update(meta);
+      if (flushedNow) await flushMeta();
     };
 
     const child = this.spawner(
@@ -619,7 +627,7 @@ export class PiRunner {
           const m = /lettuce-remote-pid (\d+)/.exec(stderrTail);
           if (m) {
             meta.remotePid = Number(m[1]);
-            lineChain = lineChain.then(() => this.store.update(meta));
+            lineChain = lineChain.then(flushMeta);
           }
         }
       },
@@ -653,13 +661,19 @@ export class PiRunner {
     return meta;
   }
 
-  /** Once-per-run settle bookkeeping: waiters wake, `onSettle` fires, meta is retired. */
+  /** Once-per-run settle bookkeeping: waiters wake, the terminal progress and
+   * `onSettle` fire, meta is retired. */
   private settle(meta: PiRunMeta): void {
     if (!this.metas.delete(meta.runId)) return;
     const waiting = this.waiters.get(meta.runId);
     if (waiting) {
       this.waiters.delete(meta.runId);
       for (const wake of [...waiting]) wake();
+    }
+    try {
+      this.onProgress?.(meta);
+    } catch {
+      // A broken notification must never corrupt a recorded run.
     }
     try {
       this.onSettle?.(meta);

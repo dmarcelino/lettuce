@@ -1,39 +1,56 @@
 import { useEffect, useState } from "react";
-import { fetchPiRuns } from "../lib/pi.ts";
-
-const IDLE_POLL_MS = 60_000;
-const LIVE_POLL_MS = 15_000;
+import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
+import { fetchPiRuns, type PiRunSummary } from "../lib/pi.ts";
 
 /**
- * How many remote-pi runs are currently running. Polls fast while something is
- * active and slow while idle; disabled for agents that cannot use pi. Feeds
- * both the Runs tab dot and the topbar chip.
+ * How many remote-pi runs are currently running — derived from the pushed
+ * progress frames, so an idle page issues zero pi requests (this replaced a
+ * 60-s-forever poll). One fetch on mount covers runs that started before the
+ * page did; the watchdog re-syncs if the frame stream stalls (a BFF restart
+ * mid-run settles every orphan at once, with no socket listening). Feeds both
+ * the Runs tab dot and the topbar chip.
  */
 export function usePiActiveRuns(enabled: boolean): number {
-  const [active, setActive] = useState(0);
+  const [fetched, setFetched] = useState<PiRunSummary[]>([]);
+  const live = usePiLiveRuns();
 
   useEffect(() => {
     if (!enabled) {
-      setActive(0);
+      setFetched([]);
       return;
     }
-    let timer: ReturnType<typeof setTimeout>;
-    const schedule = (delay: number) => {
-      timer = setTimeout(tick, delay);
-    };
-    const tick = async () => {
-      try {
-        const runs = await fetchPiRuns(10);
-        const n = runs.filter((run) => run.status === "running").length;
-        setActive(n);
-        schedule(n > 0 ? LIVE_POLL_MS : IDLE_POLL_MS);
-      } catch {
-        schedule(IDLE_POLL_MS);
-      }
-    };
-    void tick();
-    return () => clearTimeout(timer);
+    void fetchPiRuns(10)
+      .then(setFetched)
+      .catch(() => {
+        /* the section 404s when the `pi` token is off; zero is the answer */
+      });
   }, [enabled]);
+
+  const running = new Set(
+    [...fetched.map((run) => ({ runId: run.runId, running: run.status === "running" })),
+      ...Object.values(live).map((fact) => ({
+        runId: fact.runId,
+        running: fact.state === "running",
+      })),]
+      .filter((run) => run.running)
+      .map((run) => run.runId),
+  );
+  const active = enabled ? running.size : 0;
+
+  useEffect(() => {
+    if (!enabled || running.size === 0) return;
+    const timer = setInterval(() => {
+      if (msSinceLastPiFrame() > stalenessWatchdogMs) {
+        void fetchPiRuns(10)
+          .then(setFetched)
+          .catch(() => {
+            /* the next tick tries again */
+          });
+      }
+    }, 5_000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- size is the signal
+  }, [enabled, running.size]);
 
   return active;
 }

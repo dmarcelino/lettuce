@@ -52,6 +52,8 @@ interface Session {
    * none of which answers "is somebody looking at this right now".
    */
   watching: { scopeKey: string | null; visible: boolean };
+  /** Opt-in to pushed remote-pi progress frames — see `broadcastPiProgress`. */
+  piWatching: boolean;
   /** Sliding-window timestamps for rate limiting. */
   recentCommands: number[];
   /** Set once the session is throttled, so we complain only once. */
@@ -150,6 +152,7 @@ export class SessionRegistry {
       // Nothing on screen until the client says otherwise, so a session that
       // never reports suppresses nothing.
       watching: { scopeKey: null, visible: true },
+      piWatching: false,
       pendingRequests: new Map(),
       recentCommands: [],
       throttled: false,
@@ -210,6 +213,7 @@ export class SessionRegistry {
           : null,
         visible: parsed.visible,
       };
+      if (parsed.pi !== undefined) session.piWatching = parsed.pi;
       return;
     }
 
@@ -412,6 +416,33 @@ export class SessionRegistry {
   private broadcastActivity(): void {
     const message = { type: "__bff_activity" as const, active: this.activity.snapshot() };
     for (const session of this.sessions.values()) this.sendTo(session.socket, message);
+  }
+
+  /**
+   * Push one remote-pi run's facts to the sessions that opted in with
+   * `__bff_watching {pi: true}`. The facts arrive as a factory and are only
+   * built when somebody is watching — the expensive part (the liveView tail
+   * read) never runs for a deployment where nobody looks at pi runs.
+   * Errors are swallowed: a broken frame is worse than a missing one, and the
+   * browser's slow re-sync is the safety net.
+   */
+  async broadcastPiProgress(
+    facts: () => Record<string, unknown> | null | Promise<Record<string, unknown> | null>,
+  ): Promise<void> {
+    const targets: Session[] = [];
+    for (const session of this.sessions.values()) {
+      if (session.piWatching) targets.push(session);
+    }
+    if (targets.length === 0) return;
+    let payload: Record<string, unknown> | null;
+    try {
+      payload = await facts();
+    } catch {
+      return;
+    }
+    if (!payload) return;
+    const message: BffServerMessage = { type: "__bff_pi_progress", ...payload };
+    for (const session of targets) this.sendTo(session.socket, message);
   }
 
   broadcastUpstreamState(state: UpstreamState, info: AppServerInfoResponseMessage | null): void {

@@ -294,6 +294,11 @@ export interface PiRunFacts {
   nowTool?: string;
   nowInput?: string;
   lastSaid?: string;
+  /** Only on pushed `__bff_pi_progress` frames — what the Runs list patches by. */
+  kind?: "run" | "send";
+  model?: string | null;
+  /** Only on pushed frames: the run's fetched artifacts, so no files poll. */
+  files?: PiRunFile[];
 }
 
 export async function fetchPiRunFacts(runId: string): Promise<PiRunFacts> {

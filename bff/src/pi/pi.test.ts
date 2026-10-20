@@ -419,6 +419,40 @@ test("progress reaches the store while the run streams — throttled, and never 
   child.finish(0);
 });
 
+test("the progress feed fires on the throttled flushes and exactly once at settle", async () => {
+  // The pushed frames replaced four browser pollers; this pins their cadence:
+  // one frame per meta flush (never per line) and a final terminal frame.
+  const dir = await mkdtemp(`${tmpdir()}/pi-runs-`);
+  let now = new Date("2026-10-05T12:00:00.000Z");
+  const store = new DirPiRunStore(dir);
+  const { children, spawner } = harness();
+  const frames: { state: string; events: number }[] = [];
+  const runner = new PiRunner(store, spawner, () => now, undefined, (meta) => {
+    frames.push({ state: meta.state, events: meta.eventCount });
+  });
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
+  const child = only(children);
+  for (let i = 0; i < 3; i += 1) child.emit(`{"type":"message_update","i":${i}}\n`);
+  await Bun.sleep(20);
+  // Under both flush thresholds: no frame, same deliberate cheapness as the disk.
+  expect(frames.length).toBe(0);
+  now = new Date("2026-10-05T12:00:03.000Z"); // past the flush interval
+  child.emit(`{"type":"message_update","i":3}\n`);
+  await Bun.sleep(20);
+  expect(frames).toEqual([{ state: "running", events: 4 }]);
+  child.finish(0);
+  await Bun.sleep(20);
+  expect(frames.length).toBe(2);
+  // No `agent_settled` line was ever captured, so the honest verdict is
+  // detached — what matters here is that the terminal frame fires once.
+  expect(frames[1]?.state).toBe("detached");
+  void meta;
+});
+
 test("the remote pid captured from stderr reaches the durable meta", async () => {
   const { store, runner, children } = await freshRunner();
   const meta = await runner.start(

@@ -581,6 +581,13 @@ const piService = new PiService({
   // that view ships; unknown query params are inert before then. And the
   // dispatching conversation gets the same news as a <task-notification>, so
   // the agent learns by event instead of a pi_wait/pi_status poll loop.
+  // Push-over-poll: each throttled meta flush (and the settle) rides the
+  // browser WSS as `__bff_pi_progress`, so the card/list/chip retire their
+  // polling. The factory runs only when a session opted in, so the tail read
+  // never happens for nobody.
+  onProgress: (meta) => {
+    void registry.broadcastPiProgress(() => piService.progressFacts(meta));
+  },
   onSettle: (meta) => {
     const verdict =
       meta.state === "completed" || meta.state === "failed" || meta.state === "cancelled"

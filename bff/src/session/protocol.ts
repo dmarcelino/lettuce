@@ -43,6 +43,12 @@ export interface BffWatchingCommand {
   scope: { agent_id: string; conversation_id: string } | null;
   /** `document.visibilityState === "visible"` at the moment this was sent. */
   visible: boolean;
+  /**
+   * Whether this session wants remote-pi progress frames (`__bff_pi_progress`).
+   * Set once the app knows the `pi` feature is on; absent means false, so an
+   * old client never receives frames it cannot parse.
+   */
+  pi?: boolean;
 }
 
 export interface BffResumeResultMessage {
@@ -76,11 +82,22 @@ export interface BffErrorMessage {
   request_id?: string;
 }
 
+/**
+ * One remote-pi run's current facts, pushed to pi-watching sessions instead
+ * of being polled (`PiService.progressFacts`). The payload is assembled by
+ * the pi service, so the registry carries it opaquely.
+ */
+export interface BffPiProgressMessage {
+  type: "__bff_pi_progress";
+  [key: string]: unknown;
+}
+
 export type BffServerMessage =
   | BffHelloMessage
   | BffResumeResultMessage
   | BffUpstreamStateMessage
   | BffActivityMessage
+  | BffPiProgressMessage
   | BffErrorMessage;
 
 export function isBffResumeCommand(value: unknown): value is BffResumeCommand {
@@ -94,8 +111,9 @@ export function isBffResumeCommand(value: unknown): value is BffResumeCommand {
 
 export function isBffWatchingCommand(value: unknown): value is BffWatchingCommand {
   if (!value || typeof value !== "object") return false;
-  const candidate = value as { type?: unknown; visible?: unknown; scope?: unknown };
+  const candidate = value as { type?: unknown; visible?: unknown; scope?: unknown; pi?: unknown };
   if (candidate.type !== "__bff_watching" || typeof candidate.visible !== "boolean") return false;
+  if (candidate.pi !== undefined && typeof candidate.pi !== "boolean") return false;
   // An absent scope means "nothing on screen", same as an explicit null.
   if (candidate.scope === null || candidate.scope === undefined) return true;
   if (typeof candidate.scope !== "object") return false;
