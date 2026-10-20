@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.16.0-letta_0.34.16] - 2026-10-19
+
+### Added
+- **Tasks shows a Monitor's backup wake.** A running watch with an armed fallback now says when a silent one wakes the agent, so a quiet watch is visibly watched.
+
 ## [v0.15.2-letta_0.34.16] - 2026-10-19
 
 ### Fixed

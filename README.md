@@ -108,6 +108,8 @@ before exposing anything.
   me every morning at 7" — whether or not anything is open.
 - **Subagents.** Fan work out to a parallel agent, watch it report back, and stop
   one from Tasks if it goes the wrong way.
+- **Monitors.** A watch wakes the agent as events arrive; when it arms a backup wake,
+  Tasks shows when a silent watch brings the agent back to check the real state.
 - **Codex workers.** Hand a coding job to a Codex CLI worker and follow its
   run from the transcript.
 - **Claude Code workers.** The same for Claude Code, signed in with your Claude
