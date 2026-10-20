@@ -427,9 +427,15 @@ test("the progress feed fires on the throttled flushes and exactly once at settl
   const store = new DirPiRunStore(dir);
   const { children, spawner } = harness();
   const frames: { state: string; events: number }[] = [];
-  const runner = new PiRunner(store, spawner, () => now, undefined, (meta) => {
-    frames.push({ state: meta.state, events: meta.eventCount });
-  });
+  const runner = new PiRunner(
+    store,
+    spawner,
+    () => now,
+    undefined,
+    (meta) => {
+      frames.push({ state: meta.state, events: meta.eventCount });
+    },
+  );
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },

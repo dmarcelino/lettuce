@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
 import { fetchPiRuns, type PiRunSummary } from "../lib/pi.ts";
+import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
 
 /**
  * How many remote-pi runs are currently running — derived from the pushed
@@ -27,11 +27,13 @@ export function usePiActiveRuns(enabled: boolean): number {
   }, [enabled]);
 
   const running = new Set(
-    [...fetched.map((run) => ({ runId: run.runId, running: run.status === "running" })),
+    [
+      ...fetched.map((run) => ({ runId: run.runId, running: run.status === "running" })),
       ...Object.values(live).map((fact) => ({
         runId: fact.runId,
         running: fact.state === "running",
-      })),]
+      })),
+    ]
       .filter((run) => run.running)
       .map((run) => run.runId),
   );

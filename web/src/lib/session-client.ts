@@ -1,6 +1,6 @@
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
-import type { PiRunFacts } from "./pi.ts";
 import { type AuthProbe, probeAuth } from "./auth-probe.ts";
+import type { PiRunFacts } from "./pi.ts";
 import {
   type AppServerInfo,
   type BffError,

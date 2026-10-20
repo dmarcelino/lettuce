@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import type { PiRunFacts, PiRunFile } from "../lib/pi.ts";
-import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
 import {
   ago,
   fetchPiRunFacts,
@@ -9,6 +8,7 @@ import {
   STATUS_LABELS,
   stopPiRun,
 } from "../lib/pi.ts";
+import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
 import { formatElapsed } from "../lib/working.ts";
 
 const TONES: Record<PiRunFacts["state"], string> = {
