@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { TranscriptEntry } from "./messages.ts";
 import type { QueuedItem } from "./queue-actions.ts";
+import type { LiveSubagent } from "./subagents.ts";
 import {
   deriveWorking,
   drainingQueueCount,
@@ -63,6 +64,85 @@ describe("middleEllipsis", () => {
 describe("deriveWorking", () => {
   test("idle means no line", () => {
     expect(deriveWorking({ ...base, processing: false, entries: [], queue: [] })).toBeNull();
+  });
+
+  // The delegated-child branch: a running Task/Agent call plus this scope's live
+  // snapshots (`lib/subagents.ts`). Snapshots are the only live source of a child's
+  // tool calls — they never arrive as transcript frames.
+  describe("delegated child activity", () => {
+    const task = entry({
+      kind: "tool_call",
+      toolName: "Task",
+      toolArgs: '{"description":"research flights"}',
+      toolCallId: "tc_1",
+    });
+    const child = (over: Partial<LiveSubagent> = {}): LiveSubagent => ({
+      status: "running",
+      subagentType: "general-purpose",
+      description: "research flights",
+      toolCalls: [{ name: "Bash", args: '{"command":"bun test bff"}' }],
+      totalTokens: 12_000,
+      durationMs: 192_000,
+      ...over,
+    });
+
+    test("the single running child rides the delegation line", () => {
+      const snap = deriveWorking({
+        ...base,
+        entries: [task],
+        queue: [],
+        liveSubagents: { s1: child() },
+      });
+      expect(snap?.verb).toBe("Subagent:");
+      expect(snap?.object).toBe("research flights · bun test bff");
+      expect(snap?.childTokens).toBe(12_000);
+    });
+
+    test("the exact tool_call_id match wins over another running child", () => {
+      const snap = deriveWorking({
+        ...base,
+        entries: [task],
+        queue: [],
+        liveSubagents: {
+          s1: child({ toolCallId: "tc_other", description: "other" }),
+          s2: child({ toolCallId: "tc_1", description: "research flights" }),
+        },
+      });
+      expect(snap?.object).toBe("research flights · bun test bff");
+    });
+
+    test("a child between tools says thinking", () => {
+      const snap = deriveWorking({
+        ...base,
+        entries: [task],
+        queue: [],
+        liveSubagents: { s1: child({ toolCalls: [], totalTokens: 0 }) },
+      });
+      expect(snap?.object).toBe("research flights · thinking");
+      expect(snap?.childTokens).toBeUndefined();
+    });
+
+    test("an ambiguous delegation shows no child", () => {
+      const snap = deriveWorking({
+        ...base,
+        entries: [task],
+        queue: [],
+        liveSubagents: { s1: child(), s2: child() },
+      });
+      expect(snap?.object).toBe("research flights");
+      expect(snap?.childTokens).toBeUndefined();
+    });
+
+    test("a running child next to a non-delegating tool is left out", () => {
+      const snap = deriveWorking({
+        ...base,
+        entries: [entry({ kind: "tool_call", toolName: "Bash", toolArgs: '{"command":"make"}' })],
+        queue: [],
+        liveSubagents: { s1: child() },
+      });
+      expect(snap?.verb).toBe("Run");
+      expect(snap?.childTokens).toBeUndefined();
+    });
   });
 
   test("a running /compact fills the line with no turn in flight", () => {

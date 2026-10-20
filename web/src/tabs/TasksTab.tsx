@@ -13,6 +13,8 @@ import { shortDate } from "../lib/conversation-groups.ts";
 import { describeCron } from "../lib/cron-describe.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { findMonitorBackupWake } from "../lib/monitor-backup.ts";
+import type { LiveSubagent } from "../lib/subagents.ts";
+import { subagentStatusLine, workflowPhasesLine, workflowStatusLine } from "../lib/subagents.ts";
 import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
 import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
@@ -54,6 +56,8 @@ interface Props {
   agentId: string | null;
   conversationId: string | null;
   backgroundProcesses: BackgroundProcessSummary[];
+  /** Live snapshots keyed by `subagent_id`; the source of subagent row progress. */
+  liveSubagents: Record<string, LiveSubagent>;
   onStopMonitor: (processId: string) => void;
   /** Stops a running subagent; resolves to the error to show, or nothing when it stopped. */
   onStopSubagent: (subagentId: string) => Promise<string | null>;
@@ -98,6 +102,7 @@ export function TasksTab({
   agentId,
   conversationId,
   backgroundProcesses,
+  liveSubagents,
   onStopMonitor,
   onStopSubagent,
   conversations,
@@ -333,6 +338,18 @@ export function TasksTab({
               const stop = stopRow(process);
               const backup =
                 process.kind === "monitor" ? findMonitorBackupWake(process.label, tasks) : null;
+              // A subagent's line carries its live tool call, tokens and elapsed off the
+              // snapshot; a workflow's carries the counts the device status already sends.
+              const child =
+                process.kind === "agent_task" && process.subagentId
+                  ? liveSubagents[process.subagentId]
+                  : undefined;
+              const statusLine = child
+                ? subagentStatusLine(process.status, child, null)
+                : process.workflow
+                  ? workflowStatusLine(process.status, process.workflow)
+                  : process.status;
+              const phasesLine = process.workflow ? workflowPhasesLine(process.workflow) : "";
               return (
                 <li key={process.processId} className="task">
                   <div className="task-head">
@@ -344,7 +361,8 @@ export function TasksTab({
                       Backup wake armed — fires if silent by {shortDate(backup.scheduled_for)}
                     </div>
                   ) : null}
-                  <div className="muted small">{process.status}</div>
+                  <div className="muted small">{statusLine}</div>
+                  {phasesLine ? <div className="muted small">{phasesLine}</div> : null}
                   {stop ? (
                     <div className="task-actions">
                       <button type="button" className="link danger" onClick={() => void stop()}>

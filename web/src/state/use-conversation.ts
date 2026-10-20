@@ -24,6 +24,8 @@ import {
 import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
 import { planForceSend, type QueuedItem, readQueue } from "../lib/queue-actions.ts";
 import { type ResponseFormat, validateResponseFormat } from "../lib/structured-output.ts";
+import type { LiveSubagent, WorkflowCounts } from "../lib/subagents.ts";
+import { readLiveSubagents, readWorkflowProgress } from "../lib/subagents.ts";
 import { pickTurnUsage, type TurnUsage } from "../lib/usage.ts";
 import { STALL_AFTER_MS } from "../lib/working.ts";
 import {
@@ -67,6 +69,8 @@ export interface BackgroundProcessSummary {
   status: string;
   /** An agent_task's own id, which keys the live subagent snapshot list. */
   subagentId?: string;
+  /** A workflow's phase counts, parsed off the device-status `progress` field. */
+  workflow?: WorkflowCounts;
   /**
    * Whether this row has a stop that works from the browser: a running monitor
    * (`stop_monitor_task`) or a subagent the app-server still owns (`subagent_stop`).
@@ -144,6 +148,8 @@ export interface ConversationApi {
   availableToolsets: ToolsetSummary[];
   /** Bash jobs, subagent tasks, monitors and workflows currently running, from device status. */
   backgroundProcesses: BackgroundProcessSummary[];
+  /** `subagent_id -> live snapshot` for this scope; the source of live child progress. */
+  liveSubagents: Record<string, LiveSubagent>;
   /**
    * Stops a persistent monitor. No-op for bash, agent_task and workflow
    * processes — `stopMonitor` upstream refuses anything whose
@@ -207,7 +213,7 @@ function readToolsets(raw: unknown): ToolsetSummary[] {
 
 export function readBackgroundProcesses(
   raw: unknown,
-  liveSubagentAgents: Record<string, string> = {},
+  liveSubagents: Record<string, LiveSubagent> = {},
 ): BackgroundProcessSummary[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
@@ -220,6 +226,7 @@ export function readBackgroundProcesses(
       description?: unknown;
       task_type?: unknown;
       subagent_id?: unknown;
+      progress?: unknown;
     };
     if (typeof entry.process_id !== "string") return [];
     const kind = entry.kind;
@@ -238,6 +245,7 @@ export function readBackgroundProcesses(
             ? entry.task_type
             : kind;
     const subagentId = typeof entry.subagent_id === "string" ? entry.subagent_id : undefined;
+    const workflow = kind === "workflow" ? readWorkflowProgress(entry.progress) : null;
     return [
       {
         processId: entry.process_id,
@@ -245,36 +253,16 @@ export function readBackgroundProcesses(
         label,
         status,
         subagentId,
+        ...(workflow ? { workflow } : {}),
         // A subagent row is stoppable only while the snapshot list still names its child agent.
         // After an app-server restart nothing does, and the row simply has no Stop.
         stoppable:
           kind === "monitor"
             ? status === "running"
-            : kind === "agent_task" && !!subagentId && !!liveSubagentAgents[subagentId],
+            : kind === "agent_task" && !!subagentId && !!liveSubagents[subagentId]?.agentId,
       },
     ];
   });
-}
-
-/**
- * The scope's live subagents as `subagent_id -> child agent id`, read off `update_subagent_state`.
- * That frame re-sends the whole list on every change, so a missed frame cannot strand a Stop on a
- * finished worker; a finished or agent-less snapshot is left out here, which is what takes the
- * button away. The child's own agent id is what `subagent_stop` takes.
- */
-export function readSubagentAgents(raw: unknown): Record<string, string> {
-  if (!Array.isArray(raw)) return {};
-  const live: Record<string, string> = {};
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const snapshot = item as { subagent_id?: unknown; agent_id?: unknown; status?: unknown };
-    if (typeof snapshot.subagent_id !== "string" || typeof snapshot.agent_id !== "string") {
-      continue;
-    }
-    if (snapshot.status !== "pending" && snapshot.status !== "running") continue;
-    live[snapshot.subagent_id] = snapshot.agent_id;
-  }
-  return live;
 }
 
 function readApproval(raw: unknown): PendingApproval | null {
@@ -353,13 +341,14 @@ export function useConversation(
   const [availableToolsets, setAvailableToolsets] = useState<ToolsetSummary[]>([]);
   const [runningProcesses, setRunningProcesses] = useState<unknown[]>([]);
   /**
-   * `subagent_id -> child agent id` for this scope's live subagents, off `update_subagent_state`.
-   * A subagent row is only stoppable while its id is in here.
+   * `subagent_id -> live snapshot` for this scope, off `update_subagent_state`.
+   * A subagent row is only stoppable while its snapshot carries an agent id, and these
+   * snapshots are what the working line and the Tasks rows show live child progress from.
    */
-  const [liveSubagentAgents, setLiveSubagentAgents] = useState<Record<string, string>>({});
+  const [liveSubagents, setLiveSubagents] = useState<Record<string, LiveSubagent>>({});
   const backgroundProcesses = useMemo(
-    () => readBackgroundProcesses(runningProcesses, liveSubagentAgents),
-    [runningProcesses, liveSubagentAgents],
+    () => readBackgroundProcesses(runningProcesses, liveSubagents),
+    [runningProcesses, liveSubagents],
   );
   const [turnUsage, setTurnUsage] = useState<TurnUsage | null>(null);
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
@@ -741,7 +730,7 @@ export function useConversation(
         }
         case "update_subagent_state": {
           // Whole list on every change, so a missed frame cannot leave a Stop button behind.
-          setLiveSubagentAgents(readSubagentAgents((frame as { subagents?: unknown }).subagents));
+          setLiveSubagents(readLiveSubagents((frame as { subagents?: unknown }).subagents));
           break;
         }
         case "skills_updated": {
@@ -1112,7 +1101,7 @@ export function useConversation(
 
   const stopSubagent = useCallback(
     async (subagentId: string): Promise<string | null> => {
-      const childAgentId = liveSubagentAgents[subagentId];
+      const childAgentId = liveSubagents[subagentId]?.agentId;
       if (!scope || !childAgentId) return "That subagent is not running in this conversation.";
       try {
         const response = await request<{ stopped?: boolean; error?: string | null }>(
@@ -1126,7 +1115,7 @@ export function useConversation(
         return errorMessage(cause);
       }
     },
-    [liveSubagentAgents, request, scope],
+    [liveSubagents, request, scope],
   );
 
   const setPermissionMode = useCallback(
@@ -1184,6 +1173,7 @@ export function useConversation(
     toolsetPreference,
     availableToolsets,
     backgroundProcesses,
+    liveSubagents,
     stopMonitor,
     stopSubagent,
     turnUsage,

@@ -21,6 +21,7 @@ import {
 } from "../lib/messages.ts";
 import type { QueuedItem } from "../lib/queue-actions.ts";
 import { parseResponseFormat, type ResponseFormat } from "../lib/structured-output.ts";
+import type { LiveSubagent } from "../lib/subagents.ts";
 import type { TurnUsage } from "../lib/usage.ts";
 import {
   clearsToNewConversation,
@@ -42,6 +43,8 @@ export interface TurnSnapshot {
   turnStartedAt: number | null;
   lastActivityAt: number | null;
   usage: TurnUsage | null;
+  /** Live subagent snapshots; the working line shows a delegated child's activity from these. */
+  liveSubagents: Record<string, LiveSubagent>;
 }
 
 interface Props {
@@ -562,6 +565,7 @@ export function Composer({
             lastActivityAt={turn.lastActivityAt}
             compactStartedAt={compactStartedAt}
             usage={turn.usage}
+            liveSubagents={turn.liveSubagents}
             onAbort={onAbort}
           />
         ) : null}
