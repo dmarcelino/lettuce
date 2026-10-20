@@ -143,6 +143,42 @@ describe("deriveWorking", () => {
       expect(snap?.verb).toBe("Run");
       expect(snap?.childTokens).toBeUndefined();
     });
+
+    test("an idle-waiting turn with one running child shows the child", () => {
+      // The real shape: Task returns immediately ("Backgrounded") and the parent's
+      // turn spends the wait Thinking — the line has to carry the child there.
+      const snap = deriveWorking({
+        ...base,
+        entries: [],
+        queue: [],
+        liveSubagents: { s1: child() },
+      });
+      expect(snap?.state).toBe("thinking");
+      expect(snap?.verb).toBe("Subagent:");
+      expect(snap?.object).toBe("research flights · bun test bff");
+      expect(snap?.childTokens).toBe(12_000);
+    });
+
+    test("writing still outranks a running child", () => {
+      const snap = deriveWorking({
+        ...base,
+        entries: [entry({ kind: "assistant", streaming: true, text: "almost done" })],
+        queue: [],
+        liveSubagents: { s1: child() },
+      });
+      expect(snap?.state).toBe("writing");
+    });
+
+    test("no line change without a running child", () => {
+      const snap = deriveWorking({
+        ...base,
+        entries: [],
+        queue: [],
+        liveSubagents: { s1: child({ status: "pending" }) },
+      });
+      expect(snap?.verb).toBe("Thinking");
+      expect(snap?.object).toBeUndefined();
+    });
   });
 
   test("a running /compact fills the line with no turn in flight", () => {

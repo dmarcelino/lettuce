@@ -319,6 +319,22 @@ export function deriveWorking(input: WorkingInput): WorkingSnapshot | null {
     return snap;
   }
   if (streaming === "assistant") return { state: "writing", icon: null, verb: "Writing" };
+  // The parent's Task call usually returns immediately ("Backgrounded") and the wait is
+  // spent thinking — so an idle-waiting turn with exactly one running child says so too.
+  const waiting = input.liveSubagents ? pickRunningChild(input.liveSubagents) : null;
+  if (waiting) {
+    const who = waiting.description || waiting.subagentType || "subagent";
+    return {
+      state: "thinking",
+      icon: "task",
+      verb: "Subagent:",
+      object: middleEllipsis(
+        `${who} · ${childActivityLabel(waiting, input.cwd)}`,
+        OBJECT_MAX_CHARS,
+      ),
+      ...(waiting.totalTokens >= 100 ? { childTokens: waiting.totalTokens } : {}),
+    };
+  }
   return { state: "thinking", icon: null, verb: "Thinking" };
 }
 
