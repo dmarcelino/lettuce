@@ -15,7 +15,7 @@
 /** Must agree with `MAX_UPLOAD_BYTES` in `bff/src/files/upload.ts`. */
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
-export interface UploadResult {
+interface UploadResult {
   path: string;
   bytes: number;
 }

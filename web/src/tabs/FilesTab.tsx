@@ -557,7 +557,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
           onUploaded={(name) => {
             setUploadFile(null);
             void load(root);
-            toast(`${name} uploaded`, "ok");
+            toast(`${name} uploaded`);
           }}
         />
       ) : null}

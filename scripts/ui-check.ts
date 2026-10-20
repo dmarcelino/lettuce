@@ -169,11 +169,14 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
   );
 
   // The collision rule: a name that exists here is refused until it is retyped.
-  const taken = await page
-    .locator(".list > li.file-row .file-name-text")
+  // Read it off a download button — only file rows have one, so a folder that
+  // sorts first cannot become the subject (the sheet only collides with files).
+  const downloadLabel = await page
+    .locator('.file-row button[aria-label^="Download "]')
     .first()
-    .textContent()
+    .getAttribute("aria-label")
     .catch(() => null);
+  const taken = downloadLabel?.replace(/^Download /, "") ?? null;
   if (taken) {
     await field.fill(taken.trim());
     check(
