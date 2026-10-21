@@ -35,6 +35,13 @@ happened.
 A `flow-guard` rule matches shell text, not intent: a `gh pr create --body "…git branch -D…"` trips the
 branch rule, so a body that quotes a command goes in a file and comes in with `--body-file`.
 
+`protect` and `forbid` name a **path and its subtree**, never a glob: `protect docker/.env` covers that
+file and anything under it, so a `docker/.env.bak-20261021` left beside it by a variable flip is outside
+the rule and writes to it ask nothing — and writing `docker/.env*` is worse than nothing, since it names
+one file literally called `.env*`. The tool-level defense for those backups is `.gitignore`'s `.env.*`,
+so flip a variable **in place** instead of copying `.env` aside, and never `-f` add an ignored dotfile —
+`git add -f docker/.env.bak` is a public secret, not a shortcut.
+
 ## plan
 
 - [ ] (ui) mockups of every changed surface, rendered at 390 and 1280 and embedded in plan.md
