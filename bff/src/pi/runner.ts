@@ -279,7 +279,21 @@ export interface PiRunStore {
 const RUN_ID_RE = /^[0-9a-f-]{36}$/i;
 
 export class DirPiRunStore implements PiRunStore {
-  constructor(private readonly dir: string) {}
+  private readonly dir: string;
+  /**
+   * Session id → the run that made it, for every run this process has written.
+   *
+   * A follow-up has to go to the host that made the session, and `pi_send` asks
+   * that question on every dispatch. Answering it from disk meant reading and
+   * parsing every meta file — retention keeps a few hundred — to find one line
+   * this process was told about when it wrote the run. The scan below stays as
+   * the fallback for runs recorded before this process started.
+   */
+  private readonly sessionRuns = new Map<string, string>();
+
+  constructor(dir: string) {
+    this.dir = dir;
+  }
 
   private metaPath(runId: string): string {
     if (!RUN_ID_RE.test(runId)) throw new Error("not a run id");
@@ -295,10 +309,14 @@ export class DirPiRunStore implements PiRunStore {
     await fs.mkdir(this.dir, { recursive: true });
     await fs.writeFile(this.metaPath(meta.runId), `${JSON.stringify(meta, null, 2)}\n`);
     await fs.writeFile(this.eventsPath(meta.runId), "");
+    if (meta.session) this.sessionRuns.set(meta.session, meta.runId);
   }
   async update(meta: PiRunMeta): Promise<void> {
     const fs = await import("node:fs/promises");
     await fs.writeFile(this.metaPath(meta.runId), `${JSON.stringify(meta, null, 2)}\n`);
+    // The session is learned from the stream a moment after the run starts, so
+    // this is where the index gets it.
+    if (meta.session) this.sessionRuns.set(meta.session, meta.runId);
   }
   async appendEvent(meta: PiRunMeta, line: string): Promise<void> {
     const fs = await import("node:fs/promises");
@@ -340,6 +358,12 @@ export class DirPiRunStore implements PiRunStore {
    * agent that happens to be asking.
    */
   async findBySession(session: string): Promise<PiRunMeta | null> {
+    const known = this.sessionRuns.get(session);
+    if (known) {
+      const meta = await this.read(known);
+      // A swept-away run leaves a stale entry behind; the scan settles it.
+      if (meta?.session === session) return meta;
+    }
     for (const meta of await this.list(500)) {
       if (meta.session === session) return meta;
     }
@@ -580,7 +604,7 @@ export class PiRunner {
       if (!line.trim()) return;
       await this.store.appendEvent(meta, line);
       meta.eventCount += 1;
-      meta.bytesCaptured += line.length + 1;
+      meta.bytesCaptured += Buffer.byteLength(line) + 1;
       meta.lastEventAt = this.now().toISOString();
       linesSinceFlush += 1;
       const ms = this.now().getTime();

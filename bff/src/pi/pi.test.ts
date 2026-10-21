@@ -1144,6 +1144,56 @@ test("artifact names cannot be paths, and sweeps take the files with the run", a
   expect(await store.listFiles(runId)).toEqual([]);
 });
 
+test("a session lookup rides the index in-process and the disk after a restart", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-session-`);
+  const store = new DirPiRunStore(dir);
+  // Count the fallback scans: the index must answer without one.
+  let scans = 0;
+  const scanAll = store.list.bind(store);
+  store.list = async (limit: number) => {
+    scans += 1;
+    return scanAll(limit);
+  };
+  const runId = "33333333-4444-4555-9666-777777777777";
+  const session = "44444444-5555-4666-8777-888888888888";
+  const meta = {
+    runId,
+    kind: "run",
+    agentId: null,
+    conversationId: null,
+    session: null,
+    target: "worker@h",
+    prompt: "p",
+    model: null,
+    startedAt: new Date().toISOString(),
+    endedAt: null,
+    state: "running",
+    exitCode: null,
+    error: null,
+    settled: false,
+    eventCount: 0,
+    lastEventAt: null,
+    bytesCaptured: 0,
+    remotePid: null,
+  } as unknown as PiRunMeta;
+  await store.create(meta);
+  // The session arrives with the stream, after the run file exists.
+  await store.update({ ...meta, session });
+  expect((await store.findBySession(session))?.runId).toBe(runId);
+  expect(scans).toBe(0);
+  // A run nobody here wrote is still findable: the scan is the fallback.
+  const reopened = new DirPiRunStore(dir);
+  let coldScans = 0;
+  const coldScanAll = reopened.list.bind(reopened);
+  reopened.list = async (limit: number) => {
+    coldScans += 1;
+    return coldScanAll(limit);
+  };
+  expect((await reopened.findBySession(session))?.runId).toBe(runId);
+  expect(coldScans).toBeGreaterThan(0);
+  expect(await store.findBySession("55555555-6666-4777-8888-999999999999")).toBeNull();
+});
+
 // ── operational feedback (prod lessons from the olla agent's runs) ──────────
 
 const BIG_LINES = {
