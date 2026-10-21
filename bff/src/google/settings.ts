@@ -1,5 +1,5 @@
 /**
- * What Settings → Google stores, and the two files it renders for the
+ * What Settings → Google Workspace stores, and the two files it renders for the
  * `google-mcp` sidecar.
  *
  * Everything here lives on two named volumes that only the BFF and the sidecar

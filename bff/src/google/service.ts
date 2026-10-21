@@ -1,5 +1,5 @@
 /**
- * Settings → Google, end to end: saving the policy, running the consent,
+ * Settings → Google Workspace, end to end: saving the policy, running the consent,
  * keeping the token file and the sidecar's config in step.
  *
  * The invariant everything here maintains: **the token never carries a scope
@@ -186,7 +186,7 @@ export class GoogleService {
 
   /**
    * Ask Google whether the token still works, at most every `maxAgeMs`: run
-   * when Settings → Google is opened, so it shows the truth rather than what
+   * when Settings → Google Workspace is opened, so it shows the truth rather than what
    * Google said at consent. A network failure is not a verdict and changes
    * nothing.
    */

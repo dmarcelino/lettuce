@@ -1,5 +1,5 @@
 /**
- * Settings → Google, and the OAuth round trip that grants it.
+ * Settings → Google Workspace, and the OAuth round trip that grants it.
  *
  * Agents reach Google through the `google-mcp` sidecar; this is where the user
  * decides how far. The policy and the token live on volumes only the BFF and the
@@ -89,7 +89,7 @@ export function registerGoogleRoutes<Env extends RouteEnv>(
 
   app.get("/api/google", async (c) => {
     try {
-      // Opening Settings → Google asks Google whether the token still works (at
+      // Opening Settings → Google Workspace asks Google whether the token still works (at
       // most every few minutes), so it shows the truth, not what consent said.
       await googleService.checkIfDue(GOOGLE_STATUS_CHECK_MS);
       const [settings, sidecarUp] = await Promise.all([googleService.status(), googleSidecarUp()]);
@@ -124,7 +124,7 @@ export function registerGoogleRoutes<Env extends RouteEnv>(
   // the user when access is lost (`google/lost-access.ts`). A GET because it is a
   // link; it only mints a single-use `state` for the signed-in user and sends
   // them to Google, where nothing happens without their own consent. When it
-  // cannot (signed out, read-only, no client saved) it lands on Settings → Google,
+  // cannot (signed out, read-only, no client saved) it lands on Settings → Google Workspace,
   // which says why.
   app.get("/api/google/reconnect", async (c) => {
     const settingsPage = googleSettingsUrl(publicOrigin);

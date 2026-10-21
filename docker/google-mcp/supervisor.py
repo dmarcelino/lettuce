@@ -1,6 +1,6 @@
 """Run workspace-mcp exactly as /policy/sidecar.json says, and nothing else.
 
-The BFF writes that file (Settings -> Google, bff/src/google/). It lives on a
+The BFF writes that file (Settings -> Google Workspace, bff/src/google/). It lives on a
 volume the app-server never mounts, so no agent can change it. Everything that
 widens or narrows what agents can do in Google is decided here, at launch:
 

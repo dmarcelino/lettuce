@@ -1082,6 +1082,12 @@ app.get("/api/status", async (c) => {
     authenticated: true,
     ...deployment,
     user: { email: session.email },
+    // What Settings → Access and → Sign-in report. Behind the session like every
+    // other operational field: where the port listens is not something an
+    // anonymous visitor gets to learn.
+    host_bind: config.hostBind,
+    public_origin: config.publicOrigin,
+    password_updated_at: config.signin === "password" ? passwords.updatedAt() : null,
     version: uiVersion,
     // Which integrations this deployment offers (from COMPOSE_PROFILES) — the
     // web hides the matching Settings sections and lists on this.
@@ -1769,11 +1775,15 @@ interface SocketData {
 const AUTH_REQUIRED_CLOSE_CODE = 4401;
 
 // PUBLIC_ORIGIN is only a declaration of intent; the bind address is the
-// enforcement. An instance that authenticates nobody binds to loopback whatever
-// else was configured, so it cannot reach the network by accident — and
-// `assertSigninIsSafe` already refused the combination where the host's published
-// port is wide as well.
-const bindHostname = config.signin === "none" ? "127.0.0.1" : "0.0.0.0";
+// enforcement — for the half of it that is ours. Under Compose the boundary is the
+// published port on the host (`BFF_BIND`, declared here as LETTA_HOST_BIND and
+// checked at boot), and the BFF must answer on the namespace's interfaces: a DNAT
+// never arrives on the container's own loopback, which is the whole reason the old
+// DEV_BYPASS_ALLOW_REMOTE existed. With no host bind declared nothing is publishing
+// us, so this is a bare `bun run dev` and an unauthenticated one binds itself to
+// loopback instead of leaning on the developer to remember.
+const bindHostname =
+  config.signin === "none" && !process.env.LETTA_HOST_BIND?.trim() ? "127.0.0.1" : "0.0.0.0";
 
 const server = Bun.serve<SocketData>({
   port: config.port,
@@ -1888,8 +1898,7 @@ if (!signinHasAddress(config.signin) && config.allowedUsers.length > 0) {
 if (config.signin === "none") {
   log("!".repeat(72));
   log("SIGN-IN IS OFF — nothing authenticates a visitor: anyone who reaches");
-  log(`this port is the owner. Bound to ${bindHostname}:${server.port}, host bind`);
-  log(`${config.hostBind}; keep it on a machine only you use.`);
+  log(`this port is the owner. Host bind ${config.hostBind}; keep it on a machine only you use.`);
   log("!".repeat(72));
 }
 

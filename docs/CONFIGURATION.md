@@ -42,16 +42,16 @@ offers, and even what the app-server image installs: `COMPOSE_PROFILES`.
 Compose passes it through to the BFF as `LETTA_MODE`, so there is nothing to
 keep in sync by hand.
 
-| `COMPOSE_PROFILES` | Mode | Sign-in |
+| `COMPOSE_PROFILES` | Adds | Must agree with |
 |---|---|---|
-| unset (default) | local | `DEV_BYPASS_EMAIL`, or nobody |
-| `cloudflared` | cloudflared | Cloudflare Access |
+| unset (default) | nothing | `ACCESS=lan` |
+| `cloudflared` | the Cloudflare Tunnel container | `ACCESS=cloudflared` |
 
-Other profiles are orthogonal to the mode:
+Other profiles are orthogonal to access:
 
 | Profile | Adds |
 |---|---|
-| `google` | the Gmail / Calendar / Tasks / Contacts sidecar + Settings → Google |
+| `google` | the Gmail / Calendar / Tasks / Contacts sidecar + Settings → Google Workspace |
 | `search` | SearXNG + `ddg-mcp`, behind the agents' web tools + Settings → Web |
 | `telegram` | the messaging channel gateway |
 | `codex` | virtual: installs the Codex CLI into the app-server image + Settings → Codex workers |
@@ -74,38 +74,97 @@ silently keeps the previous image, and the BFF logs a mismatch warning when a
 token is on but the CLI is not in the image it talks to. When you add one to a
 running deployment, rebuild before — not after — flipping `COMPOSE_PROFILES`.
 
-**Local mode authenticates nobody.** Whoever can reach the port *is* the
-configured user, and that user's agent has your shell, your files and your
-integrations. See [Security model](#security-model) before exposing it.
+`cloudflared` only creates the tunnel; what it means for who gets in is
+[`ACCESS`](#access) and [`SIGNIN`](#sign-in) — two settings, because "where is it
+reachable from" and "who has to sign in" are different questions. Whoever reaches
+an instance that asks for nothing *is* the owner, and that owner's agent has your
+shell, your files and your integrations. See
+[Security model](#security-model) before opening the port.
 
-## Authentication
+## Access
 
-| Variable | Mode | Effect |
+Two settings decide who can get in, and they are independent on purpose.
+**`ACCESS` is how the instance is reached; [`SIGNIN`](#sign-in) is how you prove
+who you are.** They used to be a single `mode`, which is why a laptop install
+could not ask for a password and a tunneled one could not ask for anything but
+Access.
+
+| `ACCESS` | Reached through | Boot rule |
 |---|---|---|
-| `DEV_BYPASS_EMAIL` | local | Every request becomes this address. No credential check. Implies its own allowlist entry, so `ALLOWED_USERS` is not needed alongside it (set both and they must name the same people). |
-| `DEV_BYPASS_ALLOW_REMOTE` | local | Required to serve the bypass beyond loopback. Without it, a non-loopback `PUBLIC_ORIGIN` + bypass refuses to boot. |
-| `ALLOWED_USERS` | cloudflared | Comma-separated allowlist. Required. A defense-in-depth mirror of the Cloudflare Access policy — **not** synced automatically; update both by hand. |
+| `lan` (default) | an address — this machine, or your network | a bind beyond loopback needs a sign-in method |
+| `cloudflared` | the Cloudflare Tunnel, and nothing else | the port may not be published beyond loopback |
 
-Under Docker, `DEV_BYPASS_ALLOW_REMOTE=true` is needed **even for localhost**:
-the BFF's loopback bind happens inside the container, where a published port
-cannot reach it. The host-side boundary is `BFF_BIND`.
+`ACCESS` must agree with the `cloudflared` token in `COMPOSE_PROFILES` in both
+directions — a token with `ACCESS=lan` is a public door the app was not
+configured for, and `ACCESS=cloudflared` with no token is a route that does not
+exist. Both refuse to boot rather than pick one silently. Unset derives from the
+token, so a `docker/.env` written for the old setup keeps behaving as it did.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `ACCESS` | from the profile token | `lan` or `cloudflared`. |
+| `SIGNIN=cf-access` | — | also needs `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`; see [Cloudflare Access](#cloudflare-access-signincf-access). |
+| `BFF_BIND` | `127.0.0.1` | Host interface the UI port is published on. `0.0.0.0` is how you say "let my phone reach this from the LAN"; with `ACCESS=cloudflared` the tunnel reaches the BFF over Docker's own network, so a wide bind is a second door and boot refuses it. |
+
+Settings → Access in the app reports what all of this resolved to, including
+where the port is listening.
+
+## Sign-in
+
+| `SIGNIN` | The credential | Requires | Who gets in |
+|---|---|---|---|
+| `none` | nothing — whoever reaches the port is the owner | loopback `BFF_BIND` | nobody is checked (`ALLOWED_USERS` goes unused) |
+| `password` | one password, typed in the browser | the hash volume `bff-auth` | whoever knows the password |
+| `cf-access` | Cloudflare Access, ahead of the tunnel | `ACCESS=cloudflared`, the `CF_ACCESS_*` trio, `ALLOWED_USERS` | the Access policy, then `ALLOWED_USERS` |
+| `google` | a Google account, over OAuth | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `ALLOWED_USERS` | a verified address in `ALLOWED_USERS` |
+
+Unset derives: `cf-access` when the tunnel token is present, `none` without it,
+which is what an older file expected. Setting `ALLOWED_USERS` for a method that
+receives no address is warned about at boot — it reads like protection and is
+not any.
 
 | Goal | Set |
 |---|---|
-| This machine only | `DEV_BYPASS_EMAIL`, `DEV_BYPASS_ALLOW_REMOTE=true`, `BFF_BIND=127.0.0.1`, loopback `PUBLIC_ORIGIN` |
-| Devices on your LAN | `DEV_BYPASS_EMAIL`, `DEV_BYPASS_ALLOW_REMOTE=true`, `PUBLIC_ORIGIN=http://<lan-ip>:8090` |
-| The internet | don't — use `cloudflared` mode |
+| This machine only | the defaults: loopback `PUBLIC_ORIGIN`, `BFF_BIND=127.0.0.1`, `SIGNIN=none` |
+| Your phone on the LAN | `SIGNIN=password`, `BFF_BIND=0.0.0.0`, `PUBLIC_ORIGIN=http://<lan-ip>:8090` |
+| The internet, one owner | `COMPOSE_PROFILES=cloudflared`, `SIGNIN=cf-access`, `ALLOWED_USERS=you@example.com` |
+| The internet, family Google accounts | the above with `SIGNIN=google` and the client below |
 
-In cloudflared mode, leave `DEV_BYPASS_EMAIL` and `DEV_BYPASS_ALLOW_REMOTE`
-unset: together they open a second door that bypasses Access and
-`ALLOWED_USERS` completely.
+**First run with a password.** Open the app and it asks you to choose one (ten
+characters or more) and signs you in from the same page. Nothing is generated for
+you and nothing goes in `.env` — until it is claimed, whoever reaches that page
+sets the password, so set it before you open `BFF_BIND`. Settings → Sign-in
+changes it later and asks for the current one.
+
+Only a scrypt hash is kept, on the `bff-auth` volume — deliberately *not* under
+`LETTA_STATE_DIR`, which the app-server mounts read-write as root and agent shells
+run inside. Losing that volume means choosing a new password, not recovering the
+old one. Five wrong attempts pause sign-in for a minute, doubling up to fifteen.
+
+**One Google client signs in and grants Workspace.** `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` serve sign-in *and* the Google Workspace consent in
+Settings: env rather than Settings because signing in happens before anyone could
+reach Settings, and the workspace side prefers env and falls back to the pair
+Settings holds. Register **both** redirect URIs per origin in the Google console:
+
+```text
+https://your-origin/auth/google/callback          # sign-in
+https://your-origin/api/google/oauth/callback     # Settings → Google Workspace
+```
+
+Google accepts https only (plus `localhost`), so a plain-http LAN origin needs
+`GOOGLE_OAUTH_REDIRECT_URI` — see
+[Google Workspace](#google-gmail-calendar-tasks-contacts).
+
+Under `SIGNIN=none` an agent shell shares this container's network namespace and
+can reach the loopback port, so changing Google access from an unauthenticated
+session is refused unless `GOOGLE_ALLOW_INSECURE_SIGNIN=true`.
 
 ## Networking
 
 | Variable | Default | Effect |
 |---|---|---|
 | `BFF_PORT` | `8090` | Host port the app is published on. |
-| `BFF_BIND` | `0.0.0.0` | Host interface the published port listens on. Set `127.0.0.1` in cloudflared mode — the tunnel reaches the BFF over Docker's internal network, so a LAN-reachable port is a door nobody needs open. |
 | `PORT` | `8080` | The BFF's own listen port, inside the container. Rarely worth changing. |
 
 ## Timezone
@@ -135,7 +194,7 @@ which drops the BFF's upstream connection, so run
 | `CONTEXT_USAGE_FILE` | `/app/data/context-usage.json` | On the `bff-data` volume: the last finished turn per conversation, so the context gauge survives a BFF restart instead of reading `—` until the next turn. Losing it costs nothing but the number. |
 | `CONTEXT_SIZE_FILE` | `/app/data/context-size.json` | On the `bff-data` volume: the context sizes you typed in the **Context** sheet, per agent or conversation. Empty means every agent takes its size from its model's declaration. Losing it only loses those overrides. |
 
-## Cloudflare Access (cloudflared mode)
+## Cloudflare Access (`SIGNIN=cf-access`)
 
 All of this comes from the Zero Trust dashboard; the walkthrough is
 [Cloudflare Tunnel (recommended for remote)](#cloudflare-tunnel-recommended-for-remote).
@@ -147,8 +206,8 @@ All of this comes from the Zero Trust dashboard; the walkthrough is
 | `CF_ACCESS_AUD` | the Access application's Audience (AUD) tag |
 | `CF_ACCESS_ISSUER` | only during a Zero Trust team rename, while old tokens still name the old team |
 
-`CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are required in cloudflared mode
-unless the dev bypass is active. Local mode never reads them.
+`CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are required whenever
+`SIGNIN=cf-access`, and read by nothing else — the other methods never see them.
 
 ## Version pins
 
@@ -283,13 +342,17 @@ VISION_PROVIDERS=[{"id":"vision-box","name":"Vision Box","description":"Qwen3-VL
 
 ## Google (Gmail, Calendar, Tasks, Contacts)
 
-Needs the `google` profile. The client ID/secret and the per-service
-permission levels are entered in **Settings → Google**, not here.
+Needs the `google` profile. The per-service permission levels are entered in
+**Settings → Google Workspace**; the OAuth client comes from the environment —
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, the same pair
+[sign-in](#sign-in) uses — and falls back to whatever Settings holds when those
+are unset.
 
 | Variable | Default | Effect |
 |---|---|---|
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | unset | the one Google OAuth client, shared with sign-in. Unset means Settings → Google Workspace uses its own stored pair. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | `${PUBLIC_ORIGIN}/api/google/oauth/callback` | override; must match a redirect URI on the OAuth client exactly. Google accepts only `https` or `localhost`, so a plain-http LAN origin needs `http://localhost:8090/...` plus a browser on the host. |
-| `GOOGLE_ALLOW_DEV_BYPASS` | `false` | lets a dev-bypass session change Google access. Off by default because agent shells share the BFF's network namespace and could change the levels themselves; behind Cloudflare Access they cannot. |
+| `GOOGLE_ALLOW_INSECURE_SIGNIN` | `false` | lets a session that signed in with `SIGNIN=none` change Google access. Off by default because agent shells share the BFF's network namespace and could change the levels themselves; every other method signs the visitor in first, and then they cannot. |
 
 ## Push notifications
 
@@ -429,11 +492,12 @@ cp docker/.env.example docker/.env
 # PUBLIC_ORIGIN=http://localhost:8090
 # SESSION_SECRET=$(openssl rand -hex 32)
 # LETTA_STATE_DIR=/absolute/path/to/state
-# DEV_BYPASS_EMAIL=you@example.com
-# DEV_BYPASS_ALLOW_REMOTE=true
-# BFF_BIND=127.0.0.1
+# everything else defaults: ACCESS=lan, SIGNIN=none, BFF_BIND=127.0.0.1
 docker compose -f docker/compose.yml up -d --build
 ```
+
+Nothing signs you in — `SIGNIN=none` is the default, and the boot rule only
+allows it while the port is loopback, so this is "the machine I am sitting at".
 
 Then point it at a model once:
 
@@ -444,9 +508,19 @@ docker compose -f docker/compose.yml exec app-server letta connect
 
 ### LAN (phones and other devices)
 
-Same as above, but `PUBLIC_ORIGIN=http://<lan-ip>:8090` and drop
-`BFF_BIND` so the port is reachable on the LAN interface. Anyone who can
-reach that port controls the agent — use it only on a network you trust.
+Same as above, plus a method to sign in with — a wide bind with nothing to
+authenticate is refused at boot:
+
+```bash
+SIGNIN=password      # or `google`, with the OAuth client set
+BFF_BIND=0.0.0.0
+PUBLIC_ORIGIN=http://<lan-ip>:8090
+```
+
+Open the app once from the laptop to choose the password (first run), then from
+the phone. Anyone who can reach that port and guess that password controls the
+agent — use it only on a network you trust, and change the password from
+Settings → Sign-in if you ever open the port further.
 
 ### Cloudflare Tunnel (recommended for remote)
 
@@ -455,6 +529,7 @@ COMPOSE_PROFILES=cloudflared
 LETTA_STATE_DIR=/srv/letta
 PUBLIC_ORIGIN=https://<your-hostname>
 SESSION_SECRET=<openssl rand -hex 32>
+SIGNIN=cf-access
 ALLOWED_USERS=you@example.com
 CF_ACCESS_TEAM_DOMAIN=acme
 CF_ACCESS_AUD=<Access application Audience tag>
@@ -493,6 +568,7 @@ as that fallback).
 | `LETTA_STATE_DIR` | `/srv/letta` |
 | `PUBLIC_ORIGIN` | `https://<your-hostname>` |
 | `SESSION_SECRET` | `openssl rand -hex 32` |
+| `SIGNIN` | `cf-access` (or `google`, with the OAuth client) |
 | `ALLOWED_USERS` | `you@example.com` |
 | `CF_ACCESS_TEAM_DOMAIN` | `acme` |
 | `CF_ACCESS_AUD` | Access application Audience tag |
@@ -537,24 +613,31 @@ cd bff && \
   LETTA_APP_SERVER_URL=ws://127.0.0.1:4500 \
   PUBLIC_ORIGIN=http://localhost:8080 \
   SESSION_SECRET=$(openssl rand -hex 32) \
-  DEV_BYPASS_EMAIL=you@example.com \
   bun --watch src/index.ts
 
 # Terminal 3 — Vite
 cd web && bun run dev
 ```
 
-Here the BFF's loopback bind *is* a real boundary, so
-`DEV_BYPASS_ALLOW_REMOTE` is not needed.
+`SIGNIN` defaults to `none` here, and with no `LETTA_HOST_BIND` declared the BFF
+binds itself to loopback — outside Docker that bind *is* the boundary, so there is
+nothing else to set. Pass `SIGNIN=password` to try the password flow, or
+`LETTA_HOST_BIND=0.0.0.0` to reach it from another device (which then demands a
+method).
 
 ## Security model
 
-- **Cloudflare Access is the gate** in cloudflared mode. The app only
+- **Cloudflare Access is the gate** with `SIGNIN=cf-access`. The app only
   verifies the JWT Access injects after a human signs in; `ALLOWED_USERS` is
   what still stands if that policy is ever misconfigured.
-- **Local mode has no gate.** `DEV_BYPASS_EMAIL` authenticates nobody, which
-  is why a non-loopback origin with a bypass refuses to start unless
-  `DEV_BYPASS_ALLOW_REMOTE=true` says so explicitly.
+- **`SIGNIN=none` has no gate at all**, which is why it is only allowed while the
+  published port is loopback — boot refuses it otherwise, rather than trusting a
+  comment. The identity it mints (`owner`) is a formality, and the app says so in
+  the top bar on every screen.
+- **`ACCESS` and `SIGNIN` are checked together.** A tunnel that is not the access,
+  a port wide open with nothing to authenticate, and `cf-access` with no tunnel
+  each refuse to boot, because the dangerous configurations are exactly the ones
+  where the two halves disagree.
 - **The session secret is the whole trust anchor.** There is no server-side
   session store, so a leaked secret forges sessions until it is rotated.
   Hence the boot-time strength check.
@@ -573,8 +656,12 @@ Here the BFF's loopback bind *is* a real boundary, so
 | `Missing required environment variable SESSION_SECRET` | Set it: `openssl rand -hex 32`. |
 | `SESSION_SECRET is too short (N characters, minimum 32)` | Same — a longer, random value. |
 | `SESSION_SECRET is one character repeated` / `N-character pattern repeated` | Same — don't pad a short secret. |
-| `Refusing to start: DEV_BYPASS_EMAIL is set but PUBLIC_ORIGIN is reachable from other machines` | Use a loopback origin, or switch to cloudflared mode, or set `DEV_BYPASS_ALLOW_REMOTE=true` knowingly. |
-| `Missing required environment variable CF_ACCESS_AUD` (or `CF_ACCESS_TEAM_DOMAIN`) | You're in cloudflared mode without Access credentials. |
+| `SIGNIN=none authenticates nobody, but BFF_BIND is …` | Set `BFF_BIND=127.0.0.1`, or pick a method: `SIGNIN=password`. |
+| `ACCESS=cloudflared but BFF_BIND is …` | The tunnel is the way in; close the published port (`BFF_BIND=127.0.0.1`, the default). |
+| `ACCESS says cloudflared but the cloudflared profile token is not set` (or the other direction) | The two disagree. Set `ACCESS` to match `COMPOSE_PROFILES`, or unset `ACCESS` and let it derive. |
+| `DEV_BYPASS_EMAIL is gone` | It was replaced by `SIGNIN=none` (nothing) or `SIGNIN=password` (one password). Delete the variable. |
+| `SIGNIN=google needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET` | Put the OAuth client in `docker/.env` — Settings is unreachable before sign-in, so it cannot live there. |
+| `Missing required environment variable CF_ACCESS_AUD` (or `CF_ACCESS_TEAM_DOMAIN`) | `SIGNIN=cf-access` without Access credentials. |
 | `PORT` / `SESSION_TTL_SECONDS` / `FRAME_BUFFER_SIZE` "must be a positive number" | The value isn't a positive number; empty means "use the default". |
-| Boots fine, every request resets | Loopback bind under Docker. Set `DEV_BYPASS_ALLOW_REMOTE=true` and check `BFF_BIND`. |
+| Boots fine, every request resets | The BFF cannot be reached through the published port — check `BFF_BIND` and that the method in `SIGNIN` is one you can actually satisfy. |
 | Healthy stack, empty state | `LETTA_STATE_DIR` is relative and you ran compose from a worktree. Set it absolutely. |

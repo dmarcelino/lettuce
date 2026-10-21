@@ -110,7 +110,7 @@ export interface BffConfig {
    * search fallback. Null switches that backend off.
    */
   webTools: { searxngUrl: string | null; ddgMcpUrl: string | null };
-  /** Settings → Google — see `google/settings.ts`. */
+  /** Settings → Google Workspace — see `google/settings.ts`. */
   google: GoogleConfig;
   /**
    * Which integrations this deployment offers at all, from the tokens in

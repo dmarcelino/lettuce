@@ -1,5 +1,5 @@
 # Gmail, Calendar and Tasks for agents (taylorwilsdon/google_workspace_mcp),
-# under a supervisor that runs it only as Settings → Google says.
+# under a supervisor that runs it only as Settings → Google Workspace says.
 #
 # A sidecar, not a process in the app-server, because the app-server is where
 # agent shells run and they can write anything there: the OAuth token and the

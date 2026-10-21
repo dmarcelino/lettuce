@@ -204,7 +204,7 @@ describe("googleHandlers", () => {
     });
     const answer = await handlers.get("gmail_send")?.({ to: "a@b.c", subject: "s", body: "b" });
     expect(answer?.isError).toBe(true);
-    expect(answer?.text).toContain("Settings → Google");
+    expect(answer?.text).toContain("Settings → Google Workspace");
   });
 
   test("bad arguments are explained before anything is called", async () => {

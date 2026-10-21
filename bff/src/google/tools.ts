@@ -578,7 +578,7 @@ export function googleHandlers(options: {
       const { specs, server } = availableGoogleTools(await options.catalog(), options.googleUrl);
       if (!server || !specs.some((s) => s.name === curated.spec.name)) {
         return {
-          text: `${curated.spec.name} is not available: Google is off, disconnected, or its access level in Settings → Google does not allow it.`,
+          text: `${curated.spec.name} is not available: Google is off, disconnected, or its access level in Settings → Google Workspace does not allow it.`,
           isError: true,
         };
       }

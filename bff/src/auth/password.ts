@@ -56,6 +56,7 @@ export function assertPasswordIsUsable(password: string): void {
 
 export class PasswordStore {
   private claimedCache: boolean | null = null;
+  private updatedAtCache: string | null = null;
 
   constructor(private readonly dir: string) {}
 
@@ -72,10 +73,22 @@ export class PasswordStore {
   async claimed(): Promise<boolean> {
     if (this.claimedCache === null) {
       this.claimedCache = await this.current()
-        .then((stored) => stored !== null)
+        .then((stored) => {
+          this.updatedAtCache = stored?.updatedAt ?? null;
+          return stored !== null;
+        })
         .catch(() => true);
     }
     return this.claimedCache;
+  }
+
+  /**
+   * When the password was last set, from the same read as `claimed()` — shown in
+   * Settings → Sign-in, where "did I change this after the breach" matters. Null
+   * only when the file could not be read at all.
+   */
+  updatedAt(): string | null {
+    return this.updatedAtCache;
   }
 
   /** The stored hash, or null when nobody has claimed this instance yet. */
@@ -113,6 +126,7 @@ export class PasswordStore {
     await writeFile(temp, `${JSON.stringify(stored, null, 2)}\n`, { mode: 0o600 });
     await rename(temp, this.file);
     this.claimedCache = true;
+    this.updatedAtCache = updatedAt;
     return { updatedAt };
   }
 

@@ -179,28 +179,29 @@ To configure the model endpoint, go to Settings → Providers & models and **Add
 
 For details on configuration, see [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
 
-## Two running modes
+## Access and sign-in
 
-One setting, `COMPOSE_PROFILES`, decides which mode you are in and which
-optional containers exist.
+Two settings, because "where can I reach it" and "who has to sign in" are
+different questions: `ACCESS` (`lan` | `cloudflared`) and `SIGNIN`
+(`none` | `password` | `cf-access` | `google`). Both derive from
+`COMPOSE_PROFILES` when unset, and the dangerous combinations refuse to boot.
 
-| | Local mode (default) | Cloudflared mode |
-|---|---|---|
-| Reachable from | Your LAN, directly | Only through the Cloudflare Tunnel |
-| Sign-in | `DEV_BYPASS_EMAIL` — no credential check | Cloudflare Access (Google login) |
-| Cloudflare account | Not needed | Required |
-| `cloudflared` container | Never created | Created |
-| Good for | Development, a trusted home network | Anything reachable from the internet |
+| | On this machine (default) | On your network | Behind a tunnel |
+|---|---|---|---|
+| `ACCESS` | `lan` | `lan` | `cloudflared` |
+| `SIGNIN` | `none` | `password` | `cf-access` or `google` |
+| `BFF_BIND` | `127.0.0.1` | `0.0.0.0` | `127.0.0.1` |
+| Cloudflare account | not needed | not needed | required |
+| Good for | the machine you sit at | a network you trust | anything on the internet |
 
-**Local mode authenticates nobody.** Whoever can reach the port *is* the
-configured user, and that user's agent has your shell, your files and your
-integrations. The app refuses to start with a bypass on a non-loopback origin
-unless you also set `DEV_BYPASS_ALLOW_REMOTE=true`, which is the deliberate
-"yes, on this trusted network" switch. Never combine a bypass with a public
-deployment.
+**`SIGNIN=none` authenticates nobody** — whoever reaches the port *is* the owner,
+and that owner's agent has your shell, your files and your integrations. That is
+why boot allows it only with a loopback `BFF_BIND`. To put the app on a network,
+pick a method: one password you set in the browser on first run, Cloudflare
+Access, or a Google account from an allowlist.
 
-For real remote access, set `COMPOSE_PROFILES=cloudflared` and put Cloudflare
-Access in front of it. The walkthrough is in
+For real remote access, set `COMPOSE_PROFILES=cloudflared` with
+`SIGNIN=cf-access` and put Cloudflare Access in front of it. The walkthrough is in
 [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
 
 ## Where your data lives
