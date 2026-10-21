@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { GOOGLE_REVOKE_URI, GOOGLE_USERINFO_URI } from "./oauth.ts";
 import { scopesForPermissions } from "./policy.ts";
 import { GoogleAccessError, type GoogleIo, GoogleService } from "./service.ts";
-import { GOOGLE_SIDECAR_FILE, GOOGLE_TOKEN_URI, type SidecarConfig } from "./settings.ts";
+import {
+  GOOGLE_SETTINGS_FILE,
+  GOOGLE_SIDECAR_FILE,
+  GOOGLE_TOKEN_URI,
+  type SidecarConfig,
+} from "./settings.ts";
 
 const G = "https://www.googleapis.com/auth/";
 
@@ -392,5 +397,80 @@ describe("disconnect and verify", () => {
     now += 31_000;
     await service.checkIfDue(60_000);
     expect((await service.status()).grant?.lostAt).toBeString();
+  });
+});
+
+describe("where the Google client comes from", () => {
+  const ENVED = { clientId: "env-id.apps.googleusercontent.com", clientSecret: "env-secret" };
+
+  function withEnvClient(env?: { clientId: string; clientSecret: string }) {
+    const mem = memoryIo();
+    const google = fakeGoogle();
+    const service = new GoogleService({
+      io: mem.io,
+      fetch: google.fetch,
+      redirectUri: "https://ui.example/api/google/oauth/callback",
+      syncMcpEntry: async () => {},
+      envClient: env,
+      log: () => {},
+    });
+    return {
+      service,
+      connect: async () => {
+        const state = google.ask(await service.startConnect());
+        return service.finishConnect({ state, code: "c" });
+      },
+      /** What the settings file holds, as opposed to what takes effect. */
+      stored: () =>
+        JSON.parse(mem.policy.get(GOOGLE_SETTINGS_FILE) ?? "{}") as {
+          clientId: string;
+          clientSecret: string | null;
+        },
+      sidecar: () => JSON.parse(mem.policy.get(GOOGLE_SIDECAR_FILE) ?? "{}") as SidecarConfig,
+      credential: () =>
+        JSON.parse([...mem.creds.values()][0] ?? "{}") as {
+          client_id: string;
+          client_secret: string;
+        },
+    };
+  }
+
+  async function connected(env?: { clientId: string; clientSecret: string }) {
+    const t = withEnvClient(env);
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    return t;
+  }
+
+  test("the environment pair is the live one", async () => {
+    const t = await connected(ENVED);
+    expect((await t.service.status()).clientId).toBe(ENVED.clientId);
+    expect((await t.service.status()).clientSource).toBe("env");
+    // The sidecar and the stored token both run the client that issued the
+    // consent — either mismatch and every refresh fails.
+    expect(t.sidecar().clientId).toBe(ENVED.clientId);
+    expect(t.sidecar().clientSecret).toBe(ENVED.clientSecret);
+    expect(t.credential().client_id).toBe(ENVED.clientId);
+  });
+
+  test("the file keeps the pair it held, so dropping the variables falls back", async () => {
+    const t = await connected(ENVED);
+    // Writing env's secret into the file would replace the fallback with the
+    // thing it is the fallback for, and outlive the variables being removed.
+    expect(t.stored().clientId).toBe(CLIENT.clientId);
+    expect(t.stored().clientSecret).toBe(CLIENT.clientSecret);
+  });
+
+  test("without the variables the stored pair is the live one", async () => {
+    const t = await connected(undefined);
+    expect((await t.service.status()).clientSource).toBe("stored");
+    expect(t.sidecar().clientId).toBe(CLIENT.clientId);
+    expect(t.credential().client_id).toBe(CLIENT.clientId);
+  });
+
+  test("a half-set pair is not a client", async () => {
+    const t = await connected({ clientId: ENVED.clientId, clientSecret: "" });
+    expect((await t.service.status()).clientSource).toBe("stored");
+    expect(t.sidecar().clientId).toBe(CLIENT.clientId);
   });
 });

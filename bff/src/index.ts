@@ -26,13 +26,16 @@ import {
   parseToolAccess,
 } from "./agents/tool-access.ts";
 import { checkUpgradeOrigin } from "./auth/origin.ts";
+import { AttemptLockout, PasswordStore } from "./auth/password.ts";
 import { resolveSession } from "./auth/resolve-session.ts";
+import { registerSignInRoutes } from "./auth/routes.ts";
 import {
   buildSessionCookie,
   clearSessionCookie,
   encodeSession,
   type SessionPayload,
 } from "./auth/session-cookie.ts";
+import { GoogleSignIn, registerGoogleSignInRoutes } from "./auth/signin-google.ts";
 import { registerClaudeRoutes } from "./claude/routes.ts";
 import { type ClaudeFileIo, reapplyClaudeSettings } from "./claude/service.ts";
 import { AGENT_POLICY_MOD_PATH, renderAgentPolicyMod } from "./codex/policy-mod.ts";
@@ -42,8 +45,9 @@ import {
   type BffConfig,
   enabledFeatureNames,
   googleWritesAllowed,
-  isAllowedUser,
   loadConfig,
+  signinHasAddress,
+  signinLabel,
 } from "./config.ts";
 import {
   CODING_MARKER_LEGACY_PATH,
@@ -474,7 +478,7 @@ async function checkCodingMarker(): Promise<void> {
 function deploymentRows(): Component[] {
   return deploymentComponents({
     features: config.features,
-    tunnel: config.mode === "cloudflared",
+    tunnel: config.access === "cloudflared",
     pinVersions: config.pinVersions,
     webReader: config.webTools.ddgMcpUrl !== null,
     marker: codingMarker,
@@ -1024,6 +1028,11 @@ const throttle = async (c: Context, next: () => Promise<void>) => {
 };
 app.use("/api/*", throttle);
 app.use("/push/*", throttle);
+// Credential attempts belong to the anonymous bucket until they succeed, so
+// without this the volume limit would cover every route except the one worth
+// flooding. `AttemptLockout` in `auth/password.ts` is the slower, password-aware
+// half of the same story.
+app.use("/auth/*", throttle);
 
 // The session gate for everything under `/api` and `/push`. Thirty-four handlers
 // used to begin with the same hand-written check, which means a route that forgot
@@ -1049,26 +1058,29 @@ const requireSession = async (c: Context, next: () => Promise<void>) => {
 app.use("/api/*", requireSession);
 app.use("/push/*", requireSession);
 
-// The web client reads exactly three fields: `authenticated`, `auth_mode` and
-// `user.email`. Everything else here is operational detail — the running
-// letta-code version, backend kind, protocol version, how many sessions are
-// connected — and this route is UNAUTHENTICATED, so an anonymous visitor could
-// fingerprint the deployment straight from it. The full payload is served only
-// to a signed-in session, where it is useful for debugging; an anonymous
-// caller gets the minimum needed to render a sign-in screen.
-app.get("/api/status", (c) => {
+// The web client reads five fields: `authenticated`, `access`, `signin`,
+// `setup_required` and `user.email`. Everything else here is operational detail —
+// the running letta-code version, backend kind, protocol version, how many
+// sessions are connected — and this route is UNAUTHENTICATED, so an anonymous
+// visitor could fingerprint the deployment straight from it. The full payload is
+// served only to a signed-in session, where it is useful for debugging; an
+// anonymous caller gets the minimum needed to render a sign-in screen.
+app.get("/api/status", async (c) => {
   const session = c.get("session");
-  const auth_mode = config.devBypassEmail
-    ? "dev-bypass"
-    : config.mode === "cloudflared"
-      ? "cf-access"
-      : "none";
+  // Whether the first-run password is still missing. The store memoises it, so
+  // this stays one file read per process rather than one per poll.
+  const setupRequired = config.signin === "password" && !(await passwords.claimed());
+  const deployment = {
+    access: config.access,
+    signin: config.signin,
+    setup_required: setupRequired,
+  };
 
-  if (!session) return c.json({ authenticated: false, auth_mode });
+  if (!session) return c.json({ authenticated: false, ...deployment });
 
   return c.json({
     authenticated: true,
-    auth_mode,
+    ...deployment,
     user: { email: session.email },
     version: uiVersion,
     // Which integrations this deployment offers (from COMPOSE_PROFILES) — the
@@ -1090,29 +1102,37 @@ app.get("/api/status", (c) => {
   });
 });
 
-// Dev-bypass's only self-service entry point. In production (Access
-// enforcing) there is nothing for this route to do — a visitor who reaches
-// the origin at all already has a valid Access JWT, which the middleware
-// above turns into a session before any handler runs.
-app.get("/auth/login", (c) => {
-  if (config.devBypassEmail) return c.redirect("/auth/dev-login");
-  return c.text("Sign in via Cloudflare Access.", 400);
+// The sign-in surface for this instance's method: a password form, the first-run
+// setup, or — with SIGNIN=none — the one door that hands out a session for
+// nothing. See `auth/routes.ts`.
+const passwords = new PasswordStore(config.signinDir);
+const lockout = new AttemptLockout();
+
+registerSignInRoutes(app, {
+  config,
+  passwords,
+  lockout,
+  mint: mintSession,
+  log,
+  hardened,
 });
 
-app.get("/auth/dev-login", (c) => {
-  const email = config.devBypassEmail;
-  if (!email) return c.text("Dev login is disabled", 404);
+// `SIGNIN=google` only: the credentials come from the environment precisely
+// because signing in happens before Settings can be reached.
+const googleSignIn = new GoogleSignIn({
+  clientId: config.google.envClientId,
+  clientSecret: config.google.envClientSecret,
+  redirectUri: `${config.publicOrigin}/auth/google/callback`,
+});
 
-  // Unset ALLOWED_USERS makes the bypass email its own allowlist, so this can
-  // only fire when both were set explicitly and name different people — a real
-  // misconfiguration rather than the self-contradiction it used to report.
-  if (!isAllowedUser(config, email)) {
-    return c.text(`DEV_BYPASS_EMAIL ${email} is not listed in ALLOWED_USERS`, 403);
-  }
-
-  log(`Dev login as ${email} (NO AUTHENTICATION — loopback only)`);
-  const { cookie } = mintSession(email);
-  return hardenedResponse(hardened, null, { location: "/", "set-cookie": cookie }, 302);
+registerGoogleSignInRoutes(app, {
+  config,
+  signIn: googleSignIn,
+  enabled: config.signin === "google",
+  redirectUri: `${config.publicOrigin}/auth/google/callback`,
+  mint: mintSession,
+  log,
+  hardened,
 });
 
 app.post("/auth/logout", (c) => {
@@ -1473,6 +1493,13 @@ const googleService = new GoogleService({
   // The `google` profile token: stored settings intact, sidecar and MCP entry
   // off while it is absent. See `GoogleServiceDeps.profileEnabled`.
   profileEnabled: () => config.features.google,
+  // The env client, when present, is the live one for the consent too — the same
+  // pair `SIGNIN=google` signs in with. Settings keeps its own pair as the
+  // fallback; see `GoogleServiceDeps.envClient`.
+  envClient: {
+    clientId: config.google.envClientId,
+    clientSecret: config.google.envClientSecret,
+  },
   log,
 });
 
@@ -1742,10 +1769,11 @@ interface SocketData {
 const AUTH_REQUIRED_CLOSE_CODE = 4401;
 
 // PUBLIC_ORIGIN is only a declaration of intent; the bind address is the
-// enforcement. The bypass stays on loopback unless DEV_BYPASS_ALLOW_REMOTE
-// explicitly says otherwise, so it cannot reach the network by accident.
-const bindHostname =
-  config.devBypassEmail && !config.devBypassAllowRemote ? "127.0.0.1" : "0.0.0.0";
+// enforcement. An instance that authenticates nobody binds to loopback whatever
+// else was configured, so it cannot reach the network by accident — and
+// `assertSigninIsSafe` already refused the combination where the host's published
+// port is wide as well.
+const bindHostname = config.signin === "none" ? "127.0.0.1" : "0.0.0.0";
 
 const server = Bun.serve<SocketData>({
   port: config.port,
@@ -1760,7 +1788,7 @@ const server = Bun.serve<SocketData>({
       // visits could open a socket to this BFF and act as them.
       const origin = checkUpgradeOrigin(
         request.headers.get("origin"),
-        config.mode,
+        config.access,
         config.publicOrigin,
         request.headers.get("host"),
       );
@@ -1830,7 +1858,8 @@ const server = Bun.serve<SocketData>({
   },
 });
 
-log(`Mode: ${config.mode}`);
+log(`Access: ${config.access === "cloudflared" ? "Cloudflare Tunnel" : "direct"}`);
+log(`Sign-in: ${signinLabel(config.signin)}`);
 const featureNames = enabledFeatureNames(config.features);
 log(
   `Features: ${
@@ -1838,21 +1867,42 @@ log(
   }`,
 );
 log(`Listening on ${bindHostname}:${server.port} (public origin ${config.publicOrigin})`);
+log(`Host port listens on ${config.hostBind}`);
 log(`App-server: ${config.appServerUrl}`);
 // A misbuilt image without git would otherwise be noticed only as a quiet 503
 // on the first History open; say it out loud once here instead.
 void checkGitAvailability(runGit, (message) => log(message));
-log(`Allowlisted users: ${config.allowedUsers.join(", ") || "(none — nobody can sign in)"}`);
-if (config.devBypassEmail) {
-  log("!".repeat(72));
-  log(`DEV BYPASS ACTIVE — no authentication. Any request gets a session as`);
-  log(`${config.devBypassEmail}.`);
+log(
+  signinHasAddress(config.signin)
+    ? `Allowlisted addresses: ${config.allowedUsers.join(", ") || "(none — nobody can sign in)"}`
+    : `Allowlist: not used by SIGNIN=${config.signin}`,
+);
+// Setting the list for a method that gets no address to match is a
+// configuration that reads as if it protected something.
+if (!signinHasAddress(config.signin) && config.allowedUsers.length > 0) {
   log(
-    config.devBypassAllowRemote
-      ? `EXPOSED ON THE NETWORK at ${config.publicOrigin} by DEV_BYPASS_ALLOW_REMOTE=true.`
-      : "Bound to 127.0.0.1 only; not reachable off this machine.",
+    `NOTE: ALLOWED_USERS is set, but SIGNIN=${config.signin} has no address to check — it is unused.`,
   );
+}
+
+if (config.signin === "none") {
   log("!".repeat(72));
+  log("SIGN-IN IS OFF — nothing authenticates a visitor: anyone who reaches");
+  log(`this port is the owner. Bound to ${bindHostname}:${server.port}, host bind`);
+  log(`${config.hostBind}; keep it on a machine only you use.`);
+  log("!".repeat(72));
+}
+
+// Reading the store here also warms the memo `setup_required` is built from, so
+// the first `/api/status` after this never reads the file.
+if (config.signin === "password") {
+  void passwords.claimed().then((claimed) => {
+    if (claimed) return;
+    log("!".repeat(72));
+    log("NO PASSWORD SET — this instance is unclaimed. Open it and choose one:");
+    log(`the first visitor to get there owns it. ${config.publicOrigin}`);
+    log("!".repeat(72));
+  });
 }
 
 // Closing the upstream connection cancels every turn in flight (it is the only

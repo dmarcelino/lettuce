@@ -69,6 +69,13 @@ export interface GoogleServiceDeps {
    * setup with one flip of the switch.
    */
   profileEnabled?: () => boolean;
+  /**
+   * The Google client from the environment (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`).
+   * When set it is the live client for everything here *and* for `SIGNIN=google` —
+   * one client, one console entry, one place to look — and the pair stored in
+   * Settings becomes the fallback for an install that predates the variables.
+   */
+  envClient?: { clientId: string; clientSecret: string };
   log: (message: string) => void;
   now?: () => number;
 }
@@ -96,6 +103,29 @@ export class GoogleService {
     return this.deps.now?.() ?? Date.now();
   }
 
+  /** The env pair, but only when it is complete — a half-set pair is not a client. */
+  private envClient(): { clientId: string; clientSecret: string } | null {
+    const env = this.deps.envClient;
+    return env && env.clientId && env.clientSecret ? env : null;
+  }
+
+  /**
+   * The client that takes effect: the environment's when it is set, what Settings
+   * holds otherwise. Consent, sidecar config and token refresh must all agree on
+   * this answer — a refresh token is only good for the client that was issued it —
+   * while the file keeps whatever the operator typed, so removing the variables
+   * later falls back to it instead of to nothing.
+   */
+  private clientOf(settings: GoogleSettings): {
+    clientId: string;
+    clientSecret: string | null;
+  } {
+    const env = this.envClient();
+    return env
+      ? { clientId: env.clientId, clientSecret: env.clientSecret }
+      : { clientId: settings.clientId, clientSecret: settings.clientSecret };
+  }
+
   private serialized<T>(task: () => Promise<T>): Promise<T> {
     const run = this.queue.then(task, task);
     this.queue = run.catch(() => undefined);
@@ -106,20 +136,30 @@ export class GoogleService {
     return parseStoredGoogleSettings(await this.deps.io.readPolicy(GOOGLE_SETTINGS_FILE));
   }
 
+  /** What the browser sees, with where the live client came from. */
+  private publicOf(settings: GoogleSettings): PublicGoogleSettings {
+    return toPublicGoogleSettings(this.effective(settings), this.envClient() ? "env" : "stored");
+  }
+
   /**
    * The settings as they take effect: with the `google` profile token off,
-   * `enabled` is false whatever the stored switch says. Everything that
-   * renders the sidecar's config or decides serving runs on this; everything
-   * that writes stored state runs on the raw settings, so a token that comes
-   * back finds the previous setup intact.
+   * `enabled` is false whatever the stored switch says, and the environment's
+   * client replaces the stored one. Everything that renders the sidecar's config,
+   * decides serving, or answers the browser runs on this; everything that writes
+   * stored state runs on the raw settings, so a token that comes back finds the
+   * previous setup intact.
    */
   private effective(settings: GoogleSettings): GoogleSettings {
+    const withClient = this.envClient() ? { ...settings, ...this.clientOf(settings) } : settings;
     const gate = this.deps.profileEnabled;
-    return gate && !gate() && settings.enabled ? { ...settings, enabled: false } : settings;
+    return gate && !gate() && withClient.enabled ? { ...withClient, enabled: false } : withClient;
   }
 
   async status(): Promise<PublicGoogleSettings> {
-    return toPublicGoogleSettings(this.effective(await this.load()));
+    return toPublicGoogleSettings(
+      this.effective(await this.load()),
+      this.envClient() ? "env" : "stored",
+    );
   }
 
   /** When `checkIfDue` last asked Google; in memory, so a restart checks again. */
@@ -258,14 +298,15 @@ export class GoogleService {
       }
 
       await this.persist(next);
-      return { settings: toPublicGoogleSettings(next), warning };
+      return { settings: this.publicOf(next), warning };
     });
   }
 
   /** Begin a consent for the current policy. Returns Google's URL. */
   async startConnect(): Promise<string> {
     const settings = await this.load();
-    if (!settings.clientId || !settings.clientSecret) {
+    const client = this.clientOf(settings);
+    if (!client.clientId || !client.clientSecret) {
       throw new GoogleAccessError("Save an OAuth client ID and secret first");
     }
     if (!hasAnyService(settings.permissions)) {
@@ -283,7 +324,7 @@ export class GoogleService {
       expiresAt: now + CONSENT_TTL_MS,
     });
     return buildAuthUrl({
-      clientId: settings.clientId,
+      clientId: client.clientId,
       redirectUri: this.deps.redirectUri,
       scopes: scopesForPermissions(settings.permissions),
       state,
@@ -313,12 +354,13 @@ export class GoogleService {
 
     return this.serialized(async () => {
       const settings = await this.load();
-      if (!settings.clientId || !settings.clientSecret) {
+      const client = this.clientOf(settings);
+      if (!client.clientId || !client.clientSecret) {
         throw new GoogleAccessError("The OAuth client was removed while signing in");
       }
       const tokens = await exchangeCode(this.deps.fetch, {
-        clientId: settings.clientId,
-        clientSecret: settings.clientSecret,
+        clientId: client.clientId,
+        clientSecret: client.clientSecret,
         code,
         redirectUri: this.deps.redirectUri,
         codeVerifier: consent.verifier,
@@ -361,7 +403,7 @@ export class GoogleService {
       await this.clearCreds();
       await this.deps.io.writeCred(
         credentialFileName(email),
-        renderCredentialFile(settings, tokens),
+        renderCredentialFile(this.effective(settings), tokens),
       );
 
       settings.grant = {
@@ -372,7 +414,7 @@ export class GoogleService {
       };
       await this.persist(settings);
       this.deps.log(`Google: connected ${email} (${tokens.scopes.length} scopes)`);
-      return { email, settings: toPublicGoogleSettings(settings) };
+      return { email, settings: this.publicOf(settings) };
     });
   }
 
@@ -382,7 +424,7 @@ export class GoogleService {
       const settings = await this.load();
       const warning = await this.dropGrant(settings, "disconnected");
       await this.persist(settings);
-      return { settings: toPublicGoogleSettings(settings), warning };
+      return { settings: this.publicOf(settings), warning };
     });
   }
 
@@ -395,7 +437,8 @@ export class GoogleService {
     return this.serialized(async () => {
       const settings = await this.load();
       if (!settings.grant) throw new GoogleAccessError("Not connected");
-      if (!settings.clientId || !settings.clientSecret) {
+      const client = this.clientOf(settings);
+      if (!client.clientId || !client.clientSecret) {
         throw new GoogleAccessError("No OAuth client is saved");
       }
       const refreshToken = await this.readRefreshToken();
@@ -406,8 +449,8 @@ export class GoogleService {
       } else {
         try {
           const live = await refreshGrant(this.deps.fetch, {
-            clientId: settings.clientId,
-            clientSecret: settings.clientSecret,
+            clientId: client.clientId,
+            clientSecret: client.clientSecret,
             refreshToken,
           });
           // It works: whatever was recorded as lost is no longer true.
@@ -432,7 +475,7 @@ export class GoogleService {
         }
       }
       await this.persist(settings);
-      return { settings: toPublicGoogleSettings(settings), warning };
+      return { settings: this.publicOf(settings), warning };
     });
   }
 }

@@ -14,8 +14,8 @@
 
 import type { Context, Hono } from "hono";
 import { errorMessage } from "../errors.ts";
+import { resultPage } from "../html-page.ts";
 import type { RouteEnv } from "../route-env.ts";
-import { hardenedResponse } from "../security-headers.ts";
 import { googleSettingsUrl } from "./lost-access.ts";
 import { GoogleOAuthError } from "./oauth.ts";
 import { GoogleAccessError, type GoogleService } from "./service.ts";
@@ -62,16 +62,17 @@ export function registerGoogleRoutes<Env extends RouteEnv>(
   }
 
   /**
-   * The gate Google writes pass but reads do not: while `DEV_BYPASS_EMAIL` is set,
-   * an agent can sign itself in, so granting access has to be impossible. The
-   * session itself is checked by `requireSession`, above every route.
+   * The gate Google writes pass but reads do not: while nothing authenticates a
+   * session (`SIGNIN=none`), an agent can sign itself in, so granting access has
+   * to be impossible. The session itself is checked by `requireSession`, above
+   * every route.
    */
   function googleWriteRefusal(c: Context): Response | null {
     if (!writesAllowed) {
       return c.text(
-        "Google access cannot be changed while DEV_BYPASS_EMAIL is set: agents can sign " +
-          "themselves in through the bypass. Use Cloudflare Access, or set " +
-          "GOOGLE_ALLOW_DEV_BYPASS=true on a machine only you use.",
+        "Google access cannot be changed while SIGNIN=none: nothing authenticates a session, so " +
+          "an agent can sign itself in. Choose SIGNIN=password, or set " +
+          "GOOGLE_ALLOW_INSECURE_SIGNIN=true on a machine only you use.",
         403,
       );
     }
@@ -163,18 +164,14 @@ export function registerGoogleRoutes<Env extends RouteEnv>(
     }
   });
 
-  function escapeHtml(text: string): string {
-    return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
-  }
-
   function googleResultPage(title: string, detail: string, status: number): Response {
-    const html =
-      `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
-      `<title>${escapeHtml(title)}</title>` +
-      `<body style="font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem">` +
-      `<h1 style="font-size:1.25rem">${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p>` +
-      `<p><a href="/?settings=google">Back to the app</a> — Settings → Google shows what agents can do.</p>`;
-    return hardenedResponse(hardened, html, { "content-type": "text/html; charset=utf-8" }, status);
+    return resultPage({
+      hardened,
+      title,
+      detail,
+      status,
+      note: "Back in the app, Settings → Google Workspace shows what agents can do.",
+    });
   }
 
   // Google's redirect back. Deliberately not gated on the session: with a

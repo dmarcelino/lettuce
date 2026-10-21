@@ -281,6 +281,12 @@ export interface PublicGoogleSettings {
   enabled: boolean;
   clientId: string;
   hasClientSecret: boolean;
+  /**
+   * Where the live client came from. `env` means `GOOGLE_CLIENT_ID` in the
+   * environment — the same client `SIGNIN=google` signs in with — and the fields
+   * below are then read-only in the UI rather than a second answer.
+   */
+  clientSource: GoogleClientSource;
   permissions: GooglePermissions;
   grant: GoogleGrant | null;
   effective: GooglePermissions;
@@ -288,11 +294,17 @@ export interface PublicGoogleSettings {
   needsReconnect: boolean;
 }
 
-export function toPublicGoogleSettings(settings: GoogleSettings): PublicGoogleSettings {
+export type GoogleClientSource = "env" | "stored";
+
+export function toPublicGoogleSettings(
+  settings: GoogleSettings,
+  clientSource: GoogleClientSource = "stored",
+): PublicGoogleSettings {
   return {
     enabled: settings.enabled,
     clientId: settings.clientId,
     hasClientSecret: settings.clientSecret !== null,
+    clientSource,
     permissions: settings.permissions,
     grant: settings.grant,
     effective: effectivePermissions(settings),
