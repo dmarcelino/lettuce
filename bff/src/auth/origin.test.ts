@@ -6,9 +6,7 @@ describe("checkUpgradeOrigin", () => {
     expect(
       checkUpgradeOrigin(null, "cloudflared", "https://x.example.com", "x.example.com").ok,
     ).toBe(true);
-    expect(checkUpgradeOrigin("", "local", "http://localhost:8090", "localhost:8090").ok).toBe(
-      true,
-    );
+    expect(checkUpgradeOrigin("", "lan", "http://localhost:8090", "localhost:8090").ok).toBe(true);
   });
 
   test("the declared public origin is always allowed", () => {
@@ -21,7 +19,7 @@ describe("checkUpgradeOrigin", () => {
       ).ok,
     ).toBe(true);
     expect(
-      checkUpgradeOrigin("https://x.example.com", "local", "https://x.example.com", "other").ok,
+      checkUpgradeOrigin("https://x.example.com", "lan", "https://x.example.com", "other").ok,
     ).toBe(true);
   });
 
@@ -45,26 +43,18 @@ describe("checkUpgradeOrigin", () => {
 
   test("local allows same-origin by host and port", () => {
     expect(
-      checkUpgradeOrigin(
-        "http://192.0.2.5:8090",
-        "local",
-        "http://localhost:8090",
-        "192.0.2.5:8090",
-      ).ok,
+      checkUpgradeOrigin("http://192.0.2.5:8090", "lan", "http://localhost:8090", "192.0.2.5:8090")
+        .ok,
     ).toBe(true);
     expect(
-      checkUpgradeOrigin(
-        "http://localhost:8090",
-        "local",
-        "http://localhost:8090",
-        "localhost:8090",
-      ).ok,
+      checkUpgradeOrigin("http://localhost:8090", "lan", "http://localhost:8090", "localhost:8090")
+        .ok,
     ).toBe(true);
   });
 
   test("local refuses a different host or port", () => {
     expect(
-      checkUpgradeOrigin("http://evil.com:8090", "local", "http://localhost:8090", "localhost:8090")
+      checkUpgradeOrigin("http://evil.com:8090", "lan", "http://localhost:8090", "localhost:8090")
         .ok,
     ).toBe(false);
     // Non-loopback, so the loopback dev allowance cannot mask the port
@@ -72,7 +62,7 @@ describe("checkUpgradeOrigin", () => {
     expect(
       checkUpgradeOrigin(
         "http://lan.example.com:9999",
-        "local",
+        "lan",
         "http://lan.example.com:8090",
         "lan.example.com:8090",
       ).ok,
@@ -81,20 +71,20 @@ describe("checkUpgradeOrigin", () => {
 
   test("local fills in default ports before comparing", () => {
     expect(
-      checkUpgradeOrigin("https://x.example.com", "local", "http://localhost:8090", "x.example.com")
+      checkUpgradeOrigin("https://x.example.com", "lan", "http://localhost:8090", "x.example.com")
         .ok,
     ).toBe(true);
   });
 
   test("an unparseable Origin is refused", () => {
     expect(
-      checkUpgradeOrigin("not a url", "local", "http://localhost:8090", "localhost:8090").ok,
+      checkUpgradeOrigin("not a url", "lan", "http://localhost:8090", "localhost:8090").ok,
     ).toBe(false);
   });
 
   test("a missing Host header in local mode is refused rather than trusted", () => {
     expect(
-      checkUpgradeOrigin("http://lan.example.com:8090", "local", "http://elsewhere", null).ok,
+      checkUpgradeOrigin("http://lan.example.com:8090", "lan", "http://elsewhere", null).ok,
     ).toBe(false);
   });
 });
@@ -103,20 +93,12 @@ describe("checkUpgradeOrigin loopback allowance (local dev proxy)", () => {
   test("a loopback origin is allowed in local mode even against another Host", () => {
     // Vite's dev proxy: Origin is the dev server, Host is the BFF target.
     expect(
-      checkUpgradeOrigin(
-        "http://localhost:5173",
-        "local",
-        "http://localhost:8090",
-        "localhost:8080",
-      ).ok,
+      checkUpgradeOrigin("http://localhost:5173", "lan", "http://localhost:8090", "localhost:8080")
+        .ok,
     ).toBe(true);
     expect(
-      checkUpgradeOrigin(
-        "http://127.0.0.1:5173",
-        "local",
-        "http://localhost:8090",
-        "127.0.0.1:8090",
-      ).ok,
+      checkUpgradeOrigin("http://127.0.0.1:5173", "lan", "http://localhost:8090", "127.0.0.1:8090")
+        .ok,
     ).toBe(true);
   });
 
@@ -135,7 +117,7 @@ describe("checkUpgradeOrigin loopback allowance (local dev proxy)", () => {
     expect(
       checkUpgradeOrigin(
         "http://evil.example.com",
-        "local",
+        "lan",
         "http://localhost:8090",
         "localhost:8090",
       ).ok,

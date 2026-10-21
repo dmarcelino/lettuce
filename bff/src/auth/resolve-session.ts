@@ -24,8 +24,8 @@ export interface ResolveSessionDeps {
 }
 
 /**
- * The session a request carries: the cookie if it is valid, otherwise — in
- * cloudflared mode — one minted from the Access JWT Cloudflare attached.
+ * The session a request carries: the cookie if it is valid, otherwise — when
+ * `SIGNIN=cf-access` — one minted from the Access JWT Cloudflare attached.
  *
  * Both the HTTP middleware and the `/ws` upgrade go through here. The upgrade
  * used to check only the cookie, so once the 30-day cookie expired while the
@@ -42,11 +42,11 @@ export async function resolveSession(
   const existing = token ? decodeSession(token, config.sessionSecret) : null;
   if (existing) return { session: existing };
 
-  // Local mode never looks at this header at all, even if one shows up (e.g.
-  // a curious client hitting the LAN port directly) — there is no team
-  // domain/audience configured to verify it against, and not even trying is
-  // clearer than an incidental failure inside verifyAccessJwt.
-  if (config.mode !== "cloudflared") return null;
+  // Only the method that reads Cloudflare's header looks at it. A stray
+  // Cf-Access-Jwt-Assertion at a password instance — or at one behind a tunnel
+  // with no Access policy on it — proves nothing about who is typing, and there
+  // may be no team domain configured to verify it against at all.
+  if (config.signin !== "cf-access") return null;
   const jwt = request.headers.get(CF_ACCESS_JWT_HEADER);
   if (!jwt) return null;
 

@@ -5,9 +5,9 @@ import { encodeSession, SESSION_COOKIE } from "./session-cookie.ts";
 
 const SECRET = "test-secret";
 
-function config(mode: BffConfig["mode"]): BffConfig {
+function config(signin: BffConfig["signin"]): BffConfig {
   return {
-    mode,
+    signin,
     sessionSecret: SECRET,
     allowedUsers: ["me@example.com"],
     cfAccessTeamDomain: "team",
@@ -16,9 +16,9 @@ function config(mode: BffConfig["mode"]): BffConfig {
   } as unknown as BffConfig;
 }
 
-function deps(mode: BffConfig["mode"], email: string | Error): ResolveSessionDeps {
+function deps(signin: BffConfig["signin"], email: string | Error): ResolveSessionDeps {
   return {
-    config: config(mode),
+    config: config(signin),
     mint: (who) => ({ session: { email: who, exp: 9_999_999_999 }, cookie: `minted-for-${who}` }),
     log: () => {},
     verify: async () => {
@@ -40,7 +40,7 @@ describe("resolveSession", () => {
   test("a valid cookie wins, and nothing is minted", async () => {
     const resolved = await resolveSession(
       request({ cookie: validCookie, "cf-access-jwt-assertion": "jwt" }),
-      deps("cloudflared", "me@example.com"),
+      deps("cf-access", "me@example.com"),
     );
     expect(resolved?.session.email).toBe("me@example.com");
     expect(resolved?.setCookie).toBeUndefined();
@@ -49,7 +49,7 @@ describe("resolveSession", () => {
   test("an expired cookie with a valid Access JWT mints a new session", async () => {
     const resolved = await resolveSession(
       request({ cookie: expiredCookie, "cf-access-jwt-assertion": "jwt" }),
-      deps("cloudflared", "me@example.com"),
+      deps("cf-access", "me@example.com"),
     );
     expect(resolved?.setCookie).toBe("minted-for-me@example.com");
   });
@@ -57,7 +57,7 @@ describe("resolveSession", () => {
   test("an expired cookie and no JWT is signed out", async () => {
     const resolved = await resolveSession(
       request({ cookie: expiredCookie }),
-      deps("cloudflared", "me@example.com"),
+      deps("cf-access", "me@example.com"),
     );
     expect(resolved).toBeNull();
   });
@@ -65,7 +65,7 @@ describe("resolveSession", () => {
   test("a JWT for someone off the allowlist is refused", async () => {
     const resolved = await resolveSession(
       request({ "cf-access-jwt-assertion": "jwt" }),
-      deps("cloudflared", "stranger@example.com"),
+      deps("cf-access", "stranger@example.com"),
     );
     expect(resolved).toBeNull();
   });
@@ -73,15 +73,15 @@ describe("resolveSession", () => {
   test("a JWT that fails verification is refused", async () => {
     const resolved = await resolveSession(
       request({ "cf-access-jwt-assertion": "jwt" }),
-      deps("cloudflared", new Error("bad signature")),
+      deps("cf-access", new Error("bad signature")),
     );
     expect(resolved).toBeNull();
   });
 
-  test("local mode never reads the Access header", async () => {
+  test("a password instance never reads the Access header", async () => {
     const resolved = await resolveSession(
       request({ "cf-access-jwt-assertion": "jwt" }),
-      deps("local", "me@example.com"),
+      deps("password", "me@example.com"),
     );
     expect(resolved).toBeNull();
   });

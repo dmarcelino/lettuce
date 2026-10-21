@@ -1,15 +1,30 @@
 export interface BffConfig {
   port: number;
   /**
-   * "local" (default) — no Cloudflare configuration needed, reachable
-   * directly on the LAN; sign-in is DEV_BYPASS_EMAIL or nothing.
-   * "cloudflared" — Cloudflare Access is the gate; set via
-   * `LETTA_MODE`, itself a pass-through of Compose's own
-   * `COMPOSE_PROFILES` (see docker/compose.yml), so the one setting that
-   * decides whether the `cloudflared` container even exists is the same
-   * one the app reads.
+   * How this instance is reached: `lan` (the published port is the way in) or
+   * `cloudflared` (a tunnel is). Set by `ACCESS`, which must agree with the
+   * `cloudflared` token in `COMPOSE_PROFILES` — the variable is what the app
+   * believes and the token is the container that makes it true, so either half
+   * missing is a boot error (`readAccess`).
+   *
+   * It used to be inferred from that token, which is how "where is it reachable
+   * from" and "who signs in" ended up being the same setting.
    */
-  mode: "local" | "cloudflared";
+  access: Access;
+  /**
+   * How a visitor proves they are the owner: `none` (a machine-local instance),
+   * `password`, `cf-access` (Cloudflare Access's signature-verified JWT email),
+   * or `google` (our own Google OAuth client). Exactly one, because `SIGNIN` is
+   * one value rather than a list a deployment can contradict itself with.
+   */
+  signin: Signin;
+  /**
+   * The host interface Compose publishes our port on (`BFF_BIND`). The BFF
+   * cannot see the host side of a published port, so compose hands the value
+   * over and `assertSigninIsSafe` is what reads it: the two combinations that
+   * need a closed door cannot ask Compose to derive that default.
+   */
+  hostBind: string;
   /** App-server WebSocket base URL, e.g. ws://letta:4500 */
   appServerUrl: string;
   /** Absolute public origin of this BFF. */
@@ -23,11 +38,16 @@ export interface BffConfig {
   sessionSecret: string;
   sessionTtlSeconds: number;
   /**
-   * Lower-cased addresses permitted to hold a session. In cloudflared mode this
-   * is a defense-in-depth mirror of the Cloudflare Access policy — Access is
-   * the gate, and this is what still stands if that policy is ever
-   * misconfigured (a bypass rule, "everyone in the directory"). It stays a
-   * LIST, not a single address, precisely because the policy it mirrors is one.
+   * The addresses permitted to hold a session. Only the two methods that get an
+   * address from somewhere consult it (`cf-access`, `google`), and it is
+   * required exactly then: under `cf-access` it is a defense-in-depth mirror of
+   * the Cloudflare Access policy — Access is the gate, and this is what still
+   * stands if that policy is ever misconfigured (a bypass rule, "everyone in the
+   * directory") — while under `google` it is the only gate there is.
+   *
+   * `password` and `none` involve no address, so setting it for them is a boot
+   * warning rather than a second knob. It stays a LIST, not a single address,
+   * because the policy it mirrors is one.
    *
    * "Single-user" in this project means no per-user isolation — one runtime,
    * every socket sees every event — not that only one address may sign in.
@@ -41,16 +61,19 @@ export interface BffConfig {
    * `stop_grace_period`, or Docker's SIGKILL ends the drain first.
    */
   shutdownDrainTimeoutMs: number;
-  /** Set for local development: skips Cloudflare Access and signs in as this email. */
-  devBypassEmail: string | null;
-  /** Explicit opt-in to serving the bypass beyond the local machine. */
-  devBypassAllowRemote: boolean;
   /**
    * Push is fully optional and self-gating: null unless all three VAPID
    * settings are present, so a plain local dev run needs no push setup at
    * all. Callers check `config.push !== null` before wiring up push routes.
    */
   push: PushConfig | null;
+  /**
+   * Where the sign-in password's scrypt hash lives (`auth/password.ts`), on the
+   * `bff-auth` volume. Never under `LETTA_STATE_DIR`: agent shells run as uid 0
+   * in the app-server, which mounts that whole tree read-write, so a hash there
+   * is an offline crack target — the same reason `google-creds` is a volume.
+   */
+  signinDir: string;
   /** Pinned and archived agents (`agents/id-list.ts`), on the `bff-data` volume. */
   pinnedAgentsFile: string;
   archivedAgentsFile: string;
@@ -130,17 +153,48 @@ export interface GoogleConfig {
   /** Must match a redirect URI on the OAuth client exactly. */
   redirectUri: string;
   /**
-   * Whether a dev-bypass session may change Google access. Off by default:
-   * agent shells share the BFF's network namespace, so in dev-bypass mode an
-   * agent can `curl 127.0.0.1:8080/auth/dev-login` and hold a session of its
-   * own. Only Cloudflare Access proves a human is asking.
+   * The Google OAuth client from the environment. Preferred over the pair typed
+   * into Settings → Google Workspace, and the only source `SIGNIN=google` can
+   * use: sign-in happens before anybody could have opened Settings. One client
+   * serving both flows is deliberate — it lists both redirect URIs, and it means
+   * the operator configures Google once.
    */
-  allowDevBypass: boolean;
+  envClientId: string;
+  envClientSecret: string;
+  /**
+   * Whether a session that authenticated nobody (`SIGNIN=none`) may change
+   * Google access. Off by default: agent shells share the BFF's network
+   * namespace, so in that mode an agent can `curl 127.0.0.1:8080/auth/login`
+   * and hold a session of its own. Only a real credential proves a human asked.
+   */
+  allowInsecureSignin: boolean;
 }
 
 /** Whether this deployment lets a signed-in session change Google access. */
 export function googleWritesAllowed(config: BffConfig): boolean {
-  return config.devBypassEmail === null || config.google.allowDevBypass;
+  return config.signin !== "none" || config.google.allowInsecureSignin;
+}
+
+/**
+ * Whether a sign-in method produces an address to match against
+ * `ALLOWED_USERS`. `password` and `none` have one owner and no address at all.
+ */
+export function signinHasAddress(signin: Signin): boolean {
+  return signin === "cf-access" || signin === "google";
+}
+
+/** One line per method, for the boot log and Settings → Sign-in. */
+export function signinLabel(signin: Signin): string {
+  switch (signin) {
+    case "none":
+      return "off (this machine only)";
+    case "password":
+      return "password";
+    case "cf-access":
+      return "Cloudflare Access";
+    case "google":
+      return "Google";
+  }
 }
 
 export interface PushConfig {
@@ -281,62 +335,103 @@ export function parseAllowedUsers(raw: string, source: string): string[] {
 /**
  * The allowlist comes from the environment and nowhere else — there is no file.
  *
- * In local mode DEV_BYPASS_EMAIL *is* the whole configuration, so it implies
- * its own entry. Requiring both used to mean two settings naming the same
- * person that could only ever disagree with each other, and when they did the
- * result was a 403 saying the bypass email was not in the allowlist — a
- * self-contradiction rather than a diagnosis.
+ * It is required exactly when the sign-in method identifies people by address,
+ * because that is the only case where "who may hold a session" needs an answer
+ * the deployment must give. `password` and `none` have one owner and no address,
+ * so an empty list there is correct rather than a locked door.
  *
- * With neither set the list is empty and nobody can sign in, which is the
- * documented safe default rather than an error.
+ * The same reasoning used to key off the deployment's mode; now it keys off the
+ * method, which is the thing that actually produces an address.
  */
-function readAllowedUsers(accessIsTheGate: boolean, devBypassEmail: string | null): string[] {
+function readAllowedUsers(signin: Signin): string[] {
   const inline = process.env.ALLOWED_USERS?.trim();
   if (inline) return parseAllowedUsers(inline, "ALLOWED_USERS");
 
-  if (accessIsTheGate) {
+  if (signinHasAddress(signin)) {
     throw new Error(
-      "Missing required environment variable ALLOWED_USERS. Cloudflare Access is the gate in " +
-        "this mode, and this list is the check that still stands if that policy is ever " +
-        "misconfigured — so it cannot be inferred. Set it to a comma-separated list of the " +
-        "same addresses the Access policy allows.",
+      `Missing required environment variable ALLOWED_USERS. SIGNIN=${signin} signs people in by ` +
+        "address, so the list of who may hold a session cannot be inferred. Set it to a " +
+        "comma-separated list of addresses.",
     );
   }
 
-  return devBypassEmail ? [devBypassEmail.toLowerCase()] : [];
+  return [];
 }
 
-function isLoopbackOrigin(publicOrigin: string): boolean {
-  let host: string;
-  try {
-    host = new URL(publicOrigin).hostname;
-  } catch {
-    throw new Error(`PUBLIC_ORIGIN is not a valid URL: ${publicOrigin}`);
-  }
-  return host === "localhost" || host === "::1" || host === "[::1]" || host.startsWith("127.");
+/** Loopback, in any spelling a host bind takes. */
+function isLoopbackBind(value: string): boolean {
+  return value === "127.0.0.1" || value === "localhost" || value === "::1" || value === "[::1]";
 }
 
 /**
- * The dev bypass issues a session to anyone who asks. Exposing it beyond the
- * local machine means anyone who can reach the port is the configured user, so
- * that requires a second, explicit opt-in: a stale DEV_BYPASS_EMAIL alone can
- * never open the server to the network.
+ * The variables the split replaced. Ignoring one silently would leave an
+ * operator believing a door their `.env` no longer controls is open or shut,
+ * so their presence is an error that names the replacement. Compose keeps
+ * passing `GOOGLE_ALLOW_DEV_BYPASS` for exactly one release so the rename is
+ * caught here too, in a container as well as in a bare `bun run dev`.
  */
-function assertBypassIsSafe(
-  devBypassEmail: string,
-  publicOrigin: string,
-  allowRemote: boolean,
-): void {
-  if (isLoopbackOrigin(publicOrigin) || allowRemote) return;
+function assertNoRemovedAuthVariables(): void {
+  const removed: [string, string][] = [
+    [
+      "DEV_BYPASS_EMAIL",
+      "SIGNIN=none (machine-local only) or SIGNIN=password (anything on a network)",
+    ],
+    ["DEV_BYPASS_ALLOW_REMOTE", "BFF_BIND, which stays 127.0.0.1 unless SIGNIN=password"],
+    ["GOOGLE_ALLOW_DEV_BYPASS", "GOOGLE_ALLOW_INSECURE_SIGNIN"],
+  ];
+  for (const [name, replacement] of removed) {
+    if (process.env[name]?.trim()) {
+      throw new Error(
+        `${name} is gone: how the app is reached and how you sign in are set separately now. ` +
+          `Set ${replacement} instead.`,
+      );
+    }
+  }
+}
 
-  throw new Error(
-    `Refusing to start: DEV_BYPASS_EMAIL is set (${devBypassEmail}) but PUBLIC_ORIGIN ` +
-      `(${publicOrigin}) is reachable from other machines. The bypass authenticates ` +
-      `nobody — anyone who can reach this port would get a session as ${devBypassEmail}. ` +
-      `Set PUBLIC_ORIGIN to a loopback address, or unset DEV_BYPASS_EMAIL and configure ` +
-      `CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD. To knowingly expose unauthenticated ` +
-      `access on this network anyway, set DEV_BYPASS_ALLOW_REMOTE=true.`,
-  );
+/**
+ * The combinations that must not run, refused at boot.
+ *
+ * Compose cannot derive one setting's default from another's value —
+ * docker/compose.yml says so out loud about `BFF_BIND` — so the pairings that
+ * keep an unauthenticated instance machine-local, and a tunnel's origin reachable
+ * only through the tunnel, are checked here instead of documented and hoped for.
+ */
+function assertSigninIsSafe(config: { signin: Signin; access: Access; hostBind: string }): void {
+  const { signin, access, hostBind } = config;
+
+  if (access === "cloudflared" && !isLoopbackBind(hostBind)) {
+    throw new Error(
+      `ACCESS=cloudflared but BFF_BIND is ${hostBind}. The tunnel reaches the BFF over Docker's own ` +
+        "network, so a wide published port is a second way in that nothing guards — set " +
+        "BFF_BIND=127.0.0.1 (the default) and reach the app through the tunnel.",
+    );
+  }
+
+  if (signin === "cf-access" && access !== "cloudflared") {
+    throw new Error(
+      "SIGNIN=cf-access but this instance is not reached through a Cloudflare Tunnel, so no " +
+        "Cf-Access-Jwt-Assertion header can ever arrive and nobody would be able to sign in. Set " +
+        "ACCESS=cloudflared (with the `cloudflared` profile token), or choose another method.",
+    );
+  }
+
+  if (signin === "none" && access === "cloudflared") {
+    throw new Error(
+      "SIGNIN=none behind a Cloudflare Tunnel puts the app on a public hostname with nothing in " +
+        "front of it: the tunnel forwards requests with no credential asked for. A tunnel plus " +
+        "SIGNIN=password is a fine public deployment, as is an Access policy with SIGNIN=cf-access " +
+        "— pick one, or run the instance with ACCESS=lan.",
+    );
+  }
+
+  if (signin === "none" && !isLoopbackBind(hostBind)) {
+    throw new Error(
+      `SIGNIN=none authenticates nobody, but BFF_BIND is ${hostBind}: anyone who can reach this ` +
+        "port is the owner, with your shell, files and integrations. Keep it machine-local with " +
+        "BFF_BIND=127.0.0.1, or put it on the network with SIGNIN=password.",
+    );
+  }
 }
 
 /**
@@ -363,8 +458,58 @@ export function hasProfile(profiles: string, name: string): boolean {
   return profiles.split(",").some((token) => token.trim() === name);
 }
 
-function readMode(): "local" | "cloudflared" {
-  return hasProfile(profileList(), "cloudflared") ? "cloudflared" : "local";
+const ACCESS_VALUES = ["lan", "cloudflared"] as const;
+const SIGNIN_VALUES = ["none", "password", "cf-access", "google"] as const;
+export type Access = (typeof ACCESS_VALUES)[number];
+export type Signin = (typeof SIGNIN_VALUES)[number];
+
+/** An env var that must be one of a fixed set — an unrecognised value is a typo, not a default. */
+function readEnvOneOf<T extends string>(name: string, allowed: readonly T[]): T | null {
+  const raw = process.env[name]?.trim();
+  if (!raw) return null;
+  if (!(allowed as readonly string[]).includes(raw)) {
+    throw new Error(`${name} is "${raw}", which is not one of: ${allowed.join(", ")}`);
+  }
+  return raw as T;
+}
+
+/**
+ * `ACCESS` says how the app is reached; the `cloudflared` profile token is the
+ * container that makes that true. Both directions of disagreement are fatal: a
+ * `cloudflared` token with `ACCESS=lan` is a live public hostname in front of an
+ * app that does not know it is exposed, and the reverse is an app waiting for a
+ * tunnel nobody started. Unset derives from the token, so an install predating
+ * this variable needs no new line in `docker/.env`.
+ */
+function readAccess(): Access {
+  const tunnel = hasProfile(profileList(), "cloudflared");
+  const access = readEnvOneOf("ACCESS", ACCESS_VALUES) ?? (tunnel ? "cloudflared" : "lan");
+
+  if (access === "cloudflared" && !tunnel) {
+    throw new Error(
+      "ACCESS=cloudflared but COMPOSE_PROFILES has no `cloudflared` token, so no tunnel exists to " +
+        "serve it. Add the token — it is what creates the tunnel container — or set ACCESS=lan.",
+    );
+  }
+  if (access === "lan" && tunnel) {
+    throw new Error(
+      "COMPOSE_PROFILES creates the cloudflared tunnel but ACCESS=lan, which leaves the app " +
+        "unaware that a public hostname points at it. Set ACCESS=cloudflared, or drop the token " +
+        "to keep the instance LAN-only.",
+    );
+  }
+  return access;
+}
+
+/**
+ * Unset keeps a pre-split deployment's behaviour: behind a tunnel, Access was the
+ * gate; without one, nothing was — which is now an explicit `SIGNIN=none` rather
+ * than the default, so a fresh LAN install asks for a password instead.
+ */
+function readSignin(access: Access): Signin {
+  return (
+    readEnvOneOf("SIGNIN", SIGNIN_VALUES) ?? (access === "cloudflared" ? "cf-access" : "password")
+  );
 }
 
 /**
@@ -407,20 +552,34 @@ function readSessionSecret(): string {
 }
 
 export function loadConfig(): BffConfig {
-  const mode = readMode();
-  const devBypassEmail = process.env.DEV_BYPASS_EMAIL?.trim() || null;
-  const devBypassAllowRemote = process.env.DEV_BYPASS_ALLOW_REMOTE?.trim() === "true";
+  assertNoRemovedAuthVariables();
+  const access = readAccess();
+  const signin = readSignin(access);
+  const hostBind = process.env.LETTA_HOST_BIND?.trim() || "127.0.0.1";
   const publicOrigin = required("PUBLIC_ORIGIN").replace(/\/$/, "");
-  if (devBypassEmail) {
-    assertBypassIsSafe(devBypassEmail, publicOrigin, devBypassAllowRemote);
+  assertSigninIsSafe({ signin, access, hostBind });
+
+  // The Access connection details are only needed by the method that reads the
+  // header Cloudflare writes, and the Google client pair only by the method that
+  // redirects to Google. Required exactly then, so a deployment is not asked for
+  // credentials it has no use for.
+  const needsCfAccess = signin === "cf-access";
+  const googleEnvClientId = process.env.GOOGLE_CLIENT_ID?.trim() ?? "";
+  const googleEnvClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() ?? "";
+  if (signin === "google" && (!googleEnvClientId || !googleEnvClientSecret)) {
+    throw new Error(
+      "SIGNIN=google needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET. They cannot come from " +
+        "Settings → Google Workspace, because signing in happens before anybody could have opened " +
+        "Settings — and an instance that signs nobody in until a click is not one you can reach. " +
+        "The same client Settings → Google Workspace uses is fine; it just has to be in " +
+        "docker/.env, with this origin added as an authorised redirect URI.",
+    );
   }
-  // Cloudflare Access credentials are only needed in cloudflared mode, and
-  // not even then if the dev bypass is active. Local mode never reads them.
-  // The allowlist keys off the same condition: it is required exactly when
-  // Access is the thing actually signing people in.
-  const needsCfAccess = mode === "cloudflared" && !devBypassEmail;
+
   return {
-    mode,
+    access,
+    signin,
+    hostBind,
     port: optionalNumber("PORT", 8080),
     appServerUrl: required("LETTA_APP_SERVER_URL"),
     publicOrigin,
@@ -431,14 +590,13 @@ export function loadConfig(): BffConfig {
     cfAccessIssuer: process.env.CF_ACCESS_ISSUER?.trim() || null,
     sessionSecret: readSessionSecret(),
     sessionTtlSeconds: optionalNumber("SESSION_TTL_SECONDS", 60 * 60 * 24 * 30),
-    allowedUsers: readAllowedUsers(needsCfAccess, devBypassEmail),
+    allowedUsers: readAllowedUsers(signin),
     frameBufferSize: optionalNumber("FRAME_BUFFER_SIZE", 5000),
     // 9 min: under `stop_grace_period` (10m), and drain + image build under
     // the prod deploy manager's 900 s `compose up` timeout — see docker/compose.yml.
     shutdownDrainTimeoutMs: optionalNumber("SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 9 * 60) * 1000,
-    devBypassEmail,
-    devBypassAllowRemote,
     push: readPushConfig(),
+    signinDir: process.env.SIGNIN_DIR?.trim() || "/app/auth",
     pinnedAgentsFile: process.env.PINNED_AGENTS_FILE?.trim() || "/app/data/pinned-agents.json",
     archivedAgentsFile:
       process.env.ARCHIVED_AGENTS_FILE?.trim() || "/app/data/archived-agents.json",
@@ -462,7 +620,9 @@ export function loadConfig(): BffConfig {
       redirectUri:
         process.env.GOOGLE_OAUTH_REDIRECT_URI?.trim() ||
         `${publicOrigin}/api/google/oauth/callback`,
-      allowDevBypass: process.env.GOOGLE_ALLOW_DEV_BYPASS?.trim() === "true",
+      envClientId: googleEnvClientId,
+      envClientSecret: googleEnvClientSecret,
+      allowInsecureSignin: process.env.GOOGLE_ALLOW_INSECURE_SIGNIN?.trim() === "true",
     },
     features: readFeatures(),
     pinVersions: {
