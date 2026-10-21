@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- **The playbook says what a guard rule cannot guard.** `protect` names a path and its subtree, never a glob, so a `docker/.env.bak-*` left beside the protected `.env` was never inside its reach — flip a variable in place and let `.gitignore`'s `.env.*` be what stops a secret backup from being committed.
+
 ## [v0.20.0-letta_0.34.16] - 2026-10-21
 
 ### Added
