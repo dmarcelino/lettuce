@@ -8,8 +8,11 @@
  * viewports plus measured assertions is the difference between checking the app
  * and checking the screenshot harness.
  *
- * Auth is one navigation: /auth/dev-login sets the dev-bypass cookie and
- * redirects to /, so no profile or cookie juggling is needed.
+ * Auth is one navigation: under `SIGNIN=none` (what a local stack derives)
+ * /auth/login mints the session cookie and redirects to /, so no profile or
+ * cookie juggling is needed. Under `SIGNIN=password` the same URL is the form,
+ * and the harness needs UI_CHECK_PASSWORD — a script is not entitled to a
+ * password a human typed.
  *
  * Usage: bun run ui-check [bffOrigin]
  */
@@ -60,10 +63,27 @@ function chromiumExecutable(): string | undefined {
   return undefined;
 }
 
+/**
+ * Land on the app with a session, by whatever method this stack signed in with.
+ * A password field on the page is how `SIGNIN=password` shows up here.
+ */
+async function signIn(page: Page): Promise<void> {
+  await page.goto(`${ORIGIN}/auth/login`, { waitUntil: "networkidle" });
+  if (await page.locator('input[type="password"]').first().count()) {
+    const password = process.env.UI_CHECK_PASSWORD;
+    if (!password) {
+      throw new Error("This stack signs in with a password — set UI_CHECK_PASSWORD for ui-check.");
+    }
+    await page.locator('input[type="password"]').first().fill(password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForLoadState("networkidle");
+  }
+}
+
 /** Load the app authenticated and settled. */
 async function open(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
   const page = await browser.newPage({ viewport });
-  await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+  await signIn(page);
   return page;
 }
 
@@ -1881,7 +1901,7 @@ try {
       ws.connectToServer();
       inject = (frame) => ws.send(frame);
     });
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     await page.waitForTimeout(1500);
     // The sidebar stays mounted, hidden, on a phone, so this reads there too.
     const agentId = await page
@@ -2037,7 +2057,7 @@ try {
       ws.connectToServer();
       inject = (frame) => ws.send(frame);
     });
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     await page.waitForTimeout(1500);
     if (!inject) {
       check(`${viewport.width}px: context check has a session`, false);
@@ -2140,7 +2160,7 @@ try {
   {
     const context = await browser.newContext({ viewport: PHONE, isMobile: true, hasTouch: true });
     const page = await context.newPage();
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     const textarea = page.locator(".composer textarea");
     await textarea.waitFor();
     await textarea.fill("first line");
@@ -2178,7 +2198,7 @@ try {
   ] as const) {
     const context = await browser.newContext(options);
     const page = await context.newPage();
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.locator('.section-tabs button:text-is("Reflection")').click();
     await page.locator(".field select").first().waitFor();

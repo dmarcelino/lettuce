@@ -92,6 +92,24 @@ pre {
   min-height: 100dvh;
 }
 
+/* Sign-in, in both places it appears (the sign-in screen and the change-password
+   form inside Settings). The column is capped instead of stretched across a
+   desktop window, and its controls fill the column. */
+.signin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 22rem;
+}
+
+.signin-form .button {
+  width: 100%;
+  /* `.button` is fit-content by default; here it is the column's width. */
+  max-width: none;
+  justify-content: center;
+  margin-top: 10px;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -3991,7 +4009,7 @@ button.link-dot.busy.warn {
   margin: 24px 0 6px;
 }
 
-/* Settings → Google when Google refused the token: the way out comes first. */
+/* Settings → Google Workspace when Google refused the token: the way out comes first. */
 .google-lost {
   margin: 4px 0 12px;
   padding: 10px 12px;

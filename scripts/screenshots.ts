@@ -294,11 +294,14 @@ async function handleHttp(request: Request): Promise<Response> {
   const { pathname } = new URL(request.url);
 
   if (pathname === "/api/status") {
-    // auth_mode drives the About panel's "Sign-in" row. "cf-access" reads as
-    // a real deployment; "dev-bypass" would print "not authenticated".
+    // access + signin drive the About panel's "Sign-in" row and Settings →
+    // Access. "cf-access" reads as a real deployment; "none" would print
+    // "not authenticated".
     return json({
       authenticated: true,
-      auth_mode: "cf-access",
+      access: "cloudflared",
+      signin: "cf-access",
+      setup_required: false,
       user: { email: "you@example.com" },
       upstream: {
         state: "connected",

@@ -15,7 +15,7 @@ export async function fetchNativeTools(): Promise<NativeTools> {
   return response.json();
 }
 
-/** Settings → Google's line: which Google tools agents have right now. */
+/** Settings → Google Workspace's line: which Google tools agents have right now. */
 export function describeGoogleTools(google: readonly string[]): string {
   return google.length > 0
     ? `Agents' Google tools: ${google.join(", ")}. Writes ask for approval in Standard and Strict mode.`

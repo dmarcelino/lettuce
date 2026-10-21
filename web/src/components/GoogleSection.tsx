@@ -49,7 +49,7 @@ function isDirty(draft: Draft, status: GoogleStatus): boolean {
 }
 
 /**
- * Settings → Google: which of Gmail, Calendar, Tasks and Contacts agents may
+ * Settings → Google Workspace: which of Gmail, Calendar, Tasks and Contacts agents may
  * use, and how far. Enforced by the `google-mcp` sidecar and by the OAuth
  * token's own scopes, both kept where no agent can reach them (bff/src/google/).
  */
@@ -183,9 +183,10 @@ export function GoogleSection() {
 
       {!status.writable ? (
         <p className="warning small">
-          Read-only here: this deployment signs in with DEV_BYPASS_EMAIL, which an agent could use
-          to sign itself in and change these settings. Change them through Cloudflare Access, or set
-          GOOGLE_ALLOW_DEV_BYPASS=true on a machine only you use.
+          Read-only here: this deployment signs nobody in, and an agent could sign itself in the
+          same way and change these settings. Ask for a method in <code>docker/.env</code>(
+          <code>SIGNIN=password</code> is enough), or accept the risk with
+          <code>GOOGLE_ALLOW_INSECURE_SIGNIN=true</code> on a machine only you use.
         </p>
       ) : null}
       {message ? (
@@ -286,6 +287,13 @@ export function GoogleSection() {
           instructions aimed at it.
         </p>
 
+        {settings.clientSource === "env" ? (
+          <p className="muted small">
+            The client in force comes from <code>GOOGLE_CLIENT_ID</code> in <code>docker/.env</code>{" "}
+            — the one this instance signs in with too — so what is saved here waits until those
+            variables are removed.
+          </p>
+        ) : null}
         <label className="field">
           OAuth client ID
           <input

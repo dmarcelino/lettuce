@@ -1,10 +1,12 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type FeatureFlags, type FeatureName, featureEnabled } from "../lib/features.ts";
 import type { Component } from "../lib/protocol.ts";
+import { type Access, SIGNIN_LABELS, type Signin } from "../lib/signin.ts";
 import { defaultStorage, readStored } from "../lib/storage.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { useWide } from "../state/use-wide.ts";
+import { AccessSection } from "./AccessSection.tsx";
 import { ClaudeSection } from "./ClaudeSection.tsx";
 import { CodexSection } from "./CodexSection.tsx";
 import { GoogleSection } from "./GoogleSection.tsx";
@@ -14,6 +16,7 @@ import { MenuRow } from "./MenuRow.tsx";
 import { NotificationsSection } from "./NotificationsSection.tsx";
 import { PiSection } from "./PiSection.tsx";
 import { ProvidersSection } from "./ProvidersSection.tsx";
+import { SignInSection } from "./SignInSection.tsx";
 import { GlobalSkills } from "./SkillsSections.tsx";
 import { WebToolsSection } from "./WebToolsSection.tsx";
 
@@ -26,6 +29,8 @@ export type GlobalSection =
   | "claude"
   | "pi"
   | "skills"
+  | "access"
+  | "signin"
   | "notifications"
   | "about";
 
@@ -47,7 +52,7 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
     sections: [
       { id: "web", label: "Web search", short: "Web" },
       { id: "mcp", label: "MCP servers", short: "MCP" },
-      { id: "google", label: "Google", short: "Google" },
+      { id: "google", label: "Google Workspace", short: "Workspace" },
       { id: "codex", label: "Codex workers", short: "Codex" },
       { id: "claude", label: "Claude Code workers", short: "Claude" },
       { id: "pi", label: "Remote Pi", short: "Remote Pi" },
@@ -56,6 +61,13 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
   {
     label: "Skills",
     sections: [{ id: "skills", label: "Global skills", short: "Skills" }],
+  },
+  {
+    label: "Deployment",
+    sections: [
+      { id: "access", label: "Access", short: "Access" },
+      { id: "signin", label: "Sign-in", short: "Sign-in" },
+    ],
   },
   {
     label: "This device",
@@ -126,7 +138,12 @@ interface Props {
   cwd: string | null;
   skillsVersion: number;
   user: { email: string } | null;
-  authMode: "cf-access" | "dev-bypass" | "none";
+  /** From `/api/status`: the two halves of what used to be a single `mode`. */
+  access: Access;
+  signin: Signin;
+  hostBind?: string;
+  publicOrigin?: string;
+  passwordUpdatedAt?: string | null;
   /** This build's release tag from `/api/status`; absent on an untagged dev run. */
   version?: string;
   /** This deployment's components with their versions, from `/api/status`. */
@@ -158,7 +175,11 @@ export function GlobalSettings({
   cwd,
   skillsVersion,
   user,
-  authMode,
+  access,
+  signin,
+  hostBind,
+  publicOrigin,
+  passwordUpdatedAt,
   version,
   components,
   features,
@@ -214,9 +235,25 @@ export function GlobalSettings({
     skills: () => (
       <GlobalSkills session={session} agentId={agentId} cwd={cwd} version={skillsVersion} />
     ),
+    access: () => (
+      <AccessSection
+        access={access}
+        signin={signin}
+        hostBind={hostBind}
+        publicOrigin={publicOrigin}
+        components={components}
+      />
+    ),
+    signin: () => (
+      <SignInSection
+        signin={signin}
+        email={user?.email ?? null}
+        passwordUpdatedAt={passwordUpdatedAt}
+      />
+    ),
     notifications: () => <NotificationsSection />,
     about: () => (
-      <AboutSection user={user} authMode={authMode} version={version} components={components} />
+      <AboutSection user={user} signin={signin} version={version} components={components} />
     ),
   };
 
@@ -279,26 +316,20 @@ export function GlobalSettings({
   );
 }
 
-const AUTH_LABELS: Record<Props["authMode"], string> = {
-  "cf-access": "Cloudflare Access",
-  "dev-bypass": "Developer bypass (not authenticated)",
-  none: "None configured",
-};
-
 function AboutSection({
   user,
-  authMode,
+  signin,
   version,
   components,
 }: {
   user: Props["user"];
-  authMode: Props["authMode"];
+  signin: Signin;
   version?: string;
   components?: Component[];
 }) {
   const rows: [string, ReactNode][] = [
     ["Signed in as", user?.email ?? "—"],
-    ["Sign-in", AUTH_LABELS[authMode]],
+    ["Sign-in", SIGNIN_LABELS[signin]],
     ["lettuce", version ?? "—"],
   ];
   return (
