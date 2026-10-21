@@ -22,6 +22,13 @@ class FakeClient implements UpstreamClient {
   failConnect = false;
   /** Refuse every sync, to exercise the failure path. */
   failSync = false;
+  /**
+   * Hold each `sync` this long, so a test can watch how many run at once.
+   * Zero answers immediately, which is what every other test expects.
+   */
+  syncHoldMs = 0;
+  inFlightSyncs = 0;
+  maxInFlightSyncs = 0;
   private messageHandler: ((message: WsProtocolMessage) => void) | null = null;
   private disconnectHandler: (() => void) | null = null;
   private page = 0;
@@ -62,8 +69,19 @@ class FakeClient implements UpstreamClient {
       return Promise.resolve({ success: true, conversations });
     }
     if (command.type === "sync") {
-      return Promise.resolve(
-        this.failSync ? { success: false, error: "no such conversation" } : { success: true },
+      this.inFlightSyncs += 1;
+      this.maxInFlightSyncs = Math.max(this.maxInFlightSyncs, this.inFlightSyncs);
+      const settle = () =>
+        this.failSync ? { success: false, error: "no such conversation" } : { success: true };
+      if (!this.syncHoldMs) {
+        this.inFlightSyncs -= 1;
+        return Promise.resolve(settle());
+      }
+      return new Promise((resolve) =>
+        setTimeout(() => {
+          this.inFlightSyncs -= 1;
+          resolve(settle());
+        }, this.syncHoldMs),
       );
     }
     return Promise.reject(new Error(`unexpected request: ${String(command.type)}`));
@@ -154,6 +172,21 @@ test("a dropped socket reconnects and re-subscribes the scopes it already knew",
     () => client.syncedScopes().filter((key) => key === "agent-1::conv-1").length === 2,
   );
   expect(client.connects).toBe(2);
+  upstream.stop();
+});
+
+test("one pass syncs at most SYNC_CONCURRENCY scopes at a time", async () => {
+  const client = new FakeClient();
+  client.syncHoldMs = 15;
+  client.pages = [Array.from({ length: 20 }, (_, i) => ({ id: `conv-${i}` }))];
+  const { upstream } = makeConnection(client);
+  upstream.start();
+
+  await waitFor("the whole sweep", () => client.syncedScopes().length === 20);
+  // Bounded, and actually concurrent — a serial loop would peak at one.
+  expect(client.maxInFlightSyncs).toBeLessThanOrEqual(8);
+  expect(client.maxInFlightSyncs).toBeGreaterThan(1);
+  expect(new Set(client.syncedScopes()).size).toBe(20);
   upstream.stop();
 });
 

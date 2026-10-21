@@ -84,6 +84,20 @@ const SCOPE_SWEEP_MAX_PAGES = 10;
 const SCOPE_SWEEP_MAX_NEW_SCOPES = 50;
 const SCOPE_SWEEP_MAX_NEW_SCOPES_INITIAL = 500;
 /**
+ * How many owner `sync` commands one pass keeps in flight.
+ *
+ * Both the reconnect re-subscribe and the scope sweep used to await one sync at
+ * a time, and each is answered with a full state replay for its scope. A
+ * long-lived BFF knows every conversation it has ever touched, so one
+ * app-server restart was a thousand round trips deep — minutes during which
+ * `sweepInFlight` stayed true, so a conversation created in that window was not
+ * subscribed either, and no push came from its turns. Eight bounds the burst the
+ * scope cap already bounds and shortens the pass by an order of magnitude. The
+ * replies are independent scopes matched by request id, so their order means
+ * nothing; `request()` registers each id before it sends.
+ */
+const SYNC_CONCURRENCY = 8;
+/**
  * Ceiling on remembered internal request ids. Generous relative to real traffic
  * (a sweep of 100 agents x 100 conversations is ~10k ids) so eviction only
  * ever kicks in on a pathological run, and cheap either way: these are short
@@ -365,19 +379,36 @@ export class UpstreamConnection {
     });
   }
 
-  private async resubscribe(): Promise<void> {
-    for (const scope of this.knownScopes.values()) {
-      try {
-        await this.syncAsOwner(
-          scope,
-          `bff-resync-${scope.agent_id}-${scope.conversation_id}-${Date.now()}`,
-        );
-      } catch (error) {
-        this.log(
-          `Re-subscribe failed for ${scope.agent_id}/${scope.conversation_id}: ${errorMessage(error)}`,
-        );
-      }
+  /**
+   * Owner-sync `scopes`, `SYNC_CONCURRENCY` at a time. A scope whose sync throws
+   * is logged and skipped: one conversation that refuses must not stop the rest
+   * of the pass, which is what the per-scope try/catch has always meant.
+   */
+  private async syncScopes(
+    scopes: readonly { agent_id: string; conversation_id: string }[],
+    idPrefix: string,
+    failureWhat: string,
+  ): Promise<void> {
+    for (let i = 0; i < scopes.length; i += SYNC_CONCURRENCY) {
+      await Promise.all(
+        scopes.slice(i, i + SYNC_CONCURRENCY).map(async (scope) => {
+          try {
+            await this.syncAsOwner(
+              scope,
+              `bff-${idPrefix}-${scope.agent_id}-${scope.conversation_id}-${Date.now()}`,
+            );
+          } catch (error) {
+            this.log(
+              `${failureWhat} ${scopeKeyOf(scope.agent_id, scope.conversation_id)}: ${errorMessage(error)}`,
+            );
+          }
+        }),
+      );
     }
+  }
+
+  private resubscribe(): Promise<void> {
+    return this.syncScopes([...this.knownScopes.values()], "resync", "Re-subscribe failed for");
   }
 
   /**
@@ -450,7 +481,10 @@ export class UpstreamConnection {
       return;
     }
 
-    for (const agent of agents) {
+    // Scanned first, then synced: the cap bounds how many owner syncs one pass
+    // starts, and `syncScopes` is what keeps that burst bounded and short.
+    const pending: { agent_id: string; conversation_id: string }[] = [];
+    scanning: for (const agent of agents) {
       const conversations = await this.listConversationIds(agent.id);
       if (conversations === null) continue;
 
@@ -462,19 +496,13 @@ export class UpstreamConnection {
             `Scope sweep: hit the ${budget}-scope cap; ` +
               `the rest will be picked up on the next sweep`,
           );
-          return;
+          break scanning;
         }
         attempts += 1;
-        try {
-          await this.syncAsOwner(
-            { agent_id: agent.id, conversation_id: conversationId },
-            `bff-sweep-sync-${scopeKey}-${Date.now()}`,
-          );
-        } catch (error) {
-          this.log(`Scope sweep: sync failed for ${scopeKey}: ${errorMessage(error)}`);
-        }
+        pending.push({ agent_id: agent.id, conversation_id: conversationId });
       }
     }
+    await this.syncScopes(pending, "sweep-sync", "Scope sweep: sync failed for");
   }
 
   /**
