@@ -27,6 +27,7 @@ import { type ResponseFormat, validateResponseFormat } from "../lib/structured-o
 import type { LiveSubagent, WorkflowCounts } from "../lib/subagents.ts";
 import { readLiveSubagents, readWorkflowProgress } from "../lib/subagents.ts";
 import { pickTurnUsage, type TurnUsage } from "../lib/usage.ts";
+import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "../lib/live-state.ts";
 import { STALL_AFTER_MS } from "../lib/working.ts";
 import {
   agentWorkspace,
@@ -302,6 +303,17 @@ function readApproval(raw: unknown): PendingApproval | null {
   };
 }
 
+/**
+ * Agents whose workspace this page load has seeded with `.keep`.
+ *
+ * `runtime_start` refuses a directory that does not exist and there is no mkdir
+ * command, so a marker file is how the directory gets created (`write_file` does
+ * `mkdir -p` on the parent). One agent has one directory, so one write per agent
+ * per load is the whole job — writing it per conversation had a plain conversation
+ * switch costing a file write, and a browsing session doing writes.
+ */
+const seededWorkspaces = new Set<string>();
+
 export function useConversation(
   session: SessionApi,
   agentId: string | null,
@@ -511,9 +523,16 @@ export function useConversation(
       return;
     }
     const timer = setInterval(() => {
-      if (stallProbedRef.current || stopping) return;
-      const last = lastActivityRef.current;
-      if (last === null || Date.now() - last < STALL_AFTER_MS + 15_000) return;
+      if (
+        !stallProbeDue({
+          probed: stallProbedRef.current,
+          stopping,
+          lastActivityAt: lastActivityRef.current,
+          now: Date.now(),
+          stallAfterMs: STALL_AFTER_MS,
+        })
+      )
+        return;
       stallProbedRef.current = true;
       reprimeLiveState();
     }, 5_000);
@@ -586,14 +605,19 @@ export function useConversation(
     void (async () => {
       const home = agentWorkspace(scope.agent_id);
       try {
-        // `cwd` below refuses a directory that does not exist, and no mkdir
-        // command exists — but write_file does `mkdir -p` on the parent before
-        // writing, so seeding a marker file is how the directory gets created.
+        // Seed the workspace once per agent per load — see `seededWorkspaces`.
         // Best effort: a failure here should not block the turn.
-        await request("write_file", {
-          path: `${home}/.keep`,
-          content: "",
-        }).catch(() => undefined);
+        if (!seededWorkspaces.has(scope.agent_id)) {
+          // A refused write is not a reason to skip the runtime: `cwd` may already
+          // exist, and this only ever tries to make it exist.
+          const seeded = await request("write_file", {
+            path: `${home}/.keep`,
+            content: "",
+          })
+            .then(() => true)
+            .catch(() => false);
+          if (seeded) seededWorkspaces.add(scope.agent_id);
+        }
 
         // No `workspace_sandbox`: it is write-scoped to a SINGLE root, which
         // left the agent's own memfs memory, /tmp and /root/.letta read-only,
@@ -667,11 +691,7 @@ export function useConversation(
             // processing continues into the resent turn.
             expectResentTurnRef.current = false;
           } else {
-            // A ready queued item means the pump starts the next turn the
-            // moment this one unwinds — the working dots must not blink off
-            // in between. Paused items (parked by an interrupt) will not
-            // start, so they do not hold the indicator on.
-            setProcessing(queueRef.current.some((item) => !item.paused));
+            setProcessing(indicatorStaysOn(queueRef.current));
           }
           // The turn has genuinely unwound now, whatever the app-server said
           // when it accepted the abort. Our own note was about the gap between
@@ -697,11 +717,8 @@ export function useConversation(
               };
             }
           ).device_status;
-          // The seam of a force-send: the abort's own status frames say "not
-          // processing" while the replacement turn is staged, and the
-          // replacement's own start frames can arrive before the aborted
-          // turn's turn_finished — so only turn_finished ends the seam.
-          if (!expectResentTurnRef.current || status?.is_processing === true) {
+          // The seam of a force-send: only a frame that says busy may move it.
+          if (seamAllowsFlip(expectResentTurnRef.current, status?.is_processing === true)) {
             setProcessing(status?.is_processing === true);
           }
           if (typeof status?.current_working_directory === "string") {
@@ -748,7 +765,7 @@ export function useConversation(
           const loopStatus = loop?.status;
           const loopBusy = typeof loopStatus === "string" && loopStatus !== "WAITING_ON_INPUT";
           // Same force-send seam as in the device-status case above.
-          if (!expectResentTurnRef.current || loopBusy) setProcessing(loopBusy);
+          if (seamAllowsFlip(expectResentTurnRef.current, loopBusy)) setProcessing(loopBusy);
           break;
         }
         case "update_queue": {
