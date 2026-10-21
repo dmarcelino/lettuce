@@ -6,6 +6,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Changed
+- **The release checklist builds the bundle before it checks it.** After a release cut in a worktree, `deploy-check` compared the running container against this host's stale `web/dist` and only named `build:bff`, which fixes the image and never the host's copy — the checklist runs `bun run build` first now, and says what to record when a merge ships nothing an image carries.
 - **A look at the running stack never touches your data.** The playbook now forbids a session from moving anything under the state directory or the sign-in store, from claiming an instance it was not handed, and from leaving anything durable in a container path — a recreate deletes it, and one session's screenshot routine cost an operator their password.
 - **The playbook says what a guard rule cannot guard.** `protect` names a path and its subtree, never a glob, so a `docker/.env.bak-*` left beside the protected `.env` was never inside its reach — flip a variable in place and let `.gitignore`'s `.env.*` be what stops a secret backup from being committed.
 
