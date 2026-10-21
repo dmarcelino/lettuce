@@ -85,6 +85,12 @@ skip), so after a setup failure check both exist before trusting `flow check`. T
 `up -d` replaced whatever another session was testing — say so out loud. A web/ change needs `build:bff`
 first or the container serves the old bundle.
 
+A look at the running stack never mutates operator state on its own. Move nothing under
+`$LETTA_STATE_DIR` or `/app/auth`, never claim an instance you were not handed, and keep nothing durable in
+a container path — the next recreate deletes it. A session that moved the sign-in hash aside to photograph a
+locked screen, keeping its only backup inside `bff`, cost the operator their password when the container was
+rebuilt. Copy state **out** to the host to photograph it, or add data instead of moving it.
+
 - [ ] built and running in the local container stack (unscoped `up -d`, `build:bff` first for any web/
       change) and the operator clicked through the change and said it works
 - [ ] (ui) `bun run ui-check` screenshots plus a live look at 390 and 1280, reviewed as a whole screen
