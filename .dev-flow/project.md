@@ -10,7 +10,7 @@ defaultBranch = main
 branchPattern = feat/{slug}
 worktreeDir = .dev-flow/{slug}/worktree
 release.changelog = CHANGELOG.md
-release.github = false
+release.releases = true
 ```
 
 ```flow-guard
@@ -88,7 +88,7 @@ first or the container serves the old bundle.
 versionFile = VERSION
 versionTag = {version}
 changelog = CHANGELOG.md
-github = false
+releases = true
 artifact = docker buildx imagetools inspect ghcr.io/dmarchevsky/lettuce-bff:{tag}
 ```
 
@@ -119,8 +119,8 @@ builds, and what CI compares against `VERSION` after the merge. `sync-upstream` 
 Publish only — the preparation happened above. Push the branch, open the PR from
 `.github/pull_request_template.md`, wait for `ci` green, **merge it yourself**
 (`gh pr merge <n> --merge`), `git fetch`, create the annotated tag at `main`'s tip and push it
-**by name** (`git push origin v<x>`, never `--follow-tags`), then `flow release-done`. No GitHub release
-is published (`release.github = false`). Nothing here deploys prod, and nothing is pushed, merged or
+**by name** (`git push origin v<x>`, never `--follow-tags`), then `flow release-done`, which creates
+the GitHub Release for that tag (`release.releases = true`) with the changelog section as its notes. Nothing here deploys prod, and nothing is pushed, merged or
 tagged without the operator's **Release?** for that specific change — a standing yes from an earlier
 change is not one. The guard no longer intercepts `gh pr merge`: Release? is the authorization.
 

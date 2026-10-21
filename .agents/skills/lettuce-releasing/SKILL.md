@@ -79,8 +79,9 @@ to this repo's tag scheme:
   — `check-release-hygiene` fails the branch when the two disagree. Forgetting it does not break CI; it
   makes a prod deploy pull the previous release's images.
 - **`deploy-check`** re-asserts the same pair after the merge, from `main`, next to the tag at `HEAD`.
-- **No links section** — no GitHub releases are published (`release.github = false`), public repo or
-  not; do not add Keep-a-Changelog link references.
+- **No links section** in the changelog itself — `flow release` publishes a GitHub Release per tag
+  (`release.releases = true` in the playbook) and renders its notes from that section, so the file needs
+  no link references at the bottom.
 
 #### Docs sync (README and CONFIGURATION)
 
