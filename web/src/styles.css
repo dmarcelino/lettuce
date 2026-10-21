@@ -92,6 +92,24 @@ pre {
   min-height: 100dvh;
 }
 
+/* Sign-in, in both places it appears (the sign-in screen and the change-password
+   form inside Settings). The column is capped instead of stretched across a
+   desktop window, and its controls fill the column. */
+.signin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 22rem;
+}
+
+.signin-form .button {
+  width: 100%;
+  /* `.button` is fit-content by default; here it is the column's width. */
+  max-width: none;
+  justify-content: center;
+  margin-top: 10px;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -2244,7 +2262,8 @@ p.warning.dismissible > .icon-button {
 .sheet-body p.warning {
   margin-inline: 0;
 }
-p.warning code {
+p.warning code,
+.section-copy code {
   background: rgba(0, 0, 0, 0.28);
   padding: 1px 5px;
   border-radius: var(--radius);
@@ -2966,6 +2985,14 @@ p.warning code {
   margin: 18px 12px 6px;
   font-size: 12px;
   font-weight: 600;
+  color: var(--muted);
+}
+/* The prose that explains a settings section, as opposed to the heading
+   `.section-note` is. The rows and the banners are inset 12px and this was
+   neither its size nor its inset, which is what made a section read as clutter. */
+.section-copy {
+  margin: 10px 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .row.static {
@@ -3991,7 +4018,7 @@ button.link-dot.busy.warn {
   margin: 24px 0 6px;
 }
 
-/* Settings → Google when Google refused the token: the way out comes first. */
+/* Settings → Google Workspace when Google refused the token: the way out comes first. */
 .google-lost {
   margin: 4px 0 12px;
   padding: 10px 12px;

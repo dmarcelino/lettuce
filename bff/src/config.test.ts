@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   assertSessionSecretIsStrong,
   enabledFeatureNames,
+  googleWritesAllowed,
   hasProfile,
   loadConfig,
   parseAllowedUsers,
+  signinHasAddress,
 } from "./config";
 
 describe("hasProfile", () => {
@@ -95,7 +97,9 @@ describe("loadConfig features", () => {
     });
   });
 
-  test("the profile list still decides cloudflared mode the same way", () => {
+  test("the profile list no longer decides who signs in", () => {
+    // The token used to be the whole answer: cloudflared meant Access was the
+    // gate. It now only has to agree with `ACCESS`, and `SIGNIN` is its own call.
     withEnv(
       {
         ...base,
@@ -106,13 +110,192 @@ describe("loadConfig features", () => {
       },
       () => {
         const config = loadConfig();
-        expect(config.mode).toBe("cloudflared");
+        expect(config.access).toBe("cloudflared");
+        expect(config.signin).toBe("cf-access");
         expect(config.features.codex).toBe(true);
       },
     );
     withEnv({ ...base, LETTA_MODE: "cloudflaredx" }, () => {
-      expect(loadConfig().mode).toBe("local");
+      expect(loadConfig().access).toBe("lan");
     });
+  });
+});
+
+describe("loadConfig access and sign-in", () => {
+  const base = {
+    PUBLIC_ORIGIN: "https://lettuce.example.com",
+    LETTA_APP_SERVER_URL: "ws://127.0.0.1:4500",
+    SESSION_SECRET: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p67",
+  };
+  const cf = {
+    CF_ACCESS_TEAM_DOMAIN: "acme",
+    CF_ACCESS_AUD: "aud-tag",
+  };
+
+  function withEnv(extra: Record<string, string | undefined>, run: () => void): void {
+    const saved = { ...process.env };
+    try {
+      for (const [key, value] of Object.entries(extra)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      run();
+    } finally {
+      for (const key of Object.keys(process.env)) delete process.env[key];
+      Object.assign(process.env, saved);
+    }
+  }
+
+  test("nothing set: a LAN instance that asks for a password", () => {
+    withEnv({ ...base, LETTA_MODE: undefined }, () => {
+      const config = loadConfig();
+      expect(config.access).toBe("lan");
+      expect(config.signin).toBe("password");
+      // No address is involved, so an empty allowlist is correct, not a locked door.
+      expect(config.allowedUsers).toEqual([]);
+    });
+  });
+
+  test("the tunnel token derives both halves, so an existing install needs no new lines", () => {
+    withEnv({ ...base, LETTA_MODE: "cloudflared", ...cf, ALLOWED_USERS: "me@example.com" }, () => {
+      const config = loadConfig();
+      expect(config.access).toBe("cloudflared");
+      expect(config.signin).toBe("cf-access");
+      expect(config.allowedUsers).toEqual(["me@example.com"]);
+    });
+  });
+
+  test("ACCESS and the tunnel token must agree, in both directions", () => {
+    withEnv({ ...base, LETTA_MODE: undefined, ACCESS: "cloudflared", ...cf }, () => {
+      expect(loadConfig).toThrow(/no tunnel exists to serve it/);
+    });
+    withEnv({ ...base, LETTA_MODE: "cloudflared", ACCESS: "lan" }, () => {
+      expect(loadConfig).toThrow(/public hostname points at it/);
+    });
+  });
+
+  test("an unrecognised value is a typo, and says what was allowed", () => {
+    withEnv({ ...base, ACCESS: "tunnel" }, () => {
+      expect(loadConfig).toThrow(/ACCESS is "tunnel", which is not one of: lan, cloudflared/);
+    });
+    withEnv({ ...base, SIGNIN: "ldap" }, () => {
+      expect(loadConfig).toThrow(
+        /SIGNIN is "ldap", which is not one of: none, password, cf-access, google/,
+      );
+    });
+  });
+
+  test("cf-access needs the tunnel and its connection details", () => {
+    withEnv({ ...base, SIGNIN: "cf-access", ALLOWED_USERS: "me@example.com", ...cf }, () => {
+      expect(loadConfig).toThrow(/not reached through a Cloudflare Tunnel/);
+    });
+    withEnv(
+      { ...base, LETTA_MODE: "cloudflared", ALLOWED_USERS: "me@example.com", ACCESS: undefined },
+      () => {
+        expect(loadConfig).toThrow(/Missing required environment variable CF_ACCESS_TEAM_DOMAIN/);
+      },
+    );
+  });
+
+  test("a tunnel with no Access policy is a fine place for a password", () => {
+    withEnv({ ...base, LETTA_MODE: "cloudflared", SIGNIN: "password" }, () => {
+      const config = loadConfig();
+      expect(config.access).toBe("cloudflared");
+      expect(config.signin).toBe("password");
+      expect(config.allowedUsers).toEqual([]);
+    });
+  });
+
+  test("SIGNIN=none is refused wherever it would be exposed", () => {
+    // A public hostname with nothing in front of it — no opt-in variable, because
+    // the combination has no safe reading.
+    withEnv({ ...base, LETTA_MODE: "cloudflared", ...cf, SIGNIN: "none" }, () => {
+      expect(loadConfig).toThrow(/public hostname with nothing in front of it/);
+    });
+    withEnv({ ...base, SIGNIN: "none", LETTA_HOST_BIND: "0.0.0.0" }, () => {
+      expect(loadConfig).toThrow(/authenticates nobody, but BFF_BIND is 0\.0\.0\.0/);
+    });
+    withEnv({ ...base, SIGNIN: "none" }, () => {
+      // The compose default is loopback, so the machine-local case just works.
+      expect(loadConfig().signin).toBe("none");
+    });
+  });
+
+  test("a tunnel never leaves the direct port open either", () => {
+    withEnv(
+      {
+        ...base,
+        LETTA_MODE: "cloudflared",
+        ALLOWED_USERS: "me@example.com",
+        ...cf,
+        LETTA_HOST_BIND: "0.0.0.0",
+      },
+      () => {
+        expect(loadConfig).toThrow(/second way in that nothing guards/);
+      },
+    );
+  });
+
+  test("google sign-in needs the client and the allowlist, both from the environment", () => {
+    withEnv({ ...base, SIGNIN: "google", ALLOWED_USERS: "me@example.com" }, () => {
+      expect(loadConfig).toThrow(/SIGNIN=google needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET/);
+    });
+    withEnv(
+      { ...base, SIGNIN: "google", GOOGLE_CLIENT_ID: "id.apps", GOOGLE_CLIENT_SECRET: "s3cret" },
+      () => {
+        expect(loadConfig).toThrow(/Missing required environment variable ALLOWED_USERS/);
+      },
+    );
+    withEnv(
+      {
+        ...base,
+        SIGNIN: "google",
+        ALLOWED_USERS: "me@example.com",
+        GOOGLE_CLIENT_ID: "id.apps",
+        GOOGLE_CLIENT_SECRET: "s3cret",
+      },
+      () => {
+        const config = loadConfig();
+        expect(config.google.envClientId).toBe("id.apps");
+        expect(config.google.envClientSecret).toBe("s3cret");
+      },
+    );
+  });
+
+  test("the variables the split replaced are an error, not a silent ignore", () => {
+    withEnv({ ...base, DEV_BYPASS_EMAIL: "me@example.com" }, () => {
+      expect(loadConfig).toThrow(/DEV_BYPASS_EMAIL is gone.*SIGNIN=none/s);
+    });
+    withEnv({ ...base, DEV_BYPASS_ALLOW_REMOTE: "true" }, () => {
+      expect(loadConfig).toThrow(/DEV_BYPASS_ALLOW_REMOTE is gone/);
+    });
+    withEnv({ ...base, GOOGLE_ALLOW_DEV_BYPASS: "true" }, () => {
+      expect(loadConfig).toThrow(/GOOGLE_ALLOW_DEV_BYPASS is gone/);
+    });
+  });
+
+  test("only a method that authenticates somebody may change Google access", () => {
+    withEnv({ ...base, SIGNIN: "none" }, () => {
+      expect(googleWritesAllowed(loadConfig())).toBe(false);
+    });
+    withEnv({ ...base, SIGNIN: "none", GOOGLE_ALLOW_INSECURE_SIGNIN: "true" }, () => {
+      expect(googleWritesAllowed(loadConfig())).toBe(true);
+    });
+    withEnv({ ...base, SIGNIN: "password" }, () => {
+      expect(googleWritesAllowed(loadConfig())).toBe(true);
+    });
+  });
+
+  test("the address-free methods have no allowlist to speak of", () => {
+    withEnv({ ...base, SIGNIN: "password", ALLOWED_USERS: "me@example.com" }, () => {
+      // Accepted, and reported as unused by the boot log: refusing would break a
+      // deployment that switched methods without cleaning its .env.
+      expect(loadConfig().allowedUsers).toEqual(["me@example.com"]);
+      expect(signinHasAddress("password")).toBe(false);
+    });
+    expect(signinHasAddress("cf-access")).toBe(true);
+    expect(signinHasAddress("google")).toBe(true);
+    expect(signinHasAddress("none")).toBe(false);
   });
 });
 

@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours, not the protocol''s: pin and archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags, archive only hides), the single AgentMenu fixed to the viewport because both agent lists scroll in boxes that clip, the two sidebar lists and the .agent-row language with the 3px active bar, useAgentStats only at the desktop width, the three-way split of settings (Agent tab: General/Secrets/Reflection/Skills; Tools tab: per-agent tool families with the on/off box on each chip; global Settings: providers/search/MCP/Google/workers/global skills), the rule that nothing uses a native checkbox (aria-pressed plus .menu-row-box / .chip-check instead), and ui-check reading the open agent from .agent-row.active[data-agent-id]. Read before touching web/src/components/AgentMenu, web/src/tabs/AgentTab.tsx, web/src/tabs/ToolsTab.tsx, components/GlobalSettings.tsx, the sidebar agent/conversation lists, use-agents, or bff/src/agents/id-list.ts.'
+description: 'lettuce UI conventions that are ours, not the protocol''s: pin and archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags), the single AgentMenu fixed to the viewport because both agent lists scroll in clipping boxes, the two sidebar lists and the .agent-row language with the 3px active bar, useAgentStats only at desktop width, the three-way split of settings (Agent tab: General/Secrets/Reflection/Skills; Tools tab: per-agent tool families; global Settings: providers/search/MCP/Google Workspace/workers/global skills, plus a Deployment group reporting docker/.env's Access and Sign-in), nothing uses a native checkbox (aria-pressed plus .menu-row-box / .chip-check instead), and ui-check reading the open agent from .agent-row.active[data-agent-id]. Read before touching web/src/components/AgentMenu, web/src/tabs/AgentTab.tsx, web/src/tabs/ToolsTab.tsx, components/GlobalSettings.tsx, the sidebar agent/conversation lists, use-agents, or bff/src/agents/id-list.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -49,4 +49,9 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   `.chip-check.on` for a chip box, which is what `ui-check` counts (`input[type=checkbox]` must be
   0 anywhere in the DOM). The Agent tab's chip list is exactly
   `General/Secrets/Reflection/Skills` since Tools moved out, and `GlobalSettings`'s
-  `SHARED_NOTE` has to name **both** per-agent tabs.
+  `SHARED_NOTE` has to name **both** per-agent tabs. Inside a settings section body
+  `.section-note` is a **heading** (12px bold, like "Change password") and the prose that
+  explains the rows is `.section-copy` — their inset and size, with the banner's code chip —
+  so a section is rows, one statement, one provenance line; a `p.warning` that also carries a
+  `.section-note` renders the banner's text at heading weight, which is what made a section
+  read as clutter.

@@ -11,17 +11,17 @@
  * unauthenticated upgrade that carries an `Origin` — so an absent header is
  * treated as "not a browser" and allowed, while a present one must match.
  *
- * What "match" means depends on the mode:
+ * What "match" means depends on how the app is reached:
  *
  * - **cloudflared**: the Origin must be exactly `PUBLIC_ORIGIN`. Cloudflare
  *   rewrites `Host` to the origin's own address, so the request's Host is not
  *   the user-facing origin and cannot be compared against. The declared public
  *   origin is the only trustworthy answer here, and pinning it also means a
  *   Host-header injection cannot smuggle a different origin through.
- * - **local**: the app is reached directly, often by LAN IP or `localhost`
- *   with a port that varies between dev and the container. Requiring an exact
- *   match against `PUBLIC_ORIGIN` would break legitimate access, so the rule
- *   is same-origin: the Origin's host and port must equal the request's `Host`
+ * - **lan**: the app is reached directly, often by LAN IP or `localhost` with a
+ *   port that varies between dev and the container. Requiring an exact match
+ *   against `PUBLIC_ORIGIN` would break legitimate access, so the rule is
+ *   same-origin: the Origin's host and port must equal the request's `Host`
  *   header. That is exactly the property cross-site requests violate, and it
  *   holds however the machine is addressed.
  *
@@ -33,6 +33,8 @@
  *   never have a loopback Origin. Only something already running on this
  *   machine does.
  */
+
+import type { Access } from "../config.ts";
 
 export interface OriginCheck {
   ok: boolean;
@@ -56,12 +58,12 @@ function sameHostAndPort(originUrl: URL, hostHeader: string): boolean {
 /**
  * Whether a WebSocket upgrade from `originHeader` may proceed.
  *
- * `mode` is the BFF's mode; `publicOrigin` its declared public origin;
+ * `access` is how the BFF is reached; `publicOrigin` its declared public origin;
  * `hostHeader` the `Host` header of the upgrade request.
  */
 export function checkUpgradeOrigin(
   originHeader: string | null,
-  mode: "local" | "cloudflared",
+  access: Access,
   publicOrigin: string,
   hostHeader: string | null,
 ): OriginCheck {
@@ -77,7 +79,7 @@ export function checkUpgradeOrigin(
   const declared = publicOrigin.replace(/\/+$/, "");
   if (originHeader.replace(/\/+$/, "") === declared) return { ok: true };
 
-  if (mode === "cloudflared") {
+  if (access === "cloudflared") {
     return {
       ok: false,
       reason: `Origin ${originHeader} is not the declared public origin ${declared}`,

@@ -8,16 +8,19 @@
  * viewports plus measured assertions is the difference between checking the app
  * and checking the screenshot harness.
  *
- * Auth is one navigation: /auth/dev-login sets the dev-bypass cookie and
- * redirects to /, so no profile or cookie juggling is needed.
+ * Auth is one navigation: under `SIGNIN=none` (what a local stack derives)
+ * /auth/login mints the session cookie and redirects to /, so no profile or
+ * cookie juggling is needed. Under `SIGNIN=password` the same URL is the form,
+ * and the harness needs LETTUCE_TEST_PASSWORD — a script is not entitled to a
+ * password a human typed.
  *
  * Usage: bun run ui-check [bffOrigin]
  */
 
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
+import { chromiumExecutable, requireTestPassword } from "./harness.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const OUT_DIR = new URL("../.ui-check/", import.meta.url).pathname;
@@ -40,30 +43,25 @@ function section(title: string): void {
 }
 
 /**
- * Playwright pins a Chromium build that may not be the one cached on this
- * machine, and downloading ~150MB to assert on CSS is not a good trade. Reuse
- * whatever chromium-* build is already present; fall back to Playwright's own
- * resolution when none is.
+ * Land on the app with a session, by whatever method this stack signed in with.
+ * A password field on the page is how `SIGNIN=password` shows up here.
  */
-function chromiumExecutable(): string | undefined {
-  if (process.env.PLAYWRIGHT_CHROMIUM) return process.env.PLAYWRIGHT_CHROMIUM;
-  const cache = join(homedir(), ".cache", "ms-playwright");
-  if (!existsSync(cache)) return undefined;
-  const builds = readdirSync(cache)
-    .filter((name) => name.startsWith("chromium-"))
-    .sort()
-    .reverse();
-  for (const build of builds) {
-    const candidate = join(cache, build, "chrome-linux64", "chrome");
-    if (existsSync(candidate)) return candidate;
+async function signIn(page: Page): Promise<void> {
+  await page.goto(ORIGIN, { waitUntil: "networkidle" });
+  if (await page.locator('input[type="password"]').first().count()) {
+    const password = requireTestPassword("ui-check");
+    await page.locator('input[type="password"]').first().fill(password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    // The success path is a reload of the whole app, so wait for the app itself
+    // rather than for the load event, which fires on the sign-in page.
+    await page.waitForSelector(".app", { timeout: 20_000 });
   }
-  return undefined;
 }
 
 /** Load the app authenticated and settled. */
 async function open(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
   const page = await browser.newPage({ viewport });
-  await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+  await signIn(page);
   return page;
 }
 
@@ -920,11 +918,14 @@ try {
       "Models",
       ...(featureOn(features, "web") ? ["Web"] : []),
       "MCP",
-      ...(featureOn(features, "google") ? ["Google"] : []),
+      ...(featureOn(features, "google") ? ["Workspace"] : []),
       ...(featureOn(features, "codex") ? ["Codex"] : []),
       ...(featureOn(features, "claude") ? ["Claude"] : []),
       ...(featureOn(features, "pi") ? ["Remote Pi"] : []),
       "Skills",
+      // Deployment: the two halves of what used to be one mode, reported read-only.
+      "Access",
+      "Sign-in",
       "Push",
       "About",
     ];
@@ -1305,11 +1306,13 @@ try {
       "Providers & models",
       ...(featureOn(desktopFeatures, "web") ? ["Web search"] : []),
       "MCP servers",
-      ...(featureOn(desktopFeatures, "google") ? ["Google"] : []),
+      ...(featureOn(desktopFeatures, "google") ? ["Google Workspace"] : []),
       ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
       ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
       ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
       "Global skills",
+      "Access",
+      "Sign-in",
       "Notifications",
       "About",
     ];
@@ -1881,7 +1884,7 @@ try {
       ws.connectToServer();
       inject = (frame) => ws.send(frame);
     });
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     await page.waitForTimeout(1500);
     // The sidebar stays mounted, hidden, on a phone, so this reads there too.
     const agentId = await page
@@ -2037,7 +2040,7 @@ try {
       ws.connectToServer();
       inject = (frame) => ws.send(frame);
     });
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     await page.waitForTimeout(1500);
     if (!inject) {
       check(`${viewport.width}px: context check has a session`, false);
@@ -2140,7 +2143,7 @@ try {
   {
     const context = await browser.newContext({ viewport: PHONE, isMobile: true, hasTouch: true });
     const page = await context.newPage();
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     const textarea = page.locator(".composer textarea");
     await textarea.waitFor();
     await textarea.fill("first line");
@@ -2164,8 +2167,8 @@ try {
     await page.goto(`${ORIGIN}/?settings=google`, { waitUntil: "networkidle" });
     await page.locator(".settings-screen").waitFor({ timeout: 10_000 });
     check(
-      "?settings=google opens Settings on Google",
-      (await page.locator(".settings-content-title").innerText()) === "Google",
+      "?settings=google opens Settings on Google Workspace",
+      (await page.locator(".settings-content-title").innerText()) === "Google Workspace",
     );
     check("the param is stripped", !page.url().includes("settings="), page.url());
     await page.close();
@@ -2178,7 +2181,7 @@ try {
   ] as const) {
     const context = await browser.newContext(options);
     const page = await context.newPage();
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.locator('.section-tabs button:text-is("Reflection")').click();
     await page.locator(".field select").first().waitFor();
