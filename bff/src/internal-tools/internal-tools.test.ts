@@ -139,9 +139,7 @@ describe("the internal route", () => {
       headers: { origin: "http://127.0.0.1:8080" },
       body: JSON.stringify({ query: "q" }),
     });
-    expect(
-      (await handleInternalTools(sameOrigin, "127.0.0.1", handlers))?.status,
-    ).toBe(404);
+    expect((await handleInternalTools(sameOrigin, "127.0.0.1", handlers))?.status).toBe(404);
   });
 
   test("the first web-tools mod's paths still answer", async () => {

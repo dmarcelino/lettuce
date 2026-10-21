@@ -5,6 +5,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "../lib/live-state.ts";
 import {
   addLocalUserMessage,
   applyStreamDelta,
@@ -27,7 +28,6 @@ import { type ResponseFormat, validateResponseFormat } from "../lib/structured-o
 import type { LiveSubagent, WorkflowCounts } from "../lib/subagents.ts";
 import { readLiveSubagents, readWorkflowProgress } from "../lib/subagents.ts";
 import { pickTurnUsage, type TurnUsage } from "../lib/usage.ts";
-import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "../lib/live-state.ts";
 import { STALL_AFTER_MS } from "../lib/working.ts";
 import {
   agentWorkspace,
