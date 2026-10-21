@@ -144,5 +144,9 @@ green and pushed nothing — `lettuce-pr-and-ci` says why a green Compose build 
 green pipeline is not the artifact; the registry is. (An unversioned flow tags nothing, so this gate and
 the artifact check both stand down.)
 
-- [ ] after the merge and from `main`: `bun run deploy-check` green, plus `bun run ui-check` and
-      `bun run smoke` where they apply
+- [ ] after the merge and from `main`: `bun run build` **first** — `deploy-check` compares the served bundle
+      against this host's `web/dist`, and after a release built in a worktree that copy is stale
+      (`build:bff` refreshes the image, never the host's copy) — then `bun run deploy-check` green, plus
+      `bun run ui-check` and `bun run smoke` where they apply. A merge that ships nothing an image carries
+      (playbook, docs, CI) still leaves build identity naming an older sha: rebuild `bff`, or record that
+      there was nothing to rebuild.
