@@ -5,10 +5,20 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.20.1-letta_0.34.16] - 2026-10-21
+
 ### Changed
 - **The release checklist builds the bundle before it checks it.** After a release cut in a worktree, `deploy-check` compared the running container against this host's stale `web/dist` and only named `build:bff`, which fixes the image and never the host's copy — the checklist runs `bun run build` first now, and says what to record when a merge ships nothing an image carries.
 - **A look at the running stack never touches your data.** The playbook now forbids a session from moving anything under the state directory or the sign-in store, from claiming an instance it was not handed, and from leaving anything durable in a container path — a recreate deletes it, and one session's screenshot routine cost an operator their password.
 - **The playbook says what a guard rule cannot guard.** `protect` names a path and its subtree, never a glob, so a `docker/.env.bak-*` left beside the protected `.env` was never inside its reach — flip a variable in place and let `.gitignore`'s `.env.*` be what stops a secret backup from being committed.
+
+### Fixed
+- **A proxy on your own machine can no longer let a web page use the agent's tools.** The BFF trusted anything arriving from loopback on its internal tool endpoints, and a reverse proxy on the same host makes every browser request look like that — a forged cross-origin request could have run `pi_exec` on a remote worker or acted as you in Gmail without signing in. A call that names a browser origin is now refused as if the endpoint did not exist, and the agent's own tools answer exactly as before.
+- **Coming back after an app-server restart stops being deaf.** The BFF re-subscribed to conversations one at a time, so a long-lived install spent minutes on it — and a cron or Telegram turn finishing in that window produced no notification at all, because nothing was listening for its conversation. It is eight at a time now.
+- **Several large downloads at once stop risking the whole app.** Four concurrent 25 MB workspace downloads could hold about 240 MB in the one process whose death stops every running turn without warning; the cap is two now, the same ceiling uploads already used, and a third file simply waits.
+- **A remote-pi follow-up stopped re-reading history.** Finding which worker made a session consulted an index instead of parsing every stored run record on every dispatch, and a run card's "bytes captured" now counts bytes rather than characters.
+- **Opening a conversation no longer writes to the agent's folder.** The marker file that makes a workspace exist is created once per agent per page load, not on every conversation switch.
+- **A route can no longer be added outside the sign-in gate.** The session check covers only routes registered after it, so an endpoint added above it would answer anonymous visitors; a build check now fails the branch when that happens, and reads its list of deliberately-public paths out of the same file.
 
 ## [v0.20.0-letta_0.34.16] - 2026-10-21
 
