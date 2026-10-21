@@ -465,6 +465,7 @@ export class DirPiRunStore implements PiRunStore {
       if (index < keep && !Number.isNaN(started) && started >= cutoff) continue;
       await fs.rm(this.metaPath(meta.runId), { force: true });
       await fs.rm(this.eventsPath(meta.runId), { force: true });
+      if (meta.session) this.sessionRuns.delete(meta.session);
       // Fetched artifacts (C1) ride the run they were fetched for.
       if (RUN_ID_RE.test(meta.runId))
         await fs.rm(`${this.dir}/${meta.runId}`, { recursive: true, force: true });
