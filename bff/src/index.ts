@@ -1547,9 +1547,12 @@ app.get("/api/turn-usage", (c) => {
 // and the response is held twice here — the base64 text and the decoded bytes —
 // so one 25 MB download is ~60 MB of heap. Nothing else bounds how many run at
 // the same time, and this is the process holding the only upstream connection:
-// an OOM here cancels every turn in flight, with no drain to save them.
+// an OOM here cancels every turn in flight, with no drain to save them — an
+// unsignalled kill is the one shutdown the drain in `shutdown.ts` cannot cover.
+// Two, not four: the same ceiling `files/upload.ts` sets for the same reason, so
+// the worst case is ~120 MB rather than ~240 MB, and a fourth file queues.
 const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
-const MAX_DOWNLOADS_IN_FLIGHT = 4;
+const MAX_DOWNLOADS_IN_FLIGHT = 2;
 let downloadsInFlight = 0;
 
 app.get("/api/files/download", async (c) => {
