@@ -91,9 +91,17 @@ a container path — the next recreate deletes it. A session that moved the sign
 locked screen, keeping its only backup inside `bff`, cost the operator their password when the container was
 rebuilt. Copy state **out** to the host to photograph it, or add data instead of moving it.
 
+`smoke` and `ui-check` both stop at `LETTUCE_TEST_PASSWORD` when the stack signs in with a password
+(`scripts/harness.ts`), and an agent never stores that password: it is not a repo file, and exporting it
+into a shell is the operator's per-machine choice. So an agent that cannot run them records **what it
+probed in the container** instead — in the PR's *What was clicked* — and says plainly that a human pass on
+the sign-in path is still owed. `flow verify` deploying and probing `/readyz` is not that pass and never
+counts as one.
+
 - [ ] built and running in the local container stack (unscoped `up -d`, `build:bff` first for any web/
       change) and the operator clicked through the change and said it works
 - [ ] (ui) `bun run ui-check` screenshots plus a live look at 390 and 1280, reviewed as a whole screen
+      — or `LETTUCE_TEST_PASSWORD` is not held: record the container probes and the owed human pass above
 
 ## pre-release
 
@@ -154,3 +162,19 @@ the artifact check both stand down.)
       `bun run ui-check` and `bun run smoke` where they apply. A merge that ships nothing an image carries
       (playbook, docs, CI) still leaves build identity naming an older sha: rebuild `bff`, or record that
       there was nothing to rebuild.
+- [ ] a versioned release's **image tag lags the checkout** on a build-locally host: the compose tag default
+      moved with `VERSION`, so nothing built before the merge carries the new name and build identity fails
+      with no flag to forgive it. Fix from `main` with a clean tree — `bun run build:bff` then
+      `docker compose -f docker/compose.yml up -d --no-deps bff` (`--no-deps` is what keeps `app-server`
+      from coming along; see the recreation warning above) — and then `deploy-check` is green because
+      `VERSION` at `main` now equals the tag the image gets. The published GHCR images are the shipped
+      artifact either way; this only proves the local stack matches the release. A host that pulls images
+      instead of building them sets `LETTA_IMAGE_NS` (and `LETTA_IMAGE_TAG`) in its own gitignored
+      `docker/.env`, and that is the operator's choice, never an agent's edit.
+
+**A release-tag bump guarantees an `app-server` recreation**, and an `app-server` recreation kills every
+in-flight turn with no drain — the BFF's drain covers `bff` alone. So after a versioned release, even a
+scoped `docker compose up -d bff` on a build-locally host recreates `app-server`, because its image tag
+default moved with `VERSION`. Name it in the handoff, and use `--no-deps` when the turn in flight matters.
+Earlier versions of this playbook asked only "does app-server get recreated?", which made it sound
+optional; for a versioned release it is not.
