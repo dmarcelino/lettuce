@@ -121,6 +121,8 @@ export async function handleInternalTools(
         agentId: isAgentId(agentId) ? agentId : null,
         conversationId:
           conversationId && /^[A-Za-z0-9_-]{1,128}$/.test(conversationId) ? conversationId : null,
+        // The caller's own cancellation — see ToolCallContext.signal.
+        signal: request.signal,
       }),
     );
   } catch (error) {

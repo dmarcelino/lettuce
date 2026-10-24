@@ -19,7 +19,12 @@ export interface DdgToolResult {
 }
 
 /** The subset of the MCP client this module uses — injectable for tests. */
-export type DdgCaller = (tool: string, args: Record<string, unknown>) => Promise<DdgToolResult>;
+export type DdgCaller = (
+  tool: string,
+  args: Record<string, unknown>,
+  /** The turn's cancellation, forwarded into the MCP request. */
+  signal?: AbortSignal,
+) => Promise<DdgToolResult>;
 
 function textOf(result: unknown): DdgToolResult {
   const record = (result && typeof result === "object" ? result : {}) as Record<string, unknown>;
@@ -37,13 +42,14 @@ function textOf(result: unknown): DdgToolResult {
 }
 
 export function ddgCaller(mcpUrl: string, timeoutMs = 60_000): DdgCaller {
-  return async (tool, args) => {
+  return async (tool, args, signal) => {
     const client = new Client({ name: "lettuce-web-tools", version: "1" });
     const transport = new StreamableHTTPClientTransport(new URL(mcpUrl));
     try {
       await client.connect(transport);
       const result = await client.callTool({ name: tool, arguments: args }, undefined, {
         timeout: timeoutMs,
+        ...(signal ? { signal } : {}),
       });
       return textOf(result);
     } finally {

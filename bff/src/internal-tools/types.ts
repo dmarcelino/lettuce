@@ -19,6 +19,15 @@ export interface ToolCallContext {
   /** The conversation the call was made from, when the mod sent one
    * (`x-letta-conversation-id`); a run settles back into it. */
   conversationId?: string | null;
+  /**
+   * Aborts when the caller gives up on this call. letta-code 0.34.19+ hands an
+   * AbortSignal to every external (mod) tool call and aborts in-flight tool
+   * executions instead of waiting for them, and the mod forwards `ctx.signal`
+   * into its fetch here — so this is that same cancellation, now carried into
+   * whatever the handler asks of a sidecar. A turn cancellation is the intent;
+   * nothing sets it for its own reasons.
+   */
+  signal?: AbortSignal;
 }
 
 /** One native tool the BFF serves. Never throws: a failure is an answer the agent reads. */

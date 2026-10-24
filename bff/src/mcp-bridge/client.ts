@@ -30,7 +30,13 @@ export interface CallResult {
 /** What the bridge needs from a server — injectable for tests. */
 export interface McpClientPort {
   listTools(server: McpServer): Promise<ListedTool[]>;
-  callTool(server: McpServer, tool: string, args: Record<string, unknown>): Promise<CallResult>;
+  callTool(
+    server: McpServer,
+    tool: string,
+    args: Record<string, unknown>,
+    /** The turn's cancellation, when the caller has one. */
+    signal?: AbortSignal,
+  ): Promise<CallResult>;
 }
 
 export function isBridgeable(server: McpServer): boolean {
@@ -82,10 +88,13 @@ export const mcpClient: McpClientPort = {
       } while (cursor);
       return tools;
     }),
-  callTool: (server, tool, args) =>
+  callTool: (server, tool, args, signal) =>
     withClient(server, async (client) =>
       textOfResult(
-        await client.callTool({ name: tool, arguments: args }, undefined, { timeout: 120_000 }),
+        await client.callTool({ name: tool, arguments: args }, undefined, {
+          timeout: 120_000,
+          ...(signal ? { signal } : {}),
+        }),
       ),
     ),
 };

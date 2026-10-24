@@ -356,6 +356,7 @@ Google sidecar only when its own pin or `docker/<name>/` changes. `bun run lint`
 | `bun run check-docs` | Asserts `AGENTS.md` and the skills are honest: anchors, paths, command table, frontmatter, size budget |
 | `bun run check-release-hygiene` | `VERSION` ↔ `CHANGELOG.md`; with `--pr`, that the change added its entry and its `bump:*` label agrees |
 | `bun run check-version-pin` | Assert every letta-code version literal agrees |
+| `bun run check-pin-upstream` | Report every upstream pin vs its registry (needs network; never fails) |
 | `bun run check-prod-info` | Fails if a tracked file holds a private IPv4 address or a personal mail domain |
 | `bun run check-worktree` | Feature work is not happening in the main checkout |
 | `bun run deploy-check` | The running container serves the merged code, and is healthy |

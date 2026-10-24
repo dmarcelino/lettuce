@@ -129,6 +129,10 @@ builds, and what CI compares against `VERSION` after the merge. `sync-upstream` 
 
 ## release
 
+```flow
+merge = merge
+```
+
 Publish only — the preparation happened above. Push the branch, open the PR from
 `.github/pull_request_template.md`, wait for `ci` green, **merge it yourself**
 (`gh pr merge <n> --merge`), `git fetch`, create the annotated tag at `main`'s tip and push it
