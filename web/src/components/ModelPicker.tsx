@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import type { RuntimeScope } from "../lib/protocol.ts";
-import { handleProvider } from "../lib/providers.ts";
+import { groupByProvider } from "../lib/providers.ts";
 import type { ToolsetSummary } from "../state/use-conversation.ts";
-import { type ModelEntry, useModels } from "../state/use-models.ts";
+import { type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 import { MenuRow } from "./MenuRow.tsx";
@@ -21,6 +21,115 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * The model list, shared by the two places a model is chosen: this sheet (a
+ * conversation's runtime) and an agent's model field. Both used to have their own
+ * list in their own idiom, which made "which endpoint serves this?" unanswerable
+ * in one of them.
+ *
+ * It picks; it never applies. What applying means — an `update_model` for a
+ * runtime, a staged draft handle on an agent — belongs to the caller.
+ */
+export function ModelChoices({
+  models,
+  currentHandle,
+  emptyLabel,
+  onPick,
+  disabled = false,
+}: {
+  /** The live list: loading, availability and empty states come with it. */
+  models: ModelsApi;
+  /** The handle to mark; null marks nothing (or the `emptyLabel` row). */
+  currentHandle: string | null;
+  /** When given, a first row that picks `null` — "Unchanged", "Preset default". */
+  emptyLabel?: string;
+  /** `null` is the `emptyLabel` row's choice. */
+  onPick: (handle: string | null) => void;
+  disabled?: boolean;
+}) {
+  const list = models.models;
+  const served = list.some((model) => model.handle === currentHandle);
+  const notice =
+    models.availability === "lookup-failed"
+      ? "Could not reach the provider to check availability — showing the built-in list."
+      : models.availability === "not-reported"
+        ? "This server does not report model availability — showing the built-in list."
+        : null;
+  return (
+    <>
+      {notice ? (
+        <p className="warning small" role="status">
+          {notice}
+        </p>
+      ) : null}
+      {models.loading ? <p className="muted">Loading models…</p> : null}
+      {!models.loading && list.length === 0 ? (
+        <p className="muted">
+          No models are being served. Connect a provider in Settings, then Refresh.
+        </p>
+      ) : null}
+      {emptyLabel === undefined ? null : (
+        <ul className="menu-list">
+          <MenuRow
+            title={emptyLabel}
+            mark="check"
+            selected={currentHandle === null}
+            disabled={disabled}
+            onClick={() => onPick(null)}
+          />
+        </ul>
+      )}
+      {/* A handle the endpoint stopped serving must stay selectable: an agent
+          whose model vanished has to be able to save its name without being
+          silently moved onto a different model. */}
+      {currentHandle && !served ? (
+        <ul className="menu-list">
+          <MenuRow
+            title={`${currentHandle} (not served)`}
+            mark="check"
+            selected
+            disabled={disabled}
+            onClick={() => onPick(currentHandle)}
+          />
+        </ul>
+      ) : null}
+      {groupByProvider(list).map(({ provider, models: group }) => (
+        <section key={provider}>
+          <p className="menu-section">
+            {provider} · {group.length} {group.length === 1 ? "model" : "models"}
+          </p>
+          <ul className="menu-list">
+            {group.map((model) => (
+              <MenuRow
+                key={model.id}
+                title={model.label}
+                // The handle is "<provider>/<label>" almost always; repeating it
+                // under every row said the provider ten times. Kept only when it
+                // adds something the title and heading do not.
+                description={
+                  model.handle === `${provider}/${model.label}` ? undefined : model.handle
+                }
+                mark="check"
+                selected={model.handle === currentHandle}
+                disabled={disabled}
+                onClick={() => onPick(model.handle)}
+              />
+            ))}
+          </ul>
+        </section>
+      ))}
+    </>
+  );
+}
+
+/** The toolset in force, as its own label — or "Auto" while nothing is chosen. */
+export function toolsetLabel(
+  preference: string | null,
+  toolsets: readonly ToolsetSummary[],
+): string {
+  return toolsets.find((toolset) => toolset.id === preference)?.label ?? "Auto";
+}
+
 /** Applies to the conversation, not the agent, so each thread can differ. */
 export function ModelPicker({
   session,
@@ -35,7 +144,7 @@ export function ModelPicker({
   const [busy, setBusy] = useState(false);
   const [toolsetBusy, setToolsetBusy] = useState(false);
 
-  const choose = async (model: ModelEntry) => {
+  const choose = async (handle: string) => {
     if (!scope) return;
     setBusy(true);
     try {
@@ -44,24 +153,31 @@ export function ModelPicker({
       // entry's `updateArgs`) fails the guard, matches no handler, and gets
       // **no response at all** — same silent-hang class as `grep_in_files`
       // with the wrong key. Verified against the local app-server.
+      const model = models.models.find((entry) => entry.handle === handle);
       const response = await session.request<{
         success?: boolean;
         model_handle?: string;
         error?: string;
       }>("update_model", {
         runtime: scope,
-        payload: { model_id: model.id, model_handle: model.handle },
+        // A handle with no entry (served when the list was last refreshed, not
+        // now) still goes through by handle alone: an id we do not have would be
+        // invented here.
+        payload: model
+          ? { model_id: model.id, model_handle: model.handle }
+          : { model_handle: handle },
       });
+      const label = model?.label ?? handle;
 
       if (response?.success === false) {
-        toast(response.error ?? `Could not switch to ${model.label}`, "bad");
+        toast(response.error ?? `Could not switch to ${label}`, "bad");
         return;
       }
-      current.setHandle(response?.model_handle ?? model.handle);
-      toast(`Switched to ${model.label}.`);
+      current.setHandle(response?.model_handle ?? handle);
+      toast(`Switched to ${label}.`);
       onClose();
     } catch (cause) {
-      toast(`Could not switch to ${model.label}: ${errorMessage(cause)}`, "bad");
+      toast(`Could not switch to ${handle}: ${errorMessage(cause)}`, "bad");
     } finally {
       setBusy(false);
     }
@@ -86,13 +202,6 @@ export function ModelPicker({
     }
   };
 
-  const notice =
-    models.availability === "lookup-failed"
-      ? "Could not reach the provider to check availability — showing the built-in list."
-      : models.availability === "not-reported"
-        ? "This server does not report model availability — showing the built-in list."
-        : null;
-
   return (
     <Sheet
       title="Model"
@@ -111,49 +220,25 @@ export function ModelPicker({
         </button>
       }
     >
-      {notice ? (
-        <p className="warning small" role="status">
-          {notice}
-        </p>
-      ) : null}
-
-      {models.loading ? <p className="muted">Loading models…</p> : null}
-
-      {!models.loading && models.models.length === 0 ? (
-        <p className="muted">
-          No models are being served. Connect a provider in Settings, then Refresh.
-        </p>
-      ) : null}
-
-      {groupByProvider(models.models).map(({ provider, models: group }) => (
-        <section key={provider}>
-          <p className="menu-section">
-            {provider} · {group.length} {group.length === 1 ? "model" : "models"}
-          </p>
-          <ul className="menu-list">
-            {group.map((model) => (
-              <MenuRow
-                key={model.id}
-                title={model.label}
-                // The handle is "<provider>/<label>" almost always; repeating it
-                // under every row said the provider ten times. Kept only when it
-                // adds something the title and heading do not.
-                description={
-                  model.handle === `${provider}/${model.label}` ? undefined : model.handle
-                }
-                mark="check"
-                selected={model.handle === current.handle}
-                disabled={busy}
-                onClick={() => void choose(model)}
-              />
-            ))}
-          </ul>
-        </section>
-      ))}
+      <ModelChoices
+        models={models}
+        currentHandle={current.handle}
+        onPick={(handle) => handle && void choose(handle)}
+        disabled={busy}
+      />
 
       {availableToolsets.length > 0 ? (
-        <>
-          <p className="menu-section">Toolset</p>
+        // Collapsed on every open: the toolset is chosen far less often than the
+        // model, and the row's own header names what is in force, so nothing the
+        // user needed is hidden behind the disclosure.
+        <details className="menu-collapsible">
+          <summary>
+            <span className="menu-section">Toolset</span>
+            <span className="menu-section-value">
+              {toolsetLabel(toolsetPreference, availableToolsets)}
+            </span>
+            <Icon name="chevron-right" className="menu-collapsible-mark" />
+          </summary>
           <ul className="menu-list">
             {availableToolsets
               .filter((toolset) => toolset.featured || toolset.id === toolsetPreference)
@@ -169,22 +254,8 @@ export function ModelPicker({
                 />
               ))}
           </ul>
-        </>
+        </details>
       ) : null}
     </Sheet>
   );
-}
-
-/** Models under their provider, in the order the list gave them. */
-export function groupByProvider(
-  models: readonly ModelEntry[],
-): { provider: string; models: ModelEntry[] }[] {
-  const groups = new Map<string, ModelEntry[]>();
-  for (const model of models) {
-    const provider = handleProvider(model.handle);
-    const group = groups.get(provider);
-    if (group) group.push(model);
-    else groups.set(provider, [model]);
-  }
-  return [...groups].map(([provider, group]) => ({ provider, models: group }));
 }
