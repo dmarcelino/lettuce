@@ -13,7 +13,7 @@ import {
 import type { DdgCaller } from "./ddg.ts";
 import { loadWebToolsSettings, retireSeededDdgMcp, saveWebToolsSettings } from "./install.ts";
 import { renderWebToolsMod } from "./mod.ts";
-import { normalizeSearxng } from "./searxng.ts";
+import { normalizeSearxng, searxngSearch } from "./searxng.ts";
 import { fetchWebpage, MAX_PAGE_CHARS, type WebToolsBackends, webSearch } from "./service.ts";
 import {
   applyWebToolsSettingsUpdate,
@@ -85,6 +85,32 @@ describe("normalizeSearxng", () => {
   });
 });
 
+describe("searxngSearch's cancellation", () => {
+  test("the call carries both its own timeout and the caller's signal", async () => {
+    let seen: { signal?: AbortSignal | null } = {};
+    const spy: WebToolsBackends["fetch"] = async (_url, init) => {
+      seen = { signal: init?.signal };
+      return new Response(JSON.stringify(SEARXNG_JSON));
+    };
+    const controller = new AbortController();
+    await searxngSearch("http://searxng:8080", { query: "q", count: 3 }, {
+      fetch: spy,
+      signal: controller.signal,
+    });
+    expect(seen.signal).toBeTruthy();
+  });
+
+  test("a caller that already hung up rejects instead of finishing the search", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      searxngSearch("http://searxng:8080", { query: "q", count: 3 }, {
+        signal: controller.signal,
+      }),
+    ).rejects.toBeDefined();
+  });
+});
+
 describe("webSearch", () => {
   test("SearXNG results come back numbered, with the engines that answered", async () => {
     const answer = await webSearch(
@@ -145,6 +171,24 @@ describe("webSearch", () => {
     expect(calls).toEqual([]);
   });
 
+  test("a cancelled turn is reported as a cancellation, not as a dead backend", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    // What a real fetch does with an aborted signal: it refuses to start.
+    const abortingFetch: WebToolsBackends["fetch"] = async (_url, init) => {
+      if (init?.signal?.aborted) throw new Error("This operation was aborted");
+      return new Response(JSON.stringify(SEARXNG_JSON));
+    };
+    const answer = await webSearch(
+      { query: "weather" },
+      { searxngUrl: "http://searxng:8080", ddg: null, fetch: abortingFetch },
+      controller.signal,
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer.text).toContain("cancelled");
+    expect(answer.text).not.toContain("unavailable");
+  });
+
   test("arguments are validated and clamped", async () => {
     const backends = { searxngUrl: "http://s", ddg: null, fetch: searxngFetch(SEARXNG_JSON) };
     expect((await webSearch({}, backends)).isError).toBe(true);
@@ -200,6 +244,19 @@ describe("fetchWebpage", () => {
       { searxngUrl: null, ddg },
     );
     expect(answer.text).toContain(`start_index=${MAX_PAGE_CHARS}`);
+  });
+
+  test("a cancelled turn stops reading the page and says so", async () => {
+    const { ddg } = ddgStub({ fetch_content: new Error("abort") });
+    const controller = new AbortController();
+    controller.abort();
+    const answer = await fetchWebpage(
+      { url: "https://a.example" },
+      { searxngUrl: null, ddg },
+      controller.signal,
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer.text).toContain("cancelled");
   });
 
   test("a sidecar failure is an error answer, never a throw", async () => {

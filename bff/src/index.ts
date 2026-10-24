@@ -668,8 +668,8 @@ const googleLostAccess: LostAccessPort = {
   markLost: (why) => googleService.markLost(why),
 };
 const toolHandlers: ReadonlyMap<string, ToolHandler> = new Map<string, ToolHandler>([
-  ["web_search", (args) => webSearch(args, webToolsBackends())],
-  ["fetch_webpage", (args) => fetchWebpage(args, webToolsBackends())],
+  ["web_search", (args, context) => webSearch(args, webToolsBackends(), context?.signal)],
+  ["fetch_webpage", (args, context) => fetchWebpage(args, webToolsBackends(), context?.signal)],
   ...bridgeHandlers(mcpCatalog, mcpClient, {
     url: config.google.mcpUrl,
     lostAccess: googleLostAccess,

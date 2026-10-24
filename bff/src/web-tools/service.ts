@@ -50,6 +50,14 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * A caller that hung up is not a backend that broke: report a cancellation as
+ * one, so a Stop does not read as "the search service is unavailable".
+ */
+export function cancelled(signal?: AbortSignal): string | null {
+  return signal?.aborted ? "cancelled — the turn that asked for it is gone" : null;
+}
+
 function intArg(value: unknown, fallback: number, min: number, max: number): number {
   const n = typeof value === "string" && value.trim() ? Number(value) : value;
   if (typeof n !== "number" || !Number.isFinite(n)) return fallback;
@@ -75,6 +83,7 @@ export function formatSearchResults(
 export async function webSearch(
   args: Record<string, unknown>,
   backends: WebToolsBackends,
+  signal?: AbortSignal,
 ): Promise<ToolAnswer> {
   const query = typeof args.query === "string" ? args.query.trim() : "";
   if (!query) return fail("`query` is required: say what to search for.");
@@ -91,7 +100,10 @@ export async function webSearch(
   if (backends.searxngUrl) {
     const request: SearxngQuery = { query, count, timeRange };
     try {
-      const response = await searxngSearch(backends.searxngUrl, request, { fetch: backends.fetch });
+      const response = await searxngSearch(backends.searxngUrl, request, {
+        fetch: backends.fetch,
+        signal,
+      });
       if (response.results.length > 0) {
         const engines = [...new Set(response.results.flatMap((r) => r.engines))].sort();
         return {
@@ -113,13 +125,13 @@ export async function webSearch(
         .map((u) => `${u.engine}: ${u.reason || "no answer"}`)
         .join(", ")})`;
     } catch (error) {
-      searxngProblem = `the search service is unavailable (${errorText(error)})`;
+      searxngProblem = cancelled(signal) ?? `the search service is unavailable (${errorText(error)})`;
     }
   }
 
   if (backends.ddg) {
     try {
-      const answer = await backends.ddg("search", { query, max_results: count });
+      const answer = await backends.ddg("search", { query, max_results: count }, signal);
       if (!answer.isError && answer.text && !isDdgEmpty(answer.text)) {
         return { text: `${answer.text}\n\n(via DuckDuckGo) ${UNTRUSTED_NOTE}`, isError: false };
       }
@@ -147,6 +159,7 @@ export async function webSearch(
 export async function fetchWebpage(
   args: Record<string, unknown>,
   backends: WebToolsBackends,
+  signal?: AbortSignal,
 ): Promise<ToolAnswer> {
   const url = typeof args.url === "string" ? args.url.trim() : "";
   if (!/^https?:\/\/\S+$/i.test(url))
@@ -160,7 +173,7 @@ export async function fetchWebpage(
       start_index: start,
       max_length: length,
       parse_mode: "markdown",
-    });
+    }, signal);
     if (answer.isError || !answer.text) {
       return fail(`Could not read ${url}: ${answer.text || "the page came back empty"}`);
     }
@@ -175,6 +188,8 @@ export async function fetchWebpage(
       isError: false,
     };
   } catch (error) {
-    return fail(`Could not read ${url}: the page service is unavailable (${errorText(error)}).`);
+    return fail(
+      cancelled(signal) ?? `Could not read ${url}: the page service is unavailable (${errorText(error)}).`,
+    );
   }
 }

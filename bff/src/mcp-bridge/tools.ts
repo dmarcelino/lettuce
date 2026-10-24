@@ -16,6 +16,7 @@
 
 import type { GoogleAccess } from "../agents/tool-access.ts";
 import { googleErrorAnswer, type LostAccessPort } from "../google/lost-access.ts";
+import { cancelled } from "../web-tools/service.ts";
 import { MODS_DIR } from "../internal-tools/mod.ts";
 import {
   capText,
@@ -177,7 +178,7 @@ export function bridgeHandlers(
     const toolArgs = argumentsOf(args.arguments);
     if (typeof toolArgs === "string") return fail(toolArgs);
     try {
-      const result = await client.callTool(found.server, found.tool, toolArgs);
+      const result = await client.callTool(found.server, found.tool, toolArgs, context?.signal);
       const text =
         result.text ||
         (result.isError ? "The tool reported an error with no details." : "(no output)");
@@ -191,7 +192,10 @@ export function bridgeHandlers(
       };
     } catch (error) {
       return fail(
-        `${found.qualified} could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+        cancelled(context?.signal) ??
+          `${found.qualified} could not be reached: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
       );
     }
   };

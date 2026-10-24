@@ -30,6 +30,7 @@ import {
 import type { McpServer } from "../mcp/settings.ts";
 import type { CatalogTool } from "../mcp-bridge/catalog.ts";
 import type { McpClientPort } from "../mcp-bridge/client.ts";
+import { cancelled } from "../web-tools/service.ts";
 import { googleErrorAnswer, type LostAccessPort } from "./lost-access.ts";
 
 export const GOOGLE_TOOLS_MOD_PATH = `${MODS_DIR}/lettuce-google-tools.mjs`;
@@ -585,7 +586,7 @@ export function googleHandlers(options: {
       const call = curated.build(args);
       if (typeof call === "string") return { text: call, isError: true };
       try {
-        const result = await options.client.callTool(server, call.tool, call.arguments);
+        const result = await options.client.callTool(server, call.tool, call.arguments, context?.signal);
         const text =
           result.text ||
           (result.isError ? "Google reported an error with no details." : "(no output)");
@@ -596,7 +597,9 @@ export function googleHandlers(options: {
         return { text: capText(text, "narrow the request"), isError: result.isError };
       } catch (error) {
         return {
-          text: `Google could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+          text:
+            cancelled(context?.signal) ??
+            `Google could not be reached: ${error instanceof Error ? error.message : String(error)}`,
           isError: true,
         };
       }
