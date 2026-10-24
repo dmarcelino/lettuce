@@ -16,7 +16,6 @@
 
 import type { GoogleAccess } from "../agents/tool-access.ts";
 import { googleErrorAnswer, type LostAccessPort } from "../google/lost-access.ts";
-import { cancelled } from "../web-tools/service.ts";
 import { MODS_DIR } from "../internal-tools/mod.ts";
 import {
   capText,
@@ -25,6 +24,7 @@ import {
   type ToolHandler,
   type ToolSpec,
 } from "../internal-tools/types.ts";
+import { cancelled } from "../web-tools/service.ts";
 import { type CatalogTool, type McpCatalog, searchCatalog } from "./catalog.ts";
 import type { McpClientPort } from "./client.ts";
 

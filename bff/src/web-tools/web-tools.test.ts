@@ -93,10 +93,14 @@ describe("searxngSearch's cancellation", () => {
       return new Response(JSON.stringify(SEARXNG_JSON));
     };
     const controller = new AbortController();
-    await searxngSearch("http://searxng:8080", { query: "q", count: 3 }, {
-      fetch: spy,
-      signal: controller.signal,
-    });
+    await searxngSearch(
+      "http://searxng:8080",
+      { query: "q", count: 3 },
+      {
+        fetch: spy,
+        signal: controller.signal,
+      },
+    );
     expect(seen.signal).toBeTruthy();
   });
 
@@ -104,9 +108,13 @@ describe("searxngSearch's cancellation", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(
-      searxngSearch("http://searxng:8080", { query: "q", count: 3 }, {
-        signal: controller.signal,
-      }),
+      searxngSearch(
+        "http://searxng:8080",
+        { query: "q", count: 3 },
+        {
+          signal: controller.signal,
+        },
+      ),
     ).rejects.toBeDefined();
   });
 });

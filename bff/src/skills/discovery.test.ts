@@ -6,8 +6,8 @@ import {
   type DiscoveredSkill,
   discoverBundled,
   discoverSkills,
-  type SkillFs,
   LOCAL_AGENT_EXCLUDED_BUNDLED,
+  type SkillFs,
 } from "./discovery.ts";
 import { parseFrontmatter } from "./frontmatter.ts";
 import { hostSkillFs, upstreamSkillFs } from "./fs.ts";

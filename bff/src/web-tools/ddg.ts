@@ -47,11 +47,10 @@ export function ddgCaller(mcpUrl: string, timeoutMs = 60_000): DdgCaller {
     const transport = new StreamableHTTPClientTransport(new URL(mcpUrl));
     try {
       await client.connect(transport);
-      const result = await client.callTool(
-        { name: tool, arguments: args },
-        undefined,
-        { timeout: timeoutMs, ...(signal ? { signal } : {}) },
-      );
+      const result = await client.callTool({ name: tool, arguments: args }, undefined, {
+        timeout: timeoutMs,
+        ...(signal ? { signal } : {}),
+      });
       return textOf(result);
     } finally {
       await client.close().catch(() => {});

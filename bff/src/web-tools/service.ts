@@ -125,7 +125,8 @@ export async function webSearch(
         .map((u) => `${u.engine}: ${u.reason || "no answer"}`)
         .join(", ")})`;
     } catch (error) {
-      searxngProblem = cancelled(signal) ?? `the search service is unavailable (${errorText(error)})`;
+      searxngProblem =
+        cancelled(signal) ?? `the search service is unavailable (${errorText(error)})`;
     }
   }
 
@@ -168,12 +169,16 @@ export async function fetchWebpage(
   const start = intArg(args.start_index, 0, 0, Number.MAX_SAFE_INTEGER);
   const length = intArg(args.max_length, DEFAULT_PAGE_CHARS, 1_000, MAX_PAGE_CHARS);
   try {
-    const answer = await backends.ddg("fetch_content", {
-      url,
-      start_index: start,
-      max_length: length,
-      parse_mode: "markdown",
-    }, signal);
+    const answer = await backends.ddg(
+      "fetch_content",
+      {
+        url,
+        start_index: start,
+        max_length: length,
+        parse_mode: "markdown",
+      },
+      signal,
+    );
     if (answer.isError || !answer.text) {
       return fail(`Could not read ${url}: ${answer.text || "the page came back empty"}`);
     }
@@ -189,7 +194,8 @@ export async function fetchWebpage(
     };
   } catch (error) {
     return fail(
-      cancelled(signal) ?? `Could not read ${url}: the page service is unavailable (${errorText(error)}).`,
+      cancelled(signal) ??
+        `Could not read ${url}: the page service is unavailable (${errorText(error)}).`,
     );
   }
 }

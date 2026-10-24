@@ -91,11 +91,10 @@ export const mcpClient: McpClientPort = {
   callTool: (server, tool, args, signal) =>
     withClient(server, async (client) =>
       textOfResult(
-        await client.callTool(
-          { name: tool, arguments: args },
-          undefined,
-          { timeout: 120_000, ...(signal ? { signal } : {}) },
-        ),
+        await client.callTool({ name: tool, arguments: args }, undefined, {
+          timeout: 120_000,
+          ...(signal ? { signal } : {}),
+        }),
       ),
     ),
 };

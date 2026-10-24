@@ -151,10 +151,9 @@ async function latestFor(source: Source): Promise<Remote> {
       return { latest: data.info.version };
     }
     case "github": {
-      const data = (await getJson(
-        `https://api.github.com/repos/${source.repo}/releases/latest`,
-        { headers: { accept: "application/vnd.github+json" } },
-      )) as { tag_name?: string };
+      const data = (await getJson(`https://api.github.com/repos/${source.repo}/releases/latest`, {
+        headers: { accept: "application/vnd.github+json" },
+      })) as { tag_name?: string };
       if (!data.tag_name) throw new Error("no tag in the GitHub answer");
       return { latest: data.tag_name };
     }
@@ -213,7 +212,7 @@ for (const pin of PINS) {
   const pinned = found[1];
   try {
     const remote = await latestFor(pin.source);
-    let latest = remote.latest.replace(/^v/, "");
+    const latest = remote.latest.replace(/^v/, "");
     let detail = remote.detail;
     if (pin.source.kind === "docker" && pin.source.image === "letta/letta") {
       const target = await lettaSyncTarget(latest);
@@ -265,7 +264,8 @@ for (const row of rows) {
       24,
     )} ${mark}${row.detail ? `  (${row.detail})` : ""}`,
   );
-  if (row.behind && row.note) console.log(`  ${" ".repeat(nameWidth)}  ${" ".repeat(pinnedWidth)}      note: ${row.note}`);
+  if (row.behind && row.note)
+    console.log(`  ${" ".repeat(nameWidth)}  ${" ".repeat(pinnedWidth)}      note: ${row.note}`);
 }
 console.log(
   rows.some((r) => r.behind)
