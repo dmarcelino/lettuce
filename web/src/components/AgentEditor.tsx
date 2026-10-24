@@ -131,6 +131,10 @@ export function ModelField({
       <button
         type="button"
         className="field-trigger"
+        // The field used to be a `<label>` around a `<select>`, which named the
+        // control for free. A button needs its name said out loud, or a screen
+        // reader announces a model name with nothing to say what it belongs to.
+        aria-label={`Model: ${shown}`}
         disabled={models.loading}
         onClick={() => setPicking(true)}
       >

@@ -223,7 +223,11 @@ export function ModelPicker({
       <ModelChoices
         models={models}
         currentHandle={current.handle}
-        onPick={(handle) => handle && void choose(handle)}
+        onPick={(handle) => {
+          // No emptyLabel here, so null never arrives; the guard is the type, not
+          // a fourth state.
+          if (handle !== null) void choose(handle);
+        }}
         disabled={busy}
       />
 

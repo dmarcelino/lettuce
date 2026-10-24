@@ -349,7 +349,8 @@ pre {
    to them). Desktop only: there is no hover to reveal it on a touch device, and
    below 900px this list is the phone drawer, whose switcher keeps the ⋯ menu as
    the only route. Not on `.menu-open` — with its menu open the row is showing
-   the same verb already. */
+   the same verb already. The open row shows it without a hover: that row is the
+   one you are acting on, and its date has already made room. */
 .conversations li .conversation-archive {
   display: none;
 }
