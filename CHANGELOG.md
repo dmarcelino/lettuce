@@ -5,10 +5,88 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
-## [v0.15.0-letta_0.34.9] - 2026-10-18
+### Fixed
+- **The release gates say what actually happens.** The release stage now states plainly that a versioned release's tag bump recreates `app-server` (so every in-flight turn dies, no drain) and to use `--no-deps` when a turn matters; it names the one command pair that makes `deploy-check` green on a build-locally machine after a release cut in a worktree; and when the stack signs in with a password, an agent that cannot run `smoke` or `ui-check` records what it probed in the container instead, and says out loud that a human pass is still owed.
+
+## [v0.20.2-letta_0.34.21] - 2026-10-24
+
+### Fixed
+- **Stopping a turn stops the work it started.** A `web_search`, a page fetch or a Google call that was still running when you hit Stop used to run to its end for a result nobody wanted — up to 15 seconds of search or a minute of page reading, with the sidecar still doing it. A cancelled turn now cancels the call underneath it and answers `cancelled` instead of blaming a service that is fine.
+- **The agent runs a newer Letta Code.** 0.34.16 → 0.34.21, seven releases of upstream fixes, the one that shows being a tool that stops replying no longer holds the whole turn hostage. Also: the connection keepalive now tracks each socket on its own, a coding worker inherits a pointer to the agent that dispatched it, and Codex (0.164.0), Claude Code (2.1.310) and SearXNG moved with it.
+- **A bundled skill that needs Letta Cloud stays hidden.** Music generation is now hidden from local agents like image and speech generation already were, and the memory-palace skill upstream deleted is no longer on our hidden list — an agent's own copy of it is listed again, as it should be.
+
+- **`bun run check-pin-upstream` tells you how far behind you are** without anyone sweeping four registries by hand, and what a bump costs (Google's recorded tool list, a worker re-check). For Letta Code it reports the newest release with a Docker image, which is not the newest npm one — those two disagree most weeks.
+
+## [v0.20.1-letta_0.34.16] - 2026-10-21
+
+### Changed
+- **The release checklist builds the bundle before it checks it.** After a release cut in a worktree, `deploy-check` compared the running container against this host's stale `web/dist` and only named `build:bff`, which fixes the image and never the host's copy — the checklist runs `bun run build` first now, and says what to record when a merge ships nothing an image carries.
+- **A look at the running stack never touches your data.** The playbook now forbids a session from moving anything under the state directory or the sign-in store, from claiming an instance it was not handed, and from leaving anything durable in a container path — a recreate deletes it, and one session's screenshot routine cost an operator their password.
+- **The playbook says what a guard rule cannot guard.** `protect` names a path and its subtree, never a glob, so a `docker/.env.bak-*` left beside the protected `.env` was never inside its reach — flip a variable in place and let `.gitignore`'s `.env.*` be what stops a secret backup from being committed.
+
+### Fixed
+- **A proxy on your own machine can no longer let a web page use the agent's tools.** The BFF trusted anything arriving from loopback on its internal tool endpoints, and a reverse proxy on the same host makes every browser request look like that — a forged cross-origin request could have run `pi_exec` on a remote worker or acted as you in Gmail without signing in. A call that names a browser origin is now refused as if the endpoint did not exist, and the agent's own tools answer exactly as before.
+- **Coming back after an app-server restart stops being deaf.** The BFF re-subscribed to conversations one at a time, so a long-lived install spent minutes on it — and a cron or Telegram turn finishing in that window produced no notification at all, because nothing was listening for its conversation. It is eight at a time now.
+- **Several large downloads at once stop risking the whole app.** Four concurrent 25 MB workspace downloads could hold about 240 MB in the one process whose death stops every running turn without warning; the cap is two now, the same ceiling uploads already used, and a third file simply waits.
+- **A remote-pi follow-up stopped re-reading history.** Finding which worker made a session consulted an index instead of parsing every stored run record on every dispatch, and a run card's "bytes captured" now counts bytes rather than characters.
+- **Opening a conversation no longer writes to the agent's folder.** The marker file that makes a workspace exist is created once per agent per page load, not on every conversation switch.
+- **A route can no longer be added outside the sign-in gate.** The session check covers only routes registered after it, so an endpoint added above it would answer anonymous visitors; a build check now fails the branch when that happens, and reads its list of deliberately-public paths out of the same file.
+
+## [v0.20.0-letta_0.34.16] - 2026-10-21
 
 ### Added
-- Keep the tools agents install across updates and restarts, in a new `tools/` state folder; reinstall older ones once.
+- **A password you choose in the browser.** A fresh instance asks you to pick one (ten characters or more) and signs you in from the same page — nothing is generated into a log and nothing goes in `.env`, and Settings → Sign-in changes it later, asking for the current one.
+- **Sign in with Google.** `SIGNIN=google` puts a Google button on the sign-in screen and lets in only the addresses in `ALLOWED_USERS`, on the same OAuth client as Settings → Google Workspace.
+
+### Changed
+- **How you are reached and how you prove who you are are now two settings.** `ACCESS=lan|cloudflared` picks the route and `SIGNIN=none|password|cf-access|google` the method, they are independent of each other, and Settings reports both — including where the port is actually listening.
+- **The UI port binds `127.0.0.1` by default.** An install that was reachable from the LAN through the old open port needs `BFF_BIND=0.0.0.0` to stay that way, and any install with a wide port now has to name a sign-in method.
+- **Settings → Google is Settings → Google Workspace**, and Settings gained Access and Sign-in under a new Deployment group.
+
+### Removed
+- **`DEV_BYPASS_EMAIL` and `DEV_BYPASS_ALLOW_REMOTE` are gone** — having them in `docker/.env` now stops the BFF at boot and names the replacement: `SIGNIN=none` for an instance that only ever answers this machine, `SIGNIN=password` everywhere else.
+
+## [v0.19.0-letta_0.34.16] - 2026-10-20
+
+### Changed
+- **Remote Pi progress arrives on its own.** The run card, the Runs list and the topbar `pi` chip now follow a run as it streams instead of re-reading the server every few seconds, so a tab left open asks nothing at all while nothing is running — and a finished run flips to its verdict without a reload.
+
+## [v0.18.0-letta_0.34.16] - 2026-10-20
+
+### Added
+- **Upload puts a file where an agent can read it.** Files gained an Upload button: pick a photo or a PDF on your phone and it lands in the folder you are browsing (up to 25 MB), and a name that already exists there is refused until you type another.
+
+## [v0.17.0-letta_0.34.16] - 2026-10-20
+
+### Added
+- **Running children show live progress.** Tasks → Running names what each subagent or coding worker is doing right now (its last tool call, tokens, elapsed), and a workflow row gained its agent counts and per-phase progress. While a turn waits on a delegated subagent, the working line carries the child's activity instead of just "Thinking".
+
+## [v0.16.0-letta_0.34.16] - 2026-10-19
+
+### Added
+- **Tasks shows a Monitor's backup wake.** A running watch with an armed fallback now says when a silent one wakes the agent, so a quiet watch is visibly watched.
+
+## [v0.15.2-letta_0.34.16] - 2026-10-19
+
+### Fixed
+- **A typed `/clear` starts a new conversation** instead of sending the word to the agent, which is what the CLI habit now hits since the app-server removed the command. Nothing is deleted: the old conversation stays in the list with its messages.
+
+## [v0.15.1-letta_0.34.16] - 2026-10-19
+
+### Fixed
+- **A subagent that went the wrong way could not be interrupted.** Tasks → Running now offers **Stop** on a subagent row and the app-server aborts that worker; a shell job still has no stop — that one is an agent tool.
+
+## [v0.15.0-letta_0.34.16] - 2026-10-18
+
+### Changed
+- Synced letta-code 0.34.9 → 0.34.16. A running Codex or Claude Code worker can now be steered, resumed or stopped by the agent that spawned it; a workflow worker gets the same mod tools the parent agent has, so a workflow step can read Gmail or search the web; a `Monitor` watch can arm a backup wake, so a watch that goes silent brings the agent back instead of leaving you waiting; and a long conversation's transcript is streamed rather than read whole, so an old conversation cannot outgrow the string limit on open. The app-server image is rebuilt, so the deploy recreates `app-server` and drops any turn in flight.
+- **Two more bundled skills are hidden from local agents.** `managing-agent-webhooks` and `speech-generation` arrived upstream in 0.34.13 and are Letta Cloud features — inbound webhooks and cloud speech — so a local agent could only fail with them. Settings → Skills no longer lists them, matching what the app-server hides on its own.
+- Codex CLI 0.162.0 → 0.163.0 and Claude Code CLI 2.1.295 → 2.1.302 — both are built into the app-server image, and letta-code drives each over its own protocol, so a worker run is the thing to re-check after the deploy.
+- SearXNG 2026.10.9 → 2026.10.17 — the search sidecar the BFF asks for JSON results; newer engine definitions are what keep `web_search` returning things.
+- cloudflared 2026.10.0 → 2026.10.1 — the tunnel container only. Recreating it drops the tunnel for a few seconds, so the app is briefly unreachable while everything else keeps running.
+
+### Removed
+- **`/clear` is gone, because the app-server took it away.** letta-code 0.34.15 removed the remote clear: it re-pointed a runtime at a new conversation while its own key still named the old one, which corrupted the durable record of what had been accepted. The slash palette no longer offers it (it lists what the app-server advertises, and that no longer includes it) and the BFF refuses the command id outright. Starting a fresh conversation is the **+** in the sidebar or the switcher, which is the path the app has always had.
 
 ## [v0.14.0-letta_0.34.9] - 2026-10-17
 

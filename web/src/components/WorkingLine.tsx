@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TranscriptEntry } from "../lib/messages.ts";
 import type { QueuedItem } from "../lib/queue-actions.ts";
+import type { LiveSubagent } from "../lib/subagents.ts";
 import { formatTokens, type TurnUsage } from "../lib/usage.ts";
 import { deriveWorking, drainingQueueCount, formatElapsed } from "../lib/working.ts";
 import { Icon, type IconName } from "./Icon.tsx";
@@ -15,6 +16,8 @@ interface Props {
   /** When a running `/compact` began; null when none is. See `lib/working.ts`. */
   compactStartedAt: number | null;
   usage: TurnUsage | null;
+  /** This scope's live subagent snapshots; see `lib/working.ts`. */
+  liveSubagents: Record<string, LiveSubagent>;
   onAbort: () => void;
 }
 
@@ -137,6 +140,7 @@ export function WorkingLine({
   lastActivityAt,
   compactStartedAt,
   usage,
+  liveSubagents,
   onAbort,
 }: Props) {
   const [now, setNow] = useState(() => Date.now());
@@ -157,6 +161,7 @@ export function WorkingLine({
     turnStartedAt,
     lastActivityAt,
     compactStartedAt,
+    liveSubagents,
   });
   if (!snap) return null;
 
@@ -181,6 +186,10 @@ export function WorkingLine({
   // previous turn's — its step count would be a coincidence.
   if (snap.state !== "thinking" && snap.state !== "compacting" && usage && usage.steps > 1) {
     metrics.push({ key: "step", text: `step ${usage.steps}`, wide: true });
+  }
+  // A delegated child's own tokens; the turn's usage belongs to the parent only.
+  if (snap.childTokens) {
+    metrics.push({ key: "child", text: `${formatTokens(snap.childTokens)} tok`, wide: true });
   }
   if (queued > 0) metrics.push({ key: "queue", text: `queue +${queued}`, wide: true });
   const visible = narrow ? metrics.filter((m) => !m.wide) : metrics;

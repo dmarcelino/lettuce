@@ -88,7 +88,6 @@ const UNDISPATCHABLE = new Set([
 ]);
 
 const COMMAND_DESCRIPTIONS: Record<string, string> = {
-  clear: "Clear the conversation history",
   compact: "Compact the conversation to free context",
   "context-limit": "Show the current context window usage",
   doctor: "Run environment diagnostics",
@@ -143,6 +142,19 @@ export function parseSlashCommand(
 
   const args = separator === -1 ? "" : trimmed.slice(separator).trim();
   return args ? { id, args } : { id };
+}
+
+/**
+ * Whether typed text is the CLI habit for "start over", which this app answers with a new
+ * conversation.
+ *
+ * letta-code 0.34.15 removed the remote `clear` command, so neither word is advertised and
+ * `parseSlashCommand` lets it through as an ordinary message — which is how the agent ends up
+ * replying to the word "clear". Only the bare word counts, so "/clear the cache" stays a message by
+ * the same rule that keeps a pasted path one.
+ */
+export function clearsToNewConversation(text: string): boolean {
+  return text === "/clear" || text === "/clear-messages";
 }
 
 /**

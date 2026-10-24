@@ -11,6 +11,7 @@
  */
 
 import { MAX_REPLAY_FRAMES } from "../bff/src/session/buffer.ts";
+import { requireTestPassword } from "./harness.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const WS_ORIGIN = ORIGIN.replace(/^http/, "ws");
@@ -29,8 +30,17 @@ function section(title: string): void {
   console.log(`\n${title}`);
 }
 
+/** Whatever method this stack signs in with. `password` needs LETTUCE_TEST_PASSWORD. */
 async function login(): Promise<string> {
-  const response = await fetch(`${ORIGIN}/auth/dev-login`, { redirect: "manual" });
+  const method = ((await status()) as { signin?: string }).signin;
+  const response =
+    method === "password"
+      ? await fetch(`${ORIGIN}/auth/login`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ password: requireTestPassword("smoke") }),
+        })
+      : await fetch(`${ORIGIN}/auth/login`, { redirect: "manual" });
   const cookie = response.headers.get("set-cookie");
   if (!cookie) throw new Error(`No session cookie (status ${response.status})`);
   return cookie.split(";")[0]!;
@@ -235,7 +245,11 @@ check("at least one agent exists", typeof agentId === "string", agents.agents?.l
 
 if (agentId) {
   d.send({ type: "conversation_create", request_id: "conv", body: { agent_id: agentId } });
-  const created = await d.waitFor((f) => f.request_id === "conv");
+  // Cold app-servers answer this slowly on purpose: at connect the BFF subscribes
+  // to every (agent, conversation) scope it knows, and on an install with 100+
+  // conversations that flood sits ahead of every command in the queue. Measured
+  // 20-25 s at 134 conversations; a warm answer is ~0.2 s.
+  const created = await d.waitFor((f) => f.request_id === "conv", 45_000);
   const conversationId: string | undefined = created.conversation?.id;
   check(
     "conversation_create succeeds",
@@ -645,12 +659,12 @@ section("Settings → Web");
   );
 }
 
-// ── Settings → Google ───────────────────────────────────────────────────────
+// ── Settings → Google Workspace ───────────────────────────────────────────────────────
 // Read-only, apart from one refused write: connecting needs a human at Google's
 // consent screen. What must hold is that the status never leaks the client
 // secret, and that a dev-bypass deployment refuses changes (an agent could
 // otherwise sign itself in through the bypass and widen its own access).
-section("Settings → Google");
+section("Settings → Google Workspace");
 const googleRes = await fetch(`${ORIGIN}/api/google`, { headers: { cookie } });
 check("GET /api/google succeeds", googleRes.ok, googleRes.status);
 const googleText = googleRes.ok ? await googleRes.text() : "";
@@ -742,7 +756,7 @@ const anonStatus = await (await fetch(`${ORIGIN}/api/status`)).json();
 check(
   "anonymous /api/status reports only what a sign-in screen needs",
   anonStatus.authenticated === false &&
-    typeof anonStatus.auth_mode === "string" &&
+    typeof anonStatus.signin === "string" &&
     anonStatus.upstream === undefined &&
     anonStatus.sessions === undefined &&
     anonStatus.latest_seq === undefined &&

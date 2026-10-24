@@ -3,6 +3,10 @@ node_modules/
 dist/
 .env
 .env.local
+# A backup of a live .env is a copy of its secrets, and `.env.*` is what an
+# editor or a flip leaves behind — never let one reach the index.
+.env.*
+!.env.example
 docker/secrets/
 *.log
 .DS_Store
@@ -11,8 +15,12 @@ docker/secrets/
 .kilo/
 .pendant/
 
-# Worktrees: dev-flow puts a feature worktree at .dev-flow/<slug>/worktree, and .dev-flow/ carries its
-# own `*` .gitignore, so nothing there needs listing here.
+# Worktrees: dev-flow puts a feature worktree at .dev-flow/<slug>/worktree. Git needed nothing here —
+# `.dev-flow/` carries its own `*` .gitignore — but a tool that reads *this* file to decide what to walk
+# never sees the nested one, and `biome check .` (with vcs.useIgnoreFile) aborts on the worktree's copy
+# of biome.jsonc as a second root configuration. So it is listed here for biome's sake: `bun run lint`
+# in the main checkout only works while a worktree exists because of this line.
+.dev-flow/
 
 # pi harness: tracked config is .pi/extensions, .pi/prompts; the rest is local.
 .pi/npm/

@@ -72,7 +72,12 @@ interface TokenResponse {
   error_description?: string;
 }
 
-async function postForm(fetchImpl: Fetch, url: string, form: Record<string, string>) {
+/**
+ * The token endpoint's two callers: the workspace consent here, and
+ * `auth/signin-google.ts` for a login. Both post a form and read the same
+ * envelope, so the POST and its error mapping live here once.
+ */
+export async function postForm(fetchImpl: Fetch, url: string, form: Record<string, string>) {
   return fetchImpl(url, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -80,7 +85,7 @@ async function postForm(fetchImpl: Fetch, url: string, form: Record<string, stri
   });
 }
 
-async function readTokenResponse(response: Response): Promise<TokenResponse> {
+export async function readTokenResponse(response: Response): Promise<TokenResponse> {
   let body: TokenResponse;
   try {
     body = (await response.json()) as TokenResponse;

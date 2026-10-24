@@ -5,6 +5,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "../lib/live-state.ts";
 import {
   addLocalUserMessage,
   applyStreamDelta,
@@ -24,6 +25,8 @@ import {
 import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
 import { planForceSend, type QueuedItem, readQueue } from "../lib/queue-actions.ts";
 import { type ResponseFormat, validateResponseFormat } from "../lib/structured-output.ts";
+import type { LiveSubagent, WorkflowCounts } from "../lib/subagents.ts";
+import { readLiveSubagents, readWorkflowProgress } from "../lib/subagents.ts";
 import { pickTurnUsage, type TurnUsage } from "../lib/usage.ts";
 import { STALL_AFTER_MS } from "../lib/working.ts";
 import {
@@ -65,7 +68,15 @@ export interface BackgroundProcessSummary {
   kind: "bash" | "agent_task" | "monitor" | "workflow";
   label: string;
   status: string;
-  /** Only monitors can be stopped from here — bash jobs and subagent tasks have no client-reachable stop command. */
+  /** An agent_task's own id, which keys the live subagent snapshot list. */
+  subagentId?: string;
+  /** A workflow's phase counts, parsed off the device-status `progress` field. */
+  workflow?: WorkflowCounts;
+  /**
+   * Whether this row has a stop that works from the browser: a running monitor
+   * (`stop_monitor_task`) or a subagent the app-server still owns (`subagent_stop`).
+   * `task_stop` is an agent tool and not a client command, so a shell job stays false.
+   */
   stoppable: boolean;
 }
 
@@ -138,13 +149,21 @@ export interface ConversationApi {
   availableToolsets: ToolsetSummary[];
   /** Bash jobs, subagent tasks, monitors and workflows currently running, from device status. */
   backgroundProcesses: BackgroundProcessSummary[];
+  /** `subagent_id -> live snapshot` for this scope; the source of live child progress. */
+  liveSubagents: Record<string, LiveSubagent>;
   /**
    * Stops a persistent monitor. No-op for bash, agent_task and workflow
    * processes — `stopMonitor` upstream refuses anything whose
-   * `process.kind !== "monitor"` with "Monitor not found", so a stop button
-   * for those would always fail.
+   * `process.kind !== "monitor"` with "Monitor not found", which is why a subagent row stops
+   * through `stopSubagent` instead.
    */
   stopMonitor: (processId: string) => void;
+  /**
+   * Stop a running background subagent (letta-code 0.34.16's `subagent_stop`). Resolves to the
+   * error to show the operator, or null when it stopped; the row itself goes when the app-server
+   * next reports this scope's processes.
+   */
+  stopSubagent: (subagentId: string) => Promise<string | null>;
   /**
    * Token usage: the turn in flight so far (refreshed after every model step),
    * else the last finished turn. The BFF keeps it, so every device shows the
@@ -163,25 +182,6 @@ export interface ConversationApi {
    * is answered with.
    */
   lastActivityAt: number | null;
-}
-
-/**
- * Whether this stream delta is the successful end of a `/clear`.
- *
- * `execute_command_response` would be the obvious signal, but it carries only a
- * `request_id` — no command id — and awaiting it is not an option either: the
- * same frame type answers `/init` and `/doctor`, which run whole agent turns
- * and would outlive the client's request timeout. The lifecycle delta names the
- * command, so it is what we match on.
- */
-function isClearCompleted(delta: unknown): boolean {
-  if (!delta || typeof delta !== "object") return false;
-  const message = delta as { message_type?: unknown; command_id?: unknown; success?: unknown };
-  return (
-    message.message_type === "slash_command_end" &&
-    message.command_id === "clear" &&
-    message.success !== false
-  );
 }
 
 /** The transcript's image entries for a send's prepared images (preview bytes). */
@@ -212,7 +212,10 @@ function readToolsets(raw: unknown): ToolsetSummary[] {
   });
 }
 
-export function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[] {
+export function readBackgroundProcesses(
+  raw: unknown,
+  liveSubagents: Record<string, LiveSubagent> = {},
+): BackgroundProcessSummary[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
@@ -223,6 +226,8 @@ export function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[
       command?: unknown;
       description?: unknown;
       task_type?: unknown;
+      subagent_id?: unknown;
+      progress?: unknown;
     };
     if (typeof entry.process_id !== "string") return [];
     const kind = entry.kind;
@@ -240,13 +245,22 @@ export function readBackgroundProcesses(raw: unknown): BackgroundProcessSummary[
           : typeof entry.task_type === "string"
             ? entry.task_type
             : kind;
+    const subagentId = typeof entry.subagent_id === "string" ? entry.subagent_id : undefined;
+    const workflow = kind === "workflow" ? readWorkflowProgress(entry.progress) : null;
     return [
       {
         processId: entry.process_id,
         kind,
         label,
         status,
-        stoppable: kind === "monitor" && status === "running",
+        subagentId,
+        ...(workflow ? { workflow } : {}),
+        // A subagent row is stoppable only while the snapshot list still names its child agent.
+        // After an app-server restart nothing does, and the row simply has no Stop.
+        stoppable:
+          kind === "monitor"
+            ? status === "running"
+            : kind === "agent_task" && !!subagentId && !!liveSubagents[subagentId]?.agentId,
       },
     ];
   });
@@ -289,26 +303,25 @@ function readApproval(raw: unknown): PendingApproval | null {
   };
 }
 
+/**
+ * Agents whose workspace this page load has seeded with `.keep`.
+ *
+ * `runtime_start` refuses a directory that does not exist and there is no mkdir
+ * command, so a marker file is how the directory gets created (`write_file` does
+ * `mkdir -p` on the parent). One agent has one directory, so one write per agent
+ * per load is the whole job — writing it per conversation had a plain conversation
+ * switch costing a file write, and a browsing session doing writes.
+ */
+const seededWorkspaces = new Set<string>();
+
 export function useConversation(
   session: SessionApi,
   agentId: string | null,
   conversationId: string | null,
-  /**
-   * Fired when the agent reports that `/clear` completed. `/clear` does not
-   * clear in place: the app-server creates a fresh conversation and re-points
-   * its runtime at it, so the caller has to go and find it.
-   */
-  onConversationCleared?: () => void,
 ): ConversationApi {
   // Individually stable; depending on the whole session object would re-fire
   // these effects on every link-state change.
   const { request, send, setScopes, onFrame, onResync, ready, markResynced } = session;
-
-  // Held in a ref, not a dep: the frame subscription below must not re-run when
-  // a caller passes a fresh closure, and re-subscribing per render is exactly
-  // the unbounded loop `use-session.ts` documents.
-  const clearedRef = useRef(onConversationCleared);
-  clearedRef.current = onConversationCleared;
 
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -338,7 +351,17 @@ export function useConversation(
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [toolsetPreference, setToolsetPreferenceFromStatus] = useState<string | null>(null);
   const [availableToolsets, setAvailableToolsets] = useState<ToolsetSummary[]>([]);
-  const [backgroundProcesses, setBackgroundProcesses] = useState<BackgroundProcessSummary[]>([]);
+  const [runningProcesses, setRunningProcesses] = useState<unknown[]>([]);
+  /**
+   * `subagent_id -> live snapshot` for this scope, off `update_subagent_state`.
+   * A subagent row is only stoppable while its snapshot carries an agent id, and these
+   * snapshots are what the working line and the Tasks rows show live child progress from.
+   */
+  const [liveSubagents, setLiveSubagents] = useState<Record<string, LiveSubagent>>({});
+  const backgroundProcesses = useMemo(
+    () => readBackgroundProcesses(runningProcesses, liveSubagents),
+    [runningProcesses, liveSubagents],
+  );
   const [turnUsage, setTurnUsage] = useState<TurnUsage | null>(null);
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
   const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
@@ -500,9 +523,16 @@ export function useConversation(
       return;
     }
     const timer = setInterval(() => {
-      if (stallProbedRef.current || stopping) return;
-      const last = lastActivityRef.current;
-      if (last === null || Date.now() - last < STALL_AFTER_MS + 15_000) return;
+      if (
+        !stallProbeDue({
+          probed: stallProbedRef.current,
+          stopping,
+          lastActivityAt: lastActivityRef.current,
+          now: Date.now(),
+          stallAfterMs: STALL_AFTER_MS,
+        })
+      )
+        return;
       stallProbedRef.current = true;
       reprimeLiveState();
     }, 5_000);
@@ -575,14 +605,19 @@ export function useConversation(
     void (async () => {
       const home = agentWorkspace(scope.agent_id);
       try {
-        // `cwd` below refuses a directory that does not exist, and no mkdir
-        // command exists — but write_file does `mkdir -p` on the parent before
-        // writing, so seeding a marker file is how the directory gets created.
+        // Seed the workspace once per agent per load — see `seededWorkspaces`.
         // Best effort: a failure here should not block the turn.
-        await request("write_file", {
-          path: `${home}/.keep`,
-          content: "",
-        }).catch(() => undefined);
+        if (!seededWorkspaces.has(scope.agent_id)) {
+          // A refused write is not a reason to skip the runtime: `cwd` may already
+          // exist, and this only ever tries to make it exist.
+          const seeded = await request("write_file", {
+            path: `${home}/.keep`,
+            content: "",
+          })
+            .then(() => true)
+            .catch(() => false);
+          if (seeded) seededWorkspaces.add(scope.agent_id);
+        }
 
         // No `workspace_sandbox`: it is write-scoped to a SINGLE root, which
         // left the agent's own memfs memory, /tmp and /root/.letta read-only,
@@ -639,12 +674,6 @@ export function useConversation(
             typeof subagentId === "string" ? subagentId : undefined,
           );
           flush();
-          // The one signal that /clear landed which actually reaches us. The
-          // device status the app-server emits afterwards is scoped to the NEW
-          // conversation, so the BFF's per-scope frame filter drops it for a
-          // browser still subscribed to this one; this end marker carries the
-          // scope captured before the runtime was re-pointed.
-          if (isClearCompleted(delta)) clearedRef.current?.();
           // A subagent's steps share this scope but are not this turn's.
           if (
             (delta as { message_type?: unknown } | null)?.message_type === "usage_statistics" &&
@@ -662,11 +691,7 @@ export function useConversation(
             // processing continues into the resent turn.
             expectResentTurnRef.current = false;
           } else {
-            // A ready queued item means the pump starts the next turn the
-            // moment this one unwinds — the working dots must not blink off
-            // in between. Paused items (parked by an interrupt) will not
-            // start, so they do not hold the indicator on.
-            setProcessing(queueRef.current.some((item) => !item.paused));
+            setProcessing(indicatorStaysOn(queueRef.current));
           }
           // The turn has genuinely unwound now, whatever the app-server said
           // when it accepted the abort. Our own note was about the gap between
@@ -692,11 +717,8 @@ export function useConversation(
               };
             }
           ).device_status;
-          // The seam of a force-send: the abort's own status frames say "not
-          // processing" while the replacement turn is staged, and the
-          // replacement's own start frames can arrive before the aborted
-          // turn's turn_finished — so only turn_finished ends the seam.
-          if (!expectResentTurnRef.current || status?.is_processing === true) {
+          // The seam of a force-send: only a frame that says busy may move it.
+          if (seamAllowsFlip(expectResentTurnRef.current, status?.is_processing === true)) {
             setProcessing(status?.is_processing === true);
           }
           if (typeof status?.current_working_directory === "string") {
@@ -719,8 +741,13 @@ export function useConversation(
             setAvailableToolsets(readToolsets(status.available_toolsets));
           }
           if (Array.isArray(status?.background_processes)) {
-            setBackgroundProcesses(readBackgroundProcesses(status.background_processes));
+            setRunningProcesses(status.background_processes);
           }
+          break;
+        }
+        case "update_subagent_state": {
+          // Whole list on every change, so a missed frame cannot leave a Stop button behind.
+          setLiveSubagents(readLiveSubagents((frame as { subagents?: unknown }).subagents));
           break;
         }
         case "skills_updated": {
@@ -738,7 +765,7 @@ export function useConversation(
           const loopStatus = loop?.status;
           const loopBusy = typeof loopStatus === "string" && loopStatus !== "WAITING_ON_INPUT";
           // Same force-send seam as in the device-status case above.
-          if (!expectResentTurnRef.current || loopBusy) setProcessing(loopBusy);
+          if (seamAllowsFlip(expectResentTurnRef.current, loopBusy)) setProcessing(loopBusy);
           break;
         }
         case "update_queue": {
@@ -1089,6 +1116,25 @@ export function useConversation(
     [scope, send],
   );
 
+  const stopSubagent = useCallback(
+    async (subagentId: string): Promise<string | null> => {
+      const childAgentId = liveSubagents[subagentId]?.agentId;
+      if (!scope || !childAgentId) return "That subagent is not running in this conversation.";
+      try {
+        const response = await request<{ stopped?: boolean; error?: string | null }>(
+          "subagent_stop",
+          { runtime: scope, agent_id: childAgentId },
+        );
+        // Nothing to clear locally: the app-server re-sends this scope's snapshots and processes
+        // once the child is gone, and that is what takes the Stop button away.
+        return response.stopped ? null : (response.error ?? "The subagent is still running.");
+      } catch (cause) {
+        return errorMessage(cause);
+      }
+    },
+    [liveSubagents, request, scope],
+  );
+
   const setPermissionMode = useCallback(
     (mode: PermissionMode) => {
       if (!scope) return;
@@ -1144,7 +1190,9 @@ export function useConversation(
     toolsetPreference,
     availableToolsets,
     backgroundProcesses,
+    liveSubagents,
     stopMonitor,
+    stopSubagent,
     turnUsage,
     turnStartedAt,
     lastActivityAt,

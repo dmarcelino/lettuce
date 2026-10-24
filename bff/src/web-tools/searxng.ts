@@ -70,7 +70,7 @@ export function normalizeSearxng(raw: unknown, count: number): SearxngSearchResp
 export async function searxngSearch(
   baseUrl: string,
   query: SearxngQuery,
-  options: { fetch?: FetchLike; timeoutMs?: number } = {},
+  options: { fetch?: FetchLike; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<SearxngSearchResponse> {
   const url = new URL("/search", baseUrl);
   url.searchParams.set("q", query.query);
@@ -79,8 +79,23 @@ export async function searxngSearch(
   if (query.timeRange) url.searchParams.set("time_range", query.timeRange);
   const response = await (options.fetch ?? fetch)(url.toString(), {
     headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(options.timeoutMs ?? 15_000),
+    signal: combineSignals(options.timeoutMs ?? 15_000, options.signal),
   });
   if (!response.ok) throw new Error(`SearXNG answered HTTP ${response.status}`);
   return normalizeSearxng(await response.json(), query.count);
+}
+
+/**
+ * The call's own timeout, plus the caller's cancellation when it has one.
+ * `AbortSignal.timeout` alone used to run a search to its full 15 s after the
+ * turn that asked for it was already cancelled (0.34.19 aborts in-flight tool
+ * executions upstream, and the mod forwards that signal).
+ */
+function combineSignals(timeoutMs: number, signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!signal) return timeout;
+  if (signal.aborted) return signal;
+  const anySignal = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
+  // No AbortSignal.any (older runtime): the timeout still bounds the call.
+  return anySignal ? anySignal([timeout, signal]) : timeout;
 }

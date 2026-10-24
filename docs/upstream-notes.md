@@ -42,6 +42,13 @@ wins: set both to different people and `/auth/dev-login` refuses with that 403, 
 a real misconfiguration rather than a contradiction. `AllowedUser.name` was deleted with the
 file: nothing ever rendered it (the UI reads only `status.user?.email`).
 
+The bypass itself is gone — `DEV_BYPASS_EMAIL` and `/auth/dev-login` were removed when access
+and sign-in became two settings (`SIGNIN=none|password|cf-access|google`), and setting the old
+variable is now a boot error rather than a silent mode. What still holds is the shape of the
+rule: `ALLOWED_USERS` is env-only, and it only means anything for a method that receives an
+address (`cf-access`, `google`). `none` and `password` have no address to match, so the BFF warns
+at boot when the list is set for them instead of pretending it gates something.
+
 ## MCP shared-list story
 
 We used to write the per-agent `settings.json` MCP entry and it **did not stick**: the
@@ -217,7 +224,7 @@ what to tell the user plus two links built on `PUBLIC_ORIGIN`: `/api/google/reco
 session- and write-gated: mints a consent `state` and 302s straight to Google — one click
 from chat) and `/?settings=google` (the SPA opens Settings on that section;
 `lib/settings-link.ts`). The grant stays, so the tools stay registered and keep giving that
-answer, and Settings → Google leads with "Access lost for …" and a Reconnect button. Opening
+answer, and Settings → Google Workspace leads with "Access lost for …" and a Reconnect button. Opening
 it also asks Google (`checkIfDue`, at most every 5 min), so it shows a loss nobody has hit
 yet — a grant already marked lost is re-checked too, so a mistaken mark clears itself. A
 refresh that works again clears `lostAt`. The skill wrapper path (stdio, subagents) still

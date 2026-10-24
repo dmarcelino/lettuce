@@ -6,6 +6,7 @@ import {
   type DiscoveredSkill,
   discoverBundled,
   discoverSkills,
+  LOCAL_AGENT_EXCLUDED_BUNDLED,
   type SkillFs,
 } from "./discovery.ts";
 import { parseFrontmatter } from "./frontmatter.ts";
@@ -61,8 +62,8 @@ skill(`data/local-backend/memfs/${AGENT}/memory/skills/proj`, "name: proj\ndescr
 skill(`data/local-backend/memfs/${AGENT}/memory/skills/web-apps`, "name: web-apps\ndescription: m");
 // A local agent's own (project) copy of a Cloud-only bundled skill survives the exclusion.
 skill(
-  "work/palace-owner/.agents/skills/curating-memory-palace",
-  "name: curating-memory-palace\ndescription: own copy",
+  "work/palace-owner/.agents/skills/music-generation",
+  "name: music-generation\ndescription: own copy",
 );
 
 const result = await discoverSkills({
@@ -72,7 +73,9 @@ const result = await discoverSkills({
   bundled: {
     skills: [
       bundledSkill("image-generation"),
-      bundledSkill("curating-memory-palace"),
+      bundledSkill("music-generation"),
+      bundledSkill("managing-agent-webhooks"),
+      bundledSkill("speech-generation"),
       bundledSkill("proj"),
     ],
     errors: [],
@@ -103,7 +106,18 @@ describe("discoverSkills", () => {
 
   test("bundled skills upstream hides from local agents are hidden", () => {
     expect(byId.has("image-generation")).toBe(false);
-    expect(byId.has("curating-memory-palace")).toBe(false);
+    // Added upstream in 0.34.21's neighbour releases; it needs a Letta Cloud
+    // music endpoint, so a local agent could only fail with it.
+    expect(byId.has("music-generation")).toBe(false);
+    // Added upstream in 0.34.13; both talk to Letta Cloud, so a local agent
+    // could only fail with them.
+    expect(byId.has("managing-agent-webhooks")).toBe(false);
+    expect(byId.has("speech-generation")).toBe(false);
+  });
+
+  test("curating-memory-palace is gone upstream, so nothing hides it any more", () => {
+    // 0.34.19 removed the builtin; the exclusion list dropped it with it.
+    expect(LOCAL_AGENT_EXCLUDED_BUNDLED.has("curating-memory-palace")).toBe(false);
   });
 
   test("a local agent's own copy of a hidden bundled skill is still listed", async () => {
@@ -111,9 +125,9 @@ describe("discoverSkills", () => {
       agentId: "agent-local-palace",
       cwd: "/work/palace-owner",
       hostFs,
-      bundled: { skills: [bundledSkill("curating-memory-palace")], errors: [] },
+      bundled: { skills: [bundledSkill("music-generation")], errors: [] },
     });
-    const palace = own.skills.find((s) => s.id === "curating-memory-palace");
+    const palace = own.skills.find((s) => s.id === "music-generation");
     expect(palace).toMatchObject({ source: "project", overrides: ["bundled"] });
   });
 

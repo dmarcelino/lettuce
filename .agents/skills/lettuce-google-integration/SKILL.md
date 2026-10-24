@@ -1,6 +1,6 @@
 ---
 name: lettuce-google-integration
-description: 'lettuce Google integration mechanics: the google-mcp sidecar and its --permissions level table, the BFF''s OAuth consent invariants (scope narrowing revokes, a revoke is grant-wide, never revoke on reconnect), the google-policy and google-creds volumes and why they are never mounted into app-server, the curated gmail_/calendar_/tasks_/contacts_ mod tools and the pinned tools/list fixtures to refresh on a WORKSPACE_MCP_VERSION bump, token-loss detection and reconnect links, and the dev-bypass hole. Read before touching bff/src/google/, docker/google-mcp/, Settings → Google, or any OAuth scope level.'
+description: 'lettuce Google integration mechanics: the google-mcp sidecar and its --permissions level table, the BFF''s OAuth consent invariants (scope narrowing revokes, a revoke is grant-wide, never revoke on reconnect), the google-policy and google-creds volumes and why they are never mounted into app-server, the curated gmail_/calendar_/tasks_/contacts_ mod tools and the pinned tools/list fixtures to refresh on a WORKSPACE_MCP_VERSION bump, token-loss detection and reconnect links, and the `SIGNIN=none` hole. Read before touching bff/src/google/, docker/google-mcp/, Settings → Google Workspace, or any OAuth scope level.'
 ---
 
 # Google (Gmail, Calendar, Tasks, Contacts)
@@ -38,12 +38,12 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
   mode uses the first file it finds, so connecting clears the directory first. The supervisor
   polls `sidecar.json` and restarts on change; disabled means nothing listens.
 
-  **Dev bypass is the hole.** Agent shells share the BFF's namespace, so in dev-bypass mode
-  they can `curl 127.0.0.1:8080/auth/dev-login` and hold a session. Google writes are
-  therefore refused whenever `DEV_BYPASS_EMAIL` is set (`googleWritesAllowed`) unless
-  `GOOGLE_ALLOW_DEV_BYPASS=true`. Every **other** setting (MCP list, Codex, agents) is still
-  writable that way in local mode — a known gap, not fixed here. Behind Cloudflare Access an
-  agent cannot mint a session. The OAuth callback is gated by its single-use `state`, not the
+  **`SIGNIN=none` is the hole.** Agent shells share the BFF's namespace, and `none` mints a
+  session for whoever asks, so one of them can `curl 127.0.0.1:8080/auth/login` and hold a
+  session. Google writes are therefore refused whenever `config.signin === "none"`
+  (`googleWritesAllowed`) unless `GOOGLE_ALLOW_INSECURE_SIGNIN=true`. Every **other** setting
+  (MCP list, Codex, agents) is still writable that way under `none` — a known gap, not fixed
+  here. Every other method signs the visitor in first, so an agent cannot mint itself a session. The OAuth callback is gated by its single-use `state`, not the
   cookie, so a `GOOGLE_OAUTH_REDIRECT_URI` on another origin (localhost) works.
 
   Limits by design: the sidecar holds one policy for every agent (a per-agent *boundary* would
@@ -57,7 +57,7 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
   Google server, records `grant.lostAt` (`markLost`), and answers the agent with reconnect
   links built on `PUBLIC_ORIGIN`: `/api/google/reconnect` (GET, session- and write-gated —
   mints a consent `state` and 302s to Google) and `/?settings=google`
-  (`lib/settings-link.ts`). Settings → Google leads with "Access lost for …" and a Reconnect
+  (`lib/settings-link.ts`). Settings → Google Workspace leads with "Access lost for …" and a Reconnect
   button; opening it re-checks with Google (`checkIfDue`, at most every 5 min), and a refresh
   that works again clears `lostAt`. The `accessNotConfigured` mis-mark incident and the full
   design: docs/upstream-notes.md#google-token-loss-story.

@@ -119,7 +119,8 @@ export interface PiRun extends PiRunSummary {
   usage: { inputTokens: number; outputTokens: number } | null;
 }
 
-/** How often an open viewer re-reads a run that is still being captured. */
+/** The sheet's refetch throttle: frames arrive every ~2 s and each read is
+ * the whole captured stream, so growth is coalesced to one read per interval. */
 export const LIVE_POLL_MS = 3000;
 
 async function ok(response: Response): Promise<Response> {
@@ -294,6 +295,11 @@ export interface PiRunFacts {
   nowTool?: string;
   nowInput?: string;
   lastSaid?: string;
+  /** Only on pushed `__bff_pi_progress` frames — what the Runs list patches by. */
+  kind?: "run" | "send";
+  model?: string | null;
+  /** Only on pushed frames: the run's fetched artifacts, so no files poll. */
+  files?: PiRunFile[];
 }
 
 export async function fetchPiRunFacts(runId: string): Promise<PiRunFacts> {

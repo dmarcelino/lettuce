@@ -26,13 +26,16 @@ import {
   parseToolAccess,
 } from "./agents/tool-access.ts";
 import { checkUpgradeOrigin } from "./auth/origin.ts";
+import { AttemptLockout, PasswordStore } from "./auth/password.ts";
 import { resolveSession } from "./auth/resolve-session.ts";
+import { registerSignInRoutes } from "./auth/routes.ts";
 import {
   buildSessionCookie,
   clearSessionCookie,
   encodeSession,
   type SessionPayload,
 } from "./auth/session-cookie.ts";
+import { GoogleSignIn, registerGoogleSignInRoutes } from "./auth/signin-google.ts";
 import { registerClaudeRoutes } from "./claude/routes.ts";
 import { type ClaudeFileIo, reapplyClaudeSettings } from "./claude/service.ts";
 import { AGENT_POLICY_MOD_PATH, renderAgentPolicyMod } from "./codex/policy-mod.ts";
@@ -42,8 +45,9 @@ import {
   type BffConfig,
   enabledFeatureNames,
   googleWritesAllowed,
-  isAllowedUser,
   loadConfig,
+  signinHasAddress,
+  signinLabel,
 } from "./config.ts";
 import {
   CODING_MARKER_LEGACY_PATH,
@@ -56,6 +60,13 @@ import {
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
+import {
+  declaredSizeViolation,
+  MAX_UPLOAD_BYTES,
+  putWorkspaceFile,
+  readUploadBody,
+  uploadViolation,
+} from "./files/upload.ts";
 import {
   type GitRouteResult,
   gitCommitResponse,
@@ -467,7 +478,7 @@ async function checkCodingMarker(): Promise<void> {
 function deploymentRows(): Component[] {
   return deploymentComponents({
     features: config.features,
-    tunnel: config.mode === "cloudflared",
+    tunnel: config.access === "cloudflared",
     pinVersions: config.pinVersions,
     webReader: config.webTools.ddgMcpUrl !== null,
     marker: codingMarker,
@@ -565,10 +576,33 @@ const webToolsBackends = (): WebToolsBackends => ({
 // The remote pi worker (docs/remote-pi-plan.md): settings, keys and captured
 // run streams are all BFF-local on `bff-data`; the BFF itself is the ssh
 // client, so nothing here crosses the upstream connection.
+/** One in-flight progress chain per remote-pi run; see `onProgress`. */
+const piProgressChain = new Map<string, Promise<void>>();
 const piService = new PiService({
   paths: { dir: config.piDir },
   featureEnabled: () => config.features.pi,
   log,
+  // Push-over-poll: each throttled meta flush (and the settle) rides the
+  // browser WSS as `__bff_pi_progress`, so the card/list/chip retire their
+  // polling. The factory runs only when a session opted in, so the tail read
+  // never happens for nobody. Two flushes of one run may overlap their tail
+  // reads; a per-run chain keeps them ordered, because a card that reads its
+  // events counter going backwards is worse than one that lags a beat.
+  onProgress: (meta) => {
+    const runId: string = meta.runId;
+    const last = piProgressChain.get(runId) ?? Promise.resolve();
+    const chain = last
+      .then(() => registry.broadcastPiProgress(() => piService.progressFacts(meta)))
+      .catch(() => {
+        /* a dropped frame is not a dropped run; the next tick (or the browser's
+         * watchdog) recovers the facts */
+      })
+      .finally(() => {
+        // Only retire our own link: a newer frame may already own the chain.
+        if (piProgressChain.get(runId) === chain) piProgressChain.delete(runId);
+      });
+    piProgressChain.set(runId, chain);
+  },
   // Settle pushes: a finished remote run is exactly what a waiting human wants
   // without an agent turn relaying it. Deep link lands on the Runs tab once
   // that view ships; unknown query params are inert before then. And the
@@ -634,8 +668,8 @@ const googleLostAccess: LostAccessPort = {
   markLost: (why) => googleService.markLost(why),
 };
 const toolHandlers: ReadonlyMap<string, ToolHandler> = new Map<string, ToolHandler>([
-  ["web_search", (args) => webSearch(args, webToolsBackends())],
-  ["fetch_webpage", (args) => fetchWebpage(args, webToolsBackends())],
+  ["web_search", (args, context) => webSearch(args, webToolsBackends(), context?.signal)],
+  ["fetch_webpage", (args, context) => fetchWebpage(args, webToolsBackends(), context?.signal)],
   ...bridgeHandlers(mcpCatalog, mcpClient, {
     url: config.google.mcpUrl,
     lostAccess: googleLostAccess,
@@ -994,6 +1028,11 @@ const throttle = async (c: Context, next: () => Promise<void>) => {
 };
 app.use("/api/*", throttle);
 app.use("/push/*", throttle);
+// Credential attempts belong to the anonymous bucket until they succeed, so
+// without this the volume limit would cover every route except the one worth
+// flooding. `AttemptLockout` in `auth/password.ts` is the slower, password-aware
+// half of the same story.
+app.use("/auth/*", throttle);
 
 // The session gate for everything under `/api` and `/push`. Thirty-four handlers
 // used to begin with the same hand-written check, which means a route that forgot
@@ -1019,27 +1058,36 @@ const requireSession = async (c: Context, next: () => Promise<void>) => {
 app.use("/api/*", requireSession);
 app.use("/push/*", requireSession);
 
-// The web client reads exactly three fields: `authenticated`, `auth_mode` and
-// `user.email`. Everything else here is operational detail — the running
-// letta-code version, backend kind, protocol version, how many sessions are
-// connected — and this route is UNAUTHENTICATED, so an anonymous visitor could
-// fingerprint the deployment straight from it. The full payload is served only
-// to a signed-in session, where it is useful for debugging; an anonymous
-// caller gets the minimum needed to render a sign-in screen.
-app.get("/api/status", (c) => {
+// The web client reads five fields: `authenticated`, `access`, `signin`,
+// `setup_required` and `user.email`. Everything else here is operational detail —
+// the running letta-code version, backend kind, protocol version, how many
+// sessions are connected — and this route is UNAUTHENTICATED, so an anonymous
+// visitor could fingerprint the deployment straight from it. The full payload is
+// served only to a signed-in session, where it is useful for debugging; an
+// anonymous caller gets the minimum needed to render a sign-in screen.
+app.get("/api/status", async (c) => {
   const session = c.get("session");
-  const auth_mode = config.devBypassEmail
-    ? "dev-bypass"
-    : config.mode === "cloudflared"
-      ? "cf-access"
-      : "none";
+  // Whether the first-run password is still missing. The store memoises it, so
+  // this stays one file read per process rather than one per poll.
+  const setupRequired = config.signin === "password" && !(await passwords.claimed());
+  const deployment = {
+    access: config.access,
+    signin: config.signin,
+    setup_required: setupRequired,
+  };
 
-  if (!session) return c.json({ authenticated: false, auth_mode });
+  if (!session) return c.json({ authenticated: false, ...deployment });
 
   return c.json({
     authenticated: true,
-    auth_mode,
+    ...deployment,
     user: { email: session.email },
+    // What Settings → Access and → Sign-in report. Behind the session like every
+    // other operational field: where the port listens is not something an
+    // anonymous visitor gets to learn.
+    host_bind: config.hostBind,
+    public_origin: config.publicOrigin,
+    password_updated_at: config.signin === "password" ? passwords.updatedAt() : null,
     version: uiVersion,
     // Which integrations this deployment offers (from COMPOSE_PROFILES) — the
     // web hides the matching Settings sections and lists on this.
@@ -1060,29 +1108,37 @@ app.get("/api/status", (c) => {
   });
 });
 
-// Dev-bypass's only self-service entry point. In production (Access
-// enforcing) there is nothing for this route to do — a visitor who reaches
-// the origin at all already has a valid Access JWT, which the middleware
-// above turns into a session before any handler runs.
-app.get("/auth/login", (c) => {
-  if (config.devBypassEmail) return c.redirect("/auth/dev-login");
-  return c.text("Sign in via Cloudflare Access.", 400);
+// The sign-in surface for this instance's method: a password form, the first-run
+// setup, or — with SIGNIN=none — the one door that hands out a session for
+// nothing. See `auth/routes.ts`.
+const passwords = new PasswordStore(config.signinDir);
+const lockout = new AttemptLockout();
+
+registerSignInRoutes(app, {
+  config,
+  passwords,
+  lockout,
+  mint: mintSession,
+  log,
+  hardened,
 });
 
-app.get("/auth/dev-login", (c) => {
-  const email = config.devBypassEmail;
-  if (!email) return c.text("Dev login is disabled", 404);
+// `SIGNIN=google` only: the credentials come from the environment precisely
+// because signing in happens before Settings can be reached.
+const googleSignIn = new GoogleSignIn({
+  clientId: config.google.envClientId,
+  clientSecret: config.google.envClientSecret,
+  redirectUri: `${config.publicOrigin}/auth/google/callback`,
+});
 
-  // Unset ALLOWED_USERS makes the bypass email its own allowlist, so this can
-  // only fire when both were set explicitly and name different people — a real
-  // misconfiguration rather than the self-contradiction it used to report.
-  if (!isAllowedUser(config, email)) {
-    return c.text(`DEV_BYPASS_EMAIL ${email} is not listed in ALLOWED_USERS`, 403);
-  }
-
-  log(`Dev login as ${email} (NO AUTHENTICATION — loopback only)`);
-  const { cookie } = mintSession(email);
-  return hardenedResponse(hardened, null, { location: "/", "set-cookie": cookie }, 302);
+registerGoogleSignInRoutes(app, {
+  config,
+  signIn: googleSignIn,
+  enabled: config.signin === "google",
+  redirectUri: `${config.publicOrigin}/auth/google/callback`,
+  mint: mintSession,
+  log,
+  hardened,
 });
 
 app.post("/auth/logout", (c) => {
@@ -1443,6 +1499,13 @@ const googleService = new GoogleService({
   // The `google` profile token: stored settings intact, sidecar and MCP entry
   // off while it is absent. See `GoogleServiceDeps.profileEnabled`.
   profileEnabled: () => config.features.google,
+  // The env client, when present, is the live one for the consent too — the same
+  // pair `SIGNIN=google` signs in with. Settings keeps its own pair as the
+  // fallback; see `GoogleServiceDeps.envClient`.
+  envClient: {
+    clientId: config.google.envClientId,
+    clientSecret: config.google.envClientSecret,
+  },
   log,
 });
 
@@ -1484,9 +1547,12 @@ app.get("/api/turn-usage", (c) => {
 // and the response is held twice here — the base64 text and the decoded bytes —
 // so one 25 MB download is ~60 MB of heap. Nothing else bounds how many run at
 // the same time, and this is the process holding the only upstream connection:
-// an OOM here cancels every turn in flight, with no drain to save them.
+// an OOM here cancels every turn in flight, with no drain to save them — an
+// unsignalled kill is the one shutdown the drain in `shutdown.ts` cannot cover.
+// Two, not four: the same ceiling `files/upload.ts` sets for the same reason, so
+// the worst case is ~120 MB rather than ~240 MB, and a fourth file queues.
 const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
-const MAX_DOWNLOADS_IN_FLIGHT = 4;
+const MAX_DOWNLOADS_IN_FLIGHT = 2;
 let downloadsInFlight = 0;
 
 app.get("/api/files/download", async (c) => {
@@ -1558,6 +1624,45 @@ async function readWorkspaceFile(path: string, inline: boolean): Promise<Respons
     "content-length": String(bytes.length),
   });
 }
+
+// ── Upload a file into the workspace (Files → Upload) ─────────────────────
+// The mirror of /api/files/download above: raw bytes in, one base64 `write_file`
+// out, so a phone can put a photo or a PDF where an agent can read it. The
+// handlers live in `files/upload.ts` because the app-server applies no workspace
+// root to a base64 write: the whole guard chain — clamp, plain filename, symlink
+// walk, size cap, in-flight cap — is ours, and it is unit-tested there. The
+// per-user limiter and the session gate already cover `/api/*`.
+app.post("/api/files/upload", async (c) => {
+  const path = c.req.query("path");
+  if (!path) return c.text("Missing path", 400);
+  const violation = uploadViolation(path);
+  if (violation) return hardenedResponse(hardened, violation, {}, 400);
+
+  const tooLarge = declaredSizeViolation(c.req.header("content-length") ?? null);
+  if (tooLarge) return hardenedResponse(hardened, tooLarge, {}, 413);
+
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+
+  // Read chunk-wise so an undeclared body over the cap is refused while it
+  // arrives rather than after it is buffered.
+  const bytes = await readUploadBody(c.req.raw.body);
+  if (!bytes) {
+    return hardenedResponse(
+      hardened,
+      `File is too large to upload (${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB max)`,
+      {},
+      413,
+    );
+  }
+
+  const result = await putWorkspaceFile(path, bytes, (frame) =>
+    upstream.request<WriteFileResponseMessage>(frame),
+  );
+  if (result.status !== 200) {
+    return hardenedResponse(hardened, result.text ?? "Failed to write file", {}, result.status);
+  }
+  return c.json(result.json);
+});
 
 // ── Git history (Files → History) ──────────────────────────────────────────
 // Upstream exposes only branch commands and the app-server image ships no git
@@ -1653,6 +1758,7 @@ function mintSession(email: string): { session: SessionPayload; cookie: string }
   const session: SessionPayload = {
     email,
     exp: Math.floor(Date.now() / 1000) + config.sessionTtlSeconds,
+    via: config.signin,
   };
   const token = encodeSession(session, config.sessionSecret);
   return { session, cookie: buildSessionCookie(token, config.sessionTtlSeconds, secureCookies) };
@@ -1673,10 +1779,15 @@ interface SocketData {
 const AUTH_REQUIRED_CLOSE_CODE = 4401;
 
 // PUBLIC_ORIGIN is only a declaration of intent; the bind address is the
-// enforcement. The bypass stays on loopback unless DEV_BYPASS_ALLOW_REMOTE
-// explicitly says otherwise, so it cannot reach the network by accident.
+// enforcement — for the half of it that is ours. Under Compose the boundary is the
+// published port on the host (`BFF_BIND`, declared here as LETTA_HOST_BIND and
+// checked at boot), and the BFF must answer on the namespace's interfaces: a DNAT
+// never arrives on the container's own loopback, which is the whole reason the old
+// DEV_BYPASS_ALLOW_REMOTE existed. With no host bind declared nothing is publishing
+// us, so this is a bare `bun run dev` and an unauthenticated one binds itself to
+// loopback instead of leaning on the developer to remember.
 const bindHostname =
-  config.devBypassEmail && !config.devBypassAllowRemote ? "127.0.0.1" : "0.0.0.0";
+  config.signin === "none" && !process.env.LETTA_HOST_BIND?.trim() ? "127.0.0.1" : "0.0.0.0";
 
 const server = Bun.serve<SocketData>({
   port: config.port,
@@ -1691,7 +1802,7 @@ const server = Bun.serve<SocketData>({
       // visits could open a socket to this BFF and act as them.
       const origin = checkUpgradeOrigin(
         request.headers.get("origin"),
-        config.mode,
+        config.access,
         config.publicOrigin,
         request.headers.get("host"),
       );
@@ -1761,7 +1872,8 @@ const server = Bun.serve<SocketData>({
   },
 });
 
-log(`Mode: ${config.mode}`);
+log(`Access: ${config.access === "cloudflared" ? "Cloudflare Tunnel" : "direct"}`);
+log(`Sign-in: ${signinLabel(config.signin)}`);
 const featureNames = enabledFeatureNames(config.features);
 log(
   `Features: ${
@@ -1769,21 +1881,41 @@ log(
   }`,
 );
 log(`Listening on ${bindHostname}:${server.port} (public origin ${config.publicOrigin})`);
+log(`Host port listens on ${config.hostBind}`);
 log(`App-server: ${config.appServerUrl}`);
 // A misbuilt image without git would otherwise be noticed only as a quiet 503
 // on the first History open; say it out loud once here instead.
 void checkGitAvailability(runGit, (message) => log(message));
-log(`Allowlisted users: ${config.allowedUsers.join(", ") || "(none — nobody can sign in)"}`);
-if (config.devBypassEmail) {
-  log("!".repeat(72));
-  log(`DEV BYPASS ACTIVE — no authentication. Any request gets a session as`);
-  log(`${config.devBypassEmail}.`);
+log(
+  signinHasAddress(config.signin)
+    ? `Allowlisted addresses: ${config.allowedUsers.join(", ") || "(none — nobody can sign in)"}`
+    : `Allowlist: not used by SIGNIN=${config.signin}`,
+);
+// Setting the list for a method that gets no address to match is a
+// configuration that reads as if it protected something.
+if (!signinHasAddress(config.signin) && config.allowedUsers.length > 0) {
   log(
-    config.devBypassAllowRemote
-      ? `EXPOSED ON THE NETWORK at ${config.publicOrigin} by DEV_BYPASS_ALLOW_REMOTE=true.`
-      : "Bound to 127.0.0.1 only; not reachable off this machine.",
+    `NOTE: ALLOWED_USERS is set, but SIGNIN=${config.signin} has no address to check — it is unused.`,
   );
+}
+
+if (config.signin === "none") {
   log("!".repeat(72));
+  log("SIGN-IN IS OFF — nothing authenticates a visitor: anyone who reaches");
+  log(`this port is the owner. Host bind ${config.hostBind}; keep it on a machine only you use.`);
+  log("!".repeat(72));
+}
+
+// Reading the store here also warms the memo `setup_required` is built from, so
+// the first `/api/status` after this never reads the file.
+if (config.signin === "password") {
+  void passwords.claimed().then((claimed) => {
+    if (claimed) return;
+    log("!".repeat(72));
+    log("NO PASSWORD SET — this instance is unclaimed. Open it and choose one:");
+    log(`the first visitor to get there owns it. ${config.publicOrigin}`);
+    log("!".repeat(72));
+  });
 }
 
 // Closing the upstream connection cancels every turn in flight (it is the only

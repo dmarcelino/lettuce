@@ -16,6 +16,7 @@ import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { PiRunsChip, usePiActiveRuns } from "./components/PiRunsChip.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
+import { SignInScreen } from "./components/SignInScreen.tsx";
 import { Switcher } from "./components/Switcher.tsx";
 import { ToastLayer, toast } from "./components/Toast.tsx";
 import type { PreparedImage } from "./lib/attachments.ts";
@@ -28,6 +29,7 @@ import { readRunsDeepLink } from "./lib/pi.ts";
 import { type Component, type RuntimeScope, scopeKey } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
+import type { Access, Signin } from "./lib/signin.ts";
 import {
   readStructuredOutput,
   type StructuredOutputPreference,
@@ -48,8 +50,19 @@ import { ToolsTab } from "./tabs/ToolsTab.tsx";
 
 interface Status {
   authenticated: boolean;
-  auth_mode: "cf-access" | "dev-bypass" | "none";
+  /** How this instance is reached — the network half of the old single `mode`. */
+  access: Access;
+  /** How the visitor proved who they are, or `none`. */
+  signin: Signin;
+  /** `password` with no credential set yet: the first visitor claims the box. */
+  setup_required: boolean;
   user: { email: string } | null;
+  /** Interface the BFF socket is bound to; present only when authenticated. */
+  host_bind?: string;
+  /** The origin Access is expected to forward, when it is configured. */
+  public_origin?: string;
+  /** When the password was last set; only for `signin: password`. */
+  password_updated_at?: string | null;
   /** This build's release tag; present only when authenticated. */
   version?: string;
   /** Which integrations this deployment offers; absent (older BFF) = all on. */
@@ -144,50 +157,16 @@ export function App() {
   }
 
   const { status } = state;
-  if (!status.authenticated) return <SignIn status={status} />;
+  if (!status.authenticated) {
+    return <SignInScreen signin={status.signin} setupRequired={status.setup_required} />;
+  }
   return <Workspace status={status} />;
-}
-
-function SignIn({ status }: { status: Status }) {
-  return (
-    <main className="shell center">
-      <h1>Lettuce</h1>
-      {status.auth_mode === "dev-bypass" ? (
-        <>
-          <p className="warning">
-            Developer sign-in is enabled. This does <strong>not</strong> authenticate anyone — any
-            visitor becomes the configured user. Unset <code>DEV_BYPASS_EMAIL</code> in
-            <code>docker/.env</code> once real sign-in is configured.
-          </p>
-          <a className="button" href="/auth/login">
-            Continue without signing in
-          </a>
-        </>
-      ) : status.auth_mode === "cf-access" ? (
-        <p className="muted">
-          Not signed in. This instance is reached through Cloudflare Access — if you're seeing this
-          on the tunnel, try reloading; direct access without Access is not supported.
-        </p>
-      ) : (
-        <p className="warning">
-          Nothing is configured to sign anyone in. This instance is running in local mode with no{" "}
-          <code>DEV_BYPASS_EMAIL</code> set — add one to <code>docker/.env</code> and restart, or
-          switch to cloudflared mode for real sign-in. See <code>docker/README.md</code>.
-        </p>
-      )}
-    </main>
-  );
 }
 
 function Workspace({ status }: { status: Status }) {
   const session = useSession(true);
   const agents = useAgents(session);
-  // /clear creates a new conversation server-side instead of clearing this one,
-  // so the UI has to follow it there or it sits on a conversation the runtime
-  // has already moved off.
-  const conversation = useConversation(session, agents.agentId, agents.conversationId, () => {
-    void agents.adoptNewConversation();
-  });
+  const conversation = useConversation(session, agents.agentId, agents.conversationId);
 
   // A BFF error nothing else claimed is an event, so it is a toast: it says its
   // piece and leaves, instead of covering the transcript until someone finds the
@@ -214,8 +193,13 @@ function Workspace({ status }: { status: Status }) {
   /** `?tab=runs&run=<id>`: the run card's and settle pushes' landing spot. */
   const [runsLink] = useState(readRunsDeepLink);
   const [tab, setTab] = useState<Tab>(runsLink.tab ? "Runs" : "Chat");
-  // One poll feeds both the Runs tab dot and the topbar chip.
-  const piActive = usePiActiveRuns(featureEnabled(status?.features, "pi"));
+  // One pushed feed feeds both the Runs tab dot and the topbar chip; the
+  // socket only carries pi frames while the feature is on.
+  const piEnabled = featureEnabled(status?.features, "pi");
+  useEffect(() => {
+    session.setPiWatch(piEnabled);
+  }, [session, piEnabled]);
+  const piActive = usePiActiveRuns(piEnabled);
   /** The responding-conversations list behind the pulsing status dot. */
   const [activityOpen, setActivityOpen] = useState(false);
   /** The agents-and-conversations menu (phone); see `Switcher`. */
@@ -321,7 +305,10 @@ function Workspace({ status }: { status: Status }) {
     setFilters((current) => toggleShown(current, group));
   };
 
-  const bypass = status.auth_mode === "dev-bypass";
+  // SIGNIN=none mints a session for whoever reaches the socket, which is only
+  // safe because boot refuses it on any other bind. The pill says so on every
+  // screen, since nothing else on the page distinguishes it from a real login.
+  const unauthenticated = status.signin === "none";
 
   // The tab icon reports the link state, which matters most when this tab is
   // backgrounded on a phone — precisely when the socket tends to drop.
@@ -372,7 +359,7 @@ function Workspace({ status }: { status: Status }) {
               void contextSize.refresh();
             }}
           />
-          {bypass ? <AuthPill email={status.user?.email} /> : null}
+          {unauthenticated ? <AuthPill email={status.user?.email} /> : null}
           <LinkPill
             link={session.link}
             busy={respondingCount > 0}
@@ -546,6 +533,7 @@ function Workspace({ status }: { status: Status }) {
                 turnStartedAt: conversation.turnStartedAt,
                 lastActivityAt: conversation.lastActivityAt,
                 usage: conversation.turnUsage,
+                liveSubagents: conversation.liveSubagents,
               }}
               filters={filters}
               onToggleFilter={toggleFilter}
@@ -556,6 +544,7 @@ function Workspace({ status }: { status: Status }) {
               onPermissionMode={conversation.setPermissionMode}
               commands={conversation.commands}
               onRunCommand={(id, args) => conversation.runCommand(id, args)}
+              onNewConversation={() => void agents.createConversation()}
               onOpenModels={() => setShowModels(true)}
               modelsDisabled={!scope}
               modelLabel={modelLabel}
@@ -573,7 +562,9 @@ function Workspace({ status }: { status: Status }) {
             agentId={agents.agentId}
             conversationId={agents.conversationId}
             backgroundProcesses={conversation.backgroundProcesses}
+            liveSubagents={conversation.liveSubagents}
             onStopMonitor={conversation.stopMonitor}
+            onStopSubagent={conversation.stopSubagent}
             conversations={agents.conversations}
           />
         ) : tab === "Runs" ? (
@@ -611,7 +602,11 @@ function Workspace({ status }: { status: Status }) {
           cwd={conversation.cwd}
           skillsVersion={conversation.skillsVersion}
           user={status.user}
-          authMode={status.auth_mode}
+          access={status.access}
+          signin={status.signin}
+          hostBind={status.host_bind}
+          publicOrigin={status.public_origin}
+          passwordUpdatedAt={status.password_updated_at}
           version={status.version}
           features={status.features}
           components={status.components}

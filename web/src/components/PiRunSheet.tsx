@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchPiRun, LIVE_POLL_MS, type PiRun, type PiRunStep, STATUS_LABELS } from "../lib/pi.ts";
+import { usePiLiveRuns } from "../lib/pi-live.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
@@ -110,7 +111,9 @@ function Step({ step }: { step: PiRunStep }) {
 /**
  * One remote-pi run — every tool call and its output — read from the json
  * stream the BFF captured (the run's own events, not the remote session
- * file). Re-reads every few seconds while the capture is still going;
+ * file). The transcript body stays a fetch — captured streams reach megabytes
+ * and the pushed progress frame carries facts, not content — but its refetch
+ * is now driven by the frame's event counter instead of a blind 3-s poll;
  * "detached" means the BFF stopped capturing while the remote pi may still be
  * working (docs/remote-pi-plan.md § 4.5).
  */
@@ -121,31 +124,71 @@ export function PiRunSheet({ runId, onClose }: Props) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const stepCount = run?.steps.length ?? 0;
   const live = capturing || run?.status === "running";
+  const liveFrames = usePiLiveRuns();
+  // The pushed counter is the growth signal: refetch the body when it moves.
+  const frameEvents = liveFrames[runId]?.eventCount ?? -1;
 
+  const load = useCallback(async () => {
+    try {
+      const next = await fetchPiRun(runId);
+      setRun(next.run);
+      setCapturing(next.capturing);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [runId]);
+
+  // First read, and a slow retry while the run's files do not exist yet (a
+  // fresh deep link looks like a 404 for a moment).
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = async () => {
+    const first = async () => {
       try {
         const next = await fetchPiRun(runId);
         if (cancelled) return;
         setRun(next.run);
         setCapturing(next.capturing);
         setError(null);
-        if (next.capturing || next.run.status === "running") timer = setTimeout(load, LIVE_POLL_MS);
       } catch (cause) {
         if (cancelled) return;
         setError(cause instanceof Error ? cause.message : String(cause));
-        // A run whose files do not exist yet looks like a 404 for a moment.
-        timer = setTimeout(load, LIVE_POLL_MS * 2);
+        timer = setTimeout(() => void first(), LIVE_POLL_MS * 2);
       }
     };
-    void load();
+    void first();
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
   }, [runId]);
+
+  // Live growth: every moved event counter means new captured lines to
+  // render — throttled to one read per interval (frames arrive every ~2 s and
+  // each read is the whole capture tail), with a trailing read so the settled
+  // burst's last lines always land. A stalled frame stream needs no fallback:
+  // capture only grows while frames flow, so silence means nothing new.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const lastReadMs = useRef(0);
+  const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (frameEvents <= 0 || !live) return;
+    const wait = LIVE_POLL_MS - (Date.now() - lastReadMs.current);
+    if (wait <= 0) {
+      lastReadMs.current = Date.now();
+      void load();
+      return;
+    }
+    if (!trailing.current) {
+      trailing.current = setTimeout(() => {
+        trailing.current = null;
+        lastReadMs.current = Date.now();
+        void loadRef.current();
+      }, wait);
+    }
+  }, [frameEvents, live, load]);
 
   // Follow a live run as it grows; leave a finished one where the reader is.
   useEffect(() => {

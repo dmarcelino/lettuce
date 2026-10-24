@@ -8,16 +8,19 @@
  * viewports plus measured assertions is the difference between checking the app
  * and checking the screenshot harness.
  *
- * Auth is one navigation: /auth/dev-login sets the dev-bypass cookie and
- * redirects to /, so no profile or cookie juggling is needed.
+ * Auth is one navigation: under `SIGNIN=none` (what a local stack derives)
+ * /auth/login mints the session cookie and redirects to /, so no profile or
+ * cookie juggling is needed. Under `SIGNIN=password` the same URL is the form,
+ * and the harness needs LETTUCE_TEST_PASSWORD — a script is not entitled to a
+ * password a human typed.
  *
  * Usage: bun run ui-check [bffOrigin]
  */
 
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
+import { chromiumExecutable, requireTestPassword } from "./harness.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const OUT_DIR = new URL("../.ui-check/", import.meta.url).pathname;
@@ -40,30 +43,25 @@ function section(title: string): void {
 }
 
 /**
- * Playwright pins a Chromium build that may not be the one cached on this
- * machine, and downloading ~150MB to assert on CSS is not a good trade. Reuse
- * whatever chromium-* build is already present; fall back to Playwright's own
- * resolution when none is.
+ * Land on the app with a session, by whatever method this stack signed in with.
+ * A password field on the page is how `SIGNIN=password` shows up here.
  */
-function chromiumExecutable(): string | undefined {
-  if (process.env.PLAYWRIGHT_CHROMIUM) return process.env.PLAYWRIGHT_CHROMIUM;
-  const cache = join(homedir(), ".cache", "ms-playwright");
-  if (!existsSync(cache)) return undefined;
-  const builds = readdirSync(cache)
-    .filter((name) => name.startsWith("chromium-"))
-    .sort()
-    .reverse();
-  for (const build of builds) {
-    const candidate = join(cache, build, "chrome-linux64", "chrome");
-    if (existsSync(candidate)) return candidate;
+async function signIn(page: Page): Promise<void> {
+  await page.goto(ORIGIN, { waitUntil: "networkidle" });
+  if (await page.locator('input[type="password"]').first().count()) {
+    const password = requireTestPassword("ui-check");
+    await page.locator('input[type="password"]').first().fill(password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    // The success path is a reload of the whole app, so wait for the app itself
+    // rather than for the load event, which fires on the sign-in page.
+    await page.waitForSelector(".app", { timeout: 20_000 });
   }
-  return undefined;
 }
 
 /** Load the app authenticated and settled. */
 async function open(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
   const page = await browser.newPage({ viewport });
-  await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+  await signIn(page);
   return page;
 }
 
@@ -126,6 +124,75 @@ async function overflow(page: Page): Promise<{ clientWidth: number; clipped: str
     // Ancestors of a clipped node are usually clipped too; the first few are enough.
     return { clientWidth: limit, clipped: clipped.slice(0, 5) };
   });
+}
+
+/**
+ * Files → Upload: the affordance, the bar that has to hold it, and the sheet.
+ * The native picker is a browser dialog and cannot be driven, so the file is set
+ * on the hidden input — which is exactly what the picker's change event does.
+ * The upload is never started: a layout check has no business writing into the
+ * agent's workspace.
+ */
+async function uploadSheetChecks(page: Page, label: string): Promise<void> {
+  const bar = page.locator(".pane-bar.wrap").first();
+  const widths = await bar.evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  }));
+  check(
+    `the Files pane bar fits without scrolling (${label})`,
+    widths.scrollWidth <= widths.clientWidth + 1,
+    widths,
+  );
+  check(
+    `Upload is on the Files pane bar (${label})`,
+    (await page.locator('.pane-bar button:has-text("Upload")').count()) > 0,
+  );
+
+  await page.setInputFiles(".pane-bar.wrap .attach-input", {
+    name: "ui-check-upload.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  });
+  const sheet = page.locator('.sheet-panel[aria-label="Upload file"]');
+  await sheet.waitFor({ state: "visible", timeout: 5000 });
+  const field = sheet.locator("input").first();
+  check(
+    `the upload sheet prefills the picked name (${label})`,
+    (await field.inputValue()) === "ui-check-upload.png",
+    await field.inputValue(),
+  );
+
+  // The collision rule: a name that exists here is refused until it is retyped.
+  // Read it off a download button — only file rows have one, so a folder that
+  // sorts first cannot become the subject (the sheet only collides with files).
+  const downloadLabel = await page
+    .locator('.file-row button[aria-label^="Download "]')
+    .first()
+    .getAttribute("aria-label")
+    .catch(() => null);
+  const taken = downloadLabel?.replace(/^Download /, "") ?? null;
+  if (taken) {
+    await field.fill(taken.trim());
+    check(
+      `an existing name is refused in the upload sheet (${label})`,
+      (await sheet.locator(".bad").count()) > 0 &&
+        (await sheet.locator(".sheet-actions .button:not(.ghost)").isDisabled()),
+      taken,
+    );
+    await field.fill("ui-check-upload.png");
+  }
+
+  await shot(page, `${label}-files-upload`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check(
+    `escape closes the upload sheet (${label})`,
+    (await page.locator('.sheet-panel[aria-label="Upload file"]').count()) === 0,
+  );
 }
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -690,16 +757,17 @@ try {
     // and it must not be the thing that pushes the composer off-screen — it
     // sits above a textarea the on-screen keyboard has already crowded.
     const textarea = page.locator(".composer textarea");
-    await textarea.fill("/cl");
+    await textarea.fill("/ref");
     const popover = page.locator(".composer-suggestions");
     check("typing a slash opens the suggestions", await popover.isVisible());
     check(
       "suggestions are filtered to the prefix",
-      // An id match, not has-text: "/clear" is a text substring of
-      // "/clear-messages" too, so has-text(/clear) over-counted once a second
-      // command shared the prefix.
+      // An id match, not has-text: "/reflect" is a text substring of
+      // "/reflection" too, so has-text(/reflect) over-counts while two commands
+      // share the prefix. (This asserted /clear until letta-code 0.34.15 removed
+      // the remote clear.)
       (await popover.locator("li").count()) > 0 &&
-        (await popover.locator("#composer-suggestion-clear").count()) === 1,
+        (await popover.locator("#composer-suggestion-reflect").count()) === 1,
     );
     check(
       "a suggestion is highlighted by default",
@@ -785,6 +853,10 @@ try {
         (await page.locator('.sheet-panel[aria-label="History"]').count()) === 0,
       );
     }
+    // Upload shares the same bar as New file and the git buttons; the phone bar
+    // is the one at risk of not fitting.
+    await uploadSheetChecks(page, "phone");
+
     await page.locator('nav.tabs button:text-is("Chat")').click();
 
     // The Agent tab's section switcher wraps rather than widening the pane.
@@ -846,11 +918,14 @@ try {
       "Models",
       ...(featureOn(features, "web") ? ["Web"] : []),
       "MCP",
-      ...(featureOn(features, "google") ? ["Google"] : []),
+      ...(featureOn(features, "google") ? ["Workspace"] : []),
       ...(featureOn(features, "codex") ? ["Codex"] : []),
       ...(featureOn(features, "claude") ? ["Claude"] : []),
       ...(featureOn(features, "pi") ? ["Remote Pi"] : []),
       "Skills",
+      // Deployment: the two halves of what used to be one mode, reported read-only.
+      "Access",
+      "Sign-in",
       "Push",
       "About",
     ];
@@ -940,6 +1015,37 @@ try {
       }),
     );
 
+    // The CLI habit. letta-code 0.34.15 removed the remote `clear`, so a typed `/clear` would
+    // otherwise reach the agent as an ordinary message; the app answers it the way the sidebar +
+    // does — a new conversation, and nothing is deleted.
+    const openBefore = await page
+      .locator(".conversation-row.active")
+      .getAttribute("data-conversation-id");
+    await page.locator(".composer textarea").fill("/clear");
+    await page.locator('.composer .glyph-btn[aria-label="Send message"]').click();
+    await page.waitForTimeout(800);
+    const openAfter = await page
+      .locator(".conversation-row.active")
+      .getAttribute("data-conversation-id");
+    check(
+      "a typed /clear starts a new conversation",
+      Boolean(openAfter) && openAfter !== openBefore,
+      { openBefore, openAfter },
+    );
+    check(
+      "a typed /clear leaves nothing in the box",
+      (await page.locator(".composer textarea").inputValue()) === "",
+    );
+    check(
+      "the new conversation is empty",
+      (await page.locator('.empty:has-text("No messages yet")').count()) === 1,
+    );
+    // Back to where we were: the rest of this pass assumes that conversation's transcript.
+    if (openBefore) {
+      await page.locator(`.conversation-row[data-conversation-id="${openBefore}"]`).first().click();
+      await page.waitForTimeout(400);
+    }
+
     // The agents are a list on a panel of their own, not a dropdown, and look
     // unlike the conversations under them.
     check("no agent dropdown on desktop", (await page.locator(".sidebar select").count()) === 0);
@@ -1022,7 +1128,15 @@ try {
 
     // The Agent tab holds the selected agent's settings and nothing shared.
     await page.locator('nav.tabs button:text-is("Agent")').click();
-    await page.waitForTimeout(500);
+    // Wait for the tab to render rather than sleeping a fixed 500ms: the checks
+    // below counted nodes in the pane straight after the sleep, so a slow Agent
+    // tab read as an empty pane and failed from an otherwise identical tree. Soft
+    // failure on purpose — the harness reports every check instead of throwing.
+    const agentRendered = await page
+      .locator('.pane label:has-text("Name") input')
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
     const expectedChips = ["General", "Secrets", "Reflection", "Skills", "Memory"];
     const chipLabels = (await page.locator(".section-tabs button").allInnerTexts()).map((t) =>
       t.trim(),
@@ -1034,8 +1148,7 @@ try {
     );
     check(
       "the agent's General section edits it in place",
-      (await page.locator('.pane label:has-text("Name") input').count()) === 1 &&
-        (await page.locator('.pane button:text-is("Delete agent…")').count()) === 1,
+      agentRendered && (await page.locator('.pane button:text-is("Delete agent…")').count()) === 1,
     );
     const agentBox = await overflow(page);
     check("agent tab has nothing clipped", agentBox.clipped.length === 0, agentBox);
@@ -1193,11 +1306,13 @@ try {
       "Providers & models",
       ...(featureOn(desktopFeatures, "web") ? ["Web search"] : []),
       "MCP servers",
-      ...(featureOn(desktopFeatures, "google") ? ["Google"] : []),
+      ...(featureOn(desktopFeatures, "google") ? ["Google Workspace"] : []),
       ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
       ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
       ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
       "Global skills",
+      "Access",
+      "Sign-in",
       "Notifications",
       "About",
     ];
@@ -1634,6 +1749,10 @@ try {
       await shot(page, "desktop-files");
     }
 
+    // The same affordance at desktop width, where the bar has room for all six
+    // controls on one row.
+    await uploadSheetChecks(page, "desktop");
+
     // Git history: the controls only exist for a folder inside a repository,
     // and the probed workspace usually is not one — so a missing pair is
     // asserted as a pair, and the sheet flow runs only when there is a repo.
@@ -1765,7 +1884,7 @@ try {
       ws.connectToServer();
       inject = (frame) => ws.send(frame);
     });
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     await page.waitForTimeout(1500);
     // The sidebar stays mounted, hidden, on a phone, so this reads there too.
     const agentId = await page
@@ -1921,7 +2040,7 @@ try {
       ws.connectToServer();
       inject = (frame) => ws.send(frame);
     });
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     await page.waitForTimeout(1500);
     if (!inject) {
       check(`${viewport.width}px: context check has a session`, false);
@@ -2024,7 +2143,7 @@ try {
   {
     const context = await browser.newContext({ viewport: PHONE, isMobile: true, hasTouch: true });
     const page = await context.newPage();
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     const textarea = page.locator(".composer textarea");
     await textarea.waitFor();
     await textarea.fill("first line");
@@ -2048,8 +2167,8 @@ try {
     await page.goto(`${ORIGIN}/?settings=google`, { waitUntil: "networkidle" });
     await page.locator(".settings-screen").waitFor({ timeout: 10_000 });
     check(
-      "?settings=google opens Settings on Google",
-      (await page.locator(".settings-content-title").innerText()) === "Google",
+      "?settings=google opens Settings on Google Workspace",
+      (await page.locator(".settings-content-title").innerText()) === "Google Workspace",
     );
     check("the param is stripped", !page.url().includes("settings="), page.url());
     await page.close();
@@ -2062,7 +2181,7 @@ try {
   ] as const) {
     const context = await browser.newContext(options);
     const page = await context.newPage();
-    await page.goto(`${ORIGIN}/auth/dev-login`, { waitUntil: "networkidle" });
+    await signIn(page);
     await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.locator('.section-tabs button:text-is("Reflection")').click();
     await page.locator(".field select").first().waitFor();

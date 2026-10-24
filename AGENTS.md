@@ -145,7 +145,7 @@ It defaults to `../..` relative to the compose file, which is **a trap in a work
 (hard rule 3), and container work always happens from the main checkout.
 
 Three named volumes remain, none precious: `bff-data` (web-push endpoints, rebuilt by re-subscribing)
-and `google-policy` / `google-creds` (Settings → Google, named so the app-server cannot mount them by
+and `google-policy` / `google-creds` (Settings → Google Workspace, named so the app-server cannot mount them by
 accident through the state tree; losing them means reconnecting Google). Everything precious is under
 that one host directory, so a backup is a single `tar`. Older installs move off the named volumes with
 `bun run migrate-state`, which copies and verifies and never deletes — the memfs git history is the
@@ -194,8 +194,9 @@ working in that area.
 | `bff/src/mcp/`, `bff/src/mcp-bridge/`, `bff/src/internal-tools/`, Settings → MCP / Web search | `lettuce-mcp-and-mods` |
 | `bff/src/skills/`, `docker/agent-skills/`, Settings → Global skills, `skill_enable` | `lettuce-skill-discovery` |
 | `docker/codex/`, `bff/src/codex/`, `bff/src/claude/`, Settings → Codex / Claude Code workers | `lettuce-coding-workers` |
-| `bff/src/google/`, `docker/google-mcp/`, OAuth scopes, Settings → Google | `lettuce-google-integration` |
+| `bff/src/google/`, `docker/google-mcp/`, OAuth scopes, Settings → Google Workspace | `lettuce-google-integration` |
 | `bff/src/agents/tool-access.ts`, the policy mod, the Tools tab, `bff/src/pi/agent-settings.ts` | `lettuce-per-agent-tool-access` |
+| `ACCESS`/`SIGNIN`, `bff/src/auth/`, the password store, Settings → Access / Sign-in | `lettuce-access-and-signin` |
 | `web/src/lib/messages.ts`, question/approval cards, `turn-errors.ts`, `turn-usage.ts`, `push/turn-watcher.ts` | `lettuce-transcript-and-streaming` |
 | LLM timeout env, agent app ports, failing subagent spawns, the agent-tools ENV in `docker/codex/Dockerfile` | `lettuce-runtime-and-ops` |
 | Memory tab, `persona.md`, "the system prompt did not update" | `lettuce-memory-and-system-prompt` |
@@ -215,11 +216,19 @@ lives in a skill — the table above says which.
   outright; the BFF is mandatory.
 - **No per-user isolation, and `ALLOWED_USERS` therefore stays a list.** One process-wide runtime;
   every socket sees every event; v1 is single-user by decision, so keep agent-id filtering in the BFF
-  frame router. `ALLOWED_USERS` is env-only, required exactly when Access is the live gate
-  (`mode === "cloudflared" && !devBypassEmail`); in local mode an unset list makes `DEV_BYPASS_EMAIL`
-  its own entry, and an explicit list still wins. In cloudflared mode it is the defense left standing
-  when the Access policy is misconfigured, so never collapse it to one address.
+  frame router. `ALLOWED_USERS` is env-only and means something only for the methods that receive an
+  address — required for `SIGNIN=cf-access` and `SIGNIN=google`, unused (with a boot warning) by
+  `none` and `password`, which have no address to match. Under `cf-access` it is the defense left
+  standing when the Access policy is misconfigured, so never collapse it to one address.
   Story: docs/upstream-notes.md#allowlist-env-only-story.
+- **Access and sign-in are separate axes, and boot checks where they disagree.** `config.access`
+  (`ACCESS`, must agree with the `cloudflared` profile token both ways) is the route; `config.signin`
+  (`SIGNIN`, one of `none|password|cf-access|google`) is the method — the old single `mode` conflated
+  them, and `DEV_BYPASS_EMAIL` is gone (its presence is a boot error). `signin === "cf-access"` is the
+  only method that reads a header, so `resolve-session` gates on exactly that; `signin === "none"`
+  requires a loopback host bind and `access === "cloudflared"` forbids a wide one, because Compose
+  cannot derive one setting's default from another's value. The password hash lives on the `bff-auth`
+  **named volume**, never under `LETTA_STATE_DIR` — agent shells mount that tree read-write as uid 0.
 - **There is no agent-to-agent isolation.** What separates agents is letta-code's in-process
   cross-agent guard (`permissions/cross-agent-guard.ts`), which covers the file tools; shells are
   unconfined within the container. Real isolation would mean one app-server container per agent.
@@ -349,6 +358,7 @@ Google sidecar only when its own pin or `docker/<name>/` changes. `bun run lint`
 | `bun run check-docs` | Asserts `AGENTS.md` and the skills are honest: anchors, paths, command table, frontmatter, size budget |
 | `bun run check-release-hygiene` | `VERSION` ↔ `CHANGELOG.md`; with `--pr`, that the change added its entry and its `bump:*` label agrees |
 | `bun run check-version-pin` | Assert every letta-code version literal agrees |
+| `bun run check-pin-upstream` | Report every upstream pin vs its registry (needs network; never fails) |
 | `bun run check-prod-info` | Fails if a tracked file holds a private IPv4 address or a personal mail domain |
 | `bun run check-worktree` | Feature work is not happening in the main checkout |
 | `bun run deploy-check` | The running container serves the merged code, and is healthy |

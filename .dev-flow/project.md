@@ -10,7 +10,7 @@ defaultBranch = main
 branchPattern = feat/{slug}
 worktreeDir = .dev-flow/{slug}/worktree
 release.changelog = CHANGELOG.md
-release.github = false
+release.releases = true
 ```
 
 ```flow-guard
@@ -34,6 +34,13 @@ happened.
 
 A `flow-guard` rule matches shell text, not intent: a `gh pr create --body "…git branch -D…"` trips the
 branch rule, so a body that quotes a command goes in a file and comes in with `--body-file`.
+
+`protect` and `forbid` name a **path and its subtree**, never a glob: `protect docker/.env` covers that
+file and anything under it, so a `docker/.env.bak-20261021` left beside it by a variable flip is outside
+the rule and writes to it ask nothing — and writing `docker/.env*` is worse than nothing, since it names
+one file literally called `.env*`. The tool-level defense for those backups is `.gitignore`'s `.env.*`,
+so flip a variable **in place** instead of copying `.env` aside, and never `-f` add an ignored dotfile —
+`git add -f docker/.env.bak` is a public secret, not a shortcut.
 
 ## plan
 
@@ -63,10 +70,14 @@ health = for i in $(seq 1 30); do curl -fsS http://127.0.0.1:${BFF_PORT:-8090}/r
 lint, typecheck, tests, build), so no separate `build` key. The commands assume `bun` on PATH, which the
 harness env does not guarantee: `bun: command not found` means pi was started without `~/.bun/bin`, and
 the fix is a symlink into a directory already on PATH (`ln -s ~/.bun/bin/bun ~/.local/bin/bun`) — a
-machine fix, not a playbook edit. A fresh worktree has no `docker/.env`
-(gitignored) — `setup` copies it in when `flow approve` creates the worktree, or the state-dir default
-lands inside `.dev-flow/<slug>/`. It reads the file from the **main** checkout through
-`git rev-parse --git-common-dir`, because a linked worktree has no `docker/.env` of its own and a
+machine fix, not a playbook edit. `bun run ui-check` can fail the same way from a fresh worktree: its
+`bun install` resolves a Playwright whose pinned Chromium build is not the one this machine caches, so
+either `npx playwright install chromium` once, or set `PLAYWRIGHT_CHROMIUM` to the cached
+`~/.cache/ms-playwright/chromium_headless_shell-<build>/chrome-headless-shell-linux64/chrome-headless-shell`.
+A fresh worktree has no `docker/.env` (gitignored) — `setup` copies it in when `flow approve` creates
+the worktree, or the state-dir default lands inside `.dev-flow/<slug>/`. It reads the file from the
+**main** checkout through `git rev-parse --git-common-dir`, because a linked worktree has no
+`docker/.env` of its own and a
 relative `../../` breaks the moment `worktreeDir` changes depth. **A failed `setup` does not re-run on the
 next `approve`** — dev-flow reuses the worktree and prints `plan approved` with no `docker/.env` and no
 `node_modules` (upstream dev-flow#49; it also runs `setup` for a `--docs` feature, which docs mode should
@@ -74,9 +85,23 @@ skip), so after a setup failure check both exist before trusting `flow check`. T
 `up -d` replaced whatever another session was testing — say so out loud. A web/ change needs `build:bff`
 first or the container serves the old bundle.
 
+A look at the running stack never mutates operator state on its own. Move nothing under
+`$LETTA_STATE_DIR` or `/app/auth`, never claim an instance you were not handed, and keep nothing durable in
+a container path — the next recreate deletes it. A session that moved the sign-in hash aside to photograph a
+locked screen, keeping its only backup inside `bff`, cost the operator their password when the container was
+rebuilt. Copy state **out** to the host to photograph it, or add data instead of moving it.
+
+`smoke` and `ui-check` both stop at `LETTUCE_TEST_PASSWORD` when the stack signs in with a password
+(`scripts/harness.ts`), and an agent never stores that password: it is not a repo file, and exporting it
+into a shell is the operator's per-machine choice. So an agent that cannot run them records **what it
+probed in the container** instead — in the PR's *What was clicked* — and says plainly that a human pass on
+the sign-in path is still owed. `flow verify` deploying and probing `/readyz` is not that pass and never
+counts as one.
+
 - [ ] built and running in the local container stack (unscoped `up -d`, `build:bff` first for any web/
       change) and the operator clicked through the change and said it works
 - [ ] (ui) `bun run ui-check` screenshots plus a live look at 390 and 1280, reviewed as a whole screen
+      — or `LETTUCE_TEST_PASSWORD` is not held: record the container probes and the owed human pass above
 
 ## pre-release
 
@@ -84,7 +109,7 @@ first or the container serves the old bundle.
 versionFile = VERSION
 versionTag = {version}
 changelog = CHANGELOG.md
-github = false
+releases = true
 artifact = docker buildx imagetools inspect ghcr.io/dmarchevsky/lettuce-bff:{tag}
 ```
 
@@ -112,11 +137,15 @@ builds, and what CI compares against `VERSION` after the merge. `sync-upstream` 
 
 ## release
 
+```flow
+merge = merge
+```
+
 Publish only — the preparation happened above. Push the branch, open the PR from
 `.github/pull_request_template.md`, wait for `ci` green, **merge it yourself**
 (`gh pr merge <n> --merge`), `git fetch`, create the annotated tag at `main`'s tip and push it
-**by name** (`git push origin v<x>`, never `--follow-tags`), then `flow release-done`. No GitHub release
-is published (`release.github = false`). Nothing here deploys prod, and nothing is pushed, merged or
+**by name** (`git push origin v<x>`, never `--follow-tags`), then `flow release-done`, which creates
+the GitHub Release for that tag (`release.releases = true`) with the changelog section as its notes. Nothing here deploys prod, and nothing is pushed, merged or
 tagged without the operator's **Release?** for that specific change — a standing yes from an earlier
 change is not one. The guard no longer intercepts `gh pr merge`: Release? is the authorization.
 
@@ -127,5 +156,25 @@ green and pushed nothing — `lettuce-pr-and-ci` says why a green Compose build 
 green pipeline is not the artifact; the registry is. (An unversioned flow tags nothing, so this gate and
 the artifact check both stand down.)
 
-- [ ] after the merge and from `main`: `bun run deploy-check` green, plus `bun run ui-check` and
-      `bun run smoke` where they apply
+- [ ] after the merge and from `main`: `bun run build` **first** — `deploy-check` compares the served bundle
+      against this host's `web/dist`, and after a release built in a worktree that copy is stale
+      (`build:bff` refreshes the image, never the host's copy) — then `bun run deploy-check` green, plus
+      `bun run ui-check` and `bun run smoke` where they apply. A merge that ships nothing an image carries
+      (playbook, docs, CI) still leaves build identity naming an older sha: rebuild `bff`, or record that
+      there was nothing to rebuild.
+- [ ] a versioned release's **image tag lags the checkout** on a build-locally host: the compose tag default
+      moved with `VERSION`, so nothing built before the merge carries the new name and build identity fails
+      with no flag to forgive it. Fix from `main` with a clean tree — `bun run build:bff` then
+      `docker compose -f docker/compose.yml up -d --no-deps bff` (`--no-deps` is what keeps `app-server`
+      from coming along; see the recreation warning above) — and then `deploy-check` is green because
+      `VERSION` at `main` now equals the tag the image gets. The published GHCR images are the shipped
+      artifact either way; this only proves the local stack matches the release. A host that pulls images
+      instead of building them sets `LETTA_IMAGE_NS` (and `LETTA_IMAGE_TAG`) in its own gitignored
+      `docker/.env`, and that is the operator's choice, never an agent's edit.
+
+**A release-tag bump guarantees an `app-server` recreation**, and an `app-server` recreation kills every
+in-flight turn with no drain — the BFF's drain covers `bff` alone. So after a versioned release, even a
+scoped `docker compose up -d bff` on a build-locally host recreates `app-server`, because its image tag
+default moved with `VERSION`. Name it in the handoff, and use `--no-deps` when the turn in flight matters.
+Earlier versions of this playbook asked only "does app-server get recreated?", which made it sound
+optional; for a versioned release it is not.

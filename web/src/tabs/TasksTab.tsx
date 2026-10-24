@@ -12,6 +12,9 @@ import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { describeCron } from "../lib/cron-describe.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { findMonitorBackupWake } from "../lib/monitor-backup.ts";
+import type { LiveSubagent } from "../lib/subagents.ts";
+import { subagentStatusLine, workflowPhasesLine, workflowStatusLine } from "../lib/subagents.ts";
 import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
 import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
@@ -44,7 +47,7 @@ const PROCESS_KIND_LABEL: Record<BackgroundProcessSummary["kind"], string> = {
   bash: "Shell",
   agent_task: "Subagent",
   monitor: "Monitor",
-  // Not stoppable from here — see stopMonitor's doc.
+  // No client-side command stops a workflow.
   workflow: "Workflow",
 };
 
@@ -53,7 +56,11 @@ interface Props {
   agentId: string | null;
   conversationId: string | null;
   backgroundProcesses: BackgroundProcessSummary[];
+  /** Live snapshots keyed by `subagent_id`; the source of subagent row progress. */
+  liveSubagents: Record<string, LiveSubagent>;
   onStopMonitor: (processId: string) => void;
+  /** Stops a running subagent; resolves to the error to show, or nothing when it stopped. */
+  onStopSubagent: (subagentId: string) => Promise<string | null>;
   /** Every conversation for this agent, used to name each task's target. */
   conversations: ConversationSummary[];
 }
@@ -95,7 +102,9 @@ export function TasksTab({
   agentId,
   conversationId,
   backgroundProcesses,
+  liveSubagents,
   onStopMonitor,
+  onStopSubagent,
   conversations,
 }: Props) {
   const [tasks, setTasks] = useState<CronTask[]>([]);
@@ -108,6 +117,22 @@ export function TasksTab({
   const [launching, setLaunching] = useState(false);
   const [subagent, setSubagent] = useState({ ...BLANK_SUBAGENT });
   const [launchBusy, setLaunchBusy] = useState(false);
+
+  /**
+   * Which stop a running row answers to, if any. A monitor stops by process id and a subagent by
+   * the child agent the app-server still owns (`subagent_stop`); a shell job has no client verb —
+   * `task_stop` is an agent tool — so its row never gets one.
+   */
+  const stopRow = (process: BackgroundProcessSummary): (() => void) | null => {
+    if (!process.stoppable) return null;
+    if (process.kind === "monitor") return () => onStopMonitor(process.processId);
+    const subagentId = process.subagentId;
+    if (process.kind !== "agent_task" || !subagentId) return null;
+    return () =>
+      void onStopSubagent(subagentId).then((error) => {
+        if (error) setStatus(error);
+      });
+  };
 
   const load = useCallback(async () => {
     if (!agentId) return;
@@ -309,26 +334,45 @@ export function TasksTab({
         <>
           <p className="section-note">Running now</p>
           <ul className="list">
-            {backgroundProcesses.map((process) => (
-              <li key={process.processId} className="task">
-                <div className="task-head">
-                  <span className="tag muted">{PROCESS_KIND_LABEL[process.kind]}</span>
-                  <span className="small">{process.label}</span>
-                </div>
-                <div className="muted small">{process.status}</div>
-                {process.stoppable ? (
-                  <div className="task-actions">
-                    <button
-                      type="button"
-                      className="link danger"
-                      onClick={() => onStopMonitor(process.processId)}
-                    >
-                      Stop
-                    </button>
+            {backgroundProcesses.map((process) => {
+              const stop = stopRow(process);
+              const backup =
+                process.kind === "monitor" ? findMonitorBackupWake(process.label, tasks) : null;
+              // A subagent's line carries its live tool call, tokens and elapsed off the
+              // snapshot; a workflow's carries the counts the device status already sends.
+              const child =
+                process.kind === "agent_task" && process.subagentId
+                  ? liveSubagents[process.subagentId]
+                  : undefined;
+              const statusLine = child
+                ? subagentStatusLine(process.status, child, null)
+                : process.workflow
+                  ? workflowStatusLine(process.status, process.workflow)
+                  : process.status;
+              const phasesLine = process.workflow ? workflowPhasesLine(process.workflow) : "";
+              return (
+                <li key={process.processId} className="task">
+                  <div className="task-head">
+                    <span className="tag muted">{PROCESS_KIND_LABEL[process.kind]}</span>
+                    <span className="small">{process.label}</span>
                   </div>
-                ) : null}
-              </li>
-            ))}
+                  {backup?.scheduled_for ? (
+                    <div className="muted small">
+                      Backup wake armed — fires if silent by {shortDate(backup.scheduled_for)}
+                    </div>
+                  ) : null}
+                  <div className="muted small">{statusLine}</div>
+                  {phasesLine ? <div className="muted small">{phasesLine}</div> : null}
+                  {stop ? (
+                    <div className="task-actions">
+                      <button type="button" className="link danger" onClick={() => void stop()}>
+                        Stop
+                      </button>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
           <p className="section-note">Scheduled</p>
         </>

@@ -9,6 +9,15 @@
  * tunnel both connect from another address, and they get a 404 as if the
  * route did not exist.
  *
+ * Loopback answers *which machine*, not *which process*, and an operator can
+ * put that answer in an attacker's hands without touching this file: a reverse
+ * proxy on the same host (the usual way to get TLS onto a LAN box) makes every
+ * browser request arrive from `127.0.0.1`. So a second check says "a browser
+ * was here": the mods call this over plain `fetch` and send only
+ * `content-type` and the `x-letta-*` headers, while every browser request that
+ * could be forged cross-origin carries `Origin`. Anything carrying one is
+ * refused as if the route did not exist.
+ *
  * Handled before Hono (see index.ts), outside the session middleware and the
  * per-user throttle: a mod has no session, and its own cap is below.
  */
@@ -75,6 +84,10 @@ export async function handleInternalTools(
   const { pathname } = new URL(request.url);
   if (!pathname.startsWith("/internal/")) return null;
   if (!isLoopback(clientAddress)) return new Response("Not found", { status: 404 });
+  // See the header comment: no mod sends `Origin`, every forgeable browser
+  // request does, and a same-origin browser call here is as unwanted as a
+  // cross-site one.
+  if (request.headers.get("origin")) return new Response("Not found", { status: 404 });
   if (pathname.startsWith(ACCESS_PREFIX)) {
     const agentId = decodeURIComponent(pathname.slice(ACCESS_PREFIX.length));
     if (!workerAccess || !isAgentId(agentId)) return new Response("Not found", { status: 404 });
@@ -108,6 +121,8 @@ export async function handleInternalTools(
         agentId: isAgentId(agentId) ? agentId : null,
         conversationId:
           conversationId && /^[A-Za-z0-9_-]{1,128}$/.test(conversationId) ? conversationId : null,
+        // The caller's own cancellation — see ToolCallContext.signal.
+        signal: request.signal,
       }),
     );
   } catch (error) {

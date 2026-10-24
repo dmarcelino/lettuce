@@ -127,9 +127,9 @@ upstream connection**, nothing more, and says so in the run.
 
 Three CI-env facts that cost a run each, learned the hard way: `SESSION_SECRET` must be ≥32
 characters or the BFF refuses to start; **there are two binds** — `BFF_BIND` is the host side of the
-published port, while the BFF's own bind is pinned to loopback by dev bypass unless
-`DEV_BYPASS_ALLOW_REMOTE=true`, and a loopback bind inside the namespace makes the published port
-unreachable (it looks exactly like the server being down); and the container listens on 8080 while
+published port, while the BFF binds `0.0.0.0` inside the container whenever a `LETTA_HOST_BIND` is
+declared — a loopback bind there makes the published port unreachable, and looks exactly like the
+server being down (that is what `DEV_BYPASS_ALLOW_REMOTE` used to be for); and the container listens on 8080 while
 the runner reaches it on `BFF_PORT`.
 
 It is **deliberately not in the required `ci` aggregate**, and it carries no `continue-on-error`: a red

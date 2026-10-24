@@ -1,5 +1,5 @@
 /**
- * Settings → Google: which Google services agents may use, and how far.
+ * Settings → Google Workspace: which Google services agents may use, and how far.
  *
  * Agents reach Gmail, Calendar, Tasks and Contacts through the `google-mcp`
  * sidecar (docker/google-mcp), a pinned workspace-mcp run with `--permissions`.

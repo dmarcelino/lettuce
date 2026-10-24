@@ -97,7 +97,8 @@ B1. **Run card in the transcript.** `web/src/lib/messages.ts` recognizes a paire
     `pi_run`/`pi_send` tool return whose text holds a run UUID; `MessageList` renders an
     `.entry.tool.pirun` card instead of the raw text row (the text stays in the fold). The
     card polls `GET /api/pi/runs/:runId` every 3 s while `running` and stops on terminal
-    state. States (see mockups): running (current step + events + age), quiet (warn pill,
+    state. Superseded in v0.19.0: those facts now arrive pushed on the browser socket
+    (`__bff_pi_progress`), with one fetch on mount for history. States (see mockups): running (current step + events + age), quiet (warn pill,
     mtime-based), completed (ok pill + last assistant text + artifacts section placeholder),
     failed (bad pill + error), detached (warn pill + "remote outcome unknown"), cancelled.
     Actions on the card: **View run** (opens the sheet) and **Stop** / **Force stop** (two-
@@ -114,10 +115,13 @@ B0. **Runs tab.** A seventh tab, `Runs` (label order: Chat · Files · Tasks · 
     as self-contained lists that open their sheets; the move is imports and section-notes.
     Deep links use `?tab=runs`.
 
-B2. **Live run viewer.** `PiRunSheet` (opened from the Runs tab) polls while `running`: new endpoint
+B2. **Live run viewer.** `PiRunSheet` (opened from the Runs tab) polls while `running`:
+    new endpoint
     `GET /api/pi/runs/:runId/events?since=<byteOffset>` → `{next, lines, state}` over the
     seek reader (A2); the sheet appends parsed steps and auto-scrolls at the live edge with
     a `Running…` peek line (existing `.tool-peek`). Terminal runs render once, as today.
+    Superseded in v0.19.0: the sheet re-reads the whole capture when the pushed frame's
+    event counter moves (throttled), not on a timer.
 
 B3. **Active-runs chip.** Topbar: when `features.pi` and any run is `running`, a `pi · N`
     pill (existing `.pill` language, next to the ContextGauge) opens a small menu listing

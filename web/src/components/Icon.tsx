@@ -30,6 +30,7 @@ export type IconName =
   | "chevron-down"
   | "arrow-down"
   | "download"
+  | "upload"
   | "warning"
   | "memory"
   | "settings"
@@ -74,6 +75,8 @@ const PATHS: Record<IconName, string> = {
   // means "scroll to latest", and one glyph meaning two things is the problem
   // this icon set exists to solve.
   download: "M12 4v10M8 10l4 4 4-4M5 19h14",
+  // `download` mirrored on the horizontal axis, so the pair reads as one language.
+  upload: "M12 20V10M8 14l4-4 4 4M5 5h14",
   warning: "M12 4l9 16H3zM12 10v4M12 17h.01",
   memory:
     "M9 4a3 3 0 00-3 3 3 3 0 00-1 5 3 3 0 001 5 3 3 0 003 3 3 3 0 003-3V7a3 3 0 00-3-3zM15 7a3 3 0 013-3 3 3 0 013 3",

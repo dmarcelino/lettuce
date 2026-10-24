@@ -419,6 +419,46 @@ test("progress reaches the store while the run streams — throttled, and never 
   child.finish(0);
 });
 
+test("the progress feed fires on the throttled flushes and exactly once at settle", async () => {
+  // The pushed frames replaced four browser pollers; this pins their cadence:
+  // one frame per meta flush (never per line) and a final terminal frame.
+  const dir = await mkdtemp(`${tmpdir()}/pi-runs-`);
+  let now = new Date("2026-10-05T12:00:00.000Z");
+  const store = new DirPiRunStore(dir);
+  const { children, spawner } = harness();
+  const frames: { state: string; events: number }[] = [];
+  const runner = new PiRunner(
+    store,
+    spawner,
+    () => now,
+    undefined,
+    (meta) => {
+      frames.push({ state: meta.state, events: meta.eventCount });
+    },
+  );
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
+  const child = only(children);
+  for (let i = 0; i < 3; i += 1) child.emit(`{"type":"message_update","i":${i}}\n`);
+  await Bun.sleep(20);
+  // Under both flush thresholds: no frame, same deliberate cheapness as the disk.
+  expect(frames.length).toBe(0);
+  now = new Date("2026-10-05T12:00:03.000Z"); // past the flush interval
+  child.emit(`{"type":"message_update","i":3}\n`);
+  await Bun.sleep(20);
+  expect(frames).toEqual([{ state: "running", events: 4 }]);
+  child.finish(0);
+  await Bun.sleep(20);
+  expect(frames.length).toBe(2);
+  // No `agent_settled` line was ever captured, so the honest verdict is
+  // detached — what matters here is that the terminal frame fires once.
+  expect(frames[1]?.state).toBe("detached");
+  void meta;
+});
+
 test("the remote pid captured from stderr reaches the durable meta", async () => {
   const { store, runner, children } = await freshRunner();
   const meta = await runner.start(
@@ -1102,6 +1142,56 @@ test("artifact names cannot be paths, and sweeps take the files with the run", a
   await store.create(meta);
   expect(await store.sweep(10, 14 * 86_400_000, Date.now())).toBe(1);
   expect(await store.listFiles(runId)).toEqual([]);
+});
+
+test("a session lookup rides the index in-process and the disk after a restart", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-session-`);
+  const store = new DirPiRunStore(dir);
+  // Count the fallback scans: the index must answer without one.
+  let scans = 0;
+  const scanAll = store.list.bind(store);
+  store.list = async (limit: number) => {
+    scans += 1;
+    return scanAll(limit);
+  };
+  const runId = "33333333-4444-4555-9666-777777777777";
+  const session = "44444444-5555-4666-8777-888888888888";
+  const meta = {
+    runId,
+    kind: "run",
+    agentId: null,
+    conversationId: null,
+    session: null,
+    target: "worker@h",
+    prompt: "p",
+    model: null,
+    startedAt: new Date().toISOString(),
+    endedAt: null,
+    state: "running",
+    exitCode: null,
+    error: null,
+    settled: false,
+    eventCount: 0,
+    lastEventAt: null,
+    bytesCaptured: 0,
+    remotePid: null,
+  } as unknown as PiRunMeta;
+  await store.create(meta);
+  // The session arrives with the stream, after the run file exists.
+  await store.update({ ...meta, session });
+  expect((await store.findBySession(session))?.runId).toBe(runId);
+  expect(scans).toBe(0);
+  // A run nobody here wrote is still findable: the scan is the fallback.
+  const reopened = new DirPiRunStore(dir);
+  let coldScans = 0;
+  const coldScanAll = reopened.list.bind(reopened);
+  reopened.list = async (limit: number) => {
+    coldScans += 1;
+    return coldScanAll(limit);
+  };
+  expect((await reopened.findBySession(session))?.runId).toBe(runId);
+  expect(coldScans).toBeGreaterThan(0);
+  expect(await store.findBySession("55555555-6666-4777-8888-999999999999")).toBeNull();
 });
 
 // ── operational feedback (prod lessons from the olla agent's runs) ──────────

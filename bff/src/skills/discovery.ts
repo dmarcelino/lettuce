@@ -75,10 +75,12 @@ const AGENTS_DIR = "/root/.letta/agents";
 const MEMFS_DIR = "/data/local-backend/memfs";
 
 /** Bundled skills upstream hides from local agents (`LOCAL_AGENT_EXCLUDED_BUNDLED_SKILLS`). */
-const LOCAL_AGENT_EXCLUDED_BUNDLED = new Set([
-  "curating-memory-palace",
+export const LOCAL_AGENT_EXCLUDED_BUNDLED = new Set([
   "image-generation",
+  "managing-agent-webhooks",
   "managing-shared-memory",
+  "music-generation",
+  "speech-generation",
   "working-across-computers",
 ]);
 

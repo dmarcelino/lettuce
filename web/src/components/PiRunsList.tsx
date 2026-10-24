@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listDate } from "../lib/conversation-groups.ts";
-import { ago, fetchPiRuns, LIVE_POLL_MS, type PiRunSummary, STATUS_LABELS } from "../lib/pi.ts";
+import { ago, fetchPiRuns, type PiRunSummary, STATUS_LABELS } from "../lib/pi.ts";
+import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
 import { formatEntryTimeFull } from "../lib/timestamps.ts";
 import { PiRunSheet } from "./PiRunSheet.tsx";
 
@@ -31,6 +32,7 @@ export function PiRunsList({
   const [runs, setRuns] = useState<PiRunSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [openRun, setOpenRun] = useState<string | null>(initialRunId ?? null);
+  const liveFrames = usePiLiveRuns();
 
   const load = useCallback(async () => {
     try {
@@ -49,10 +51,41 @@ export function PiRunsList({
     void load();
   }, [load, refreshKey]);
 
-  const anyRunning = runs.some((run) => run.status === "running");
+  // Pushed frames patch the rows as a derived value: the fetch stays the only
+  // writer of `runs`, so no effect can feed on its own state update.
+  const rows = useMemo(
+    () =>
+      runs.map((run) => {
+        const frame = liveFrames[run.runId];
+        return frame
+          ? {
+              ...run,
+              status: frame.state,
+              eventCount: frame.eventCount,
+              lastEventAt: frame.lastEventAt,
+              bytesCaptured: frame.bytesCaptured,
+            }
+          : run;
+      }),
+    [runs, liveFrames],
+  );
+
+  // A frame naming a run this list never fetched started after the mount, so
+  // that one reloads the list. `fetchedIds` keeps the dep a primitive.
+  const fetchedIds = runs.map((run) => run.runId).join(",");
+  useEffect(() => {
+    const frames = Object.values(liveFrames);
+    if (frames.length > 0 && frames.some((f) => !fetchedIds.includes(f.runId))) void load();
+  }, [liveFrames, fetchedIds, load]);
+
+  // Watchdog: frames stalled (reconnect gap, BFF restart mid-run) while a row
+  // still reads running — re-read the truth once per window.
+  const anyRunning = rows.some((run) => run.status === "running");
   useEffect(() => {
     if (!anyRunning) return;
-    const timer = setInterval(() => void load(), LIVE_POLL_MS * 2);
+    const timer = setInterval(() => {
+      if (msSinceLastPiFrame() > stalenessWatchdogMs) void load();
+    }, 5_000);
     return () => clearInterval(timer);
   }, [anyRunning, load]);
 
@@ -70,7 +103,7 @@ export function PiRunsList({
         </p>
       ) : null}
       <ul className="list">
-        {runs.map((run) => (
+        {rows.map((run) => (
           <li key={run.runId} className="task">
             <button
               type="button"

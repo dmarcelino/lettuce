@@ -22,6 +22,8 @@
 
 import type { TranscriptEntry } from "./messages.ts";
 import type { QueuedItem } from "./queue-actions.ts";
+import type { LiveSubagent } from "./subagents.ts";
+import { childActivityLabel, pickRunningChild } from "./subagents.ts";
 import { parseToolArgs, summarizeToolCall } from "./tool-summary.ts";
 
 /** The states the line can be in; `null` state means no line at all. */
@@ -39,6 +41,8 @@ export interface WorkingSnapshot {
   mono?: boolean;
   /** Stall: what the last frame was ("web_search", or "the model"). */
   lastSeen?: string;
+  /** Delegated child's token count; rendered as a wide right-hand metric. */
+  childTokens?: number;
 }
 
 export interface WorkingInput {
@@ -60,6 +64,13 @@ export interface WorkingInput {
    * is false. See `pendingCompactStartedAt` in `lib/messages.ts`.
    */
   compactStartedAt?: number | null;
+  /**
+   * This scope's live subagent snapshots (`state/use-conversation.ts`). When the
+   * in-flight tool is a `Task`/`Agent` and exactly one child is identifiable, the
+   * line grows the child's own activity — snapshots are the only live source of
+   * a child's tool calls, which never arrive as transcript frames.
+   */
+  liveSubagents?: Record<string, LiveSubagent>;
 }
 
 /** Silence for this long with the model apparently working reads as stuck. */
@@ -294,9 +305,36 @@ export function deriveWorking(input: WorkingInput): WorkingSnapshot | null {
   }
 
   if (tool) {
-    return { state: "tool", ...describeTool(tool, input.cwd) };
+    const snap: WorkingSnapshot = { state: "tool", ...describeTool(tool, input.cwd) };
+    // A delegation with a visible child says what the child is doing, in the same
+    // verb+object grammar — `Subagent: research flights · Edit web/src/app.tsx`.
+    if ((tool.toolName === "Task" || tool.toolName === "Agent") && input.liveSubagents) {
+      const child = pickRunningChild(input.liveSubagents, tool.toolCallId);
+      if (child) {
+        const activity = childActivityLabel(child, input.cwd);
+        snap.object = snap.object ? `${snap.object} · ${activity}` : activity;
+        if (child.totalTokens >= 100) snap.childTokens = child.totalTokens;
+      }
+    }
+    return snap;
   }
   if (streaming === "assistant") return { state: "writing", icon: null, verb: "Writing" };
+  // The parent's Task call usually returns immediately ("Backgrounded") and the wait is
+  // spent thinking — so an idle-waiting turn with exactly one running child says so too.
+  const waiting = input.liveSubagents ? pickRunningChild(input.liveSubagents) : null;
+  if (waiting) {
+    const who = waiting.description || waiting.subagentType || "subagent";
+    return {
+      state: "thinking",
+      icon: "task",
+      verb: "Subagent:",
+      object: middleEllipsis(
+        `${who} · ${childActivityLabel(waiting, input.cwd)}`,
+        OBJECT_MAX_CHARS,
+      ),
+      ...(waiting.totalTokens >= 100 ? { childTokens: waiting.totalTokens } : {}),
+    };
+  }
   return { state: "thinking", icon: null, verb: "Thinking" };
 }
 

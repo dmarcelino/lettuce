@@ -93,6 +93,9 @@ before exposing anything.
 
 - Every agent works in a **real directory** on the host, visible in a file
   browser with inline previews for images, PDFs and text.
+- **Upload puts a file in.** A photo or PDF from a phone lands in the folder
+  you are looking at (up to 25 MB), so the agent can read what you just
+  photographed. A name that exists there is refused until you type another.
 - **Git branch switcher** for the workspace, including checking out remote
   branches.
 - **Git history** in the Files tab: the commit log of the open folder and a
@@ -106,7 +109,10 @@ before exposing anything.
 
 - **Scheduled tasks.** Cron-style jobs that fire into a conversation — "brief
   me every morning at 7" — whether or not anything is open.
-- **Subagents.** Fan work out to a parallel agent and watch it report back.
+- **Subagents.** Fan work out to a parallel agent, watch what it is doing live — in
+  the working line and in Tasks — and stop one from Tasks if it goes the wrong way.
+- **Monitors.** A watch wakes the agent as events arrive; when it arms a backup wake,
+  Tasks shows when a silent watch brings the agent back to check the real state.
 - **Codex workers.** Hand a coding job to a Codex CLI worker and follow its
   run from the transcript.
 - **Claude Code workers.** The same for Claude Code, signed in with your Claude
@@ -173,28 +179,29 @@ To configure the model endpoint, go to Settings → Providers & models and **Add
 
 For details on configuration, see [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
 
-## Two running modes
+## Access and sign-in
 
-One setting, `COMPOSE_PROFILES`, decides which mode you are in and which
-optional containers exist.
+Two settings, because "where can I reach it" and "who has to sign in" are
+different questions: `ACCESS` (`lan` | `cloudflared`) and `SIGNIN`
+(`none` | `password` | `cf-access` | `google`). Both derive from
+`COMPOSE_PROFILES` when unset, and the dangerous combinations refuse to boot.
 
-| | Local mode (default) | Cloudflared mode |
-|---|---|---|
-| Reachable from | Your LAN, directly | Only through the Cloudflare Tunnel |
-| Sign-in | `DEV_BYPASS_EMAIL` — no credential check | Cloudflare Access (Google login) |
-| Cloudflare account | Not needed | Required |
-| `cloudflared` container | Never created | Created |
-| Good for | Development, a trusted home network | Anything reachable from the internet |
+| | On this machine (default) | On your network | Behind a tunnel |
+|---|---|---|---|
+| `ACCESS` | `lan` | `lan` | `cloudflared` |
+| `SIGNIN` | password, first run | `password` | `cf-access` or `google` |
+| `BFF_BIND` | `127.0.0.1` | `0.0.0.0` | `127.0.0.1` |
+| Cloudflare account | not needed | not needed | required |
+| Good for | the machine you sit at | a network you trust | anything on the internet |
 
-**Local mode authenticates nobody.** Whoever can reach the port *is* the
-configured user, and that user's agent has your shell, your files and your
-integrations. The app refuses to start with a bypass on a non-loopback origin
-unless you also set `DEV_BYPASS_ALLOW_REMOTE=true`, which is the deliberate
-"yes, on this trusted network" switch. Never combine a bypass with a public
-deployment.
+**`SIGNIN=none` authenticates nobody** — whoever reaches the port *is* the owner,
+and that owner's agent has your shell, your files and your integrations. That is
+why boot allows it only with a loopback `BFF_BIND`. To put the app on a network,
+pick a method: one password you set in the browser on first run, Cloudflare
+Access, or a Google account from an allowlist.
 
-For real remote access, set `COMPOSE_PROFILES=cloudflared` and put Cloudflare
-Access in front of it. The walkthrough is in
+For real remote access, set `COMPOSE_PROFILES=cloudflared` with
+`SIGNIN=cf-access` and put Cloudflare Access in front of it. The walkthrough is in
 [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
 
 ## Where your data lives

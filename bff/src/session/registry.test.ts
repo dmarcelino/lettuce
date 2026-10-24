@@ -265,3 +265,50 @@ describe("symlink escape", () => {
     expect(sent.find((m) => m.type === "__bff_error" && m.request_id === "r2")).toBeUndefined();
   });
 });
+
+describe("broadcastPiProgress", () => {
+  function piSetup() {
+    const registry = new SessionRegistry(fakeUpstream, 100, () => {});
+    const sent: Record<string, unknown>[] = [];
+    const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };
+    const open = () => registry.add(socket, { email: "someone@example.com" });
+    const watchPi = (id: string, pi: boolean) =>
+      registry.handleSessionMessage(
+        id,
+        JSON.stringify({ type: "__bff_watching", scope: null, visible: true, pi }),
+      );
+    return { registry, sent, open, watchPi };
+  }
+
+  test("the facts factory is never called while nobody opted in", async () => {
+    const { registry, open } = piSetup();
+    open();
+    let built = false;
+    await registry.broadcastPiProgress(() => {
+      built = true;
+      return { runId: "r1" };
+    });
+    expect(built).toBe(false);
+  });
+
+  test("an opted-in session receives the frame, others do not", async () => {
+    const { registry, sent, open, watchPi } = piSetup();
+    const watcher = open();
+    open();
+    watchPi(watcher, true);
+    await registry.broadcastPiProgress(() => ({ runId: "r1", state: "running" }));
+    const frames = sent.filter((m) => m.type === "__bff_pi_progress");
+    // `add` greets each session with a hello; only the watcher gets a frame.
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.runId).toBe("r1");
+  });
+
+  test("opting back out stops the frames", async () => {
+    const { registry, sent, open, watchPi } = piSetup();
+    const id = open();
+    watchPi(id, true);
+    watchPi(id, false);
+    await registry.broadcastPiProgress(() => ({ runId: "r1" }));
+    expect(sent.filter((m) => m.type === "__bff_pi_progress")).toHaveLength(0);
+  });
+});

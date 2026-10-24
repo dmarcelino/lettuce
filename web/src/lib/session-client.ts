@@ -1,5 +1,6 @@
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import { type AuthProbe, probeAuth } from "./auth-probe.ts";
+import type { PiRunFacts } from "./pi.ts";
 import {
   type AppServerInfo,
   type BffError,
@@ -34,6 +35,8 @@ export interface SessionClientEvents {
   onError: (error: BffError) => void;
   /** Every conversation with a response in progress, app-server wide — hello, then each change. */
   onActivity: (active: RuntimeScope[]) => void;
+  /** One remote-pi run's pushed facts — feeds `web/src/lib/pi-live.ts`. */
+  onPiProgress: (facts: PiRunFacts) => void;
   /**
    * The login expired: only a page load can sign back in (Cloudflare Access's
    * login needs a top-level navigation). Fired on each failed attempt while
@@ -100,6 +103,8 @@ export class SessionClient {
   private scopes: RuntimeScope[] = [];
   /** The conversation on screen, reported to the BFF — see `sendWatching`. */
   private watchedScope: RuntimeScope | null = null;
+  /** Opt this session into pushed remote-pi progress — see `setPiWatch`. */
+  private piWatch = false;
   /** Attempts in a row that closed without ever opening. */
   private failedOpens = 0;
   private probing = false;
@@ -162,8 +167,20 @@ export class SessionClient {
         type: "__bff_watching",
         scope: this.watchedScope,
         visible: document.visibilityState === "visible",
+        ...(this.piWatch ? { pi: true } : {}),
       }),
     );
+  }
+
+  /**
+   * Ask the BFF to push remote-pi progress frames to this socket. The flag
+   * rides every later `__bff_watching` (visibility changes, scope switches),
+   * so a reconnect re-declares it without the app doing anything.
+   */
+  setPiWatch(enabled: boolean): void {
+    if (this.piWatch === enabled) return;
+    this.piWatch = enabled;
+    this.sendWatching();
   }
 
   /**
@@ -352,6 +369,10 @@ export class SessionClient {
 
         case "__bff_activity":
           this.events.onActivity(Array.isArray(raw.active) ? raw.active : []);
+          return;
+
+        case "__bff_pi_progress":
+          this.events.onPiProgress(raw as unknown as PiRunFacts);
           return;
 
         case "__bff_resume_result": {

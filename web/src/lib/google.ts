@@ -1,5 +1,5 @@
 /**
- * Settings → Google, as the browser sees it. Mirrors `bff/src/google/`; the
+ * Settings → Google Workspace, as the browser sees it. Mirrors `bff/src/google/`; the
  * two packages cannot import from each other.
  */
 
@@ -52,6 +52,8 @@ export interface GoogleSettings {
   enabled: boolean;
   clientId: string;
   hasClientSecret: boolean;
+  /** Where the client in force comes from: the environment wins over this file. */
+  clientSource: "env" | "stored";
   /** What the user chose. */
   permissions: GooglePermissions;
   grant: GoogleGrant | null;
@@ -65,7 +67,7 @@ export interface GoogleStatus {
   settings: GoogleSettings;
   sidecarUp: boolean;
   redirectUri: string;
-  /** False when this deployment refuses changes (dev bypass). */
+  /** False when this deployment refuses changes (`SIGNIN=none`). */
   writable: boolean;
 }
 

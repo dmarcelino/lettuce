@@ -109,6 +109,39 @@ describe("the internal route", () => {
     expect(await response?.json()).toEqual({ text: "searched q", isError: false });
   });
 
+  test("a browser cannot reach the internal routes, even from loopback", async () => {
+    // The address alone cannot say "not a browser": a reverse proxy on this
+    // host delivers a browser request from 127.0.0.1. `Origin` says it, and a
+    // mod's `fetch` never sends one.
+    const forged = (path: string) =>
+      new Request(`http://127.0.0.1:8080${path}`, {
+        method: "POST",
+        headers: { origin: "http://evil.example" },
+        body: JSON.stringify({ query: "q" }),
+      });
+    expect(
+      (await handleInternalTools(forged("/internal/tools/web_search"), "127.0.0.1", handlers))
+        ?.status,
+    ).toBe(404);
+    expect(
+      (
+        await handleInternalTools(
+          forged("/internal/agent-access/agent-a"),
+          "127.0.0.1",
+          handlers,
+          async () => ({ codex: true, claude: true }),
+        )
+      )?.status,
+    ).toBe(404);
+    // A same-origin browser call is as unwanted as a cross-site one.
+    const sameOrigin = new Request("http://127.0.0.1:8080/internal/tools/web_search", {
+      method: "POST",
+      headers: { origin: "http://127.0.0.1:8080" },
+      body: JSON.stringify({ query: "q" }),
+    });
+    expect((await handleInternalTools(sameOrigin, "127.0.0.1", handlers))?.status).toBe(404);
+  });
+
   test("the first web-tools mod's paths still answer", async () => {
     const response = await handleInternalTools(
       post("/internal/web-tools/search"),
