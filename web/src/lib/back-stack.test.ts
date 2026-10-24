@@ -95,4 +95,48 @@ describe("BackStack", () => {
     flush(); // the deferred clean-up must not pop the app's own entry too
     expect(length()).toBe(1);
   });
+  test("a sheet opened over another owns Back, whatever the registration order", () => {
+    const { stack, pressBack } = setup();
+    const closed: string[] = [];
+    // React runs a descendant's effect first, so an inner overlay registers
+    // before the sheet it sits over — the order that made Back close the outer
+    // sheet and drop its unsaved draft. Rank is document depth, so the inner one
+    // still closes first.
+    stack.open(() => {
+      closed.push("inner");
+    }, 5);
+    stack.open(() => {
+      closed.push("outer");
+    }, 2);
+    pressBack();
+    expect(closed).toEqual(["inner"]);
+    pressBack();
+    expect(closed).toEqual(["inner", "outer"]);
+  });
+
+  test("equal ranks keep open order, so the last one opened still closes first", () => {
+    const { stack, pressBack } = setup();
+    const closed: string[] = [];
+    stack.open(() => {
+      closed.push("first");
+    });
+    stack.open(() => {
+      closed.push("second");
+    });
+    pressBack();
+    expect(closed).toEqual(["second"]);
+  });
+
+  test("an undismissable overlay goes back at its rank, not at the end", () => {
+    const { stack, pressBack } = setup();
+    const closed: string[] = [];
+    // A deep picker over a shallow, undismissable prompt: the prompt must stay on
+    // top after a swallowed Back, not fall behind a later overlay.
+    stack.open(() => false, 1);
+    stack.open(() => {
+      closed.push("picker");
+    }, 4);
+    pressBack(); // closes the picker
+    expect(closed).toEqual(["picker"]);
+  });
 });
