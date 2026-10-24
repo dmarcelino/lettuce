@@ -173,19 +173,35 @@ async function latestFor(source: Source): Promise<Remote> {
   }
 }
 
-/** letta-code specifically: newest tag that has BOTH an image and an npm package. */
+/**
+ * letta-code: the npm package document, fetched at most once. The full doc (not
+ * `/latest`) is what carries every version, and the same answer serves both the
+ * sync target and npm's tip — two numbers, one request.
+ */
+let lettaDoc: Promise<{
+  tip: string | null;
+  versions: string[];
+}> | null = null;
+function lettaNpm(): Promise<{ tip: string | null; versions: string[] }> {
+  lettaDoc ??= getJson("https://registry.npmjs.org/@letta-ai%2Fletta-code")
+    .then((raw) => {
+      const data = raw as { "dist-tags"?: { latest?: string }; versions?: Record<string, unknown> };
+      return {
+        tip: data["dist-tags"]?.latest ?? null,
+        versions: Object.keys(data.versions ?? {})
+          .filter(isSemverish)
+          .sort((a, b) => compare(b, a)),
+      };
+    })
+    .catch(() => ({ tip: null, versions: [] }));
+  return lettaDoc;
+}
+
+/** The newest letta-code that can actually be pinned: an image AND an npm package. */
 async function lettaSyncTarget(imageLatest: string): Promise<string> {
-  const data = (await getJson("https://registry.npmjs.org/@letta-ai%2Fletta-code")) as {
-    "dist-tags"?: { latest?: string };
-    versions?: Record<string, unknown>;
-  };
-  const versions = Object.keys(data.versions ?? {})
-    .filter((v) => isSemverish(v))
-    .sort((a, b) => compare(b, a));
-  const npmLatest = data["dist-tags"]?.latest;
+  const { tip, versions } = await lettaNpm();
   // Anything above the newest image cannot be pulled, so the image list bounds it.
-  const candidates = versions.filter((v) => compare(v, imageLatest) <= 0);
-  return candidates[0] ?? npmLatest ?? imageLatest;
+  return versions.filter((v) => compare(v, imageLatest) <= 0)[0] ?? tip ?? imageLatest;
 }
 
 interface Row {
@@ -216,18 +232,12 @@ for (const pin of PINS) {
     let detail = remote.detail;
     if (pin.source.kind === "docker" && pin.source.image === "letta/letta") {
       const target = await lettaSyncTarget(latest);
+      const { tip } = await lettaNpm();
       if (target !== latest) {
         detail = `npm offers ${target} but the image stops at ${latest}`;
-      } else {
+      } else if (tip && compare(tip, latest) > 0) {
         // npm's own tip is the honest "newest release", even without an image.
-        const npmTip = (
-          (await getJson("https://registry.npmjs.org/@letta-ai%2Fletta-code/latest")) as {
-            version?: string;
-          }
-        ).version;
-        if (npmTip && compare(npmTip, latest) > 0) {
-          detail = `npm is at ${npmTip} with no image yet`;
-        }
+        detail = `npm is at ${tip} with no image yet`;
       }
     }
     const behind = compare(pinned, latest) < 0;

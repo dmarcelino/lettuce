@@ -54,6 +54,17 @@ Protocol drift shows up two ways:
      agent's memory dir actually being memfs-v2 with a root `MEMORY.md`, and the permission
      checker auto-allows it outside Strict mode. `web/src/lib/working.ts` and `tool-summary.ts`
      still only know the old lowercase `memory` — `Memory` needs its own verb/summary.
+   - 0.34.17 added **`CodeMode`** to the same three toolsets: the agent submits a JavaScript
+     async body and calls tools from it (`tools.<name>(args)`, MCP as `tools.mcp__server__tool`),
+     which makes one call where a model otherwise needs ten. Decided at the 0.34.21 sync: **not
+     advertised** — it renders as an unlabeled tool row (`summarizeToolCall` returns null for an
+     unlisted tool, as `Memory` did before its summary), and that is intentional, so the next
+     sync should not "fix" it. Two things to re-check on every sync instead: a mod disabled per
+     agent (`isEnabled`) must stay unreachable from a script (upstream filters it out of the mod
+     tool registry in `mods/tool-registry.ts`, so `tools.<name>` should say "not available"), and
+     nested calls that would need an approval card **fail** rather than prompt — so every
+     `approval: "ask"` tool we render (`gmail_*` writes, `mcp_call_write`) is out of reach from a
+     script by design.
 
 ### Version pinning
 

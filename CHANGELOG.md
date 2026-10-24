@@ -5,6 +5,15 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.20.2-letta_0.34.21] - 2026-10-24
+
+### Fixed
+- **Stopping a turn stops the work it started.** A `web_search`, a page fetch or a Google call that was still running when you hit Stop used to run to its end for a result nobody wanted — up to 15 seconds of search or a minute of page reading, with the sidecar still doing it. A cancelled turn now cancels the call underneath it and answers `cancelled` instead of blaming a service that is fine.
+- **The agent runs a newer Letta Code.** 0.34.16 → 0.34.21, seven releases of upstream fixes, the one that shows being a tool that stops replying no longer holds the whole turn hostage. Also: the connection keepalive now tracks each socket on its own, a coding worker inherits a pointer to the agent that dispatched it, and Codex (0.164.0), Claude Code (2.1.310) and SearXNG moved with it.
+- **A bundled skill that needs Letta Cloud stays hidden.** Music generation is now hidden from local agents like image and speech generation already were, and the memory-palace skill upstream deleted is no longer on our hidden list — an agent's own copy of it is listed again, as it should be.
+
+- **`bun run check-pin-upstream` tells you how far behind you are** without anyone sweeping four registries by hand, and what a bump costs (Google's recorded tool list, a worker re-check). For Letta Code it reports the newest release with a Docker image, which is not the newest npm one — those two disagree most weeks.
+
 ## [v0.20.1-letta_0.34.16] - 2026-10-21
 
 ### Changed
