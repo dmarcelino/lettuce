@@ -245,7 +245,11 @@ check("at least one agent exists", typeof agentId === "string", agents.agents?.l
 
 if (agentId) {
   d.send({ type: "conversation_create", request_id: "conv", body: { agent_id: agentId } });
-  const created = await d.waitFor((f) => f.request_id === "conv");
+  // Cold app-servers answer this slowly on purpose: at connect the BFF subscribes
+  // to every (agent, conversation) scope it knows, and on an install with 100+
+  // conversations that flood sits ahead of every command in the queue. Measured
+  // 20-25 s at 134 conversations; a warm answer is ~0.2 s.
+  const created = await d.waitFor((f) => f.request_id === "conv", 45_000);
   const conversationId: string | undefined = created.conversation?.id;
   check(
     "conversation_create succeeds",
