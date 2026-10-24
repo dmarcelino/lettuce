@@ -5,6 +5,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.21.0-letta_0.34.21] - 2026-10-24
+
+### Changed
+- **The desktop app is denser, the phone is not.** Rows, tabs, menus and the composer take a compact desktop scale and message panels are rails instead of filled panels; a touch screen gets the 44px targets back and two lines of composer, while the desktop keeps one.
+- **Archive a conversation from its row.** On desktop the row you point at grows a one-click Archive (the undo is one more click) and archived rows come back behind a centred "Show archived (n)" link instead of a checkbox; a phone keeps the ⋯ menu as the only route.
+- **An agent's model is picked in the model sheet.** Agent → General opens the same provider-grouped sheet the conversation uses rather than a native dropdown, the pick is staged and saved with the agent instead of applied on tap, and the Model sheet's toolset list sits behind a header naming the toolset in force.
+
 ### Fixed
 - **The release gates say what actually happens.** The release stage now states plainly that a versioned release's tag bump recreates `app-server` (so every in-flight turn dies, no drain) and to use `--no-deps` when a turn matters; it names the one command pair that makes `deploy-check` green on a build-locally machine after a release cut in a worktree; and when the stack signs in with a password, an agent that cannot run `smoke` or `ui-check` records what it probed in the container instead, and says out loud that a human pass is still owed.
 
