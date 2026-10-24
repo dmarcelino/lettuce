@@ -85,7 +85,7 @@ aggregate is what keeps a PR from waiting forever on a job a path filter skipped
 | `compose-config` | `docker compose config` bare and with every profile token |
 | `image` | builds `docker/bff.Dockerfile` twice with a layer cache and pushes nothing: once stamped (asserts the image names this commit) and once from an export with **no `.git`** (asserts it succeeds and stamps `+unknown`) |
 | `actionlint` | the workflows themselves, from the pinned image |
-| `secrets-scan` | gitleaks over the full history, **required** since 2026-10-23 (it was `continue-on-error` while a live `SESSION_SECRET` rode a green `ci`); the committed test fake is allowlisted in `.gitleaks.toml` |
+| `secrets-scan` | gitleaks, **required** since 2026-10-24 (it was `continue-on-error` while a live `SESSION_SECRET` rode a green `ci`); the committed test fake is allowlisted in `.gitleaks.toml` |
 
 Hard rules about the file itself:
 
@@ -104,7 +104,8 @@ Hard rules about the file itself:
 - **`.gitleaks.toml` must keep its `[extend] useDefault = true`.** A config file with no
   `[[rules]]` and no extend stanza *replaces* gitleaks' built-in rules, so the required
   `secrets-scan` job finds nothing and reports green forever — measured, not theorised (planted
-  secrets pass it; the same allowlist with `[extend]` finds them). Allowlist new test fakes
+  secrets pass it; the same allowlist with `[extend]` finds them), and the job greps for the stanza
+  before scanning, so removing it fails the check instead of quieting it. Allowlist new test fakes
   line-wise on the fake's value, never by path: allowlist `paths` and `regexes` are a union, so a
   path entry blinds the scan to a real secret in that file. Reproduce the job locally with
   `docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:latest detect --redact --no-banner`
