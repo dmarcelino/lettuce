@@ -8,6 +8,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ### Fixed
 - **The release gates say what actually happens.** The release stage now states plainly that a versioned release's tag bump recreates `app-server` (so every in-flight turn dies, no drain) and to use `--no-deps` when a turn matters; it names the one command pair that makes `deploy-check` green on a build-locally machine after a release cut in a worktree; and when the stack signs in with a password, an agent that cannot run `smoke` or `ui-check` records what it probed in the container instead, and says out loud that a human pass is still owed.
 
+### Security
+- **The secret scanner is a gate now.** CI's gitleaks job was advisory, so a commit carrying a live session secret could merge under a green `ci` — which is exactly what happened on this history. It is part of the required check now, and the one committed fake (the fixed string the config unit tests use to clear the minimum secret length) is allowlisted by value rather than by file, so a real secret pasted into that test tomorrow still stops the merge.
+
 ## [v0.20.2-letta_0.34.21] - 2026-10-24
 
 ### Fixed

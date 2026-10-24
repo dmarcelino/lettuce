@@ -201,10 +201,13 @@ jobs:
 
   secrets-scan:
     runs-on: ubuntu-latest
-    # Advisory for now: a scan that has never run on this history is more likely to be
-    # noisy on its first week than to catch something. Promote it into the required
-    # aggregate below once it has been quiet, or delete it if it never says anything.
-    continue-on-error: true
+    # Required since 2026-10-23. Advisory is what "advisory" is worth: a live SESSION_SECRET
+    # rode a green `ci` on this very history while this job was `continue-on-error`, and only
+    # spoke because an agent went looking at a failing check. The one committed fake (the fixed
+    # string in bff/src/config.test.ts) is allowlisted in .gitleaks.toml at the repo root, which
+    # gitleaks reads automatically — and that file must keep its `[extend] useDefault = true`,
+    # because a config with no rules and no extend stanza replaces the built-in rule set and the
+    # job would be green forever while checking nothing.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -225,6 +228,7 @@ jobs:
       - compose-config
       - image
       - actionlint
+      - secrets-scan
     if: always()
     runs-on: ubuntu-latest
     steps:
