@@ -58,9 +58,9 @@ operator's grant in chat, never self-selected. Before asking for approval check
 Check the other direction too: `flow approve` cuts the branch from **local** `main`'s tip, so a local
 `main` behind `origin/main` puts the whole feature — its diff and every `flow check` it runs — on a
 stale base, and nothing notices until pre-release pays for it in a merge plus a full CI re-run. So
-`git fetch` and make the two agree (`git rev-parse main origin/main`) before `flow approve`, and merge
-`main` into the branch when a parallel flow lands while you work — strict branch protection will demand
-that merge before the PR can merge anyway, so doing it early only moves the cost earlier where it is cheap.
+`git fetch` and make the two agree (`git rev-parse main origin/main`) before `flow approve`; when a
+parallel flow lands while you work, merge `main` into the branch then rather than leaving it to
+pre-release.
 
 ## implement
 
