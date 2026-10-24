@@ -96,9 +96,9 @@ services:
       context: codex
       args:
         LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.34.21}
-        CODEX_VERSION: ${CODEX_VERSION:-0.163.0}
+        CODEX_VERSION: ${CODEX_VERSION:-0.164.0}
         GH_VERSION: ${GH_VERSION:-2.102.0}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.302}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.309}
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
     # Tagged by release, not by pins: what is inside is what the tag's commit
     # built, and /opt/lettuce/features plus Settings → About report the CLIs.
@@ -329,7 +329,7 @@ services:
       # features), but a sidecar has no version endpoint and the BFF cannot read
       # Compose, so these pins are handed over as env — the same literal that
       # picks the tag two services below, never a second copy of it.
-      SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.17-1c10abe2d}
+      SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.23-629368e40}
       DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
       WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
       CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.10.1}
@@ -490,7 +490,7 @@ services:
     build:
       context: searxng
       args:
-        SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.17-1c10abe2d}
+        SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.23-629368e40}
     image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.20.1-letta_0.34.16}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
