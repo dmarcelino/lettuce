@@ -22,9 +22,23 @@
   --radius-round: 50%;
   /* One dimming for a control that cannot be used, wherever it lives. */
   --disabled: 0.45;
-  /* One height for every form control and button: an .icon-button's, so a form,
+  /* Density. These are the DESKTOP numbers — the block at the bottom of this
+     file restores every one of them for touch, where the fingertip floor is not
+     a style choice (see `ui-check`: composer controls must stay ≥44px).
+     One height for every form control and button: an .icon-button's, so a form,
      the sidebar and the composer line up. */
-  --control-h: 40px;
+  --control-h: 34px;
+  /* A menu row's floor (it was a literal 44px on .menu-row). */
+  --menu-row-h: 36px;
+  /* The one padding every list row, task row and .pad shares. */
+  --pad-row-y: 6px;
+  --pad-row-x: 10px;
+  /* A You/Agent panel: rails only, so no vertical padding — the gap between
+     panels carries the separation, and the rail hugs the text instead of
+     overshooting it by the panel's padding. */
+  --bubble-y: 0px;
+  --bubble-x: 10px;
+  --entry-gap: 10px;
   /* A .button's text size. Touch keeps 16px: iOS Safari zooms the page when a
      focused input's text is smaller. */
   --control-font: 14px;
@@ -114,7 +128,7 @@ pre {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -132,7 +146,7 @@ pre {
 .tabs {
   display: flex;
   gap: 2px;
-  padding: 6px 8px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   flex-shrink: 0;
@@ -144,7 +158,7 @@ pre {
   background: none;
   border: none;
   color: var(--muted);
-  padding: 8px 8px;
+  padding: 6px 8px;
   border-radius: var(--radius);
   font-size: 14px;
   font-weight: 500;
@@ -204,14 +218,14 @@ pre {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
+  gap: 10px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
   overflow-y: auto;
 }
 .sidebar-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .sidebar-section.grow {
   flex: 1;
@@ -280,7 +294,7 @@ pre {
   border: none;
   color: var(--text);
   font-size: 14px;
-  padding: 8px 6px;
+  padding: 6px;
   white-space: nowrap;
 }
 .conversation-title {
@@ -294,7 +308,7 @@ pre {
 }
 /* Same section heads as the switcher's. */
 .conversations li.conversation-group {
-  padding: 10px 6px 2px;
+  padding: 8px 6px 2px;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
@@ -331,10 +345,28 @@ pre {
 .conversations li.menu-open .conversation-date {
   display: none;
 }
+/* A conversation's one-click Archive, beside the ⋯ (the date gives up its place
+   to them). Desktop only: there is no hover to reveal it on a touch device, and
+   below 900px this list is the phone drawer, whose switcher keeps the ⋯ menu as
+   the only route. Not on `.menu-open` — with its menu open the row is showing
+   the same verb already. */
+.conversations li .conversation-archive {
+  display: none;
+}
+.conversation-archive .icon {
+  stroke-width: 2.5;
+}
+@media (hover: hover) and (min-width: 900px) {
+  .conversations li:hover .conversation-archive,
+  .conversations li:focus-within .conversation-archive,
+  .conversations li.active .conversation-archive {
+    display: inline-flex;
+  }
+}
 
 /* 12px: the one inline gutter every pane row, note and heading shares. */
 .pad {
-  padding: 8px 12px;
+  padding: var(--pad-row-y) var(--pad-row-x);
 }
 
 .scrim {
@@ -353,10 +385,10 @@ pre {
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 14px 8px;
+  padding: 10px 12px 6px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--entry-gap);
   -webkit-overflow-scrolling: touch;
 }
 .empty {
@@ -510,13 +542,13 @@ pre {
   margin-right: 6px;
 }
 /* ── Conversation messages ───────────────────────────────────────────────
-   You and the agent share one panel; side and rail colour tell them apart.
-   You: shrink-to-fit on the right, rail on the right edge. The agent: full
-   width on the left, rail on the left edge. */
+   Both sides are rails, not boxes: the tint is gone, so the 2px rule is the
+   whole panel. You: shrink-to-fit on the right, rail on the right edge. The
+   agent: full width on the left, rail on the left edge. */
 .entry.user,
 .entry.assistant:not(.subagent) {
-  gap: 6px;
-  padding: 10px 14px;
+  gap: 2px;
+  padding: var(--bubble-y) var(--bubble-x);
 }
 .entry.user {
   align-self: flex-end;
@@ -524,7 +556,6 @@ pre {
   max-width: min(85%, 640px);
   margin-left: 15%;
   border-right: 2px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
 }
 .entry.user .role {
   justify-content: flex-end;
@@ -532,7 +563,6 @@ pre {
 .entry.assistant:not(.subagent) {
   align-self: stretch;
   border-left: 2px solid var(--agent);
-  background: var(--surface);
 }
 
 /* "You · 15:08" / "Agent · 15:10": who in the role colour, time muted. */
@@ -608,9 +638,9 @@ pre {
   align-self: stretch;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   margin-left: 2px;
-  padding: 2px 0 2px 12px;
+  padding: 0 0 0 10px;
   border-left: 2px solid var(--border);
 }
 .steps-head {
@@ -1227,7 +1257,7 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
   background: var(--bg);
   flex-shrink: 0;
@@ -1239,8 +1269,8 @@ pre {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 6px;
+  gap: 4px;
+  padding: 4px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1283,9 +1313,9 @@ pre {
    inline margin cancels .composer-box's 6px padding so the line meets both
    edges; the matching padding keeps the buttons off it. */
 .composer-box .composer-row {
-  margin-inline: -6px;
+  margin-inline: -4px;
   /* Tight top pad so this band matches the textarea band's height. */
-  padding: 2px 6px 0;
+  padding: 2px 4px 0;
   border-top: 1px solid var(--border);
 }
 
@@ -1295,7 +1325,9 @@ pre {
   background: none;
   color: var(--text);
   border: none;
-  padding: 6px 6px 2px;
+  /* A single line must read as one line: 22.4px of line box plus 2px, so
+     auto-fit's scrollHeight lands on ~25px instead of ~30px. */
+  padding: 2px 6px 0;
   /* 16px keeps iOS Safari from zooming when the field is focused. */
   font: inherit;
   font-size: 16px;
@@ -1304,6 +1336,22 @@ pre {
   /* Until it reaches max-height; see fitToContent in Composer.tsx. */
   overflow-y: hidden;
 }
+/* On a phone one line is too little: the box spends most of a turn holding a
+   two-line draft and the keyboard has already taken the room it came from. Two
+   lines is the floor there — and on any coarse pointer, which is how a tablet
+   gets it too. A `min-height`, not a `height`: `fitToContent` keeps setting the
+   height to its scrollHeight and this simply raises the floor under it, so a
+   longer message grows the box exactly as before and the drag grip still wins.
+ * It lives here rather than in the touch restore block at the end of the file
+ * because it is not restoring an old value — it is a deliberate phone default —
+ * and because after `.composer textarea.manual` it would sort below a rule of
+ * its own kind. */
+@media (max-width: 899px), (pointer: coarse) {
+  .composer textarea {
+    min-height: calc(2 * 1.4 * 16px);
+  }
+}
+
 /* A manually sized box holds its height and scrolls inside; auto-fit is back
    the moment the grip is double-clicked (see Composer.tsx). The auto-grow
    `max-height` no longer applies — the drag's own clamp (half the viewport)
@@ -1586,7 +1634,7 @@ pre {
   justify-content: center;
   gap: 6px;
   min-height: var(--control-h);
-  padding: 8px 16px;
+  padding: 6px 14px;
   border: none;
   border-radius: var(--radius);
   background: var(--accent);
@@ -1631,7 +1679,7 @@ pre {
 /* A section heading's action (the sidebar's New / Edit): a button, not a
    control in a form row, so it keeps to the heading's line. */
 .button.compact {
-  min-height: 28px;
+  min-height: 26px;
   padding: 0 10px;
   gap: 5px;
   font-size: 13px;
@@ -1819,7 +1867,7 @@ button {
 }
 .sheet-body {
   background: var(--surface);
-  padding: 18px 16px;
+  padding: 14px;
   max-height: 72vh;
   overflow-y: auto;
 }
@@ -1842,7 +1890,7 @@ button {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
   background: var(--surface);
   border-top: 1px solid var(--border);
 }
@@ -2608,7 +2656,7 @@ p.warning code,
    are all this agent's, so it says nothing. */
 .scope-line {
   margin: 0;
-  padding: 7px 12px;
+  padding: 6px 10px;
   color: var(--muted);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -2648,7 +2696,7 @@ p.warning code,
   border-bottom: 1px solid var(--border);
 }
 .list.compact > li {
-  padding: 8px 12px;
+  padding: var(--pad-row-y) var(--pad-row-x);
   font-size: 13px;
 }
 
@@ -2781,7 +2829,7 @@ p.warning code,
   background: none;
   border: none;
   color: var(--text);
-  padding: 12px;
+  padding: var(--pad-row-y) var(--pad-row-x);
   font-size: 14px;
 }
 /* ── Icons ───────────────────────────────────────────────────────────────── */
@@ -2819,7 +2867,7 @@ p.warning code,
 }
 
 .task {
-  padding: 12px;
+  padding: var(--pad-row-y) var(--pad-row-x);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2878,8 +2926,8 @@ p.warning code,
 .field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin-bottom: 14px;
+  gap: 4px;
+  margin-bottom: 10px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
@@ -2887,13 +2935,14 @@ p.warning code,
 .field input,
 .field select,
 .field textarea,
+.field-trigger,
 .sidebar select,
 .limit-edit > input {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 9px 10px;
+  padding: 7px 10px;
   font: inherit;
   font-size: var(--control-font);
   font-weight: 400;
@@ -2903,6 +2952,7 @@ p.warning code,
 /* Single-line controls share the button height; a textarea grows instead. */
 .field input:not([type="checkbox"]),
 .field select,
+.field-trigger,
 .sidebar select,
 .limit-edit > input {
   height: var(--control-h);
@@ -2910,8 +2960,11 @@ p.warning code,
   line-height: normal;
 }
 /* The native arrow differs per platform and shifts the text inward, so a select
-   read as a different control from the input above it. */
+   read as a different control from the input above it. `.field-trigger` joins
+   these three groups because it is the select's twin — a control that opens a
+   sheet instead of the native popup, and must not look like a new species. */
 .field select,
+.field-trigger,
 .sidebar select {
   appearance: none;
   padding-right: 32px;
@@ -2919,6 +2972,28 @@ p.warning code,
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 14px;
+}
+/* What a button needs that a select does not: its own layout, and a value that
+   truncates instead of pushing the arrow out of the field. */
+.field-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+.field-trigger:hover {
+  border-color: var(--muted);
+}
+.field-trigger .trigger-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field-trigger .trigger-value.muted {
+  color: var(--muted);
 }
 .field .small {
   font-weight: 400;
@@ -3510,7 +3585,7 @@ button.link-dot.busy.warn {
   color: var(--muted);
 }
 .menu-section {
-  margin: 12px 2px 4px;
+  margin: 9px 2px 3px;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
@@ -3521,16 +3596,17 @@ button.link-dot.busy.warn {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
-/* 44px floor: still a comfortable fingertip target. */
+/* The floor is --menu-row-h: 36px on a mouse, 44px where a fingertip needs it
+   (restored at the bottom of this file). */
 .menu-row {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--menu-row-h);
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 10px 7px 12px;
+  padding: 5px 10px 5px 12px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -3567,14 +3643,14 @@ button.link-dot.busy.warn {
 }
 .menu-row-check {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   color: var(--accent);
 }
 .menu-row-box {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   display: grid;
   place-items: center;
   /* --border vanishes against the row; an empty box has to read as a box. */
@@ -3586,25 +3662,59 @@ button.link-dot.busy.warn {
   color: var(--on-accent);
 }
 .menu-row-box .icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 /* A lone toggle in a form or pane keeps the field rhythm below it. */
 .menu-list.toggle-row {
   margin-bottom: 14px;
 }
-/* The sidebar's footer toggle is a filter, not a setting: row-sized, not card-sized. */
-.sidebar .toggle-row {
-  margin-bottom: 0;
+/* The conversations list's footer: the switcher's Show/Hide archived link, so
+   it is a link here too rather than a card. Centred, because it ends the list
+   instead of being another row of it. */
+.sidebar-archived {
+  align-self: center;
+  padding: 4px 0 0;
+  font-size: 12px;
 }
-.sidebar .toggle-row .menu-row {
-  min-height: 38px;
-  padding-block: 4px;
+/* A collapsible section of a menu sheet: the header is a `.menu-section` with
+   the current choice named next to it, so collapsing hides the list and nothing
+   the user needed to read. Used by the Model sheet's Toolset section, which
+   starts collapsed on every open (a `<details>` with no `open` attribute). */
+.menu-collapsible {
+  margin: 9px 2px 0;
 }
-.sidebar .toggle-row .menu-row-title {
-  font-size: 13px;
+.menu-collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.menu-collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+.menu-collapsible > summary .menu-section {
+  margin: 0;
+}
+.menu-collapsible > summary .menu-section-value {
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-collapsible > summary .menu-collapsible-mark {
+  width: 1em;
+  height: 1em;
+  margin-left: auto;
+}
+.menu-collapsible[open] > summary .menu-collapsible-mark {
+  transform: rotate(90deg);
+}
+.menu-collapsible[open] > .menu-list {
+  margin-top: 6px;
 }
 .menu-list + .field,
 .field + .menu-list {
@@ -4118,7 +4228,7 @@ button.link-dot.busy.warn {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 6px 4px 6px 7px;
+  padding: 4px 4px 4px 7px;
   background: none;
   border: none;
   color: var(--text);
@@ -4246,4 +4356,42 @@ button.link-dot.busy.warn {
   border-radius: var(--radius);
   border: 1px solid var(--border);
   display: block;
+}
+
+/* ── Touch restore ──────────────────────────────────────────────────────
+   The density at the top of this file is the desktop's. Every number a fingertip
+   depends on comes back here, in one place, and it has to come after the rules
+   it overrides. The condition is the app's own phone breakpoint (where the
+   sidebar becomes the switcher and the composer's 44px controls live) OR a
+   coarse pointer, so a touch tablet at desktop width keeps the roomy scale too.
+   `ui-check` asserts the composer controls stay ≥44px at 390px. */
+@media (max-width: 899px), (pointer: coarse) {
+  :root {
+    --control-h: 40px;
+    --menu-row-h: 44px;
+    --pad-row-y: 12px;
+    --pad-row-x: 12px;
+    --bubble-x: 12px;
+    --entry-gap: 14px;
+  }
+  .conversation-name {
+    padding: 8px 6px;
+  }
+  /* Three classes deep to match `.agent-row.archived .agent-row-main` above —
+     a restore that sorts below the rule it restores is a warning in this file. */
+  .sidebar .agent-row .agent-row-main {
+    padding: 6px 4px 6px 7px;
+  }
+  .menu-row {
+    padding: 7px 10px 7px 12px;
+  }
+  .menu-row-check,
+  .menu-row-box {
+    width: 20px;
+    height: 20px;
+  }
+  .menu-row-box .icon {
+    width: 16px;
+    height: 16px;
+  }
 }
