@@ -67,6 +67,17 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
     draft.system !== saved.system ||
     draft.modelHandle !== saved.modelHandle;
 
+  /** The model sheet stages a pick instead of applying it, so say that out loud. */
+  const modelHint =
+    draft.modelHandle === saved.modelHandle
+      ? null
+      : draft.modelHandle === null
+        ? "Saves with no model change — the agent keeps the model it has."
+        : `Saves as ${
+            models.models.find((model) => model.handle === draft.modelHandle)?.label ??
+            draft.modelHandle
+          } — from the agent's next turn.`;
+
   const save = async () => {
     setBusy(true);
     try {
@@ -100,6 +111,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         models={models}
         value={draft.modelHandle}
         emptyLabel="Unchanged"
+        hint={modelHint}
         onChange={(modelHandle) => setDraft({ ...draft, modelHandle })}
       />
 
