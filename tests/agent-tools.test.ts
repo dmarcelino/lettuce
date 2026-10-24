@@ -44,9 +44,9 @@ function imageEnv(): Map<string, string> {
 test("the agent-tools folders are appended to PATH, never prepended", () => {
   const paths = dockerInstructions().filter((line) => /^ENV PATH=/.test(line));
   expect(paths.at(-1)).toBe('ENV PATH="${PATH}:${AGENT_TOOLS_PATH}"');
-  for (const line of paths) {
-    expect(line.indexOf(MOUNT) === -1 || line.indexOf(MOUNT) > line.indexOf("${PATH}")).toBe(true);
-  }
+  // Only that last line may name the folders: any earlier one could put them first.
+  const earlier = paths.slice(0, -1);
+  expect(earlier.filter((line) => line.includes(MOUNT) || line.includes("AGENT_TOOLS_PATH"))).toEqual([]);
 });
 
 test("compose makes /opt/agent-tools the tools/ mount of the state dir", () => {

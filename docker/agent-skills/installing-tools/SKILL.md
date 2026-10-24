@@ -45,7 +45,7 @@ Those directories are on `PATH`, **after** the system ones.
    read -r url sum < <(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | python3 -c '
    import json, sys
    a = next(a for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1])
-   print(a["browser_download_url"], a["digest"].removeprefix("sha256:"))' "$asset")
+   print(a["browser_download_url"], (a["digest"] or "").removeprefix("sha256:"))' "$asset")
    curl -fsSLo "/tmp/$asset" "$url" && echo "$sum  /tmp/$asset" | sha256sum -c -
    ```
 
