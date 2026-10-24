@@ -10,7 +10,7 @@ import { AgentMenu } from "./AgentMenu.tsx";
 import { ConversationMenu } from "./ConversationMenu.tsx";
 import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
 import { Icon } from "./Icon.tsx";
-import { ToggleRow } from "./MenuRow.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Props {
   agents: AgentsApi;
@@ -101,6 +101,8 @@ export function Sidebar({
     [agents.conversations, showArchived, query, activity.responding],
   );
   const liveCount = agents.conversations.filter((c) => !c.archived).length;
+  /** The footer link says how much it will reveal, and hides when there is none. */
+  const archivedCount = agents.conversations.filter((c) => c.archived).length;
 
   // A busy conversation the list has never heard of was created after it was
   // fetched (a cron that starts a new conversation per run). Refetch once per
@@ -347,6 +349,26 @@ export function Sidebar({
 
                     <button
                       type="button"
+                      className="icon-button flat conversation-archive"
+                      aria-label={`${archived ? "Unarchive" : "Archive"} “${conversation.summary}”`}
+                      title={archived ? "Unarchive" : "Archive"}
+                      disabled={busy}
+                      onClick={() =>
+                        void guard(async () => {
+                          // One click, no sheet: the undo is one more click, and
+                          // the row's more menu has offered this verb without a
+                          // confirmation since it existed.
+                          await agents.setArchived(conversation.id, !archived);
+                          toast(
+                            archived ? "Unarchived." : "Archived — turn on Show archived to undo.",
+                          );
+                        })
+                      }
+                    >
+                      <Icon name={archived ? "unarchive" : "archive"} />
+                    </button>
+                    <button
+                      type="button"
                       className="icon-button flat conversation-more"
                       aria-label={`More for ${conversation.summary}`}
                       aria-haspopup="menu"
@@ -379,7 +401,15 @@ export function Sidebar({
             ) : null}
           </ul>
 
-          <ToggleRow title="Show archived" checked={showArchived} onChange={setShowArchived} />
+          {archivedCount > 0 ? (
+            <button
+              type="button"
+              className="link sidebar-archived"
+              onClick={() => setShowArchived((value) => !value)}
+            >
+              {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+            </button>
+          ) : null}
         </div>
 
         {agents.error ? (
