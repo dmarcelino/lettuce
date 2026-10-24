@@ -40,8 +40,8 @@ Loaded from `AGENTS.md`. Timeouts, ports, and the two things that break spawns.
 
 - **Agent-installed tools live in `/opt/agent-tools`, by image ENV.** A recreate wipes the
   container layer, so `npm i -g` into `/usr/local` or the uv installer into `~/.local` did not
-  last. `docker/codex/Dockerfile` sets `NPM_CONFIG_PREFIX`, `CARGO_HOME`, `RUSTUP_HOME`,
-  `GOPATH`/`GOBIN` and the `UV_*` dirs to `/opt/agent-tools`, the `tools/` bind mount under
+  last. `docker/codex/Dockerfile` sets `NPM_CONFIG_PREFIX`, `CARGO_HOME`, `GOBIN` and the
+  `UV_*` dirs to `/opt/agent-tools`, the `tools/` bind mount under
   `LETTA_STATE_DIR`, and **appends** its bin dirs to `PATH`. Appended, never prepended: the
   container's own `letta server` resolves through `PATH`, so an agent's
   `npm i -g @letta-ai/letta-code` would otherwise replace the pinned server on the next start,
@@ -50,11 +50,18 @@ Loaded from `AGENTS.md`. Timeouts, ports, and the two things that break spawns.
   `/etc/profile` resets `PATH` for root, and letta-code's `exec_command` tool and the coding
   workers run `bash -lc`, so `/etc/profile.d/agent-tools.sh` appends `AGENT_TOOLS_PATH` again
   (the other variables survive). uv is `only-managed`, so its tool environments never point at
-  the image's `/usr/bin/python3`, and its cache is on the mount beside its targets. A change to
-  that block reaches a host with the next release's image tag, like any other image change.
-  Cron jobs get none of this env. What no variable covers (verified release downloads, the Go toolchain replaced
-  whole, uv for Python, Rust only prebuilt via cargo-binstall since the image has no C linker,
-  full paths in cron, no apt) is in `docker/agent-skills/installing-tools`. The image's own
+  the image's `/usr/bin/python3`. Caches stay off the mount (uv's `~/.cache/uv` with
+  `UV_LINK_MODE=copy`, Go's module cache under the default `GOPATH`), so a state backup carries
+  only what cannot be downloaded again. A change to that block reaches a host with the next
+  release's image tag, like any other image change. **Cron jobs get none of this env**
+  (`PATH=/usr/bin:/bin`, not even `node`): `/usr/local/bin/agent-env` (`docker/codex/agent-env`)
+  re-runs a command with PID 1's environment, i.e. the image ENV plus compose's, and is for cron
+  only — agent shells take their env from letta-code's `getShellEnv`, which adds per-agent values
+  PID 1 lacks. The base image's entrypoint rebuilds `/etc/cron.d` from
+  `/root/.letta/system-cron/` at every start, so that folder is where a cron job survives. What
+  no variable covers (verified release downloads, the Go toolchain replaced whole, uv for Python,
+  Rust only prebuilt via cargo-binstall since the image has no C linker, `Wake` vs cron, no apt)
+  is in `docker/agent-skills/installing-tools`. The image's own
   `npm install --global --prefix /opt/codex|/opt/claude-code` is explicit, so the new default
   prefix does not move it.
 
