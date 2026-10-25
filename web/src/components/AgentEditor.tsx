@@ -9,6 +9,8 @@ import {
 } from "../state/use-agents.ts";
 import { type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { Icon } from "./Icon.tsx";
+import { ModelChoices } from "./ModelPicker.tsx";
 import { Sheet } from "./Sheet.tsx";
 import { toast } from "./Toast.tsx";
 
@@ -95,37 +97,80 @@ export function AgentEditor({ session, agents, onClose }: Props) {
   );
 }
 
-/** The agent's model, as a select over what the endpoint serves. */
+/**
+ * The agent's model: a field that opens the conversation's model sheet.
+ *
+ * Two idioms for the same choice is what this replaced — a native select here, a
+ * grouped sheet there — and only one of them said which endpoint serves what.
+ * Picking here **stages**: an agent's model is saved with everything else on its
+ * tab, so the sheet sets the draft and `Save` commits, exactly as the name and
+ * the system prompt do.
+ */
 export function ModelField({
   models,
   value,
   emptyLabel,
+  hint,
   onChange,
 }: {
   models: ModelsApi;
   value: string | null;
   emptyLabel: string;
+  /** Shown under the field when the pick is staged rather than applied. */
+  hint?: string | null;
   onChange: (handle: string | null) => void;
 }) {
-  // A model the endpoint no longer serves must stay selectable, or saving the
-  // name would silently move the agent onto a different model.
-  const known = models.models.some((model) => model.handle === value);
+  const [picking, setPicking] = useState(false);
+  const known = models.models.find((model) => model.handle === value);
+  // A handle the endpoint stopped serving shows as itself — the sheet keeps it
+  // selectable so saving the name cannot silently move the agent.
+  const shown = value === null ? emptyLabel : (known?.label ?? value);
   return (
-    <label className="field">
+    <div className="field">
       Model
-      <select
-        value={value ?? ""}
+      <button
+        type="button"
+        className="field-trigger"
+        // The field used to be a `<label>` around a `<select>`, which named the
+        // control for free. A button needs its name said out loud, or a screen
+        // reader announces a model name with nothing to say what it belongs to.
+        aria-label={`Model: ${shown}`}
         disabled={models.loading}
-        onChange={(event) => onChange(event.target.value || null)}
+        onClick={() => setPicking(true)}
       >
-        <option value="">{emptyLabel}</option>
-        {value && !known ? <option value={value}>{value} (not served)</option> : null}
-        {models.models.map((model) => (
-          <option key={model.id} value={model.handle}>
-            {model.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        <span className={`trigger-value${value === null ? " muted" : ""}`}>{shown}</span>
+      </button>
+      {hint ? <span className="small">{hint}</span> : null}
+      {picking ? (
+        <Sheet
+          title="Model"
+          size="compact"
+          status={models.error}
+          onClose={() => setPicking(false)}
+          headerAction={
+            <button
+              type="button"
+              className="sheet-head-icon"
+              disabled={models.loading}
+              onClick={() => void models.refresh()}
+              aria-label="Refresh the model list"
+              title="Refresh"
+            >
+              <Icon name="refresh" />
+            </button>
+          }
+        >
+          <ModelChoices
+            models={models}
+            currentHandle={value}
+            emptyLabel={emptyLabel}
+            onPick={(handle) => {
+              onChange(handle);
+              setPicking(false);
+            }}
+          />
+        </Sheet>
+      ) : null}
+    </div>
   );
 }

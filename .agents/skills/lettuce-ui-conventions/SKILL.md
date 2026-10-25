@@ -23,7 +23,11 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   There is no agent dropdown: agents are rows (`.agent-row`: round avatar, name, conversation
   count or a responding dot, ⋯) on a panel of their own (`.sidebar-agents`, `--surface-2`,
   capped at a third of the height); conversations stay on the sidebar's background with dates.
-  Both mark the open row with a 3px left bar. Counts for other agents come from `useAgentStats`,
+  Both mark the open row with a 3px left bar. A conversation's verbs are a hover-
+  revealed `.conversation-archive` glyph next to its ⋯ on desktop and the ⋯ alone on a
+  phone (there is no hover to reveal anything on a touch device); archived conversations
+  come back through the centred `.sidebar-archived` link under the list, the agents list's
+  `.sidebar-archived-agents` being the same idiom. Counts for other agents come from `useAgentStats`,
   fetched only at the desktop width (`useWide`) — the sidebar stays mounted, hidden, on a
   phone. ui-check reads the open agent from `.agent-row.active[data-agent-id]`.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab

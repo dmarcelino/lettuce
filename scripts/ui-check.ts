@@ -507,6 +507,19 @@ try {
     );
     check("composer row fits without scrolling", !controls.scrolls);
 
+    // Two lines of typing room on a phone (the floor in styles.css; the desktop
+    // stays at one). Only an empty box proves the floor — a restored draft has
+    // already grown past it, which is the other half of the rule working.
+    const phoneField = await page.evaluate(() => {
+      const ta = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+      return { text: ta.value, height: Math.round(ta.getBoundingClientRect().height) };
+    });
+    check(
+      "the phone composer holds two lines",
+      phoneField.text !== "" || (phoneField.height >= 44 && phoneField.height <= 50),
+      phoneField,
+    );
+
     // The composer is the single control surface; each control must exist and
     // be an icon button with an accessible name.
     for (const label of ["Filter the transcript"]) {
@@ -1013,6 +1026,18 @@ try {
         const el = document.querySelector(".sidebar");
         return el ? el.getBoundingClientRect().left >= 0 : false;
       }),
+    );
+
+    // Compact on desktop means one line: the two-line floor is a phone rule, so
+    // an empty field here is a single line box tall (see the phone check).
+    const deskField = await page.evaluate(() => {
+      const ta = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+      return { text: ta.value, height: Math.round(ta.getBoundingClientRect().height) };
+    });
+    check(
+      "the desktop composer is one line",
+      deskField.text !== "" || (deskField.height >= 20 && deskField.height <= 32),
+      deskField,
     );
 
     // The CLI habit. letta-code 0.34.15 removed the remote `clear`, so a typed `/clear` would
@@ -2221,8 +2246,9 @@ try {
   }
 
   // The desktop sidebar's rows: the open one marked by a left accent bar, like
-  // the agent list's, and one ⋯ menu (the phone switcher's) instead of
-  // rename/archive icons on every row.
+  // the agent list's, and the ⋯ menu (the phone switcher's) rather than icons on
+  // every row — one verb, Archive, does earn a hover glyph, and the row pointed
+  // at is the only one that shows it.
   section("Sidebar conversation menu");
   {
     const page = await open(browser, DESKTOP);
@@ -2255,6 +2281,60 @@ try {
       "⋯ is hidden on a row not pointed at",
       (await idle.count()) === 0 || !(await idle.locator(".conversation-more").isVisible()),
     );
+    check(
+      "the footer is a link, not a checkbox row",
+      (await page.locator(".sidebar .toggle-row").count()) === 0,
+    );
+
+    // The one-click Archive the hover reveals, exercised for real and put back:
+    // archiving is the verb, and showing archived rows again is how you undo it.
+    const archiveId = await idle.getAttribute("data-conversation-id");
+    const rowOf = `[data-conversation-id="${archiveId}"]`;
+    /** True once a CSS-matching element exists (`"!"` = once it is gone). */
+    const settled = async (selector: string) =>
+      page
+        .waitForFunction(
+          (needle) =>
+            needle.startsWith("!")
+              ? !document.querySelector(needle.slice(1))
+              : !!document.querySelector(needle),
+          selector,
+          { timeout: 8_000 },
+        )
+        .then(() => true)
+        .catch(() => false);
+    await idle.hover();
+    check(
+      "hover reveals the one-click Archive",
+      archiveId !== null && (await idle.locator(".conversation-archive").isVisible()),
+    );
+    await idle.locator(".conversation-archive").click();
+    const saidSo = await page
+      .locator(".toast", { hasText: "Archived" })
+      .first()
+      .waitFor({ timeout: 8_000 })
+      .then(() => true)
+      .catch(() => false);
+    check("one click archives the row and says so", saidSo);
+    check("the archived row leaves the list", await settled(`!.sidebar .conversations ${rowOf}`));
+    const showLink = page.locator(".sidebar .sidebar-archived");
+    check(
+      "the footer link appears once something is archived",
+      (await showLink.count()) === 1 && (await showLink.innerText()).includes("Show archived ("),
+    );
+    await showLink.click();
+    check(
+      "the archived row comes back marked",
+      await settled(`.sidebar .conversations ${rowOf} .tag`),
+    );
+    await page.locator(`.sidebar .conversations ${rowOf}`).hover();
+    await page.locator(`.sidebar .conversations ${rowOf} .conversation-archive`).click();
+    check(
+      "and one more click unarchives it",
+      await settled(`!.sidebar .conversations ${rowOf} .tag`),
+    );
+    if (await showLink.count()) await showLink.click();
+
     await active.locator(".conversation-more").click();
     const menu = active.locator(".switcher-menu");
     check(
@@ -2272,6 +2352,77 @@ try {
       (await page.locator(".sidebar .switcher-menu").count()) === 0,
     );
     await shot(page, "desktop-sidebar-menu");
+    await page.close();
+  }
+
+  // The agent's model is picked in the conversation's model sheet, and the pick
+  // is staged: the tab's Save is the only thing that commits it. Nested sheet, so
+  // Escape belongs to the inner one — closing the outer would drop the draft.
+  section("Agent model sheet");
+  {
+    const page = await open(browser, DESKTOP);
+    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await page.locator(".pane .field").first().waitFor();
+    const trigger = page.locator(".pane .field-trigger").first();
+    await trigger.waitFor();
+    const before = (await trigger.innerText()).trim();
+    check(
+      "the model field is a trigger, and no model select is left",
+      (await page.locator(".pane .field select").count()) === 0,
+    );
+    await trigger.click();
+    const sheet = page.locator('.sheet-panel[aria-label="Model"]');
+    await sheet.waitFor({ timeout: 8_000 });
+    check(
+      "the sheet groups models by provider",
+      (await sheet.locator(".menu-section").count()) > 0,
+    );
+    check(
+      "the agent's sheet has no toolset section (it is per-conversation)",
+      (await sheet.locator(".menu-collapsible").count()) === 0,
+    );
+    // Pick something other than what is in force, or nothing would be staged.
+    const rows = sheet.locator(".menu-row .menu-row-title");
+    let picked = "";
+    for (let index = 0; index < (await rows.count()); index += 1) {
+      const text = (await rows.nth(index).innerText()).trim();
+      if (text !== before && !text.includes("not served")) {
+        picked = text;
+        await rows.nth(index).click();
+        break;
+      }
+    }
+    const staged = await page
+      .locator(".pane .field .small", { hasText: "Saves as" })
+      .first()
+      .waitFor({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    check(
+      `a pick stages instead of applying (“${picked || before}”)`,
+      picked !== "" && staged && (await trigger.innerText()).trim() === picked,
+    );
+    check(
+      "and the sheet closes on the pick",
+      (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
+    );
+    // Nested case: the model sheet over the New agent sheet.
+    await page.locator('button[aria-label="New agent"]').click();
+    await page.locator('.sheet-panel[aria-label="New agent"]').waitFor();
+    await page.locator('.sheet-panel[aria-label="New agent"] .field-trigger').click();
+    await sheet.waitFor({ timeout: 8_000 });
+    await page.keyboard.press("Escape");
+    check(
+      "Escape closes the model sheet only",
+      (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0 &&
+        (await page.locator('.sheet-panel[aria-label="New agent"]').count()) === 1,
+    );
+    await page.keyboard.press("Escape");
+    check(
+      "and a second Escape closes the editor",
+      (await page.locator('.sheet-panel[aria-label="New agent"]').count()) === 0,
+    );
+    await shot(page, "desktop-agent-model");
     await page.close();
   }
 } finally {

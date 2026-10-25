@@ -25,3 +25,28 @@ export function normalizeProviderKey(value: string): string {
 export function handleProvider(handle: string): string {
   return handle.split("/")[0] ?? "";
 }
+
+/** Anything model-shaped: this lib must not reach into `state/` for `ModelEntry`. */
+export interface HandleBearing {
+  handle: string;
+}
+
+/**
+ * Models under their provider, in the order the list gave them.
+ *
+ * One grouping for every list of models — the conversation's Model sheet and the
+ * agent's — because "which endpoint serves this?" is the same question in both,
+ * and a flat list of 30 labels answers it nowhere.
+ */
+export function groupByProvider<T extends HandleBearing>(
+  models: readonly T[],
+): { provider: string; models: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const model of models) {
+    const provider = handleProvider(model.handle);
+    const group = groups.get(provider);
+    if (group) group.push(model);
+    else groups.set(provider, [model]);
+  }
+  return [...groups].map(([provider, group]) => ({ provider, models: group }));
+}
