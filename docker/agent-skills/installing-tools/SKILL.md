@@ -1,6 +1,6 @@
 ---
 name: installing-tools
-description: Load this BEFORE installing any command-line tool, binary, package or language toolchain (npm -g, pip, uv, cargo, rustup, go, a downloaded binary, apt), or setting up a recurring or unattended job (letta cron, a cron job) — it says where an install survives container restarts (/opt/agent-tools), which commands land there on their own, how to download a binary safely, why /usr/local, ~/.local and apt do not last, which scheduler fits a job, and how a cron job survives too.
+description: Load BEFORE installing any command-line tool, binary or language toolchain (npm -g, pip, uv, cargo, go, a downloaded binary, apt), or setting up a recurring or unattended job — it says where an install survives a container recreate (/opt/agent-tools), which install commands land there on their own, how to download a binary safely, which scheduler fits a job, and how a cron job survives.
 ---
 
 # Installing tools
