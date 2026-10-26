@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.21.1-letta_0.34.21] - 2026-10-26
+
 ### Changed
 - cloudflared 2026.10.1 → 2026.10.4 — Cloudflare asks every tunnel to run 2026.10.2 or later. The tunnel container only. Recreating it drops the tunnel for a few seconds, so the app is briefly unreachable while everything else keeps running.
 
