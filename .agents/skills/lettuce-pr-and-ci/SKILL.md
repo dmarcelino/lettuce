@@ -196,7 +196,8 @@ alone, which is what `LETTA_IMAGE_TAG=latest` runs without a release.
 
 `bump:minor`, `bump:patch`, `bump:none` declare what a merged PR means for the next release;
 `check-release-hygiene.ts` fails a PR that touches `bff/`, `web/` or `docker/` without a
-`CHANGELOG.md` `[Unreleased]` entry and without `bump:none`, and warns when a label contradicts
+`CHANGELOG.md` `[Unreleased]` entry and without `bump:none` (test files and `fixtures/` do not
+count, so a test-only fork PR, whose author cannot set a label, still goes green), and warns when a label contradicts
 the changelog section it adds. With no label it derives from the PR title (`feat` → minor,
 `docs` → none, else patch), which is why the PR title must be a Conventional Commit. Which
 heading a patch entry belongs under is a `pre-release` rule in `.dev-flow/project.md`. `VERSION`

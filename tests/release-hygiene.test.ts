@@ -92,6 +92,15 @@ test("appDirsTouched names only the user-visible roots", () => {
   expect(appDirsTouched(["README.md"])).toEqual([]);
 });
 
+test("test-only changes under an app directory owe nothing", () => {
+  expect(appDirsTouched(["bff/src/pi/pi.test.ts", "web/src/lib/working.test.ts"])).toEqual([]);
+  expect(appDirsTouched(["bff/src/auth/fixtures/google-token-response.json"])).toEqual([]);
+  expect(errors({ changedFiles: ["bff/src/pi/pi.test.ts"] })).toHaveLength(0);
+  expect(errors({ changedFiles: ["bff/src/pi/pi.test.ts", "bff/src/pi/runner.ts"] })).toHaveLength(
+    1,
+  );
+});
+
 test("this checkout satisfies its own release contract", () => {
   const version = readFileSync(`${ROOT}VERSION`, "utf8");
   const changelog = readFileSync(`${ROOT}CHANGELOG.md`, "utf8");
