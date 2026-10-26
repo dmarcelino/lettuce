@@ -94,6 +94,10 @@ RUN set -eu; \
 # remember; the installing-tools agent skill covers what no variable can
 # (downloaded binaries, the go toolchain, prebuilt Rust tools because there is
 # no C linker, no apt, cron jobs).
+# Not letta-code's own LETTA_TOOLS_DIR (default /root/.letta/bin, where it keeps
+# binaries it manages, such as ripgrep; persisted by the letta-home mount). The
+# two are different folders on purpose: do not merge them, since /root/.letta
+# also holds provider keys and CLI logins, and agent tools stay out of it.
 # Only what is worth keeping goes on the mount: tools, uv's Pythons and the Go
 # toolchain. Caches (uv's ~/.cache/uv, Go's module cache under the default
 # GOPATH /root/go, npm's ~/.npm) stay in the container layer, so a backup of
