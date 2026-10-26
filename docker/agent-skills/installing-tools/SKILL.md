@@ -134,8 +134,10 @@ Those directories are on `PATH`, **after** the system ones.
    install -m 0644 /root/.letta/system-cron/<job> /etc/cron.d/<job>   # starts it now
    ```
 
-   Tell the user where the log is; every agent can read it. To stop the job, delete
-   `/root/.letta/system-cron/<job>` and `/etc/cron.d/<job>`.
+   Tell the user where the log is; every agent can read it. To stop a job, delete **both**
+   `/root/.letta/system-cron/<job>` and `/etc/cron.d/<job>`: the container copies the folder into
+   `/etc/cron.d` at start and never deletes, so removing only the source leaves the job running
+   until the next recreate.
 
    **To check often but act rarely**, have the script wake you only on a finding, at most
    hourly:
