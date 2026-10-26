@@ -423,8 +423,9 @@ then. `tools/INSTALLS.log` says which agent installed, upgraded or removed
 what, and when; the agents write it themselves, so it is a record, not an
 audit trail. `apt-get install` still does not survive: it writes to system
 directories. A tool that stops working after an upgrade (a new Node.js or base
-image) needs reinstalling. A recreate no longer resets what agents installed;
-to start clean, stop the stack and delete the folder as root (Docker creates
+image) needs reinstalling. The folder has no size limit, and uv's Pythons and
+a Go toolchain land there too: `du -sh "$LETTA_STATE_DIR/tools"` shows what it
+takes. A recreate no longer resets what agents installed; to start clean, stop the stack and delete the folder as root (Docker creates
 it, and the app-server writes it, as root): `sudo rm -rf "$LETTA_STATE_DIR/tools"`.
 
 Plain commands an agent schedules with cron survive too. Each job is one file
