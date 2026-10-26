@@ -103,8 +103,8 @@ Those directories are on `PATH`, **after** the system ones.
 
    A `Wake` cron is in UTC, so "every day at 7" moves by an hour when daylight saving time
    changes. Here `letta cron` and Unix cron run in the container's timezone (`date` shows it):
-   write the time as the user says it and do **not** convert it to UTC, whatever the
-   `scheduling-tasks` examples do. `letta cron add` without `--conversation` starts a new
+   write the time as the user says it and do **not** convert it to UTC. `letta cron add`
+   without `--conversation` starts a new
    conversation each run, which suits a digest; pass `--conversation self` when the result
    belongs in this one.
 
