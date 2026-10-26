@@ -103,10 +103,10 @@ Those directories are on `PATH`, **after** the system ones.
 
    A `Wake` cron is in UTC, so "every day at 7" moves by an hour when daylight saving time
    changes. Here `letta cron` and Unix cron run in the container's timezone (`date` shows it):
-   write the time as the user says it and do **not** convert it to UTC. `letta cron add`
-   without `--conversation` starts a new
-   conversation each run, which suits a digest; pass `--conversation self` when the result
-   belongs in this one.
+   write the time as the user says it and do **not** convert it to UTC: `letta cron` runs here
+   as a local runner, and the UTC conversion the `scheduling-tasks` skill shows applies only to
+   Cloud schedules. `letta cron add` without `--conversation` starts a new conversation each
+   run, which suits a digest; pass `--conversation self` when the result belongs in this one.
 
    A cron job holds no secret value, in its script or its log; a CLI's own stored login, such
    as `gh`'s, is fine. A job that needs an API key, a password or an approval is agent work:
