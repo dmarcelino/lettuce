@@ -27,7 +27,7 @@ Those directories are on `PATH`, **after** the system ones.
 ## Rules
 
 1. **Check before installing.** Another agent may have installed it already:
-   `command -v <tool>; ls /opt/agent-tools/bin`.
+   `command -v <tool>; ls /opt/agent-tools/bin 2>/dev/null`. A fresh host has no `bin/` yet; rule 3's `install -Dm 0755` creates it.
 
 2. **Use the normal command, unchanged.** Do not add `--prefix`, `--root`, `--user` or
    `sudo`, and do not set `NPM_CONFIG_PREFIX`, `CARGO_HOME`, `GOBIN` or the `UV_*`
