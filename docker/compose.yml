@@ -337,7 +337,7 @@ services:
       SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.23-629368e40}
       DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
       WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
-      CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.10.1}
+      CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.10.4}
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       CF_ACCESS_ISSUER: ${CF_ACCESS_ISSUER:-}
@@ -574,7 +574,7 @@ services:
   # means cloudflared itself fails at startup with an auth error (see its own
   # logs) — scoped to this one container, not the rest of the stack.
   cloudflared:
-    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.10.1}
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.10.4}
     command: tunnel --no-autoupdate run
     profiles: ["cloudflared"]
     environment:
