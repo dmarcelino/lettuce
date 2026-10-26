@@ -57,8 +57,10 @@ Loaded from `AGENTS.md`. Timeouts, ports, and the two things that break spawns.
   (`PATH=/usr/bin:/bin`, not even `node`): `/usr/local/bin/agent-env` (`docker/codex/agent-env`)
   re-runs a command with PID 1's environment, i.e. the image ENV plus compose's, and is for cron
   only — agent shells take their env from letta-code's `getShellEnv`, which adds per-agent values
-  PID 1 lacks. The base image's entrypoint rebuilds `/etc/cron.d` from
-  `/root/.letta/system-cron/` at every start, so that folder is where a cron job survives. What
+  PID 1 lacks. At every start the base image's entrypoint copies the files in
+  `/root/.letta/system-cron/` into `/etc/cron.d` and never deletes one (stopping a job means
+  removing both copies), and replaces root's crontab with `/root/.letta/system-crontab/root`,
+  else `crontab -r`, so `crontab -e` is cleared. That folder is where a cron job survives. What
   no variable covers (verified release downloads, the Go toolchain replaced whole, uv for Python,
   Rust only prebuilt via cargo-binstall since the image has no C linker, `Wake` vs cron, no apt)
   is in `docker/agent-skills/installing-tools`. The image's own

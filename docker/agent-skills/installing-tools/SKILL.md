@@ -117,9 +117,10 @@ Those directories are on `PATH`, **after** the system ones.
    `PATH`, not even `node`), so run it through `/usr/local/bin/agent-env`, which gives it the
    container's environment but not yours (`$LETTA_AGENT_ID`, `$LETTA_CONVERSATION_ID`,
    `$MEMORY_DIR`): copy any ID or path the script needs into it.
-   And at every start the container rebuilds `/etc/cron.d` from `/root/.letta/system-cron/`,
-   so a job added with `crontab -e` or written straight into `/etc/cron.d` is gone after the
-   next restart. Put the commands in a script in your workspace, and the schedule in one file
+   And `/etc/cron.d` is inside the container, so a job written straight into it is gone after
+   the next recreate; at every start the container only copies the files in
+   `/root/.letta/system-cron/` into it, and never deletes one. Root's crontab is replaced at
+   every start, even a plain restart, so a job added with `crontab -e` is cleared. Put the commands in a script in your workspace, and the schedule in one file
    per job (its name: letters, digits, `-` and `_` only, or cron skips it):
 
    ```bash
