@@ -42,14 +42,14 @@ Those directories are on `PATH`, **after** the system ones.
 
    ```bash
    repo=<owner>/<repo>; asset=<exact asset file name>
-   read -r url sum < <(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | python3 -c '
-   import json, sys
-   a = next(a for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1])
-   print(a["browser_download_url"], (a["digest"] or "").removeprefix("sha256:"))' "$asset")
+   read -r url sum < <(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" \
+     | jq -r --arg a "$asset" '.assets[] | select(.name == $a)
+         | "\(.browser_download_url) \((.digest // "") | sub("^sha256:"; ""))"')
    curl -fsSLo "/tmp/$asset" "$url" && echo "$sum  /tmp/$asset" | sha256sum -c -
    ```
 
-   If that fails or prints no digest, stop and tell the user. Unpack it if it is an archive
+   If that fails or prints no digest, stop and tell the user. A release with no digest leaves
+   `$sum` empty, and `sha256sum -c` then fails on purpose: never skip the check to get past it. Unpack it if it is an archive
    (`tar -xzf "/tmp/$asset" -C /tmp`), then install the binary itself:
 
    ```bash
@@ -70,11 +70,10 @@ Those directories are on `PATH`, **after** the system ones.
    unpacking a new version over an old one breaks it, and this folder keeps the old one:
 
    ```bash
-   read -r file sum < <(curl -fsSL 'https://go.dev/dl/?mode=json' | python3 -c '
-   import json, sys
-   f = next(f for f in json.load(sys.stdin)[0]["files"]
-            if f["os"] == "linux" and f["arch"] == sys.argv[1] and f["kind"] == "archive")
-   print(f["filename"], f["sha256"])' "$(dpkg --print-architecture)")
+   read -r file sum < <(curl -fsSL 'https://go.dev/dl/?mode=json' \
+     | jq -r --arg a "$(dpkg --print-architecture)" '.[0].files[]
+         | select(.os == "linux" and .arch == $a and .kind == "archive")
+         | "\(.filename) \(.sha256)"')
    curl -fsSLo "/tmp/$file" "https://go.dev/dl/$file" && echo "$sum  /tmp/$file" | sha256sum -c - \
      && rm -rf /opt/agent-tools/go && tar -xzf "/tmp/$file" -C /opt/agent-tools && rm "/tmp/$file"
    ```
