@@ -51,6 +51,35 @@ test("the agent-tools folders are appended to PATH, never prepended", () => {
   ).toEqual([]);
 });
 
+test("the login-shell hook appends the agent-tools folders too", () => {
+  // exec_command and the coding workers run `bash -lc`, where /etc/profile resets PATH and only
+  // this hook puts the folders back: a prepend here would undo the ENV PATH rule above.
+  const hook = dockerInstructions().find((line) =>
+    line.includes("> /etc/profile.d/agent-tools.sh"),
+  );
+  expect(hook).toBeDefined();
+  expect(hook).toContain('PATH="$PATH:$AGENT_TOOLS_PATH"');
+  expect(hook).not.toMatch(/AGENT_TOOLS_PATH\}?:\$\{?PATH\b/);
+});
+
+test("every package manager installs into the mount", () => {
+  const env = imageEnv();
+  expect(env.get("GOBIN")).toBe(`${MOUNT}/bin`);
+  const names = [
+    "NPM_CONFIG_PREFIX",
+    "CARGO_HOME",
+    "UV_TOOL_DIR",
+    "UV_TOOL_BIN_DIR",
+    "UV_PYTHON_INSTALL_DIR",
+    "UV_PYTHON_BIN_DIR",
+  ];
+  const offMount = names.filter((name) => {
+    const value = env.get(name) ?? "";
+    return value !== MOUNT && !value.startsWith(`${MOUNT}/`);
+  });
+  expect(offMount).toEqual([]);
+});
+
 test("compose makes /opt/agent-tools the tools/ mount of the state dir", () => {
   expect(read("docker/compose.yml")).toContain(`- \${LETTA_STATE_DIR:-../..}/tools:${MOUNT}\n`);
 });
