@@ -419,7 +419,9 @@ installed there replaces a command the image ships.
 
 Every agent shares the folder, and whatever lands there runs for all of them
 and survives every update, so look at `$LETTA_STATE_DIR/tools/bin` now and
-then. `apt-get install` still does not survive: it writes to system
+then. `tools/INSTALLS.log` says which agent installed, upgraded or removed
+what, and when; the agents write it themselves, so it is a record, not an
+audit trail. `apt-get install` still does not survive: it writes to system
 directories. A tool that stops working after an upgrade (a new Node.js or base
 image) needs reinstalling. A recreate no longer resets what agents installed;
 to start clean, stop the stack and delete the folder as root (Docker creates

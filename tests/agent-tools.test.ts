@@ -102,6 +102,12 @@ test("caches stay off the mount, so a state backup carries only tools", () => {
   }
 });
 
+test("the skill has agents record who installed what in the shared folder", () => {
+  // Rule 9 ("leave other agents' tools alone") needs a record of whose tool it is.
+  const skill = read("docker/agent-skills/installing-tools/SKILL.md");
+  expect(skill).toMatch(/"\$LETTA_AGENT_ID"[^\n]*>> \/opt\/agent-tools\/INSTALLS\.log/);
+});
+
 test("the skill's cron recipe calls the agent-env the image installs", () => {
   const instructions = dockerInstructions();
   expect(instructions).toContain("COPY agent-env /usr/local/bin/agent-env");
