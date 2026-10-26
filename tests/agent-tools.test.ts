@@ -78,5 +78,8 @@ test("the skill's cron recipe calls the agent-env the image installs", () => {
   expect(instructions).toContain("COPY agent-env /usr/local/bin/agent-env");
   const skill = read("docker/agent-skills/installing-tools/SKILL.md");
   expect(skill).toMatch(/root \/usr\/local\/bin\/agent-env \/work\//);
-  expect(read("docker/codex/agent-env")).toContain("/proc/1/environ");
+  const agentEnv = read("docker/codex/agent-env");
+  expect(agentEnv).toContain("/proc/1/environ");
+  // Fails closed: a job run with no PATH would only log a stray "command not found".
+  expect(agentEnv).toContain("no PATH in /proc/1/environ; refusing to run");
 });
