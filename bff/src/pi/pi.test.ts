@@ -806,6 +806,15 @@ async function waitForSpawns(spawned: { child: FakeChild }[], n: number): Promis
   return spawnedChild(spawned, n - 1);
 }
 
+/** Poll until `done` holds, for the same reason as waitForSpawns. */
+async function waitFor(what: string, done: () => boolean | Promise<boolean>): Promise<void> {
+  for (let i = 0; i < 300; i += 1) {
+    if (await done()) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
 async function runHarness() {
   const dir = await mkdtemp(`${tmpdir()}/pi-runsvc-`);
   const spawned: { args: readonly string[]; child: FakeChild }[] = [];
@@ -993,7 +1002,14 @@ test("a send onto a session with a live run is announced as queueing", async () 
 });
 
 test("statusFacts gives the card state, progress, the step in flight, and the verdict", async () => {
-  const { service, spawned, files } = await runHarness();
+  const { service, spawned, settled, files } = await runHarness();
+  // A shared CI runner's disk: every durable write lands late. statusFacts
+  // reads the record, so the test must wait for writes, not guess how long.
+  const update = service.store.update.bind(service.store);
+  service.store.update = async (m) => {
+    await Bun.sleep(150);
+    await update(m);
+  };
   const meta = await service.runner.start(await service.load(), files, {
     kind: "run",
     prompt: "card me",
@@ -1006,7 +1022,10 @@ test("statusFacts gives the card state, progress, the step in flight, and the ve
   // The throttle is <=2 s: the next line after the window flushes the counters.
   await Bun.sleep(2_100);
   child.emit(`{"type":"message_start","message":{"role":"assistant"}}\n`);
-  await Bun.sleep(50); // let the run's line chain finish the flush it owes
+  await waitFor(
+    "the flush the third line owes",
+    async () => Number((await service.store.read(meta.runId))?.eventCount) >= 3,
+  );
   const live = await service.statusFacts(meta.runId);
   expect(live?.state).toBe("running");
   expect(Number(live?.eventCount)).toBeGreaterThanOrEqual(3);
@@ -1020,7 +1039,8 @@ test("statusFacts gives the card state, progress, the step in flight, and the ve
   );
   child.emit(`{"type":"agent_settled"}\n`);
   child.finish(0);
-  await Bun.sleep(100); // the exit path records the verdict asynchronously
+  // The exit path records the verdict, then settles.
+  await waitFor("the run to settle", () => settled.length === 1);
   const done = await service.statusFacts(meta.runId);
   expect(done?.state).toBe("completed");
   expect(done?.lastSaid).toContain("all done");
