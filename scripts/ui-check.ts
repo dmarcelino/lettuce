@@ -1031,6 +1031,19 @@ try {
         return el ? el.getBoundingClientRect().left >= 0 : false;
       }),
     );
+    // The generic `overflow()` cannot see this one: `.sidebar` scrolls vertically,
+    // which makes its own overflow-x `auto`, so a panel bleeding past the padding
+    // box (it happened: a -14px bleed against 10px of padding) simply drew a
+    // horizontal scrollbar under the list. The scroll box must not scroll sideways.
+    const sidebarScroll = await page.evaluate(() => {
+      const el = document.querySelector(".sidebar");
+      return el ? { client: el.clientWidth, scroll: el.scrollWidth } : null;
+    });
+    check(
+      "the sidebar has no sideways scroll",
+      sidebarScroll !== null && sidebarScroll.scroll <= sidebarScroll.client,
+      sidebarScroll,
+    );
 
     // Compact on desktop means one line: the two-line floor is a phone rule, so
     // an empty field here is a single line box tall (see the phone check).

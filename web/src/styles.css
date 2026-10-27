@@ -259,6 +259,9 @@ pre {
   margin: 0;
   padding: 0;
   flex: 1;
+  /* A flex child's default min-width is its content's, and one long title would
+     widen the whole sidebar instead of truncating in the row. */
+  min-width: 0;
   overflow-y: auto;
 }
 .conversations li {
@@ -4189,7 +4192,10 @@ button.link-dot.busy.warn {
    padding, with round avatars and a count — so they never read as more
    conversations, which stay on the sidebar's own background. */
 .sidebar-agents {
-  margin: -14px -12px 0;
+  /* The bleed has to EQUAL the sidebar's padding: `overflow-y: auto` on .sidebar
+     computes overflow-x to auto, so a bleed larger than the padding makes the
+     sidebar scroll sideways (measured: clientWidth 269 / scrollWidth 271). */
+  margin: -10px -10px 0;
   padding: 14px 12px 12px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
