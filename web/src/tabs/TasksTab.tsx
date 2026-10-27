@@ -2,7 +2,7 @@ import type {
   LaunchSubagentCommand,
   LaunchSubagentResponse,
 } from "@letta-ai/letta-code/app-server-protocol";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { ToggleRow } from "../components/MenuRow.tsx";
 import { Sheet } from "../components/Sheet.tsx";
@@ -15,7 +15,12 @@ import { errorMessage } from "../lib/errors.ts";
 import { findMonitorBackupWake } from "../lib/monitor-backup.ts";
 import type { LiveSubagent } from "../lib/subagents.ts";
 import { subagentStatusLine, workflowPhasesLine, workflowStatusLine } from "../lib/subagents.ts";
-import { askToChangeText, fetchSystemCron, type SystemCronList } from "../lib/system-cron.ts";
+import {
+  askToChangeText,
+  fetchSystemCron,
+  jobsForAgent,
+  type SystemCronList,
+} from "../lib/system-cron.ts";
 import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
 import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
@@ -66,6 +71,8 @@ interface Props {
   conversations: ConversationSummary[];
   /** Puts text in this conversation's composer and switches to Chat; nothing is sent. */
   onAskAgent: (text: string) => void;
+  /** Every agent that exists, so a cron job whose agent is gone still shows somewhere. */
+  agentIds: readonly string[];
 }
 
 /**
@@ -110,6 +117,7 @@ export function TasksTab({
   onStopSubagent,
   conversations,
   onAskAgent,
+  agentIds,
 }: Props) {
   const [tasks, setTasks] = useState<CronTask[]>([]);
   /** Unix cron jobs, read-only: only an agent can change them. */
@@ -143,8 +151,9 @@ export function TasksTab({
 
   const load = useCallback(async () => {
     if (!agentId) return;
-    // Its own error line: a failed cron read must not hide the agent's tasks.
-    void fetchSystemCron(agentId).then(
+    // Every agent's jobs, filtered at render: an answer cannot belong to the wrong agent.
+    // Its own error line, so a failed cron read never hides the agent's tasks.
+    void fetchSystemCron().then(
       (list) => {
         setCron(list);
         setCronError("");
@@ -288,7 +297,7 @@ export function TasksTab({
     }
   };
 
-  const cronJobs = cron?.jobs ?? [];
+  const cronJobs = agentId ? jobsForAgent(cron?.jobs ?? [], agentId, agentIds) : [];
 
   if (!agentId) {
     return (
@@ -480,7 +489,7 @@ export function TasksTab({
             </div>
           </li>
         ))}
-        {cronJobs.map((job) => (
+        {cronJobs.map(({ job, owner }) => (
           <li key={`cron:${job.name}`} className="task">
             <div className="task-head">
               <span>
@@ -488,22 +497,28 @@ export function TasksTab({
               </span>
               {job.live ? null : <span className="tag">waiting for restart</span>}
             </div>
-            {job.entries.map((entry) => {
+            {job.description ? <div className="small">{job.description}</div> : null}
+            {owner === "self" ? null : (
+              <div className="muted small">
+                {owner === "gone" ? "Its agent no longer exists" : "No agent recorded"}
+              </div>
+            )}
+            {/* Each schedule over its own command: a file may hold several job lines. */}
+            {job.entries.map((entry, index) => {
               const described = describeCron(entry.schedule);
               return (
-                <div key={`when:${entry.schedule}:${entry.command}`} className="muted small">
-                  <code>{entry.schedule}</code>
-                  {described ? ` · ${described}` : ""} · {cron?.timezone}
-                </div>
+                // biome-ignore lint/suspicious/noArrayIndexKey: a file may repeat a line verbatim, and the list is redrawn whole.
+                <Fragment key={index}>
+                  <div className="muted small">
+                    <code>{entry.schedule}</code>
+                    {described ? ` · ${described}` : ""} · {cron?.timezone}
+                  </div>
+                  <div className="muted small">
+                    <code className="cron-command">{entry.command}</code>
+                  </div>
+                </Fragment>
               );
             })}
-            {job.description ? <div className="small">{job.description}</div> : null}
-            {job.agentId === null ? <div className="muted small">No agent recorded</div> : null}
-            {job.entries.map((entry) => (
-              <div key={`what:${entry.schedule}:${entry.command}`} className="muted small">
-                <code className="cron-command">{entry.command}</code>
-              </div>
-            ))}
             <div className="task-actions">
               <button
                 type="button"
