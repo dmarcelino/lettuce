@@ -799,17 +799,34 @@ function spawnedChild(spawned: { child: FakeChild }[], n: number): FakeChild {
   return entry.child;
 }
 
-/** Wait for the nth spawn instead of sleeping a fixed guess — a shared CI
- *  runner delivers async spawns later than a laptop ever does. */
+/** Poll until `done` holds. A shared CI runner delivers async work later than
+ *  any fixed sleep guesses, so nothing in this file waits on a guess. */
+async function waitFor(what: string, done: () => boolean | Promise<boolean>): Promise<void> {
+  for (let i = 0; i < 300; i += 1) {
+    if (await done()) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+/** Wait for the nth spawn instead of sleeping a fixed guess. */
 async function waitForSpawns(spawned: { child: FakeChild }[], n: number): Promise<FakeChild> {
-  for (let i = 0; i < 300 && spawned.length < n; i += 1) await Bun.sleep(10);
+  await waitFor(`spawn #${n}`, () => spawned.length >= n);
   return spawnedChild(spawned, n - 1);
 }
 
-async function runHarness() {
+/** A settle/progress frame as it was when it fired — see runHarness. */
+interface Frame {
+  runId: string;
+  eventCount: number;
+  state: PiRunMeta["state"];
+}
+
+async function runHarness(opts: { slowStoreMs?: number } = {}) {
   const dir = await mkdtemp(`${tmpdir()}/pi-runsvc-`);
   const spawned: { args: readonly string[]; child: FakeChild }[] = [];
   const settled: PiRunMeta[] = [];
+  const progress: Frame[] = [];
   const spawner = (
     args: readonly string[],
     onStdout: (chunk: string) => void,
@@ -825,8 +842,28 @@ async function runHarness() {
     paths: { dir },
     featureEnabled: () => true,
     spawner,
+    // The runner passes the LIVE meta to both hooks and keeps mutating it, so a
+    // bare push reads back the counters as of now, not as of the frame — with
+    // slow writes that reads as a flush that already landed. The progress frames
+    // are what a test waits on, so they are copied; `settled` is read after the
+    // run is over, when nothing mutates it any more.
     onSettle: (meta) => settled.push(meta),
+    onProgress: (meta) =>
+      progress.push({ runId: meta.runId, eventCount: meta.eventCount, state: meta.state }),
   });
+  // A shared CI runner's disk lands a durable write late. Slowing every meta
+  // write is the regression guard for the test that opts in: a wait that guesses
+  // how long a flush takes fails locally every time instead of occasionally on
+  // CI. It is opt-in per test on purpose — the other fixed sleeps in this file
+  // wait on spawns and streams, not on a meta write.
+  if (opts.slowStoreMs) {
+    const slowMs = opts.slowStoreMs;
+    const update = service.store.update.bind(service.store);
+    service.store.update = async (meta: PiRunMeta) => {
+      await Bun.sleep(slowMs);
+      await update(meta);
+    };
+  }
   await service.save({
     enabled: true,
     host: "pi.example.invalid",
@@ -840,7 +877,7 @@ async function runHarness() {
     keyFile: piKeyFile({ dir }),
     knownHostsFile: piKnownHostsFile({ dir }),
   };
-  return { dir, service, spawned, settled, files };
+  return { dir, service, spawned, settled, progress, files };
 }
 
 test("pi_run records the dispatching conversation and the settle report answers back", async () => {
@@ -993,7 +1030,9 @@ test("a send onto a session with a live run is announced as queueing", async () 
 });
 
 test("statusFacts gives the card state, progress, the step in flight, and the verdict", async () => {
-  const { service, spawned, files } = await runHarness();
+  // 100 ms is enough to outlast any fixed sleep a future edit could guess with,
+  // and small enough to leave the run well inside Bun's 5 s per-test timeout.
+  const { service, spawned, settled, progress, files } = await runHarness({ slowStoreMs: 100 });
   const meta = await service.runner.start(await service.load(), files, {
     kind: "run",
     prompt: "card me",
@@ -1006,7 +1045,12 @@ test("statusFacts gives the card state, progress, the step in flight, and the ve
   // The throttle is <=2 s: the next line after the window flushes the counters.
   await Bun.sleep(2_100);
   child.emit(`{"type":"message_start","message":{"role":"assistant"}}\n`);
-  await Bun.sleep(50); // let the run's line chain finish the flush it owes
+  // The runner's progress frame fires only after the flush it summarises has
+  // resolved (runner.ts flushMeta), so this waits for the durable write itself
+  // — no sleep, and no second read of the record to look for it.
+  await waitFor("the flush the third line owes", () =>
+    progress.some((m) => m.eventCount >= 3 && m.state === "running"),
+  );
   const live = await service.statusFacts(meta.runId);
   expect(live?.state).toBe("running");
   expect(Number(live?.eventCount)).toBeGreaterThanOrEqual(3);
@@ -1020,7 +1064,8 @@ test("statusFacts gives the card state, progress, the step in flight, and the ve
   );
   child.emit(`{"type":"agent_settled"}\n`);
   child.finish(0);
-  await Bun.sleep(100); // the exit path records the verdict asynchronously
+  // The exit path records the verdict, then settles.
+  await waitFor("the run to settle", () => settled.length === 1);
   const done = await service.statusFacts(meta.runId);
   expect(done?.state).toBe("completed");
   expect(done?.lastSaid).toContain("all done");

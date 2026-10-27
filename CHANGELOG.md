@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- **The remote-Pi status card stops going red on a loaded CI runner.** The card's test read the run record a fixed moment after the line that owed a flush, so on a busy runner it saw the previous flush and failed with `Expected: >= 3, Received: 1` — green on a re-run, red again later. It waits for the runner's own write confirmation now, and a deliberately slow test disk keeps a fixed-timer wait from creeping back. A change to tests or fixtures alone no longer owes a changelog entry of its own.
+
 ## [v0.22.0-letta_0.34.21] - 2026-10-26
 
 ### Added

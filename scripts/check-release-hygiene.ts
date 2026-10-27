@@ -69,10 +69,18 @@ function git(...args: string[]): string {
   return new TextDecoder().decode(result.stdout).trim();
 }
 
+/**
+ * Tests and their fixtures live beside the code but change nothing a user can notice, so a
+ * test-only PR owes no changelog entry (the `lettuce-releasing` skill excuses it). Without
+ * this, a fork PR — whose author cannot set the `bump:none` label — could not go green.
+ */
+const TEST_ONLY_RE = /(\.test\.[cm]?[jt]sx?$|\/fixtures\/)/;
+
 /** Which of the user-visible directories a set of paths touches. */
 export function appDirsTouched(files: string[]): string[] {
   const hit = new Set<string>();
   for (const file of files) {
+    if (TEST_ONLY_RE.test(file)) continue;
     for (const dir of APP_DIRS) if (file.startsWith(dir)) hit.add(dir.slice(0, -1));
   }
   return [...hit].sort();
