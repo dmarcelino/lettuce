@@ -3220,25 +3220,37 @@ textarea.mono {
     transform: rotate(360deg);
   }
 }
-/* Busy: a turn is running somewhere, so the dot is a button into the list.
-   Same 10px footprint as the span — the button reset strips only the chrome
-   the tone classes do not set themselves (warn keeps its spinner border).
+/* Busy: a turn is running somewhere, so the whole slot — dot and word together —
+   is the button into the list. Only the dot used to be one, which left a word
+   that reads like a label and answers nothing when clicked.
    The pulse is the one every activity dot already uses. */
-button.link-dot.busy {
-  cursor: pointer;
+.topbar-status.busy {
   appearance: none;
-  padding: 0;
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.topbar-status.busy:hover {
+  background: var(--surface-2);
+}
+.topbar-status.busy:hover .topbar-word {
+  color: var(--text);
+}
+.link-dot.busy {
   animation: activity-pulse 1.4s ease-in-out infinite;
 }
-button.link-dot.busy:not(.warn) {
+.link-dot.busy:not(.warn) {
   border: none;
 }
-button.link-dot.busy.warn {
+.link-dot.busy.warn {
   background: transparent;
 }
 @media (prefers-reduced-motion: reduce) {
   .link-dot.spinning,
-  button.link-dot.busy {
+  .link-dot.busy {
     animation: none;
   }
 }

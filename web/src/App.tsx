@@ -700,8 +700,9 @@ function Workspace({ status }: { status: Status }) {
  * name. It used to be a text pill, which cost the top bar the room it now
  * uses to say which agent and conversation you are in. Signed out stays
  * words and a button: it is the one state that needs you to act. While any
- * conversation is responding it pulses and becomes a button into the list of
- * what is running; with nothing running it is the same passive dot as ever.
+ * conversation is responding the whole slot pulses and becomes one button into
+ * the list of what is running; with nothing running it is the same passive dot as
+ * ever.
  */
 function LinkPill({
   link,
@@ -736,17 +737,19 @@ function LinkPill({
   }
   if (busy) {
     const busyLabel = `${count} conversation${count === 1 ? "" : "s"} responding — show`;
+    // The whole slot is the button: the dot alone was a 10px target with a word
+    // beside it that looked like the control and was not one.
     return (
-      <span className="topbar-status">
-        <button
-          type="button"
-          className={`link-dot ${tone} busy`}
-          onClick={onOpen}
-          aria-label={busyLabel}
-          title={busyLabel}
-        />
+      <button
+        type="button"
+        className="topbar-status busy"
+        onClick={onOpen}
+        aria-label={busyLabel}
+        title={busyLabel}
+      >
+        <span className={`link-dot ${tone} busy`} aria-hidden="true" />
         <span className="topbar-word">{count} responding</span>
-      </span>
+      </button>
     );
   }
   return (
