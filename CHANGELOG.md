@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.22.0-letta_0.34.21] - 2026-10-26
+
+### Added
+- **Tools an agent installs survive updates and restarts.** `npm install -g`, `go install`, `uv tool install` and checked binary downloads land in a new `tools/` folder under the state directory, and plain cron jobs an agent sets up come back after a recreate too. Agents also pick the right scheduler for a job: an "every day at 7" schedule no longer shifts an hour with daylight saving time, and a cron script can wake the agent only when it finds something. Tools installed before this release need reinstalling once.
+
 ## [v0.21.2-letta_0.34.21] - 2026-10-26
 
 ### Fixed

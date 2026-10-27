@@ -1,0 +1,22 @@
+#!/bin/bash
+# Runs a command in the environment the container was started with: the image
+# ENV plus compose's (TZ, GH_CONFIG_DIR, CODEX_HOME, the agent-tools variables).
+# A cron job starts with almost none of it (PATH=/usr/bin:/bin, no node), and
+# PID 1 (docker-init, compose `init: true`) still holds all of it. Cron only:
+# agent shells get their environment from letta-code, which this must not
+# second-guess. Usage: agent-env <command> [args...]
+# Without a PATH from PID 1 it refuses to run: a job run blind only logs a stray
+# "command not found". The Dockerfile's build check cannot reach that branch (in
+# a RUN step PID 1 is the shell holding the image ENV), so keep the guard anyway.
+set -euo pipefail
+vars=()
+while IFS= read -r -d '' kv; do vars+=("$kv"); done < /proc/1/environ
+has_path=false
+for kv in "${vars[@]}"; do
+  if [[ $kv == PATH=?* ]]; then has_path=true; fi
+done
+if [[ $has_path != true ]]; then
+  echo "agent-env: no PATH in /proc/1/environ; refusing to run $*" >&2
+  exit 70
+fi
+exec env -i "${vars[@]}" "$@"
