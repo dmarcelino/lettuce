@@ -77,31 +77,27 @@ export function parseCronFile(text: string): CronFile {
 }
 
 /**
- * The jobs `agentId` owns plus those with no owner, by name. A file that cannot be
- * read or holds no job line is left out rather than failing the whole list.
+ * Every job, by name, with its owner. Which agent sees which is the Tasks tab's
+ * call: only it knows which agents still exist, and a job whose agent is gone must
+ * still show somewhere. A saved file that cannot be read or holds no job line is
+ * left out rather than failing the whole list; a live copy that cannot be read
+ * makes the job not live.
  */
-export async function listSystemCron(io: SystemCronIo, agentId: string): Promise<SystemCronJob[]> {
+export async function listSystemCron(io: SystemCronIo): Promise<SystemCronJob[]> {
   const names = ((await io.listFiles(SYSTEM_CRON_DIR)) ?? [])
     .filter((name) => JOB_NAME.test(name))
     .sort();
   const jobs = await Promise.all(
     names.map(async (name): Promise<SystemCronJob | null> => {
-      try {
-        const [saved, live] = await Promise.all([
-          io.read(`${SYSTEM_CRON_DIR}/${name}`),
-          io.read(`${LIVE_CRON_DIR}/${name}`),
-        ]);
-        if (saved === null) return null;
-        const file = parseCronFile(saved);
-        if (file.entries.length === 0) return null;
-        return { name, ...file, live: live === saved };
-      } catch {
-        return null;
-      }
+      const [saved, live] = await Promise.all([
+        io.read(`${SYSTEM_CRON_DIR}/${name}`).catch(() => null),
+        io.read(`${LIVE_CRON_DIR}/${name}`).catch(() => null),
+      ]);
+      if (saved === null) return null;
+      const file = parseCronFile(saved);
+      if (file.entries.length === 0) return null;
+      return { name, ...file, live: live === saved };
     }),
   );
-  return jobs.filter(
-    (job): job is SystemCronJob =>
-      job !== null && (job.agentId === null || job.agentId === agentId),
-  );
+  return jobs.filter((job): job is SystemCronJob => job !== null);
 }

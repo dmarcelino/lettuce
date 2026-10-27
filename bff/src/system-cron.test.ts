@@ -74,20 +74,26 @@ describe("parseCronFile", () => {
 });
 
 describe("listSystemCron", () => {
-  test("shows the agent's own jobs and owner-less ones, not another agent's", async () => {
+  test("lists every job with its owner, by name", async () => {
+    // Which agent sees which is the Tasks tab's call: only it knows which agents exist.
     const io = ioOf({
+      [`${SYSTEM_CRON_DIR}/theirs`]: JOB.replace("agent-a", "agent-b"),
       [`${SYSTEM_CRON_DIR}/mine`]: JOB,
       [`${SYSTEM_CRON_DIR}/shared`]: "0 3 * * 0 root backup.sh\n",
-      [`${SYSTEM_CRON_DIR}/theirs`]: JOB.replace("agent-a", "agent-b"),
     });
-    expect((await listSystemCron(io, "agent-a")).map((job) => job.name)).toEqual([
-      "mine",
-      "shared",
+    expect((await listSystemCron(io)).map((job) => [job.name, job.agentId])).toEqual([
+      ["mine", "agent-a"],
+      ["shared", null],
+      ["theirs", "agent-b"],
     ]);
-    expect((await listSystemCron(io, "agent-b")).map((job) => job.name)).toEqual([
-      "shared",
-      "theirs",
-    ]);
+  });
+
+  test("a live copy that cannot be read is not live, not a missing job", async () => {
+    const io = ioOf({
+      [`${SYSTEM_CRON_DIR}/job`]: JOB,
+      [`${LIVE_CRON_DIR}/job`]: new Error("EACCES"),
+    });
+    expect((await listSystemCron(io)).map((job) => [job.name, job.live])).toEqual([["job", false]]);
   });
 
   test("live only when /etc/cron.d holds the same file", async () => {
@@ -98,9 +104,7 @@ describe("listSystemCron", () => {
       [`${SYSTEM_CRON_DIR}/stale`]: JOB,
       [`${LIVE_CRON_DIR}/stale`]: JOB.replace("*/15", "*/30"),
     });
-    const live = Object.fromEntries(
-      (await listSystemCron(io, "agent-a")).map((job) => [job.name, job.live]),
-    );
+    const live = Object.fromEntries((await listSystemCron(io)).map((job) => [job.name, job.live]));
     expect(live).toEqual({ missing: false, same: true, stale: false });
   });
 
@@ -112,10 +116,10 @@ describe("listSystemCron", () => {
       [`${SYSTEM_CRON_DIR}/broken`]: new Error("EACCES"),
       [`${SYSTEM_CRON_DIR}/ok`]: JOB,
     });
-    expect((await listSystemCron(io, "agent-a")).map((job) => job.name)).toEqual(["ok"]);
+    expect((await listSystemCron(io)).map((job) => job.name)).toEqual(["ok"]);
   });
 
   test("no folder yet is an empty list", async () => {
-    expect(await listSystemCron(ioOf({}), "agent-a")).toEqual([]);
+    expect(await listSystemCron(ioOf({}))).toEqual([]);
   });
 });

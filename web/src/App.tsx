@@ -727,6 +727,7 @@ function Workspace({ status }: { status: Status }) {
               setPrefill(appendToDraft(key ? readDraft(key) : "", text));
               setTab("Chat");
             }}
+            agentIds={agents.agents.map((agent) => agent.id)}
           />
         ) : tab === "Runs" ? (
           <RunsTab
