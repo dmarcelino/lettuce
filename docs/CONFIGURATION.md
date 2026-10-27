@@ -281,6 +281,38 @@ backend status and a test search.
 Without the profile the tools stay registered and every call fails with the
 backend's error, so switch them off in Settings → Web.
 
+## Providers that name models `vendor/model`
+
+Settings → Providers & models → **Add provider** registers a provider you name
+(`llama 3b` serves `llama-3b/<model>`) through the BFF's providers mod. letta-code
+refuses any model id holding a `/` in a mod registration, and the id is the name
+sent to the endpoint, so it cannot be rewritten. Eight types name (nearly) every
+model that way: **OpenRouter, Together AI, Fireworks, Hugging Face, NVIDIA NIM,
+Vercel AI Gateway, Baseten and Groq**.
+
+For those, **Add provider** asks only for the key and connects the app-server's
+own connection instead (`connect_provider`). What that means:
+
+- **One connection per type.** Upstream keys a connection on its provider id, so
+  there is one OpenRouter connection per Lettuce, not one per name. A second
+  **Add provider** for the same type is refused; change its key with **Edit** on
+  its row.
+- **The handle prefix is the type id**, not a name you choose:
+  `openrouter/z-ai/glm-5.3-flash`. An agent set to an `openrouter/…` model before
+  keeps its handle.
+- **The models are the catalog bundled with letta-code** (pi-ai's), with the
+  capabilities and context windows it records. A model the router added after
+  that letta-code release appears with the next upgrade. Capabilities cannot be
+  declared on these models with **Edit** — the declaration is a mod registration
+  too.
+
+A provider saved with such ids before this change (it served nothing) stays
+listed with a warning: **Remove** it and add the type again. A plain
+OpenAI-compatible endpoint that serves `org/model` ids (vLLM serving Hugging Face
+names, for instance) has the same limit: **Test** lists only the ids it can
+register and says how many it skipped. The background is in
+[upstream-notes](upstream-notes.md#provider-mod-slash-ids).
+
 ## Model capabilities (vision, thinking, real context window)
 
 | Variable | Default | Effect |

@@ -72,6 +72,12 @@ describe("parseModelCapsBody", () => {
       /maxTokens/,
     );
   });
+
+  test("a model whose id holds a slash cannot be declared: the mod could not register it", () => {
+    expect(() => parseModelCapsBody({ ...CAPS, handle: "openrouter/z-ai/glm-5.3-flash" })).toThrow(
+      /"\/"/,
+    );
+  });
 });
 
 describe("ModelCapsStore", () => {

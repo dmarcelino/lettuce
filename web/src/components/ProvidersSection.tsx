@@ -86,6 +86,10 @@ interface Row {
   headerCount: number;
   /** False for a connection the app-server holds: Disconnect, not Remove. */
   owned: boolean;
+  /** Why it serves nothing (or less than it lists); shown in place of the meta line. */
+  problem?: string;
+  /** No Edit: a stored provider of a type the app-server's own connection now serves. */
+  removeOnly?: boolean;
   provider?: Provider;
   connection?: ConnectionEntry;
 }
@@ -191,6 +195,10 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
     ),
     headerCount: provider.headerNames.length,
     owned: true,
+    ...(provider.problem ? { problem: provider.problem } : {}),
+    // Saved before those types became connections: its fix is Remove and add
+    // again, and the sheet would only connect the type beside it.
+    removeOnly: Boolean(types.find((type) => type.id === provider.type)?.connection),
     provider,
   }));
 
@@ -254,13 +262,15 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
           </span>
           {row.owned ? (
             <>
-              <button
-                type="button"
-                className="link"
-                onClick={() => setForm({ editing: row.provider ?? null })}
-              >
-                Edit
-              </button>
+              {row.removeOnly ? null : (
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => setForm({ editing: row.provider ?? null })}
+                >
+                  Edit
+                </button>
+              )}
               <button
                 type="button"
                 className="link danger"
@@ -288,14 +298,18 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
             </>
           )}
         </div>
-        <div className="prov-meta muted small">
-          {row.metaOk ? <span className="ok">Connected</span> : null}
-          {row.metaOk && row.meta ? " · " : null}
-          <code>{row.meta}</code>
-          {row.headerCount > 0
-            ? ` · ${row.headerCount} header${row.headerCount === 1 ? "" : "s"}`
-            : null}
-        </div>
+        {row.problem ? (
+          <p className="warning small">{row.problem}</p>
+        ) : (
+          <div className="prov-meta muted small">
+            {row.metaOk ? <span className="ok">Connected</span> : null}
+            {row.metaOk && row.meta ? " · " : null}
+            <code>{row.meta}</code>
+            {row.headerCount > 0
+              ? ` · ${row.headerCount} header${row.headerCount === 1 ? "" : "s"}`
+              : null}
+          </div>
+        )}
         {showModels ? (
           <>
             <div className="models-head">
@@ -467,7 +481,11 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
         <ProviderFormSheet
           types={types}
           editing={form.editing}
-          onClose={() => setForm(null)}
+          onClose={() => {
+            setForm(null);
+            // A save the app-server refused kept the sheet open; its row now says why.
+            void load();
+          }}
           onSaved={(mod) => {
             setForm(null);
             toast(

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { PROVIDER_ID_RE, type VisionProviderConfig } from "./vision.ts";
+import { modModelIdProblem, PROVIDER_ID_RE, type VisionProviderConfig } from "./vision.ts";
 
 /**
  * What the operator has declared about models the server cannot describe.
@@ -117,6 +117,10 @@ export function parseModelCapsBody(body: unknown): {
       `handle must look like "provider/model" with a lowercase provider prefix`,
     );
   }
+  // A declaration renders a registration for its model, and the mod refuses the
+  // whole provider over one such id; its own connection reports its capabilities.
+  const problem = modModelIdProblem(parts.model);
+  if (problem) throw new ModelCapsError(`Capabilities cannot be declared here: ${problem}`);
   if (typeof record.vision !== "boolean" || typeof record.thinking !== "boolean") {
     throw new ModelCapsError("vision and thinking must be booleans");
   }

@@ -17,9 +17,14 @@
  * Azure, Copilot, the ChatGPT/Claude plans) are absent: the mod takes
  * `{api, baseUrl, apiKey, models}` and nothing else, so those stay with
  * `letta connect` on the app-server host.
+ *
+ * The mod cannot register a model id holding "/" (`modModelIdProblem`), so the
+ * types whose catalogs name models `vendor/model` — OpenRouter and the other
+ * hosted routers — are the exception: they carry a `connection` and a save
+ * becomes `connect_provider`, one connection per type.
  */
 
-import { PROVIDER_ID_RE } from "./vision.ts";
+import { modModelIdProblem, PROVIDER_ID_RE } from "./vision.ts";
 
 export type ProviderScope = "local" | "cloud";
 
@@ -33,6 +38,14 @@ export interface ProviderType {
   baseUrl: string;
   /** Whether a key is expected (a local endpoint usually needs none). */
   keyOptional: boolean;
+  /**
+   * The app-server's own local connection (`connect_provider` provider_id) that
+   * serves this type instead of the providers mod. Set where the catalog's model
+   * ids hold "/", which the mod cannot register (`modModelIdProblem`). Upstream
+   * keys a connection on this id, so there is one per type and its handle
+   * prefix is the id: docs/upstream-notes.md#provider-mod-slash-ids.
+   */
+  connection?: string;
 }
 
 export const PROVIDER_TYPES: readonly ProviderType[] = [
@@ -78,7 +91,9 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     baseUrl: "https://ollama.com/v1",
     keyOptional: false,
   },
-  // Cloud — hosted, so a key is always expected.
+  // Cloud — hosted, so a key is always expected. A type with `connection` is one
+  // whose catalog names models `vendor/model` (in letta-code 0.34.21's bundled
+  // pi-ai catalog: OpenRouter 463 of 464 ids, Groq 5 of 7, every id of the rest).
   {
     id: "openai",
     label: "OpenAI",
@@ -118,6 +133,7 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     api: "openai-completions",
     baseUrl: "https://openrouter.ai/api/v1",
     keyOptional: false,
+    connection: "openrouter",
   },
   {
     id: "deepseek",
@@ -134,6 +150,7 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     api: "openai-completions",
     baseUrl: "https://api.groq.com/openai/v1",
     keyOptional: false,
+    connection: "groq",
   },
   {
     id: "xai",
@@ -150,6 +167,7 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     api: "openai-completions",
     baseUrl: "https://api.together.ai/v1",
     keyOptional: false,
+    connection: "together",
   },
   {
     id: "fireworks",
@@ -158,6 +176,7 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     api: "openai-completions",
     baseUrl: "https://api.fireworks.ai/inference/v1",
     keyOptional: false,
+    connection: "fireworks",
   },
   {
     id: "cerebras",
@@ -198,6 +217,7 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     api: "openai-completions",
     baseUrl: "https://integrate.api.nvidia.com/v1",
     keyOptional: false,
+    connection: "nvidia",
   },
   {
     id: "huggingface",
@@ -206,6 +226,7 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     api: "openai-completions",
     baseUrl: "https://router.huggingface.co/v1",
     keyOptional: false,
+    connection: "huggingface",
   },
   {
     id: "baseten",
@@ -214,6 +235,7 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     api: "openai-completions",
     baseUrl: "https://inference.baseten.co/v1",
     keyOptional: false,
+    connection: "baseten",
   },
   {
     id: "vercel-ai-gateway",
@@ -222,6 +244,7 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     api: "openai-completions",
     baseUrl: "https://ai-gateway.vercel.sh/v1",
     keyOptional: false,
+    connection: "vercel-ai-gateway",
   },
 ];
 
@@ -250,6 +273,8 @@ export function slugifyName(name: unknown): string {
 
 /** What the sheet sends, once validated and canonicalised. */
 export interface ParsedProvider {
+  /** Set for a type the app-server's own connection serves (`ProviderType.connection`). */
+  connection?: string;
   prefix: string;
   name: string;
   type: string;
@@ -309,15 +334,14 @@ function normalizeBaseUrl(value: unknown): string {
   return text.replace(/\/+$/, "");
 }
 
-/** Model ids as the handle's model segment; a slash is part of the id. */
+/** Model ids as the handle's model segment, each one the mod can register. */
 function parseModelIds(value: unknown): string[] {
   const raw = Array.isArray(value) ? value : [];
   const ids: string[] = [];
   for (const entry of raw) {
     const id = typeof entry === "string" ? entry.trim() : "";
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/i.test(id) || id.endsWith("/")) {
-      throw new ProviderError(`"${String(entry)}" is not a model id`);
-    }
+    const problem = modModelIdProblem(id);
+    if (problem) throw new ProviderError(problem);
     if (!ids.includes(id)) ids.push(id);
   }
   if (ids.length === 0) throw new ProviderError("Pick at least one model");
@@ -332,6 +356,24 @@ function parseModelIds(value: unknown): string[] {
 export function parseProviderBody(body: unknown): ParsedProvider {
   if (!body || typeof body !== "object") throw new ProviderError("Body must be an object");
   const record = body as Record<string, unknown>;
+  const connectionType = providerType(record.type);
+  if (connectionType?.connection) {
+    // The app-server's own connection: its catalog is the model list and its id
+    // is the handle prefix, so a name, a URL and a model pick would all be ignored.
+    const apiKey = typeof record.apiKey === "string" ? record.apiKey.trim() : "";
+    if (!apiKey) throw new ProviderError(`${connectionType.label} needs an API key`);
+    return {
+      connection: connectionType.connection,
+      prefix: connectionType.connection,
+      name: connectionType.label,
+      type: connectionType.id,
+      api: connectionType.api,
+      scope: connectionType.scope,
+      baseUrl: connectionType.baseUrl,
+      apiKey,
+      models: [],
+    };
+  }
   const name = typeof record.name === "string" ? record.name.trim() : "";
   if (!name) throw new ProviderError("A provider needs a name");
   const prefix = slugifyName(name);
@@ -360,6 +402,14 @@ export function parseProviderBody(body: unknown): ParsedProvider {
     models: parseModelIds(record.models),
     headers,
   };
+}
+
+/** Splits served ids into what the mod can register and what it cannot. */
+export function partitionModelIds(ids: readonly string[]): { models: string[]; skipped: string[] } {
+  const models: string[] = [];
+  const skipped: string[] = [];
+  for (const id of ids) (modModelIdProblem(id) ? skipped : models).push(id);
+  return { models, skipped };
 }
 
 /**

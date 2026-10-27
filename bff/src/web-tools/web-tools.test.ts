@@ -479,22 +479,34 @@ describe("settings", () => {
 
 describe("modErrorsFrom", () => {
   test("picks this mod's errors out of letta-code's diagnostics report", () => {
+    // `mod` is the owner object letta-code copies in (`mods/mod-diagnostics.ts`), not a path.
+    const owner = (path: string) => ({
+      id: `global:${path}`,
+      path,
+      scope: "global",
+      generation: 1,
+    });
     const report = JSON.stringify({
       report: {
         diagnostics: [
           {
-            mod: "/root/.letta/mods/lettuce-web-tools.mjs",
+            mod: owner("/root/.letta/mods/lettuce-web-tools.mjs"),
             phase: "import",
             message: "boom",
             severity: "error",
           },
           {
-            mod: "/root/.letta/mods/other.ts",
+            mod: owner("/root/.letta/mods/other.ts"),
             phase: "import",
             message: "not ours",
             severity: "error",
           },
-          { mod: "lettuce-web-tools", phase: "activate", message: "meh", severity: "warning" },
+          {
+            mod: owner("/root/.letta/mods/lettuce-web-tools.mjs"),
+            phase: "activate",
+            message: "meh",
+            severity: "warning",
+          },
         ],
       },
     });

@@ -37,12 +37,31 @@
  */
 
 import { MODS_DIR } from "../internal-tools/mod.ts";
+import { modErrorsIn } from "../internal-tools/mod-diagnostics.ts";
 import type { EndpointInfo, ModelCaps } from "./store.ts";
 
 export const PROVIDERS_MOD_PATH = `${MODS_DIR}/lettuce-providers.mjs`;
 
 /** The id shapes upstream's own provider-mod validation enforces. */
 export const PROVIDER_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+/**
+ * Why a served model id cannot go into this mod, or null when it can. The one
+ * statement of the rule: the Test probe filters by it, a provider save and a
+ * capability declaration refuse by it, and the render drops by it.
+ *
+ * letta-code's mod validation (`backend/dev/pi-provider-mod-validation.ts`,
+ * `validateModel`) refuses any model id holding "/", and the id is the model
+ * name sent on the wire, so it cannot be renamed. One refused model throws the
+ * whole registration: docs/upstream-notes.md#provider-mod-slash-ids.
+ */
+export function modModelIdProblem(id: string): string | null {
+  if (id.includes("/")) {
+    return `"${id}" holds a "/", which a named provider cannot register`;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(id)) return `"${id}" is not a model id`;
+  return null;
+}
 
 export interface VisionModelConfig {
   id: string;
@@ -119,12 +138,7 @@ export function parseVisionProviders(raw: string | undefined | null): VisionProv
     const models = record.models.map((modelEntry, index) => {
       const model = (modelEntry ?? {}) as Record<string, unknown>;
       const modelId = model.id;
-      if (
-        typeof modelId !== "string" ||
-        modelId.length === 0 ||
-        modelId.includes("/") ||
-        !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(modelId)
-      ) {
+      if (typeof modelId !== "string" || modModelIdProblem(modelId) !== null) {
         fail(`provider "${id}" model ${index} has an invalid id ${JSON.stringify(modelId)}`);
       }
       const input =
@@ -271,12 +285,19 @@ export function buildProviderModGroups(input: ProviderModInput): ProviderModGrou
       return null;
     }
 
+    // A shadow must list every served model or the rest vanish, so a connection
+    // serving even one id the mod cannot register is never shadowed at all.
+    if (served?.some((model) => modModelIdProblem(model.id) !== null)) continue;
+
     const declarations = declared.get(prefix) ?? new Map<string, ModelCaps>();
     const ids: string[] = [];
     for (const id of ownModels ?? []) if (!ids.includes(id)) ids.push(id);
     for (const model of served ?? []) if (!ids.includes(model.id)) ids.push(model.id);
     for (const id of declarations.keys()) if (!ids.includes(id)) ids.push(id);
-    if (ids.length === 0) continue; // nothing served, nothing declared: nothing to register
+    // A provider saved before the shared id rule may hold ids that never registered;
+    // `GET /api/providers` says so on its row.
+    const registrable = ids.filter((id) => modModelIdProblem(id) === null);
+    if (registrable.length === 0) continue; // nothing served, nothing declared: nothing to register
 
     const labelOf = new Map((served ?? []).map((m) => [m.id, m]));
     groups.push({
@@ -288,7 +309,7 @@ export function buildProviderModGroups(input: ProviderModInput): ProviderModGrou
       ...(endpoint?.headers && Object.keys(endpoint.headers).length > 0
         ? { headers: endpoint.headers }
         : {}),
-      models: ids.map((id) => {
+      models: registrable.map((id) => {
         const caps = declarations.get(id);
         const info = labelOf.get(id);
         return {
@@ -359,13 +380,19 @@ export default function activate() {}
             : {}),
         })),
       };
-      return `  letta.providers.register(${JSON.stringify(group.id)}, ${JSON.stringify(
-        registration,
-        null,
-        4,
-      )
-        .split("\n")
-        .join("\n  ")});`;
+      // Each in its own try: letta-code throws the whole activate() over one bad
+      // registration, which would take every provider after it down too. The
+      // report still lands in diagnostics/latest.json, where the BFF reads it.
+      return `  try {
+    letta.providers.register(${JSON.stringify(group.id)}, ${JSON.stringify(registration, null, 4)
+      .split("\n")
+      .join("\n    ")});
+  } catch (error) {
+    letta.diagnostics?.report?.({
+      severity: "error",
+      message: ${JSON.stringify(`Provider ${group.id}: `)} + (error instanceof Error ? error.message : String(error)),
+    });
+  }`;
     })
     .join("\n\n");
   return `${header}
@@ -389,4 +416,18 @@ export function parseRegisteredProviderIds(modSource: string | null): Set<string
     if (match[1]) ids.add(match[1]);
   }
   return ids;
+}
+
+/**
+ * The providers mod's load errors, keyed by the prefix each names. letta-code's
+ * own messages and the render's `diagnostics.report` both start "Provider <id>".
+ * `since` ignores a report older than the reload it is read for.
+ */
+export function providerLoadErrors(diagnostics: string | null, since = 0): Map<string, string> {
+  const errors = new Map<string, string>();
+  for (const { message } of modErrorsIn(diagnostics, PROVIDERS_MOD_PATH, since)) {
+    const prefix = /^Provider ([a-z0-9][a-z0-9._-]*)[,:]/.exec(message)?.[1];
+    if (prefix && !errors.has(prefix)) errors.set(prefix, message);
+  }
+  return errors;
 }

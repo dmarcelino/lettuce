@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import type {
   AgentListResponseMessage,
   AgentRetrieveResponseMessage,
+  ConnectProviderResponseMessage,
   ConversationRetrieveResponseMessage,
   ExecuteCommandResponseMessage,
   ListInDirectoryResponseMessage,
@@ -94,6 +95,7 @@ import { handleInternalTools } from "./internal-tools/http.ts";
 import { type ModsIo, type RenderedMod, syncMods } from "./internal-tools/install.ts";
 import { readRenamed } from "./internal-tools/legacy.ts";
 import { MODS_DIR, renderToolsMod } from "./internal-tools/mod.ts";
+import { MOD_DIAGNOSTICS_PATH } from "./internal-tools/mod-diagnostics.ts";
 import type { ToolHandler } from "./internal-tools/types.ts";
 import {
   ensureMcpServers,
@@ -1326,6 +1328,17 @@ registerProviderRoutes(app, {
   providerSight,
   contextSizer,
   resyncMods,
+  async connect(providerId, apiKey) {
+    const response = await upstream.request<ConnectProviderResponseMessage>({
+      type: "connect_provider",
+      request_id: `bff-connect-${randomUUID()}`,
+      target: "local",
+      provider_id: providerId,
+      fields: { apiKey },
+    });
+    if (!response.success) throw new Error(response.error || `${providerId}: connect failed`);
+  },
+  readDiagnostics: () => codexIo.read(MOD_DIAGNOSTICS_PATH),
 });
 
 // The Context sheet's numbers: the context size in force (typed or declared),

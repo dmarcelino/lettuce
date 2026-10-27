@@ -278,3 +278,36 @@ deploy manager's build stamps `+unknown`, and `bun run deploy-check <origin>
 --allow-unstamped` accepts `+unknown` for the release tag being checked. Which commit a
 deploy manager actually deployed is in *its* record — the deploy manager's own deploy log — because no
 image built that way can name it.
+
+## Provider mod slash ids
+
+letta-code's provider-mod validation (`backend/dev/pi-provider-mod-validation.ts`,
+`validateModel`) throws `id must be unprefixed and cannot contain "/"` for any model id
+holding a slash, and the throw happens inside the mod's `activate()`. Measured on 0.34.21
+(2026-10-27): an OpenRouter provider saved with 182 `vendor/model` ids rendered fine, the
+`reload` answered success, the BFF logged "mods reloaded" — and the app-server served
+nothing under `or-2/`, because the first model aborted the registration and every
+registration after it. The only trace was `~/.letta/mods/diagnostics/latest.json`, where
+each entry's `mod` is the owner object (`{id, path, scope, generation}`), not a path string.
+
+The id is the model name pi-ai sends on the wire, so it cannot be rewritten, and upstream
+is not ours to patch. Upstream's own local connection (`connect_provider`) has no such
+limit: it serves pi-ai's bundled catalog and splits a handle at its first slash
+(`openrouter/z-ai/glm-5.3-flash`). The cost is that a connection is keyed on the provider
+id — one per type, prefix fixed.
+
+Ids with a slash in that bundled catalog, at 0.34.21: OpenRouter 463 of 464, Together 20/20,
+Fireworks 22/22, Hugging Face 76/76, NVIDIA 19/19, Vercel AI Gateway 254/254, Baseten 22/22,
+Groq 5/7. Those eight types carry `connection` in `bff/src/providers/registry.ts`. Re-check
+the counts on an upstream sync that moves pi-ai.
+
+Three rules follow, all in `bff/src/providers/`:
+
+- `modModelIdProblem` (`vision.ts`) is the one statement of what a mod can register; Test,
+  save, a capability declaration and the render all use it.
+- A connection serving even one such id is never shadowed: a shadow must list every served
+  model, and it cannot list that one.
+- The rendered mod wraps each `letta.providers.register` in its own `try` and reports through
+  `letta.diagnostics.report`, so one refused provider leaves the rest registered; the BFF
+  reads the report after a save's reload and returns it as `loadError`.
+

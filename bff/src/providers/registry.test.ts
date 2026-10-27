@@ -3,10 +3,12 @@ import {
   PROVIDER_TYPES,
   ProviderError,
   parseProviderBody,
+  partitionModelIds,
   probeProviderModels,
   providerType,
   slugifyName,
 } from "./registry.ts";
+import { modModelIdProblem } from "./vision.ts";
 
 function body(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -71,17 +73,48 @@ describe("parseProviderBody", () => {
     expect(() => parseProviderBody(body({ type: "bedrock" }))).toThrow(/provider type/);
     expect(() => parseProviderBody(body({ baseUrl: "127.0.0.1:8080" }))).toThrow(/http/);
     expect(() => parseProviderBody(body({ models: [] }))).toThrow(/at least one model/);
-    expect(() => parseProviderBody(body({ models: ["ok", "/nope"] }))).toThrow(/not a model id/);
+    expect(() => parseProviderBody(body({ models: ["ok", "~nope"] }))).toThrow(/not a model id/);
     // What a model can do is not the provider's business: a body that still
     // carries capabilities gets them ignored rather than rejected.
     expect("caps" in parseProviderBody(body({ caps: { contextWindow: 0 } }))).toBe(false);
   });
 
-  test("a model id may hold a slash (OpenRouter names them that way)", () => {
+  test("a model id holding a slash is refused: upstream's mod registration rejects it", () => {
+    expect(() =>
+      parseProviderBody(
+        body({ type: "openai-compatible", baseUrl: "http://x/v1", models: ["org/model"] }),
+      ),
+    ).toThrow(/"org\/model".*"\/"/);
+    expect(() => parseProviderBody(body({ models: ["~anthropic/claude-haiku-latest"] }))).toThrow(
+      ProviderError,
+    );
+  });
+
+  test("a type served by the app-server's own connection needs only its key", () => {
+    const parsed = parseProviderBody({ type: "openrouter", apiKey: " k " });
+    expect(parsed.connection).toBe("openrouter");
+    // The handle prefix is the connection's, not a name the operator chose.
+    expect(parsed.prefix).toBe("openrouter");
+    expect(parsed.apiKey).toBe("k");
+    expect(parsed.models).toEqual([]);
+    expect(() => parseProviderBody({ type: "openrouter" })).toThrow(/needs an API key/);
+  });
+
+  test("every catalog whose ids carry a slash goes through the app-server's connection", () => {
     expect(
-      parseProviderBody(body({ type: "openrouter", apiKey: "k", models: ["deepseek/deepseek-v3"] }))
-        .models,
-    ).toEqual(["deepseek/deepseek-v3"]);
+      PROVIDER_TYPES.filter((type) => type.connection)
+        .map((type) => type.id)
+        .sort(),
+    ).toEqual([
+      "baseten",
+      "fireworks",
+      "groq",
+      "huggingface",
+      "nvidia",
+      "openrouter",
+      "together",
+      "vercel-ai-gateway",
+    ]);
   });
 
   test("every type says an api and a scope", () => {
@@ -115,6 +148,28 @@ describe("parseProviderBody headers", () => {
     expect(() => parseProviderBody(body({ headers: ["x-a"] }))).toThrow(/name to value/);
     // An empty name carrying a value is a mistake the save should name.
     expect(() => parseProviderBody(body({ headers: { "": "v" } }))).toThrow(/header name/);
+  });
+});
+
+describe("modModelIdProblem", () => {
+  test("served ids upstream registers pass", () => {
+    for (const id of ["qwen3-4b-instruct", "Qwen3.8-Flash-Next", "llama3.1:8b", "gpt-4o_mini"]) {
+      expect(modModelIdProblem(id)).toBeNull();
+    }
+  });
+
+  test("a slash or a leading sigil is named as the reason", () => {
+    expect(modModelIdProblem("deepseek/deepseek-v3")).toMatch(/"\/"/);
+    expect(modModelIdProblem("~anthropic/claude-haiku-latest")).not.toBeNull();
+    expect(modModelIdProblem("~latest")).not.toBeNull();
+    expect(modModelIdProblem("")).not.toBeNull();
+  });
+
+  test("partitionModelIds keeps what registers and counts the rest", () => {
+    expect(partitionModelIds(["a", "~x/y", "b/c", "d"])).toEqual({
+      models: ["a", "d"],
+      skipped: ["~x/y", "b/c"],
+    });
   });
 });
 

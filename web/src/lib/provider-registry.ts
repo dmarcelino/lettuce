@@ -19,6 +19,12 @@ export interface ProviderType {
   /** Prefilled base URL, still editable. */
   baseUrl: string;
   keyOptional: boolean;
+  /**
+   * Set when the app-server's own connection serves this type: its catalog names
+   * models `vendor/model`, which a provider you name cannot register. A save
+   * connects it, one per type, with this id as its handle prefix.
+   */
+  connection?: string;
 }
 
 export interface Provider {
@@ -33,6 +39,8 @@ export interface Provider {
   hasKey: boolean;
   /** Stored custom-header names. Values are write-only, like the key. */
   headerNames: string[];
+  /** Why it serves nothing (or less than it lists), when it does. */
+  problem?: string;
 }
 
 export interface ProviderDraft {
@@ -64,9 +72,14 @@ export async function fetchProviders(): Promise<{
   return { types: body.types ?? [], providers: body.providers ?? [] };
 }
 
-export async function saveProvider(
-  draft: ProviderDraft,
-): Promise<{ provider: Provider; mod: ModState }> {
+/** A save's answer; `loadError` is the app-server refusing what was stored. */
+export interface SaveResult {
+  provider: Provider;
+  mod: ModState;
+  loadError?: string;
+}
+
+export async function saveProvider(draft: ProviderDraft): Promise<SaveResult> {
   const response = await ok(
     await fetch("/api/providers", {
       method: "POST",
@@ -74,7 +87,7 @@ export async function saveProvider(
       body: JSON.stringify(draft),
     }),
   );
-  return (await response.json()) as { provider: Provider; mod: ModState };
+  return (await response.json()) as SaveResult;
 }
 
 export async function removeProvider(prefix: string): Promise<{ removed: boolean; mod: ModState }> {
@@ -94,9 +107,10 @@ export async function probeModels(input: {
   api: string;
   baseUrl: string;
   apiKey: string;
+  type: string;
   prefix?: string;
   headers?: Record<string, string>;
-}): Promise<string[]> {
+}): Promise<ProbeResult> {
   const response = await ok(
     await fetch("/api/providers/models", {
       method: "POST",
@@ -104,6 +118,20 @@ export async function probeModels(input: {
       body: JSON.stringify(input),
     }),
   );
-  const body = (await response.json()) as { models?: string[] };
-  return body.models ?? [];
+  const body = (await response.json()) as Partial<ProbeResult>;
+  return { models: body.models ?? [], skipped: body.skipped ?? [] };
+}
+
+/** What a Test answered: the ids a provider can publish, and those it cannot. */
+export interface ProbeResult {
+  models: string[];
+  skipped: string[];
+}
+
+/** The Test toast. A connection serves its own catalog, so its probe proves only the key. */
+export function probeToast(found: ProbeResult, connection: boolean): string {
+  if (connection) return "reachable — key accepted";
+  const count = found.models.length;
+  const head = `reachable — ${count} ${count === 1 ? "model" : "models"}`;
+  return found.skipped.length > 0 ? `${head}, ${found.skipped.length} skipped` : head;
 }

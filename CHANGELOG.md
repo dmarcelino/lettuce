@@ -5,6 +5,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- **OpenRouter, Together AI, Fireworks, Hugging Face, NVIDIA NIM, Vercel AI Gateway, Baseten and Groq connect through the app-server's own connection.** These hosts name their models `vendor/model`, and a provider you name cannot carry an id with a slash — an OpenRouter provider added under a name of your own saved fine and then served nothing. **Add provider** now asks for the key alone and connects it the way the app-server does, serving the whole catalog as `openrouter/<vendor>/<model>`. The price is one connection per host, always under that host's own prefix: two OpenRouter keys, or an OpenRouter provider named something else, are not possible. A provider saved the old way stays listed with a warning to remove it and add the host again.
+
+### Fixed
+- **A provider the app-server refuses says so.** A save that the app-server would not load used to close the sheet as if it had worked; the sheet now stays open on the reason, and the provider's row carries it too. One refused provider no longer takes every provider listed after it down with it, and Settings → Web search's error line, which read letta-code's report in the wrong shape and stayed empty, now shows the web tools' load errors.
+- **Test no longer pre-ticks models that cannot be saved.** OpenRouter's `~…-latest` aliases, and any id with a `/`, are left out of the list with a count of what was skipped, instead of failing the save with "is not a model id".
+
 ## [v0.24.0-letta_0.34.21] - 2026-10-29
 
 ### Added
