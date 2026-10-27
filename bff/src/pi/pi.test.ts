@@ -852,12 +852,15 @@ async function runHarness(opts: { slowStoreMs?: number } = {}) {
       progress.push({ runId: meta.runId, eventCount: meta.eventCount, state: meta.state }),
   });
   // A shared CI runner's disk lands a durable write late. Slowing every meta
-  // write here is the regression guard: a wait that guesses how long a flush
-  // takes fails locally every time instead of occasionally on CI.
+  // write is the regression guard for the test that opts in: a wait that guesses
+  // how long a flush takes fails locally every time instead of occasionally on
+  // CI. It is opt-in per test on purpose — the other fixed sleeps in this file
+  // wait on spawns and streams, not on a meta write.
   if (opts.slowStoreMs) {
+    const slowMs = opts.slowStoreMs;
     const update = service.store.update.bind(service.store);
     service.store.update = async (meta: PiRunMeta) => {
-      await Bun.sleep(opts.slowStoreMs as number);
+      await Bun.sleep(slowMs);
       await update(meta);
     };
   }
