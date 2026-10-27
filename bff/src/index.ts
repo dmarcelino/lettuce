@@ -154,6 +154,7 @@ import { JsonUsageDisk, TurnUsageLog } from "./session/turn-usage.ts";
 import { drainActiveTurns } from "./shutdown.ts";
 import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
+import { listSystemCron } from "./system-cron.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 import { readUiVersion } from "./version.ts";
 import { ddgCaller } from "./web-tools/ddg.ts";
@@ -1286,6 +1287,22 @@ app.put("/api/agents/tool-access/:agentId", async (c) => {
     return c.json({ ...agentToolAccess.get(agentId), mods: mods ?? "failed" });
   }
   return c.json({ ...agentToolAccess.get(agentId), mods: "unchanged" });
+});
+
+// The Tasks tab's read-only cron jobs (`system-cron.ts`). Read by the BFF itself, so
+// the browser never names a path outside the workspace.
+app.get("/api/agents/system-cron/:agentId", async (c) => {
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  try {
+    return c.json({
+      timezone: process.env.TZ || "UTC",
+      jobs: await listSystemCron(codexIo, agentId),
+    });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
 });
 
 app.get("/api/skills", async (c) => {
