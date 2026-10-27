@@ -15,6 +15,7 @@ import { errorMessage } from "../lib/errors.ts";
 import { findMonitorBackupWake } from "../lib/monitor-backup.ts";
 import type { LiveSubagent } from "../lib/subagents.ts";
 import { subagentStatusLine, workflowPhasesLine, workflowStatusLine } from "../lib/subagents.ts";
+import { askToChangeText, fetchSystemCron, type SystemCronList } from "../lib/system-cron.ts";
 import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
 import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
@@ -63,6 +64,8 @@ interface Props {
   onStopSubagent: (subagentId: string) => Promise<string | null>;
   /** Every conversation for this agent, used to name each task's target. */
   conversations: ConversationSummary[];
+  /** Puts text in this conversation's composer and switches to Chat; nothing is sent. */
+  onAskAgent: (text: string) => void;
 }
 
 /**
@@ -106,8 +109,12 @@ export function TasksTab({
   onStopMonitor,
   onStopSubagent,
   conversations,
+  onAskAgent,
 }: Props) {
   const [tasks, setTasks] = useState<CronTask[]>([]);
+  /** Unix cron jobs, read-only: only an agent can change them. */
+  const [cron, setCron] = useState<SystemCronList | null>(null);
+  const [cronError, setCronError] = useState("");
   const [status, setStatus] = useState("");
   /** In-flight text for the list; a failed write is a toast, a failed list is the box. */
   const [progress, setProgress] = useState("");
@@ -136,6 +143,14 @@ export function TasksTab({
 
   const load = useCallback(async () => {
     if (!agentId) return;
+    // Its own error line: a failed cron read must not hide the agent's tasks.
+    void fetchSystemCron(agentId).then(
+      (list) => {
+        setCron(list);
+        setCronError("");
+      },
+      (cause) => setCronError(`Could not list cron jobs: ${errorMessage(cause)}`),
+    );
     setProgress("Loading tasks…");
     try {
       const response = await session.request<{
@@ -273,6 +288,8 @@ export function TasksTab({
     }
   };
 
+  const cronJobs = cron?.jobs ?? [];
+
   if (!agentId) {
     return (
       <div className="pane">
@@ -308,7 +325,7 @@ export function TasksTab({
           <Icon name="plus" /> Subagent
         </button>
         <span className="spacer" />
-        <span className="muted small">{tasks.length} scheduled</span>
+        <span className="muted small">{tasks.length + cronJobs.length} scheduled</span>
         <button
           type="button"
           className="link"
@@ -463,8 +480,49 @@ export function TasksTab({
             </div>
           </li>
         ))}
-        {tasks.length === 0 && !status ? <li className="muted pad">No scheduled tasks</li> : null}
+        {cronJobs.map((job) => (
+          <li key={`cron:${job.name}`} className="task">
+            <div className="task-head">
+              <span>
+                <strong>{job.name}</strong> <span className="muted small">cron job</span>
+              </span>
+              {job.live ? null : <span className="tag">waiting for restart</span>}
+            </div>
+            {job.entries.map((entry) => {
+              const described = describeCron(entry.schedule);
+              return (
+                <div key={`when:${entry.schedule}:${entry.command}`} className="muted small">
+                  <code>{entry.schedule}</code>
+                  {described ? ` · ${described}` : ""} · {cron?.timezone}
+                </div>
+              );
+            })}
+            {job.description ? <div className="small">{job.description}</div> : null}
+            {job.agentId === null ? <div className="muted small">No agent recorded</div> : null}
+            {job.entries.map((entry) => (
+              <div key={`what:${entry.schedule}:${entry.command}`} className="muted small">
+                <code className="cron-command">{entry.command}</code>
+              </div>
+            ))}
+            <div className="task-actions">
+              <button
+                type="button"
+                className="link"
+                disabled={!conversationId}
+                title={conversationId ? undefined : "Open a conversation first"}
+                aria-label={`Ask the agent to change ${job.name}`}
+                onClick={() => onAskAgent(askToChangeText(job))}
+              >
+                Ask agent to change
+              </button>
+            </div>
+          </li>
+        ))}
+        {tasks.length === 0 && cronJobs.length === 0 && !status ? (
+          <li className="muted pad">No scheduled tasks</li>
+        ) : null}
       </ul>
+      {cronError ? <p className="warning small">{cronError}</p> : null}
 
       {launching ? (
         <Sheet
