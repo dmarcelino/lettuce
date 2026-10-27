@@ -131,7 +131,7 @@ Those directories are on `PATH`, **after** the system ones.
    EOF
    chmod +x /work/<dir>/<job>.sh
    { printf '# agent: %s\n' "$LETTA_AGENT_ID"
-     echo '# description: <what it does, in one line>'
+     printf '# description: %s\n' "<what it does, in one line>"
      cat <<'EOF'
    0 7 * * * root /usr/local/bin/agent-env /work/<dir>/<job>.sh >> /work/<dir>/<job>.log 2>&1
    EOF
