@@ -5,6 +5,8 @@ import {
   parseCronFile,
   SYSTEM_CRON_DIR,
   type SystemCronIo,
+  type SystemCronJob,
+  withTopLevelOwners,
 } from "./system-cron.ts";
 
 const JOB = [
@@ -121,5 +123,36 @@ describe("listSystemCron", () => {
 
   test("no folder yet is an empty list", async () => {
     expect(await listSystemCron(ioOf({}))).toEqual([]);
+  });
+});
+
+describe("withTopLevelOwners", () => {
+  const job = (name: string, agentId: string | null): SystemCronJob => ({
+    name,
+    agentId,
+    description: null,
+    entries: [{ schedule: "* * * * *", command: "x" }],
+    live: true,
+  });
+
+  test("a subagent's job belongs to the agent that started it", async () => {
+    // letta-code hides subagents from agent_list, so the Tasks tab would call the
+    // subagent's id gone; the top of the `parent:` chain is the agent the user knows.
+    const chains: Record<string, string[]> = {
+      "agent-sub": ["agent-sub", "agent-mid", "agent-top"],
+      "agent-top": ["agent-top"],
+    };
+    const jobs = await withTopLevelOwners(
+      [job("a", "agent-sub"), job("b", "agent-top"), job("c", null)],
+      async (id) => chains[id] ?? [id],
+    );
+    expect(jobs.map((entry) => entry.agentId)).toEqual(["agent-top", "agent-top", null]);
+  });
+
+  test("an owner whose chain cannot be read stays as written", async () => {
+    const jobs = await withTopLevelOwners([job("a", "agent-gone")], async () => {
+      throw new Error("not found");
+    });
+    expect(jobs[0]?.agentId).toBe("agent-gone");
   });
 });

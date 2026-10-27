@@ -154,7 +154,7 @@ import { JsonUsageDisk, TurnUsageLog } from "./session/turn-usage.ts";
 import { drainActiveTurns } from "./shutdown.ts";
 import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
-import { listSystemCron } from "./system-cron.ts";
+import { listSystemCron, withTopLevelOwners } from "./system-cron.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 import { readUiVersion } from "./version.ts";
 import { ddgCaller } from "./web-tools/ddg.ts";
@@ -1295,7 +1295,10 @@ app.put("/api/agents/tool-access/:agentId", async (c) => {
 app.get("/api/system-cron", async (c) => {
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
   try {
-    return c.json({ timezone: process.env.TZ || "UTC", jobs: await listSystemCron(codexIo) });
+    const jobs = await withTopLevelOwners(await listSystemCron(codexIo), (id) =>
+      agentAncestry.chain(id),
+    );
+    return c.json({ timezone: process.env.TZ || "UTC", jobs });
   } catch (error) {
     return c.text(errorMessage(error), 502);
   }

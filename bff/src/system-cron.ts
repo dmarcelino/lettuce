@@ -101,3 +101,22 @@ export async function listSystemCron(io: SystemCronIo): Promise<SystemCronJob[]>
   );
   return jobs.filter((job): job is SystemCronJob => job !== null);
 }
+
+/**
+ * Each owner replaced by the top of its `parent:` chain (`AgentAncestry.chain`).
+ * A subagent writes its own `$LETTA_AGENT_ID`, and letta-code hides subagents from
+ * `agent_list`, so the Tasks tab would call that owner gone. A chain that cannot
+ * be read leaves the owner as written: a deleted agent stays gone.
+ */
+export async function withTopLevelOwners(
+  jobs: readonly SystemCronJob[],
+  chain: (agentId: string) => Promise<readonly string[]>,
+): Promise<SystemCronJob[]> {
+  return Promise.all(
+    jobs.map(async (job) => {
+      if (job.agentId === null) return job;
+      const ids = await chain(job.agentId).catch(() => []);
+      return { ...job, agentId: ids.at(-1) ?? job.agentId };
+    }),
+  );
+}
