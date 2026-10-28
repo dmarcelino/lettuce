@@ -10,9 +10,11 @@ interface Props {
   anchor: DOMRect;
   /**
    * "above" in the phone switcher, whose agents sit at the bottom of the
-   * screen; "below" in the desktop sidebar, where the button is at the top.
+   * screen; "below" in the desktop sidebar, where the button is at the top;
+   * "beside" in the rail, whose avatars are a tall narrow column — below an
+   * avatar is the next agent.
    */
-  placement: "above" | "below";
+  placement: "above" | "below" | "beside";
   onEdit: () => void;
   onTogglePin: () => void;
   onToggleArchive: () => void;
@@ -70,7 +72,9 @@ export function AgentMenu({
           right: Math.max(8, window.innerWidth - anchor.right),
           bottom: Math.max(8, window.innerHeight - anchor.top + 4),
         }
-      : { left: Math.max(8, anchor.left), top: anchor.bottom + 4 };
+      : placement === "beside"
+        ? { left: anchor.right + 4, top: Math.max(8, anchor.top) }
+        : { left: Math.max(8, anchor.left), top: anchor.bottom + 4 };
 
   return (
     <div

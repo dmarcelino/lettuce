@@ -3,6 +3,7 @@ import { ActivitySheet } from "./components/ActivitySheet.tsx";
 import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
 import { AuthPill } from "./components/AuthPill.tsx";
+import { BottomBar } from "./components/BottomBar.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { ContextGauge, ContextSheet } from "./components/ContextGauge.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
@@ -14,6 +15,7 @@ import {
 import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
+import { NavRail } from "./components/NavRail.tsx";
 import { PiRunsChip, usePiActiveRuns } from "./components/PiRunsChip.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { SignInScreen } from "./components/SignInScreen.tsx";
@@ -36,6 +38,7 @@ import {
   type StructuredOutputPreference,
   writeStructuredOutput,
 } from "./lib/structured-output.ts";
+import { readPanelPin, runsEnabled, type Tab, writePanelPin } from "./lib/tabs.ts";
 import { readShowTimestamps, writeShowTimestamps } from "./lib/timestamps.ts";
 import { useAgents } from "./state/use-agents.ts";
 import { useContextLimit } from "./state/use-context-limit.ts";
@@ -43,6 +46,7 @@ import { useContextSize } from "./state/use-context-size.ts";
 import { useConversation } from "./state/use-conversation.ts";
 import { useCurrentModel } from "./state/use-models.ts";
 import { useSession } from "./state/use-session.ts";
+import { useWide } from "./state/use-wide.ts";
 import { AgentTab } from "./tabs/AgentTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { RunsTab } from "./tabs/RunsTab.tsx";
@@ -71,9 +75,6 @@ interface Status {
   /** This deployment's components with their versions (Settings → About). */
   components?: Component[];
 }
-
-const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent"] as const;
-type Tab = (typeof TABS)[number];
 
 /**
  * How many times to retry a failed status fetch before giving up and asking.
@@ -194,6 +195,56 @@ function Workspace({ status }: { status: Status }) {
   /** `?tab=runs&run=<id>`: the run card's and settle pushes' landing spot. */
   const [runsLink] = useState(readRunsDeepLink);
   const [tab, setTab] = useState<Tab>(runsLink.tab ? "Runs" : "Chat");
+  /**
+   * The desktop conversation panel: pinned is a column, unpinned is a peek.
+   * Both are Chat-only — a conversation list next to the Files pane answers no
+   * question — so `visible` is derived, not stored separately.
+   */
+  const wide = useWide();
+  const [panelPinned, setPanelPinned] = useState(readPanelPin);
+  const [panelPeek, setPanelPeek] = useState(false);
+  const panelVisible = tab === "Chat" && (panelPinned || panelPeek);
+  const openPanel = useCallback(() => setPanelPeek(true), []);
+  const togglePanelPin = useCallback(() => {
+    setPanelPinned((current) => {
+      writePanelPin(!current);
+      return !current;
+    });
+  }, []);
+
+  /**
+   * The one pane switcher, shared by the rail and the phone bar.
+   *
+   * A secondary pane always puts the panel away (it is Chat's), and on Chat an
+   * unpinned panel toggles — pressing Chat again is how you put the peek back.
+   */
+  const selectPane = useCallback(
+    (next: Tab) => {
+      if (next === "Chat") {
+        // Pinned, Chat has nothing to do (the panel is already there). Unpinned,
+        // Chat is a toggle: pressing it while the peek is open puts it back.
+        setPanelPeek(!panelPinned && !(tab === "Chat" && panelPeek));
+      } else {
+        setPanelPeek(false);
+      }
+      setTab(next);
+    },
+    [panelPinned, panelPeek, tab],
+  );
+
+  // An unpinned panel is a popover, and popovers get out of the way when you
+  // press anywhere else. Pinned, it is a column and stays put.
+  useEffect(() => {
+    if (!wide || !panelVisible || panelPinned) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest(".sidebar, .rail")) return;
+      setPanelPeek(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [wide, panelVisible, panelPinned]);
+
   // One pushed feed feeds both the Runs tab dot and the topbar chip; the
   // socket only carries pi frames while the feature is on.
   const piEnabled = featureEnabled(status?.features, "pi");
@@ -201,6 +252,8 @@ function Workspace({ status }: { status: Status }) {
     session.setPiWatch(piEnabled);
   }, [session, piEnabled]);
   const piActive = usePiActiveRuns(piEnabled);
+  /** Whether this deployment has any coding worker, which is what makes `Runs` a pane. */
+  const runsFeature = runsEnabled(status?.features);
   /** The responding-conversations list behind the pulsing status dot. */
   const [activityOpen, setActivityOpen] = useState(false);
   /** The agents-and-conversations menu (phone); see `Switcher`. */
@@ -324,15 +377,25 @@ function Workspace({ status }: { status: Status }) {
 
   return (
     <div className="app">
+      <NavRail
+        agents={agents}
+        activeAgentIds={session.activeAgentIds}
+        activeScopes={session.activeScopes}
+        request={session.request}
+        runsEnabled={runsFeature}
+        tab={tab}
+        onSelectPane={selectPane}
+        onOpenPanel={openPanel}
+        onOpenSettings={() => setGlobalSettings({})}
+        onOpenSwitcher={openSwitcher}
+        onEditAgent={editAgent}
+      />
       <Sidebar
         agents={agents}
-        open={false}
-        onClose={() => {}}
-        onNewAgent={() => setCreatingAgent(true)}
-        onEditAgent={editAgent}
+        visible={panelVisible}
         activeScopes={session.activeScopes}
-        activeAgentIds={session.activeAgentIds}
-        request={session.request}
+        pinned={panelPinned}
+        onTogglePin={togglePanelPin}
       />
 
       <div className="main">
@@ -354,6 +417,9 @@ function Workspace({ status }: { status: Status }) {
               {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
             </span>
             <h1 className="title">{title}</h1>
+            {/* The button has always opened the switcher; the chevron is what says
+                so now that nothing else in the top bar is a button at all. */}
+            <Icon name="chevron-down" className="where-caret" />
           </button>
           <ContextGauge
             usage={conversation.turnUsage}
@@ -373,40 +439,9 @@ function Workspace({ status }: { status: Status }) {
             onOpen={() => setActivityOpen(true)}
           />
           {featureEnabled(status.features, "pi") ? (
-            <PiRunsChip active={piActive} onOpen={() => setTab("Runs")} />
+            <PiRunsChip active={piActive} onOpen={() => selectPane("Runs")} />
           ) : null}
-          {/* Settings shared by every agent. The selected agent's own are its
-              Agent tab; this is the one way into the rest, at every width. */}
-          <button
-            type="button"
-            className="icon-button flat topbar-settings"
-            onClick={() => setGlobalSettings({})}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <Icon name="settings" />
-          </button>
         </header>
-
-        <nav className="tabs">
-          {TABS.filter(
-            (name) =>
-              name !== "Runs" ||
-              featureEnabled(status.features, "codex") ||
-              featureEnabled(status.features, "claude") ||
-              featureEnabled(status.features, "pi"),
-          ).map((name) => (
-            <button
-              key={name}
-              type="button"
-              className={name === tab ? "active" : ""}
-              onClick={() => setTab(name)}
-            >
-              {name === "Runs" && piActive > 0 && <i className="tab-dot" aria-hidden="true" />}
-              {name}
-            </button>
-          ))}
-        </nav>
 
         {/* A BFF error no request claimed (a rate limit, a command the browser
             allowlist refused) is an event, not a state: it is a toast now, so it
@@ -556,7 +591,6 @@ function Workspace({ status }: { status: Status }) {
               modelLabel={modelLabel}
               history={inputHistory}
               prefill={prefill}
-              onOpenSwitcher={openSwitcher}
               onPrefillApplied={clearPrefill}
             />
           </>
@@ -597,6 +631,20 @@ function Workspace({ status }: { status: Status }) {
             onOpenGlobalSettings={(section) => setGlobalSettings({ section })}
           />
         )}
+
+        {/* The phone's navigation lives under the composer, where a thumb is:
+            the top strip it replaces could not say six panes at 390px. */}
+        <BottomBar
+          agentName={agentName}
+          agentId={agents.agentId}
+          responding={session.activeAgentIds.has(agents.agentId ?? "")}
+          tab={tab}
+          onSelectPane={selectPane}
+          onOpenSwitcher={openSwitcher}
+          onOpenSettings={() => setGlobalSettings({})}
+          runsEnabled={runsFeature}
+          runsRunning={piActive}
+        />
       </div>
 
       {/* Before the approval sheet: an approval that arrives while Settings is

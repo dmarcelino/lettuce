@@ -143,52 +143,307 @@ pre {
   white-space: nowrap;
 }
 
-.tabs {
-  display: flex;
-  gap: 2px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
+/* ── Navigation: the desktop rail and the phone bar ─────────────────────────
+   One question per surface: which agent, and which pane. Chat is the primary
+   pane — the default, and the only one with a composer — so on a phone it is the
+   first slot and the others are the way out; on desktop the rail holds all six
+   with names, because there is room for names. */
+.rail {
+  width: 74px;
   flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 5px calc(8px + env(safe-area-inset-bottom));
+  /* The rail never scrolls as a whole: only its agent block does (below), so
+     the pane items and the footer sit in the same place with 3 agents or 30. */
+  overflow: hidden;
 }
-.tabs button {
-  flex: 1;
-  /* Sized by name at ≥390; the squeeze below is what makes seven fit. */
-  min-width: 58px;
+/* The agent block is bounded and scrolls on its own, scrollbar hidden: past the
+   cap the answer is the switcher (search, archived, new agent), not a long rail. */
+.rail-agents {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  max-height: 52vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 1px;
+}
+.rail-agents::-webkit-scrollbar {
+  display: none;
+}
+.rail-agent {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+}
+.rail-agent .agent-avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+}
+.rail-agent:hover .agent-avatar {
+  outline: 2px solid var(--border);
+  outline-offset: 1px;
+}
+.rail-agent.active .agent-avatar {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The agent's own responding marker, on the avatar rather than beside it: the
+   rail has no room for a second column, and the dot belongs to the agent. */
+.rail-agent.responding::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 8px;
+  height: 8px;
+  background: var(--ok);
+  border: 2px solid var(--surface);
+  border-radius: var(--radius-round);
+}
+/* The last cell is not an agent: it opens the switcher, which is where search,
+   archived agents and "new agent" live. Same square, so it reads as one list. */
+.rail-all .icon {
+  width: 17px;
+  height: 17px;
+}
+.rail-all:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.rail-sep {
+  width: 42px;
+  height: 1px;
+  background: var(--border);
+  margin: 6px 0;
+  flex: none;
+}
+.rail-item {
+  width: 100%;
+  flex: none;
   background: none;
   border: none;
   color: var(--muted);
-  padding: 6px 8px;
-  border-radius: var(--radius);
-  font-size: 14px;
-  font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 2px 6px;
+  font-size: 10px;
+  line-height: 1.1;
 }
-.tabs button.active {
-  background: var(--surface-2);
+.rail-item .icon {
+  width: 19px;
+  height: 19px;
+}
+.rail-item:hover {
   color: var(--text);
+  background: var(--surface-2);
 }
-/* Seven tabs cannot keep the 58px-each sizing on a 390px phone (434px of
-   labels against 390px of strip, so the row scrolled and the bar showed).
-   Squeeze instead: the widest tab is `Memory`, and at 13px with tight padding
-   all seven fit with slack — no scroll, no swipe to reach a tab. After the
-   base rules on purpose: the media query must win. */
-@media (max-width: 640px) {
-  .tabs {
-    padding: 6px 4px;
-    gap: 0;
-  }
-  .tabs button {
-    min-width: 0;
-    padding: 8px 3px;
-    font-size: 13px;
-  }
-  /* With the live-runs dot showing, shave every tab so the strip does not
-     grow by the dot's width — the 390px strip has zero slack. */
-  .tabs:has(.tab-dot) button {
-    padding: 8px 1px;
-    font-size: 12px;
-  }
+/* The same left bar the sidebar's rows use, so "this one" is one language. */
+.rail-item.active {
+  color: var(--text);
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
+.rail-foot {
+  margin-top: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+/* The hover card over a rail avatar while the conversation panel is hidden. Fixed
+   to the viewport like `AgentMenu`, for the same reason: the rail clips what is
+   inside it. */
+.flyout {
+  position: fixed;
+  z-index: 30;
+  width: 268px;
+  max-height: 62vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+}
+.flyout-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.flyout-head strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flyout-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0 6px;
+}
+.flyout-foot {
+  display: flex;
+  gap: 12px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* The phone's bar, under the composer: five slots, and the first one is the
+   switcher's avatar over the Chat pane, so "which agent" and "back to chat" are
+   one object instead of two anonymous glyphs. */
+.bottombar {
+  display: flex;
+  align-items: stretch;
+  min-height: 68px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  padding-bottom: env(safe-area-inset-bottom);
+  flex-shrink: 0;
+}
+.bottombar > button {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 2px 7px;
+  font-size: 11px;
+  line-height: 1.1;
+}
+.bottombar > button.active {
+  color: var(--text);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.bottombar .icon {
+  width: 20px;
+  height: 20px;
+}
+.bb-chat {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--muted);
+}
+.bb-chat.active {
+  color: var(--text);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+/* The two targets fill the slot from above and below, so neither can steal the
+   other's tap; the sizer is what gives the slot its height, since both buttons
+   are out of the flow. */
+.bb-sizer {
+  height: 58px;
+  visibility: hidden;
+}
+.bb-switch {
+  position: absolute;
+  inset: 2px 0 46% 0;
+  background: none;
+  border: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.bb-pane {
+  position: absolute;
+  inset: 46% 0 0 0;
+  background: none;
+  border: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 11px;
+  line-height: 1.1;
+}
+.bb-pane .icon {
+  width: 19px;
+  height: 19px;
+}
+.bb-avatar {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-round);
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--on-accent);
+}
+.bb-avatar .activity-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  margin: 0;
+  border: 2px solid var(--surface);
+}
+
+/* The panel's own header: what it is, whether it stays, and the new conversation.
+   The pin lives here and nowhere else on purpose — you can only ask a panel to
+   always be there while you are looking at it. */
+.sidebar .panel-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sidebar .panel-head .section-label {
+  flex: 1;
+}
+.panel-pin .icon {
+  width: 15px;
+  height: 15px;
+}
+.panel-pin.on {
+  color: var(--accent);
+}
+
+/* The top bar's "where you are" is the switcher on every width; the caret is
+   what says so once it is the only button up there. */
+.where-caret {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+/* The old top tab strip: six labels squeezed to 13px at 390px and stretched into
+   slabs on desktop, replaced by the two surfaces above. */
 
 .filters {
   display: flex;
@@ -221,6 +476,11 @@ pre {
   gap: 10px;
   padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
   overflow-y: auto;
+}
+/* Unpinned and not peeking, or a pane that is not Chat: mounted and hidden, so
+   its polling keeps filling the rail's dots. */
+.sidebar.hidden {
+  display: none;
 }
 .sidebar-section {
   display: flex;
@@ -1795,10 +2055,8 @@ pre {
 .activity-dot.badge-dot {
   margin: 0 0 0 6px;
 }
-/* Live remote-pi runs: blue pulse left of the Runs tab label and inside the
-   topbar chip — same blue as the Running pill, so the dot and the pill say the
-   same thing. Inline, so it costs layout width — the phone tab strip absorbs
-   it via the `.tabs:has(.tab-dot)` squeeze above. */
+/* Live remote-pi runs: blue pulse inside the topbar chip — same blue as the
+   Running pill, so the dot and the pill say the same thing. */
 .tab-dot {
   display: inline-block;
   width: 8px;
@@ -2359,10 +2617,19 @@ p.warning code,
     width: 22px;
     height: 22px;
   }
+  /* The bar's own slots are touch targets already, but their glyph is smaller
+     than the composer's, and a thumb in the screen's corner wants margin. */
+  .bottombar > button,
+  .bb-switch,
+  .bb-pane {
+    min-height: 44px;
+  }
   /* No drawer on a phone: agents and conversations live in the switcher,
-     opened from the composer or the top bar. The sidebar stays mounted (it
-     refetches when a busy conversation is unlisted) but is not shown. */
-  .sidebar {
+     opened from the bar's avatar or the top bar. Both nav surfaces stay mounted
+     (the panel keeps refetching when a busy conversation is unlisted) and CSS
+     picks which one is real, the way the sidebar always did. */
+  .sidebar,
+  .rail {
     display: none;
   }
 
@@ -2374,9 +2641,9 @@ p.warning code,
 /* ── Desktop ─────────────────────────────────────────────────────────────── */
 
 @media (min-width: 900px) {
-  /* The sidebar is a pinned column here, so the composer's switcher button
-     has nothing to add; the top bar still opens the switcher. */
-  .composer-row .switcher-button {
+  /* The bar is a phone surface; here the rail owns navigation and there is no
+     More. Mounted and hidden, exactly as the phone block above hides the rail. */
+  .bottombar {
     display: none;
   }
 
@@ -2386,24 +2653,6 @@ p.warning code,
   .composer,
   .pane {
     padding-inline: max(12px, calc((100% - 880px) / 2));
-  }
-
-  /* Five tabs stretched across a wide window were 200px slabs. Size them to
-     their labels, line them up with the content column below, and mark the
-     active one with an underline — the phone keeps its equal-width row. */
-  .tabs {
-    gap: 4px;
-    padding: 0 max(12px, calc((100% - 880px) / 2));
-  }
-  .tabs button {
-    flex: 0 0 auto;
-    min-width: 0;
-    padding: 12px 14px 10px;
-    border-bottom: 2px solid transparent;
-  }
-  .tabs button.active {
-    background: none;
-    border-bottom-color: var(--accent);
   }
 
   /* Bottom sheets are a phone idiom; on a desktop browser this is a modal.
@@ -4192,70 +4441,11 @@ textarea.mono {
   margin-left: 6px;
   vertical-align: 0.1em;
 }
-.sidebar-archived-agents {
-  align-self: flex-start;
-  padding: 6px 0 0;
-  font-size: 12px;
-}
 
-/* ── Desktop sidebar: agents ─────────────────────────────────────────────── */
+/* ── Agent avatars ───────────────────────────────────────────────────────── */
 
-/* The agents sit on a panel of their own, edge to edge across the sidebar's
-   padding, with round avatars and a count — so they never read as more
-   conversations, which stay on the sidebar's own background. */
-.sidebar-agents {
-  /* The bleed has to EQUAL the sidebar's padding: `overflow-y: auto` on .sidebar
-     computes overflow-x to auto, so a bleed larger than the padding makes the
-     sidebar scroll sideways (measured: clientWidth 269 / scrollWidth 271). */
-  margin: -10px -10px 0;
-  padding: 14px 12px 12px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-}
-.agent-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  /* Conversations keep most of the height; past this the agents scroll. */
-  max-height: 34vh;
-  overflow-y: auto;
-}
-.agent-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding-right: 4px;
-  border-left: 3px solid transparent;
-}
-.agent-row:hover,
-.agent-row.menu-open {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-.agent-row.active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-left-color: var(--accent);
-}
-.agent-row.archived .agent-row-main {
-  opacity: 0.62;
-}
-.agent-row-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 4px 4px 4px 7px;
-  background: none;
-  border: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-}
+/* Round initials on the agent's tint. The rail draws these at 40px and the
+   switcher cards at their own size, so only the shape lives here. */
 .agent-avatar {
   flex: none;
   width: 22px;
@@ -4266,38 +4456,6 @@ textarea.mono {
   font-size: 11px;
   font-weight: 700;
   color: var(--on-accent);
-}
-.agent-row-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agent-row-count {
-  flex: none;
-  font-size: 12px;
-  color: var(--muted);
-}
-.agent-row .activity-dot {
-  flex: none;
-}
-/* Like a conversation's ⋯: shown on the row pointed at, focused, open or
-   showing its menu — not on every row at once. */
-.agent-row .agent-more {
-  display: none;
-}
-.agent-more .icon {
-  stroke-width: 3;
-}
-.agent-row:hover .agent-more,
-.agent-row:focus-within .agent-more,
-.agent-row.active .agent-more,
-.agent-row.menu-open .agent-more {
-  display: inline-flex;
-}
-.agent-row .icon-button.flat:hover {
-  background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 
 /* ── Remote-pi run surfaces ──────────────────────────────────────────────── */

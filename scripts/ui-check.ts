@@ -199,6 +199,30 @@ async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: join(OUT_DIR, `${name}.png`) });
 }
 
+/**
+ * Switch panes wherever this width keeps them: the desktop rail names all six, the
+ * phone bar shows four and hides the agent's own settings behind `More`.
+ *
+ * Every check that needed a tab click goes through here, so the two navigation
+ * surfaces are exercised by the same assertions rather than by two copies of them.
+ */
+async function openTab(page: Page, name: string): Promise<void> {
+  const rail = page.locator(`.rail button.rail-item:text-is("${name}")`);
+  if ((await rail.count()) > 0) {
+    await rail.first().click();
+    return;
+  }
+  const bar = page.locator(
+    `.bottombar > button:text-is("${name}"), .bottombar .bb-pane:text-is("${name}")`,
+  );
+  if ((await bar.count()) > 0) {
+    await bar.first().click();
+    return;
+  }
+  await page.locator('.bottombar > button:text-is("More")').click();
+  await page.locator(`.sheet .menu-row-title:text-is("${name}")`).click();
+}
+
 mkdirSync(OUT_DIR, { recursive: true });
 
 const executablePath = chromiumExecutable();
@@ -219,20 +243,40 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    check("all six tabs are reachable", (await page.locator("nav.tabs button").count()) === 6);
+    // The bar is five slots: the merged Chat slot (two targets, one object) and
+    // four named buttons, with the agent's own settings behind More.
+    const slots = await page.locator(".bottombar > *", { hasText: /./ }).count();
     check(
-      "the phone tab strip does not scroll (seven squeeze in at 390px)",
+      "the bar has five slots",
+      (await page.locator(".bottombar .bb-chat").count()) === 1 &&
+        (await page.locator(".bottombar > button").count()) === 4,
+      { slots },
+    );
+    check(
+      "the merged Chat slot is two targets, not one button with two meanings",
+      (await page.locator(".bb-chat .bb-switch").count()) === 1 &&
+        (await page.locator(".bb-chat .bb-pane").count()) === 1,
+    );
+    check(
+      "the bar fits 390px without scrolling sideways",
       await page.evaluate(() => {
-        const strip = document.querySelector("nav.tabs");
-        return !!strip && strip.scrollWidth <= strip.clientWidth;
+        const bar = document.querySelector(".bottombar");
+        return !!bar && bar.scrollWidth <= bar.clientWidth;
       }),
     );
-    // The Runs tab (worker runs; it hides when every worker token is off).
-    const runsTab = page.locator('nav.tabs button:text-is("Runs")');
-    if ((await runsTab.count()) > 0) {
-      await runsTab.click();
+    // The Runs pane (worker runs; it hides when every worker token is off),
+    // which on a phone lives behind More.
+    const moreRuns = await page.evaluate(() => {
+      document.querySelector<HTMLElement>(".bottombar > button:last-child")?.click();
+      return true;
+    });
+    await page.waitForTimeout(300);
+    const runsRow = page.locator('.sheet .menu-row-title:text-is("Runs")');
+    if ((await runsRow.count()) > 0 && moreRuns) {
+      await runsRow.click();
+      await page.waitForTimeout(400);
       const runsBox = await overflow(page);
-      check("the Runs tab has nothing clipped", runsBox.clipped.length === 0, runsBox);
+      check("the Runs pane has nothing clipped", runsBox.clipped.length === 0, runsBox);
       // A run transcript must be scrollable inside the sheet; it used to be
       // clipped by the fill sheet with no scroll region at all.
       const firstRun = page.locator(".list .task button.row").first();
@@ -250,7 +294,9 @@ try {
         await page.locator(".sheet-panel .sheet-close").click();
         await page.waitForTimeout(200);
       }
-      await page.locator('nav.tabs button:text-is("Chat")').click();
+      await openTab(page, "Chat");
+    } else {
+      await page.keyboard.press("Escape");
     }
     const whereAgent = (await page.locator(".topbar .where-agent").innerText()).trim();
     check("the top bar names the agent", whereAgent !== "");
@@ -261,14 +307,30 @@ try {
       tabTitle,
     );
     check("no drawer on a phone", !(await page.locator(".sidebar").isVisible()));
+    check("no rail on a phone", !(await page.locator(".rail").isVisible()));
+
+    // More is the overflow the bar cannot name: the agent's own settings, the
+    // shared ones, and nothing else — the four slots are the app's centre.
+    await page.locator('.bottombar > button:text-is("More")').click();
+    const moreRows = (await page.locator(".sheet .menu-row-title").allInnerTexts()).map((t) =>
+      t.trim(),
+    );
+    check(
+      "More holds the settings the bar has no slot for",
+      (await page.locator(".sheet").isVisible()) &&
+        moreRows.includes("Agent") &&
+        moreRows.includes("Settings"),
+      moreRows,
+    );
+    await shot(page, "phone-more");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
 
     // The switcher: agents and conversations in one full-screen menu, opened
-    // from the composer. Each list starts with its own "new" card, in one
+    // from the bar's avatar. Each list starts with its own "new" card, in one
     // shared style, and the agents sit at the bottom, in thumb reach.
-    const switcherButton = page.locator(
-      '.composer-row button[aria-label="Agents and conversations"]',
-    );
-    check("composer has the switcher button", await switcherButton.isVisible());
+    const switcherButton = page.locator(".bb-chat .bb-switch");
+    check("the bar's avatar opens the switcher", await switcherButton.isVisible());
     await switcherButton.click();
     const switcher = page.locator(".switcher");
     check("switcher opens", await switcher.isVisible());
@@ -504,12 +566,37 @@ try {
     });
     check("composer buttons are at least 44px", controls.small.length === 0, controls.small);
     check("the round send/stop is at least 40px", controls.roundOk, controls.roundOk);
-    check(
-      "only the switcher is on the left",
-      controls.left.length === 1 && controls.left[0] === "Agents and conversations",
-      controls.left,
-    );
+    // The composer row is all send-side now: the switcher that used to sit on the
+    // left is the bar's first slot, which names the agent instead of gesturing.
+    check("nothing is left of the composer's spacer", controls.left.length === 0, controls.left);
     check("composer row fits without scrolling", !controls.scrolls);
+
+    // The bar is the phone's only navigation, so its slots are fingertip targets
+    // and its two merged targets must not overlap.
+    const bar = await page.evaluate(() => {
+      const slots = [...document.querySelectorAll(".bottombar > *")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { cls: el.className, w: Math.round(r.width), h: Math.round(r.height) };
+      });
+      const switchRect = document.querySelector(".bb-chat .bb-switch")?.getBoundingClientRect() as
+        | DOMRect
+        | undefined;
+      const paneRect = document.querySelector(".bb-chat .bb-pane")?.getBoundingClientRect() as
+        | DOMRect
+        | undefined;
+      return {
+        slots,
+        short: slots.filter((s) => s.h < 44 || s.w < 44).map((s) => `${s.cls} ${s.w}x${s.h}`),
+        overlap:
+          !switchRect || !paneRect
+            ? "missing"
+            : switchRect.bottom > paneRect.top + 1
+              ? "yes"
+              : "no",
+      };
+    });
+    check("every bar slot is fingertip-sized", bar.short.length === 0, bar.short);
+    check("the merged slot's two targets do not overlap", bar.overlap === "no", bar.overlap);
 
     // Two lines of typing room on a phone (the floor in styles.css; the desktop
     // stays at one). Only an empty box proves the floor — a restored draft has
@@ -806,9 +893,9 @@ try {
     // An unsent draft survives a tab switch — the composer unmounts when the
     // Chat tab is left, so the text has to be persisted and restored.
     await textarea.fill("half a thought, unsent");
-    await page.locator('nav.tabs button:text-is("Files")').click();
+    await openTab(page, "Files");
     await page.locator(".composer textarea").waitFor({ state: "detached" });
-    await page.locator('nav.tabs button:text-is("Chat")').click();
+    await openTab(page, "Chat");
     const restored = page.locator(".composer textarea");
     await restored.waitFor({ state: "visible" });
     check(
@@ -820,7 +907,7 @@ try {
 
     // Files on a phone: size and date fold under the name, so the name gets
     // the row instead of about eight characters of it.
-    await page.locator('nav.tabs button:text-is("Files")').click();
+    await openTab(page, "Files");
     await page.waitForTimeout(1200);
     const nameShare = await page.evaluate(() => {
       const row = document.querySelector<HTMLElement>(".list > li.file-row");
@@ -874,14 +961,14 @@ try {
     // is the one at risk of not fitting.
     await uploadSheetChecks(page, "phone");
 
-    await page.locator('nav.tabs button:text-is("Chat")').click();
+    await openTab(page, "Chat");
 
     // The Agent tab's section switcher wraps rather than widening the pane.
     // The generic `overflow()` cannot see this: `.pane` scrolls vertically,
     // which makes its computed overflow-x `auto` too, so an over-wide bar
     // counted as "inside a scroller" and passed while the whole pane scrolled
     // sideways.
-    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await openTab(page, "Agent");
     await page.locator(".section-tabs").waitFor();
     await shot(page, "phone-agent");
     const agentWidth = await page.evaluate(() => {
@@ -1019,10 +1106,14 @@ try {
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
     check(
-      "no switcher button in the composer on desktop",
-      !(await page
+      "the composer has no switcher button at either width",
+      (await page
         .locator('.composer-row button[aria-label="Agents and conversations"]')
-        .isVisible()),
+        .count()) === 0,
+    );
+    check(
+      "the rail is what opens the switcher on desktop",
+      (await page.locator(".rail .rail-all").count()) === 1,
     );
     check(
       "sidebar is pinned on screen",
@@ -1036,13 +1127,24 @@ try {
     // box (it happened: a -14px bleed against 10px of padding) simply drew a
     // horizontal scrollbar under the list. The scroll box must not scroll sideways.
     const sidebarScroll = await page.evaluate(() => {
-      const el = document.querySelector(".sidebar");
-      return el ? { client: el.clientWidth, scroll: el.scrollWidth } : null;
+      const box = (sel: string) => {
+        const el = document.querySelector(sel);
+        return el ? { client: el.clientWidth, scroll: el.scrollWidth } : null;
+      };
+      return { sidebar: box(".sidebar"), rail: box(".rail"), flyout: box(".flyout") };
     });
     check(
       "the sidebar has no sideways scroll",
-      sidebarScroll !== null && sidebarScroll.scroll <= sidebarScroll.client,
-      sidebarScroll,
+      sidebarScroll.sidebar !== null &&
+        sidebarScroll.sidebar.scroll <= sidebarScroll.sidebar.client,
+      sidebarScroll.sidebar,
+    );
+    // Same trap in the rail, which clips its own avatar block: a 30-agent list must
+    // scroll vertically inside that block, not sideways out of the column.
+    check(
+      "the rail has no sideways scroll",
+      sidebarScroll.rail !== null && sidebarScroll.rail.scroll <= sidebarScroll.rail.client,
+      sidebarScroll.rail,
     );
 
     // Compact on desktop means one line: the two-line floor is a phone rule, so
@@ -1088,51 +1190,49 @@ try {
       await page.waitForTimeout(400);
     }
 
-    // The agents are a list on a panel of their own, not a dropdown, and look
-    // unlike the conversations under them.
+    // The agents are the rail's avatar column now — one answer to "which agent",
+    // beside the panes, with nothing about them reading as another conversation.
     check("no agent dropdown on desktop", (await page.locator(".sidebar select").count()) === 0);
-    const agentRowCount = await page.locator(".sidebar .agent-row").count();
-    check("agents are listed as rows", agentRowCount >= 1, { agentRowCount });
-    const panels = await page.evaluate(() => {
-      const bg = (sel: string) => {
-        const el = document.querySelector(sel);
-        return el ? getComputedStyle(el).backgroundColor : null;
-      };
-      return { agents: bg(".sidebar-agents"), sidebar: bg(".sidebar") };
-    });
     check(
-      "the agents panel has its own background",
-      panels.agents !== null && panels.agents !== panels.sidebar,
-      panels,
+      "the rail lists every agent as an avatar, plus a cell for the switcher",
+      (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1 &&
+        (await page.locator(".rail .rail-all").count()) === 1,
     );
     check(
-      "agents carry an avatar, conversations do not",
-      (await page.locator(".sidebar .agent-row .agent-avatar").count()) === agentRowCount &&
-        (await page.locator(".sidebar .conversations .agent-avatar").count()) === 0,
+      "the rail has no agent rows of its own any more",
+      (await page.locator(".rail .agent-row").count()) === 0,
+    );
+    check(
+      "the conversation panel is only conversations",
+      (await page.locator(".sidebar .agent-avatar").count()) === 0 &&
+        (await page.locator(".sidebar .conversation-row").count()) >= 1,
     );
     const bars = await page.evaluate(() => {
-      const left = (sel: string) => {
-        const el = document.querySelector(sel);
-        return el ? getComputedStyle(el).borderLeftWidth : null;
-      };
+      const left = (sel: string) =>
+        document.querySelector(sel)
+          ? getComputedStyle(document.querySelector(sel)!).borderLeftWidth
+          : null;
       return {
-        agent: left(".sidebar .agent-row.active"),
         conversation: left(".sidebar .conversations li.conversation-row.active"),
+        pane: (() => {
+          const el = document.querySelector(".rail-item.active");
+          return el ? getComputedStyle(el).boxShadow : null;
+        })(),
       };
     });
     check(
-      "the open agent and conversation are both marked by a left bar",
-      bars.agent === "3px" && (bars.conversation === null || bars.conversation === "3px"),
+      "the open conversation keeps its left bar and the open pane its own",
+      bars.conversation === "3px" && (bars.pane ?? "none").includes("rgb"),
       bars,
     );
 
-    // Each agent row has its own ⋯: the phone's agent menu, opening below it.
-    await page.locator(".sidebar .agent-row.active").hover();
-    await page.locator(".sidebar .agent-row.active .agent-more").click();
+    // The agent verbs are a right-click on the avatar: a 74px column has no room
+    // for a ⋯ per agent, and the menu is the phone's own, unchanged.
+    await page.locator(".rail .rail-agent.active").click({ button: "right" });
     const deskMenu = page.locator(".agent-menu");
     const deskItems = (await deskMenu.locator("button").allInnerTexts()).map((t) => t.trim());
     check(
-      "desktop agent ⋯ offers the same actions",
+      "the rail's agent menu offers the same actions",
       deskItems.length === 4 && deskItems[0] === "Edit" && deskItems[2] === "Archive",
       deskItems,
     );
@@ -1142,12 +1242,96 @@ try {
       deskBox !== null &&
         deskBox.width >= 150 &&
         deskBox.width <= 260 &&
-        deskBox.y + deskBox.height <= DESKTOP.height,
+        deskBox.y + deskBox.height <= DESKTOP.height &&
+        deskBox.x >= 40,
       deskBox,
     );
     await shot(page, "desktop-agent-menu");
     await page.keyboard.press("Escape");
     check("Escape closes it", (await deskMenu.count()) === 0);
+
+    // The rail is the pane list: six named items, no More, and the settings verb
+    // is a footer rather than a gear competing with the link pill up top.
+    const railPanes = (await page.locator(".rail .rail-item").allInnerTexts())
+      .map((t) => t.trim())
+      .filter((t) => t && t !== "Settings");
+    const railFeatures = await readFeatures(page);
+    const expectedPanes = [
+      "Chat",
+      "Files",
+      "Tasks",
+      ...(railFeatures.codex || railFeatures.claude || railFeatures.pi ? ["Runs"] : []),
+      "Tools",
+      "Agent",
+    ];
+    check(
+      "the rail names every pane it has",
+      JSON.stringify(railPanes) === JSON.stringify(expectedPanes),
+      { railPanes, expectedPanes },
+    );
+    // The panel belongs to Chat, and a secondary pane is not about conversations.
+    const panelOn = () => page.evaluate(() => !document.querySelector(".sidebar.hidden"));
+    check("the panel is on for Chat", await panelOn());
+    await openTab(page, "Files");
+    await page.waitForTimeout(300);
+    check("a secondary pane puts the panel away", !(await panelOn()));
+    await openTab(page, "Chat");
+    await page.waitForTimeout(300);
+    check("and Chat brings it back", await panelOn());
+    // Unpinning turns the column into a peek, and a peek gets out of the way when
+    // you press anywhere else. Both halves matter: a column that never left would
+    // be the old pinned sidebar, a peek you could not dismiss would be a trap.
+    const pin = page.locator(".sidebar .panel-pin");
+    await pin.click();
+    await page.waitForTimeout(300);
+    check(
+      "unpinned, the panel is still open on Chat",
+      (await pin.getAttribute("aria-pressed")) === "false" && (await panelOn()),
+    );
+    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.waitForTimeout(300);
+    check("clicking past it puts the peek away", !(await panelOn()));
+    await page.locator(".rail .rail-item:text-is('Chat')").click();
+    await page.waitForTimeout(300);
+    check("Chat opens the peek again", await panelOn());
+    await shot(page, "desktop-panel-peek");
+    // Pin state is this browser's, and outlives a reload — that is the whole point.
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(1500);
+    check(
+      "the pin choice survives a reload",
+      (await page.locator(".sidebar .panel-pin").getAttribute("aria-pressed")) === "false",
+    );
+    await page.locator(".sidebar .panel-pin").click();
+    await page.waitForTimeout(300);
+    check("and re-pinning keeps it on Chat", await panelOn());
+
+    // The hover card is what makes a hidden panel survivable: the avatar answers
+    // "what is that agent working on" without a click and without losing this one.
+    const otherAgent = page.locator(".rail .rail-agent:not(.active)").first();
+    if ((await otherAgent.count()) > 0) {
+      await otherAgent.hover();
+      await page.waitForTimeout(400);
+      const flyout = page.locator(".flyout");
+      check("hovering another agent opens its conversations", await flyout.isVisible());
+      check(
+        "the card is a panel beside the rail, not a tooltip",
+        await flyout.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return r.width >= 200 && r.left >= 74 && r.height >= 100;
+        }),
+      );
+      check(
+        "it names the agent it belongs to",
+        (await flyout.locator(".flyout-head").innerText()).trim().length > 0,
+      );
+      await shot(page, "desktop-hover");
+      await page.mouse.move(600, 400);
+      await page.waitForTimeout(200);
+      check("and leaves when the pointer does", (await flyout.count()) === 0);
+    } else {
+      console.log("  SKIP  hover card needs a second agent");
+    }
 
     await page.locator('.composer-row button[aria-label^="Filter"]').click();
     check("filters sheet opens", await page.locator(".sheet-panel").isVisible());
@@ -1169,7 +1353,7 @@ try {
     await page.keyboard.press("Escape");
 
     // The Agent tab holds the selected agent's settings and nothing shared.
-    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await openTab(page, "Agent");
     // Wait for the tab to render rather than sleeping a fixed 500ms: the checks
     // below counted nodes in the pane straight after the sleep, so a slow Agent
     // tab read as an empty pane and failed from an otherwise identical tree. Soft
@@ -1222,7 +1406,7 @@ try {
     // The Tools tab: one chip per shared family, the chip carries the on/off box
     // (role=checkbox — the platform checkbox is still banned everywhere), and
     // clicking the name opens that family's per-agent settings.
-    await page.locator('nav.tabs button:text-is("Tools")').click();
+    await openTab(page, "Tools");
     await page.waitForTimeout(700);
     const toolsFeatures = await readFeatures(page);
     const expectedToolChips = [
@@ -1272,7 +1456,7 @@ try {
     await shot(page, "desktop-tools");
 
     // Back to the Agent tab for its own sections.
-    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await openTab(page, "Agent");
     await page.waitForTimeout(400);
 
     // Agent → Skills: the list comes from the BFF's own discovery, so it is
@@ -1654,7 +1838,7 @@ try {
     // independently centred flex items — a narrow box with the buttons floating
     // outside it. The panel carries the desktop width, the radius and the
     // shadow, so its presence is the assertion that matters.
-    await page.locator('nav.tabs button:text-is("Tasks")').click();
+    await openTab(page, "Tasks");
     await page.waitForTimeout(1000);
     await page.locator(".pane-bar button, .pane button").filter({ hasText: "New" }).first().click();
     await page.waitForTimeout(500);
@@ -1704,7 +1888,7 @@ try {
     // A document sheet must actually be bigger than a form sheet, and must give
     // its height to the content: the memory editor used to scroll inside a
     // scrolling body, so a 5KB block showed about a dozen lines.
-    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await openTab(page, "Agent");
     await page.waitForTimeout(400);
     await page.locator('.section-tabs button:text-is("Memory")').click();
     await page.waitForTimeout(1500);
@@ -1746,7 +1930,7 @@ try {
 
     // Files must be retrievable, not just browsable. Anything the agent writes
     // — a tailored docx, a converted pdf — is otherwise stranded on the server.
-    await page.locator('nav.tabs button:text-is("Files")').click();
+    await openTab(page, "Files");
     await page.waitForTimeout(1500);
     const fileRows = page.locator('.file-row button[aria-label^="Download "]');
     const downloadable = await fileRows.count();
@@ -1867,13 +2051,13 @@ try {
     // A reload must come back to the agent you were on. It used to land on
     // whichever one agent_list returned first, which on a phone meant losing
     // your place every time the tab was reloaded.
-    await page.locator('nav.tabs button:text-is("Chat")').click();
+    await openTab(page, "Chat");
     const agentIds = await page
-      .locator(".sidebar .agent-row")
+      .locator(".rail .rail-agent[data-agent-id]")
       .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-agent-id") ?? ""));
     const openAgent = () =>
       page
-        .locator(".sidebar .agent-row.active")
+        .locator(".rail .rail-agent.active")
         .getAttribute("data-agent-id")
         .catch(() => null);
 
@@ -1883,7 +2067,7 @@ try {
     } else {
       const before = await openAgent();
       const target = agentIds.find((id) => id !== before) ?? before ?? "";
-      await page.locator(`.sidebar .agent-row[data-agent-id="${target}"] .agent-row-main`).click();
+      await page.locator(`.rail .rail-agent[data-agent-id="${target}"]`).click();
       await page.waitForTimeout(1500);
       const conversationBefore = await page
         .locator(".conversations li.active .conversation-name")
@@ -1928,9 +2112,10 @@ try {
     });
     await signIn(page);
     await page.waitForTimeout(1500);
-    // The sidebar stays mounted, hidden, on a phone, so this reads there too.
+    // The rail and the panel stay mounted, hidden, on a phone, so this reads there
+    // too — the dots are the same state either way.
     const agentId = await page
-      .locator(".sidebar .agent-row.active")
+      .locator(".rail .rail-agent.active")
       .getAttribute("data-agent-id")
       .catch(() => null);
     const rows = page.locator(".conversations li:not(.activity-note)");
@@ -2224,7 +2409,7 @@ try {
     const context = await browser.newContext(options);
     const page = await context.newPage();
     await signIn(page);
-    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await openTab(page, "Agent");
     await page.locator('.section-tabs button:text-is("Reflection")').click();
     await page.locator(".field select").first().waitFor();
     const sizes = await page.evaluate(() => {
@@ -2378,7 +2563,7 @@ try {
   section("Agent model sheet");
   {
     const page = await open(browser, DESKTOP);
-    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await openTab(page, "Agent");
     await page.locator(".pane .field").first().waitFor();
     const trigger = page.locator(".pane .field-trigger").first();
     await trigger.waitFor();

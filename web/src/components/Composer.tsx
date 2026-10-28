@@ -105,8 +105,6 @@ interface Props {
    */
   prefill: string | null;
   onPrefillApplied: () => void;
-  /** Open the agents-and-conversations switcher (phone only; see styles). */
-  onOpenSwitcher: () => void;
 }
 
 type OpenSheet = "filters" | "permissions" | "structured" | null;
@@ -163,7 +161,6 @@ export function Composer({
   history,
   prefill,
   onPrefillApplied,
-  onOpenSwitcher,
   structuredText,
   structuredEnabled,
   structuredSupported,
@@ -721,19 +718,9 @@ export function Composer({
           />
 
           <div className="composer-row">
-            {/* Only the switcher on the left; every other control clusters by the
-                send button, under the thumb. The switcher button is phone-only —
-                the desktop has the pinned sidebar. */}
-            <button
-              type="button"
-              className="icon-button flat switcher-button"
-              onClick={onOpenSwitcher}
-              title="Agents and conversations"
-              aria-label="Agents and conversations"
-            >
-              <Icon name="chats" />
-            </button>
-
+            {/* Every control clusters by the send button, under the thumb; the
+                switcher left this row for the phone bar's first slot, which
+                names the agent with an avatar instead of an anonymous glyph. */}
             <span className="spacer" />
 
             {/* The file input is invisible; the button is the label. `accept`
