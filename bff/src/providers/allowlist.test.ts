@@ -22,9 +22,12 @@ const FRAME = {
   ],
 } as unknown as WsProtocolMessage;
 
+const HIDE_NOVA = new Map([["openrouter", new Set(["amazon/nova-lite-v1"])]]);
+
 describe("filterServedModels", () => {
-  test("an allowlisted prefix keeps only its picks, in both lists", () => {
-    const out = filterServedModels(FRAME, { openrouter: ["z-ai/glm-5.3-flash"] }) as unknown as {
+  test("a connection's hidden models leave both lists; everything else stays", () => {
+    // What is not hidden stays, so a model a letta-code upgrade adds shows up on its own.
+    const out = filterServedModels(FRAME, HIDE_NOVA) as unknown as {
       entries: { handle: string }[];
       available_handles: string[];
     };
@@ -40,18 +43,18 @@ describe("filterServedModels", () => {
 
   test("the frame the mirror saw is never mutated", () => {
     const before = JSON.stringify(FRAME);
-    filterServedModels(FRAME, { openrouter: ["z-ai/glm-5.3-flash"] });
+    filterServedModels(FRAME, HIDE_NOVA);
     expect(JSON.stringify(FRAME)).toBe(before);
   });
 
-  test("no allowlist, or another frame type, passes through as the same object", () => {
-    expect(filterServedModels(FRAME, {})).toBe(FRAME);
+  test("nothing hidden, or another frame type, passes through as the same object", () => {
+    expect(filterServedModels(FRAME, new Map())).toBe(FRAME);
     const other = { type: "list_connect_providers_response" } as unknown as WsProtocolMessage;
-    expect(filterServedModels(other, { openrouter: ["x"] })).toBe(other);
+    expect(filterServedModels(other, HIDE_NOVA)).toBe(other);
   });
 
   test("a failed lookup (null handles) is left alone", () => {
     const failed = { ...FRAME, available_handles: null } as unknown as WsProtocolMessage;
-    expect(filterServedModels(failed, { openrouter: ["x"] })).toBe(failed);
+    expect(filterServedModels(failed, HIDE_NOVA)).toBe(failed);
   });
 });

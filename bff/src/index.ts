@@ -237,8 +237,8 @@ const upstream = new UpstreamConnection({
     turnUsage.observe(frame);
     contextWatchdog?.observe(frame);
     const sightUpdate = providerSight.observe(frame);
-    // After the mirror saw the whole list: browsers get a connection's picks only.
-    registry.handleUpstreamFrame(filterServedModels(frame, modelCaps.connectionModels()));
+    // After the mirror saw the whole list: browsers do not get what was unticked.
+    registry.handleUpstreamFrame(filterServedModels(frame, modelCaps.hiddenModels()));
     turnErrors.observe(frame);
     turnOutcomeWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
     approvalWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));

@@ -173,11 +173,12 @@ export class ModelCapsStore {
    */
   private retiredPrefixes = new Set<string>();
   /**
-   * Models picked from a connection the app-server holds (`allowlist.ts`). Kept
-   * apart from `endpointEntries` on purpose: every endpoint renders as a mod
-   * registration, and a connection must never become one.
+   * Models left unticked on a connection the app-server holds (`allowlist.ts`).
+   * What is hidden is stored, not what is picked, so a model a letta-code upgrade
+   * adds shows up on its own. Kept apart from `endpointEntries` on purpose: every
+   * endpoint renders as a mod registration, and a connection must never become one.
    */
-  private connectionPicks = new Map<string, string[]>();
+  private hidden = new Map<string, Set<string>>();
   private writeQueue: Promise<void> = Promise.resolve();
   /** Whether the file existed when this store was constructed. */
   readonly seededFrom: "file" | "none";
@@ -206,12 +207,12 @@ export class ModelCapsStore {
             if (PROVIDER_ID_RE.test(prefix) && info) this.endpointEntries.set(prefix, info);
           }
         }
-        const connections = record.connections;
-        if (connections && typeof connections === "object" && !Array.isArray(connections)) {
-          for (const [prefix, raw] of Object.entries(connections)) {
+        const hidden = record.hiddenModels;
+        if (hidden && typeof hidden === "object" && !Array.isArray(hidden)) {
+          for (const [prefix, raw] of Object.entries(hidden)) {
             if (!PROVIDER_ID_RE.test(prefix) || !Array.isArray(raw)) continue;
             const ids = raw.filter((id): id is string => typeof id === "string" && id !== "");
-            if (ids.length > 0) this.connectionPicks.set(prefix, ids);
+            if (ids.length > 0) this.hidden.set(prefix, new Set(ids));
           }
         }
         if (Array.isArray(record.retired)) {
@@ -339,18 +340,20 @@ export class ModelCapsStore {
     return this.retiredPrefixes;
   }
 
-  connectionModels(): Record<string, string[]> {
-    return Object.fromEntries(this.connectionPicks);
+  /** The live map, not a copy: it is read for every model list on its way out. */
+  hiddenModels(): ReadonlyMap<string, ReadonlySet<string>> {
+    return this.hidden;
   }
 
-  setConnectionModels(prefix: string, models: readonly string[]): void {
-    this.connectionPicks.set(prefix, [...new Set(models)]);
+  setHiddenModels(prefix: string, models: readonly string[]): void {
+    if (models.length > 0) this.hidden.set(prefix, new Set(models));
+    else this.hidden.delete(prefix);
     this.persist();
   }
 
   /** Back to "everything the connection serves". */
-  clearConnectionModels(prefix: string): void {
-    if (this.connectionPicks.delete(prefix)) this.persist();
+  clearHiddenModels(prefix: string): void {
+    if (this.hidden.delete(prefix)) this.persist();
   }
 
   /**
@@ -391,7 +394,9 @@ export class ModelCapsStore {
       {
         models: Object.fromEntries(this.modelEntries),
         endpoints: Object.fromEntries(this.endpointEntries),
-        connections: Object.fromEntries(this.connectionPicks),
+        hiddenModels: Object.fromEntries(
+          [...this.hidden].map(([prefix, ids]) => [prefix, [...ids]]),
+        ),
         retired: [...this.retiredPrefixes],
       },
       null,

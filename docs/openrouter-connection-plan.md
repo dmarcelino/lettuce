@@ -45,11 +45,14 @@ weighed and declined for now.
   stores one.
 
 ### 2. Model allowlist, enforced in the BFF
-- **Store**: `ModelCapsStore` (`store.ts`) gains `connectionModels: Record<prefix, string[]>`. It is a
+- **Store**: `ModelCapsStore` (`store.ts`) gains `hiddenModels: Record<prefix, string[]>`: the served
+  models left **unticked**, not the picks, so a model a letta-code upgrade adds shows up ticked and one
+  it drops leaves the count (as built; a first cut stored the picks and hid every later addition). The
+  route turns a Save's picks into served minus picks, and `GET` reports served minus hidden. It is a
   separate key from `endpoints`, because `buildProviderModGroups` renders every `endpoints` entry as a
   mod registration, and a connection must never become one. No entry means everything served is shown,
   which is today's behaviour. A fresh connect (`POST /api/providers` for a connection type) clears it.
-- **Filter**: a pure `filterServedModels(frame, allowlists)` in `bff/src/providers/`, applied in
+- **Filter**: a pure `filterServedModels(frame, hidden)` in `bff/src/providers/`, applied in
   `index.ts` `onFrame` **after** `providerSight.observe(frame)` and **before**
   `registry.handleUpstreamFrame(frame)`. The BFF's own mirror keeps the full list (the render and the
   409 checks need it). Browsers get `list_models_response` with `entries` and `available_handles`
@@ -85,8 +88,7 @@ any other model.)
   stays visible. Closing it is the proxy, out of scope.
 - **Defaults only, and only when nothing is stored.** A stored allowlist wins. Edit shows the stored ticks
   and marks served models missing from a fresh live list as "not listed by the host", without unticking
-  them. A later delisting or a catalog addition from a letta-code upgrade never silently changes your
-  selection.
+  them. A later delisting never silently changes your selection; a catalog addition shows up ticked.
 - **Unknown: id spelling.** Plain ids match (`z-ai/glm-5.3-flash` is in both). Suffixed catalog variants
   (`z-ai/glm-5.3-flash:batch`) are not confirmed in OpenRouter's live list. If absent they start unticked,
   which is an acceptable default. Check on the first container run and note the result in the docs.

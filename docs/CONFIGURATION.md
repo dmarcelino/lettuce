@@ -322,9 +322,11 @@ What that means:
   listed by the host's live `/models`, and says how many live models the catalog
   lacks. The BFF trims the model list the browsers see to the picks, shown as
   **Models (N of M)** on the row. It is presentation only: an agent already set to
-  a model left out keeps working. A model the host stops listing later stays
-  picked, marked "not listed any more", until you untick it.
-- Capabilities cannot be declared on these models with **Edit** — the declaration
+  a model left out keeps working. What is stored is what you unticked, so a model
+  a letta-code upgrade adds shows up ticked, and one it drops leaves the count. A
+  model the host stops listing later stays picked, marked "not listed any more",
+  until you untick it.
+- Capabilities cannot be declared on these models — their rows have no **Edit**; the declaration
   is a mod registration too.
 
 A provider saved with such ids before this change (it served nothing) stays

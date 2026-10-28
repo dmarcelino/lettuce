@@ -282,17 +282,27 @@ describe("provider entries", () => {
   });
 });
 
-describe("connection model picks", () => {
+describe("models hidden from a connection", () => {
+  const hiddenOf = (store: ModelCapsStore) =>
+    Object.fromEntries([...store.hiddenModels()].map(([prefix, ids]) => [prefix, [...ids]]));
+
   test("round-trip through the file, apart from the providers the mod renders", async () => {
     const file = fileIn();
     const store = new ModelCapsStore(file, noop);
-    store.setConnectionModels("openrouter", ["z-ai/glm-5.3-flash", "z-ai/glm-5.3-flash"]);
+    store.setHiddenModels("openrouter", ["amazon/nova-lite-v1", "amazon/nova-lite-v1"]);
     await store.drain();
     const reread = new ModelCapsStore(file, noop);
-    expect(reread.connectionModels()).toEqual({ openrouter: ["z-ai/glm-5.3-flash"] });
-    // A connection's picks must never become a mod registration.
+    expect(hiddenOf(reread)).toEqual({ openrouter: ["amazon/nova-lite-v1"] });
+    // A connection's choice must never become a mod registration.
     expect(reread.endpoints()).toEqual({});
-    reread.clearConnectionModels("openrouter");
-    expect(reread.connectionModels()).toEqual({});
+    reread.clearHiddenModels("openrouter");
+    expect(hiddenOf(reread)).toEqual({});
+  });
+
+  test("hiding nothing stores nothing", () => {
+    const store = new ModelCapsStore(fileIn(), noop);
+    store.setHiddenModels("openrouter", ["a/b"]);
+    store.setHiddenModels("openrouter", []);
+    expect(hiddenOf(store)).toEqual({});
   });
 });

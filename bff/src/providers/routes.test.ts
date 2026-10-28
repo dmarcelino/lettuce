@@ -242,20 +242,56 @@ describe("POST /api/providers/models", () => {
 });
 
 describe("a connection's model picks", () => {
-  const PICKS = {
-    prefix: "openrouter",
-    models: ["z-ai/glm-5.3-flash", "~anthropic/claude-haiku-latest"],
-  };
+  const SERVED = { openrouter: ["z-ai/glm-5.3-flash", "amazon/nova-lite-v1", "x/old"] };
+  const PICKS = { prefix: "openrouter", models: ["z-ai/glm-5.3-flash"] };
+  const hiddenOf = (store: ModelCapsStore) =>
+    Object.fromEntries([...store.hiddenModels()].map(([prefix, ids]) => [prefix, [...ids]]));
+  async function listed(app: Hono<TestEnv>) {
+    const json = (await (await send(app, "GET", "/api/providers")).json()) as {
+      connections: Record<string, { selected: string[] | null; served: string[] }>;
+    };
+    return json.connections;
+  }
 
-  test("are stored for a live connection and listed with it", async () => {
-    const { app, modelCaps } = await setup({ connected: ["openrouter"] });
+  test("store what was left unticked, and list the picks back", async () => {
+    const { app, modelCaps } = await setup({ connected: ["openrouter"], served: SERVED });
     const response = await send(app, "PUT", "/api/providers/connection-models", PICKS);
     expect(response.status).toBe(200);
-    expect(modelCaps.connectionModels()).toEqual({ openrouter: PICKS.models });
-    const json = (await (await send(app, "GET", "/api/providers")).json()) as {
-      connections: Record<string, { selected: string[] | null }>;
-    };
-    expect(json.connections.openrouter?.selected).toEqual(PICKS.models);
+    expect(hiddenOf(modelCaps)).toEqual({ openrouter: ["amazon/nova-lite-v1", "x/old"] });
+    expect((await listed(app)).openrouter?.selected).toEqual(["z-ai/glm-5.3-flash"]);
+  });
+
+  test("a model served later is picked until unticked", async () => {
+    // A letta-code upgrade adds to the catalog: it shows up, it is not hidden by default.
+    const { app, modelCaps } = await setup({
+      connected: ["openrouter"],
+      served: { openrouter: [...SERVED.openrouter, "brand/new"] },
+    });
+    modelCaps.setHiddenModels("openrouter", ["amazon/nova-lite-v1", "x/old"]);
+    expect((await listed(app)).openrouter?.selected).toEqual(["z-ai/glm-5.3-flash", "brand/new"]);
+  });
+
+  test("a hidden model the catalog dropped counts nowhere", async () => {
+    const { app, modelCaps } = await setup({
+      connected: ["openrouter"],
+      served: { openrouter: ["z-ai/glm-5.3-flash", "amazon/nova-lite-v1"] },
+    });
+    modelCaps.setHiddenModels("openrouter", ["amazon/nova-lite-v1", "x/old"]);
+    expect((await listed(app)).openrouter).toEqual({
+      selected: ["z-ai/glm-5.3-flash"],
+      served: ["z-ai/glm-5.3-flash", "amazon/nova-lite-v1"],
+    });
+  });
+
+  test("ticking everything stores nothing", async () => {
+    const { app, modelCaps } = await setup({ connected: ["openrouter"], served: SERVED });
+    modelCaps.setHiddenModels("openrouter", ["x/old"]);
+    await send(app, "PUT", "/api/providers/connection-models", {
+      prefix: "openrouter",
+      models: SERVED.openrouter,
+    });
+    expect(hiddenOf(modelCaps)).toEqual({});
+    expect((await listed(app)).openrouter?.selected).toBeNull();
   });
 
   test("the list carries each live connection's whole served list, picks or not", async () => {
@@ -263,17 +299,14 @@ describe("a connection's model picks", () => {
       connected: ["openrouter"],
       served: { openrouter: ["z-ai/glm-5.3-flash", "amazon/nova-lite-v1"] },
     });
-    const json = (await (await send(app, "GET", "/api/providers")).json()) as {
-      connections: Record<string, { selected: string[] | null; served: string[] }>;
-    };
-    expect(json.connections).toEqual({
+    expect(await listed(app)).toEqual({
       openrouter: { selected: null, served: ["z-ai/glm-5.3-flash", "amazon/nova-lite-v1"] },
     });
   });
 
   test("an update re-connects a live connection and keeps its picks", async () => {
     const { app, modelCaps, connects } = await setup({ connected: ["openrouter"] });
-    modelCaps.setConnectionModels("openrouter", ["z-ai/glm-5.3-flash"]);
+    modelCaps.setHiddenModels("openrouter", ["amazon/nova-lite-v1"]);
     const response = await send(app, "POST", "/api/providers", {
       type: "openrouter",
       apiKey: "k2",
@@ -285,7 +318,7 @@ describe("a connection's model picks", () => {
       apiKey: "k2",
       baseUrl: "https://eu.openrouter.ai/api/v1",
     });
-    expect(modelCaps.connectionModels()).toEqual({ openrouter: ["z-ai/glm-5.3-flash"] });
+    expect(hiddenOf(modelCaps)).toEqual({ openrouter: ["amazon/nova-lite-v1"] });
   });
 
   test("an update back to the default endpoint clears the stored one and keeps the picks", async () => {
@@ -295,7 +328,7 @@ describe("a connection's model picks", () => {
       connected: ["openrouter"],
       bases: { openrouter: "https://us.openrouter.ai/api/v1" },
     });
-    modelCaps.setConnectionModels("openrouter", ["z-ai/glm-5.3-flash"]);
+    modelCaps.setHiddenModels("openrouter", ["amazon/nova-lite-v1"]);
     const response = await send(app, "POST", "/api/providers", {
       type: "openrouter",
       apiKey: "k2",
@@ -304,7 +337,7 @@ describe("a connection's model picks", () => {
     });
     expect(response.status).toBe(200);
     expect(calls).toEqual(["connect openrouter", "disconnect openrouter", "connect openrouter"]);
-    expect(modelCaps.connectionModels()).toEqual({ openrouter: ["z-ai/glm-5.3-flash"] });
+    expect(hiddenOf(modelCaps)).toEqual({ openrouter: ["amazon/nova-lite-v1"] });
   });
 
   test("an update with nothing stored to clear is one connect", async () => {
@@ -327,7 +360,7 @@ describe("a connection's model picks", () => {
         })
       ).status,
     ).toBe(400);
-    const live = await setup({ connected: ["openrouter"] });
+    const live = await setup({ connected: ["openrouter"], served: SERVED });
     expect(
       (await send(live.app, "PUT", "/api/providers/connection-models", { ...PICKS, models: [] }))
         .status,
@@ -336,8 +369,8 @@ describe("a connection's model picks", () => {
 
   test("a fresh connect starts from everything served, not stale picks", async () => {
     const { app, modelCaps } = await setup();
-    modelCaps.setConnectionModels("openrouter", ["old/model"]);
+    modelCaps.setHiddenModels("openrouter", ["old/model"]);
     await send(app, "POST", "/api/providers", { type: "openrouter", apiKey: "k" });
-    expect(modelCaps.connectionModels()).toEqual({});
+    expect(hiddenOf(modelCaps)).toEqual({});
   });
 });

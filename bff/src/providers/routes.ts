@@ -189,30 +189,29 @@ export function registerProviderRoutes<Env extends RouteEnv>(
       };
     });
     // Each live connection's whole served list, from the BFF's own mirror: the
-    // browsers' list is trimmed to the picks (`allowlist.ts`), and a picker has to
-    // offer what was left out. `selected: null` means nothing picked, all shown.
-    const picks = modelCaps.connectionModels();
+    // browsers' list leaves out what was unticked (`allowlist.ts`), and a picker has
+    // to offer it. `selected` is what is served and not hidden, so a model the
+    // catalog gained since is picked and one it dropped counts nowhere; null means
+    // nothing was ever unticked.
     const connections = Object.fromEntries(
-      PROVIDER_TYPES.flatMap((type) =>
-        type.connection && providerSight.isConnected(type.connection)
-          ? [
-              [
-                type.connection,
-                {
-                  selected: picks[type.connection] ?? null,
-                  served: (providerSight.servedModels(type.connection) ?? []).map((m) => m.id),
-                },
-              ],
-            ]
-          : [],
-      ),
+      PROVIDER_TYPES.flatMap((type) => {
+        if (!type.connection || !providerSight.isConnected(type.connection)) return [];
+        const served = (providerSight.servedModels(type.connection) ?? []).map((m) => m.id);
+        const hidden = modelCaps.hiddenModels().get(type.connection);
+        return [
+          [
+            type.connection,
+            { selected: hidden ? served.filter((id) => !hidden.has(id)) : null, served },
+          ],
+        ];
+      }),
     );
     return c.json({ types: PROVIDER_TYPES, providers, connections });
   });
 
-  // The models picked from a connection the app-server holds (`allowlist.ts`):
-  // the BFF trims the model list to them on its way to the browsers. Only for a
-  // connection type's live connection — a provider we render carries its own list.
+  // The models picked from a connection the app-server holds. What is stored is the
+  // served models left out (`allowlist.ts`), so later additions show up. Only for
+  // a connection type's live connection — a provider we render carries its own list.
   app.put("/api/providers/connection-models", async (c) => {
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const prefix = typeof body?.prefix === "string" ? body.prefix : "";
@@ -224,8 +223,13 @@ export function registerProviderRoutes<Env extends RouteEnv>(
       ? body.models.filter((id): id is string => typeof id === "string" && id.trim() !== "")
       : [];
     if (models.length === 0) return c.text("Pick at least one model", 400);
-    modelCaps.setConnectionModels(prefix, models);
-    return c.json({ prefix, models: modelCaps.connectionModels()[prefix] ?? [] });
+    const picked = new Set(models);
+    const served = (providerSight.servedModels(prefix) ?? []).map((m) => m.id);
+    modelCaps.setHiddenModels(
+      prefix,
+      served.filter((id) => !picked.has(id)),
+    );
+    return c.json({ prefix, models: served.filter((id) => picked.has(id)) });
   });
 
   app.post("/api/providers", async (c) => {
@@ -353,7 +357,7 @@ export function registerProviderRoutes<Env extends RouteEnv>(
     }
     // A fresh connection starts from everything it serves; picks from an earlier
     // one would hide models the operator never chose against. An edit keeps them.
-    if (!update) modelCaps.clearConnectionModels(providerId);
+    if (!update) modelCaps.clearHiddenModels(providerId);
     await providerSight.refresh().catch(() => {});
     return c.json({
       provider: {

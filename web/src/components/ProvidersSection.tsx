@@ -94,6 +94,11 @@ interface Row {
   removeOnly?: boolean;
   /** Everything a connection serves, when picks trim what is shown: "N of M". */
   total?: number;
+  /**
+   * Its models report their own capabilities and cannot be declared here: a
+   * host naming models `vendor/model`, whose ids the providers mod refuses.
+   */
+  capsFixed?: boolean;
   provider?: Provider;
   connection?: ConnectionEntry;
 }
@@ -181,6 +186,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       owned: false,
       connection: entry,
       ...(served?.selected ? { total: served.served.length } : {}),
+      capsFixed: types.some((type) => type.connection === entry.id),
     });
   }
 
@@ -371,23 +377,25 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
                               {tokenLabel(declared.contextWindow)}
                             </span>
                           ) : null}
-                          <button
-                            type="button"
-                            className="link"
-                            onClick={() =>
-                              setEditingModel({
-                                handle,
-                                label: model?.label ?? handle,
-                                baseUrl: row.meta || undefined,
-                                requiresKey: row.owned
-                                  ? true
-                                  : row.connection?.requires_api_key === true,
-                                caps: declared ?? null,
-                              })
-                            }
-                          >
-                            Edit
-                          </button>
+                          {row.capsFixed ? null : (
+                            <button
+                              type="button"
+                              className="link"
+                              onClick={() =>
+                                setEditingModel({
+                                  handle,
+                                  label: model?.label ?? handle,
+                                  baseUrl: row.meta || undefined,
+                                  requiresKey: row.owned
+                                    ? true
+                                    : row.connection?.requires_api_key === true,
+                                  caps: declared ?? null,
+                                })
+                              }
+                            >
+                              Edit
+                            </button>
+                          )}
                         </div>
                       </li>
                     );
