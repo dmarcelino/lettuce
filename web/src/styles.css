@@ -215,6 +215,19 @@ pre {
   border: 2px solid var(--surface);
   border-radius: var(--radius-round);
 }
+/* Pinned is a gold notch, not the accent: the accent ring already means "this is
+   the agent you are talking to", and the two must be readable at once. */
+.rail-agent.pinned::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 7px;
+  height: 7px;
+  background: var(--warn);
+  border: 2px solid var(--surface);
+  border-radius: var(--radius-round);
+}
 /* The last cell is not an agent: it opens the switcher, which is where search,
    archived agents and "new agent" live. Same square, so it reads as one list. */
 .rail-all .icon {
@@ -225,12 +238,38 @@ pre {
   color: var(--text);
   background: var(--surface-2);
 }
-.rail-sep {
-  width: 42px;
-  height: 1px;
-  background: var(--border);
-  margin: 6px 0;
+/* The one draggable seam in the app: 1px of line inside a 9px grip, because a
+   1px target is not a target. `touch-action: none` so dragging on a touchscreen
+   resizes the block instead of scrolling it. */
+.rail-split {
   flex: none;
+  width: 100%;
+  height: 9px;
+  display: grid;
+  place-items: center;
+  cursor: row-resize;
+  touch-action: none;
+  border: none;
+  background: none;
+  padding: 0;
+}
+.rail-split::before {
+  content: "";
+  width: 42px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.rail-split:hover::before,
+.rail-split:focus-visible::before,
+.rail-split.dragging::before {
+  background: var(--muted);
+}
+.rail.dragging {
+  user-select: none;
+}
+.rail.dragging * {
+  cursor: row-resize;
 }
 .rail-item {
   width: 100%;
@@ -304,6 +343,9 @@ pre {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Scrolling to the end of this list must not chain to the page behind it: the
+     pointer is over the card, so the card is what the wheel belongs to. */
+  overscroll-behavior: contain;
   padding: 0 0 6px;
 }
 .flyout-foot {

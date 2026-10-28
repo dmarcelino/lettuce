@@ -386,6 +386,7 @@ function Workspace({ status }: { status: Status }) {
         tab={tab}
         onSelectPane={selectPane}
         onOpenPanel={openPanel}
+        panelOpen={panelVisible}
         onOpenSettings={() => setGlobalSettings({})}
         onOpenSwitcher={openSwitcher}
         onEditAgent={editAgent}

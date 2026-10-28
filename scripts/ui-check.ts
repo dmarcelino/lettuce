@@ -1291,6 +1291,15 @@ try {
     await page.locator(".messages").click({ position: { x: 40, y: 40 } });
     await page.waitForTimeout(300);
     check("clicking past it puts the peek away", !(await panelOn()));
+    // Hovering the open agent's avatar is the other way back — it answers with the
+    // panel itself, because a card of the same list beside the panel is a duplicate.
+    await page.locator(".rail .rail-agent.active").hover();
+    await page.waitForTimeout(400);
+    check("hovering the open agent's avatar opens its panel", await panelOn());
+    check("and no card was needed for it", (await page.locator(".flyout").count()) === 0);
+    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.waitForTimeout(300);
+    check("and a press past it puts it away again", !(await panelOn()));
     await page.locator(".rail .rail-item:text-is('Chat')").click();
     await page.waitForTimeout(300);
     check("Chat opens the peek again", await panelOn());
@@ -1326,11 +1335,89 @@ try {
         (await flyout.locator(".flyout-head").innerText()).trim().length > 0,
       );
       await shot(page, "desktop-hover");
+      // The card's own list is the first thing a person reaches for, so scrolling
+      // it must not be the thing that closes it (it was: any scroll closed the card).
+      await otherAgent.hover();
+      await page.waitForTimeout(400);
+      await page.mouse.wheel(0, 300);
+      await page.waitForTimeout(300);
+      check("scrolling the card keeps it open", (await page.locator(".flyout").count()) === 1);
       await page.mouse.move(600, 400);
       await page.waitForTimeout(200);
       check("and leaves when the pointer does", (await flyout.count()) === 0);
     } else {
       console.log("  SKIP  hover card needs a second agent");
+    }
+
+    // The divider between the avatars and the panes is the one place the rail
+    // resizes: how many agents fit is nobody's guess but the person who has them.
+    const split = page.locator(".rail-split");
+    const splitBox = await split.boundingBox();
+    const blockBefore = await page
+      .locator(".rail-agents")
+      .evaluate((el) => el.getBoundingClientRect().height);
+    if (splitBox) {
+      await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        splitBox.x + splitBox.width / 2,
+        splitBox.y + splitBox.height / 2 + 90,
+        {
+          steps: 8,
+        },
+      );
+      await page.mouse.up();
+    }
+    const blockAfter = await page
+      .locator(".rail-agents")
+      .evaluate((el) => el.getBoundingClientRect().height);
+    check(
+      "dragging the divider grows the agent block",
+      splitBox !== null && blockAfter >= blockBefore + 60,
+      { blockBefore, blockAfter },
+    );
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(1500);
+    const blockReloaded = await page
+      .locator(".rail-agents")
+      .evaluate((el) => el.getBoundingClientRect().height);
+    check("and the rail remembers it across a reload", Math.abs(blockReloaded - blockAfter) <= 2, {
+      blockAfter,
+      blockReloaded,
+    });
+    // Keyboard parity: the same drag is an arrow key away, and Home forgets it.
+    await page.locator(".rail-split").focus();
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Home");
+    const blockHome = await page
+      .locator(".rail-agents")
+      .evaluate((el) => Math.round(el.getBoundingClientRect().height));
+    check("Home forgets the size", Math.abs(blockHome - blockBefore) <= 2, {
+      blockBefore,
+      blockHome,
+    });
+
+    // Pinned agents are the first avatars, and say so with a notch — the order is
+    // the whole point of pinning, and an unlabeled order is invisible.
+    const pinnedIds = await page.request
+      .get("/api/agents/flags")
+      .then((r) => r.json() as Promise<{ pinned: string[] }>)
+      .catch(() => ({ pinned: [] as string[] }));
+    if (pinnedIds.pinned.length > 0) {
+      const order = await page
+        .locator(".rail .rail-agent[data-agent-id]")
+        .evaluateAll((els) =>
+          els.map((el) => [el.getAttribute("data-agent-id"), el.classList.contains("pinned")]),
+        );
+      const first = order.slice(0, pinnedIds.pinned.length).map(([id]) => id);
+      check(
+        "pinned agents are the first avatars, and only they are marked",
+        JSON.stringify(first) === JSON.stringify(pinnedIds.pinned) &&
+          order.every(([id, marked]) => marked === pinnedIds.pinned.includes(String(id))),
+        { pinned: pinnedIds.pinned, first, order },
+      );
+    } else {
+      console.log("  SKIP  pinned agents on top (nothing is pinned)");
     }
 
     await page.locator('.composer-row button[aria-label^="Filter"]').click();

@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
 import { initialOf, tintFor } from "../lib/agent-tint.ts";
+import {
+  AGENT_BLOCK_MIN,
+  agentBlockMax,
+  clampAgentBlock,
+  clearAgentBlock,
+  readAgentBlock,
+  writeAgentBlock,
+} from "../lib/rail-size.ts";
 import type { Tab } from "../lib/tabs.ts";
 import { useAgentConversations } from "../state/use-agent-conversations.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
@@ -24,6 +32,8 @@ interface Props {
   onSelectPane: (tab: Tab) => void;
   /** Tapping the open agent's avatar also brings the conversation panel back. */
   onOpenPanel: () => void;
+  /** Whether the panel is on screen showing this agent, so a hover does not repeat it. */
+  panelOpen: boolean;
   onOpenSettings: () => void;
   onOpenSwitcher: () => void;
   onEditAgent: (agentId: string) => void;
@@ -61,6 +71,7 @@ export function NavRail({
   tab,
   onSelectPane,
   onOpenPanel,
+  panelOpen,
   onOpenSettings,
   onOpenSwitcher,
   onEditAgent,
@@ -71,11 +82,83 @@ export function NavRail({
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const card = useAgentConversations(request);
 
+  // How tall the agent block is: dragged by the divider between it and the panes,
+  // and kept in this browser (`lib/rail-size.ts`). null is the stylesheet default.
+  const blockRef = useRef<HTMLDivElement>(null);
+  const [blockPx, setBlockPx] = useState<number | null>(() => readAgentBlock());
+  const [dragging, setDragging] = useState(false);
+  const livePx = useRef<number | null>(blockPx);
+
+  /** The height the block is drawn at, never more than the window can show. */
+  const blockHeight = blockPx === null ? null : clampAgentBlock(blockPx, window.innerHeight);
+
+  /**
+   * One drag: the block grows by however far the pointer went down, clamped so the
+   * panes and the footer can never be crowded out. Pointer capture would be the
+   * tidy form, but the pointer leaves the 9px grip the moment it moves, so the
+   * window owns the move and the up.
+   */
+  const startDrag = (event: React.PointerEvent) => {
+    const el = blockRef.current;
+    if (!el || event.button !== 0) return;
+    event.preventDefault();
+    const startH = el.getBoundingClientRect().height;
+    const startY = event.clientY;
+    setDragging(true);
+    const move = (moveEvent: PointerEvent) => {
+      const next = clampAgentBlock(startH + (moveEvent.clientY - startY), window.innerHeight);
+      livePx.current = next;
+      setBlockPx(next);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setDragging(false);
+      if (livePx.current !== null) writeAgentBlock(livePx.current);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  /** The keyboard's version of the same drag, for anyone not holding a mouse. */
+  const nudgeBlock = (event: React.KeyboardEvent) => {
+    const step = event.shiftKey ? 120 : 40;
+    const current = blockRef.current?.getBoundingClientRect().height ?? 0;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const next = clampAgentBlock(
+        current + (event.key === "ArrowDown" ? step : -step),
+        window.innerHeight,
+      );
+      livePx.current = next;
+      setBlockPx(next);
+      writeAgentBlock(next);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      livePx.current = null;
+      setBlockPx(null);
+      clearAgentBlock();
+    }
+  };
+
   // A hover is a *deliberate* rest, not a sweep of the pointer down the rail:
-  // 120ms is the point where passing through stops opening cards.
+  // 120ms is the point where passing through stops opening cards. The open agent
+  // answers a hover with its own panel rather than a card of it — a card beside
+  // the panel showing the same list is a duplicate — and on a secondary pane,
+  // where the panel cannot appear without changing the pane under someone who is
+  // reading it, it falls back to the card.
   const armHover = (agent: AgentSummary, anchor: DOMRect) => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     hoverTimer.current = setTimeout(() => {
+      if (agent.id === agents.agentId) {
+        if (panelOpen) return;
+        if (tab === "Chat") onOpenPanel();
+        else {
+          setHover({ agent, anchor });
+          card.load(agent.id);
+        }
+        return;
+      }
       setHover({ agent, anchor });
       card.load(agent.id);
     }, 120);
@@ -91,16 +174,19 @@ export function NavRail({
     },
     [],
   );
-  // The card would otherwise float wherever its avatar was when the rail began
-  // to scroll, exactly like the agent menu, which the caller closes on scroll.
+  // The card hangs from an avatar, so anything that moves the avatar moves the
+  // card out of truth: scrolling the agent block, or the window resizing. It is
+  // deliberately NOT every scroll in the document — scrolling the card's own list
+  // is the one scroll a person reaches for first, and closing on it reads as the
+  // card running away (measured: the wheel over the list dismissed it).
   useEffect(() => {
     if (!menu && !hover) return;
-    const onScroll = () => {
+    const close = () => {
       setMenu(null);
       setHover(null);
     };
-    window.addEventListener("scroll", onScroll, true);
-    return () => window.removeEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", close);
+    return () => window.removeEventListener("resize", close);
   }, [menu, hover]);
 
   const pick = (agent: AgentSummary) => {
@@ -129,8 +215,13 @@ export function NavRail({
     : new Set<string>();
 
   return (
-    <nav className="rail" aria-label="Agents and sections">
-      <div className="rail-agents" onScroll={() => setHover(null)}>
+    <nav className={`rail${dragging ? " dragging" : ""}`} aria-label="Agents and sections">
+      <div
+        ref={blockRef}
+        className="rail-agents"
+        style={blockHeight === null ? undefined : { maxHeight: `${blockHeight}px` }}
+        onScroll={() => setHover(null)}
+      >
         {visible.map((agent) => (
           <button
             key={agent.id}
@@ -138,16 +229,20 @@ export function NavRail({
             className={[
               "rail-agent",
               agent.id === agents.agentId ? "active" : "",
+              agents.pinned.has(agent.id) ? "pinned" : "",
               activeAgentIds.has(agent.id) ? "responding" : "",
             ]
               .filter(Boolean)
               .join(" ")}
             data-agent-id={agent.id}
-            title={`${agent.name} — conversations`}
+            title={
+              agents.pinned.has(agent.id)
+                ? `${agent.name} (pinned) — conversations`
+                : `${agent.name} — conversations`
+            }
             onClick={() => pick(agent)}
             onPointerEnter={(event) =>
               event.pointerType === "mouse" &&
-              agent.id !== agents.agentId &&
               armHover(agent, event.currentTarget.getBoundingClientRect())
             }
             onPointerLeave={disarmHover}
@@ -173,7 +268,20 @@ export function NavRail({
         </button>
       </div>
 
-      <span className="rail-sep" aria-hidden="true" />
+      {/* The one draggable seam in the app: the avatars are the only block whose
+          right size depends on how many agents a person has. */}
+      <hr
+        className={`rail-split${dragging ? " dragging" : ""}`}
+        aria-orientation="horizontal"
+        aria-label="Agent list height"
+        aria-valuenow={blockHeight === null ? undefined : blockHeight}
+        aria-valuemin={AGENT_BLOCK_MIN}
+        aria-valuemax={agentBlockMax(window.innerHeight)}
+        tabIndex={0}
+        title="Drag to show more or fewer agents"
+        onPointerDown={startDrag}
+        onKeyDown={nudgeBlock}
+      />
 
       {panes.map((pane) => (
         <button
