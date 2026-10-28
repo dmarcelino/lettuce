@@ -123,7 +123,7 @@ connection does not serve. Say this in the docs, so that "398" does not read as 
   - It leaves other prefixes and other frame types untouched.
   - With no allowlist it is the identity.
   - It never mutates the frame the mirror saw.
-- `ModelCapsStore`: `connectionModels` round-trips through the file, never shows up in `endpoints()`,
+- `ModelCapsStore`: `hiddenModels` round-trips through the file, never shows up in `endpoints()`,
   and never reaches `buildProviderModGroups`.
 - `PUT /api/providers/connection-models`: it refuses a prefix with no live connection and a malformed
   body.
@@ -154,7 +154,7 @@ connection does not serve. Say this in the docs, so that "398" does not read as 
     from OpenRouter's `/models`. Check whether `:batch` variants appear in the live list.
   - Untick models: the agent model picker and the row show only the selection, with "N of M".
   - An agent on an unticked model still answers.
-  - Disconnect clears the allowlist.
+  - Disconnect keeps the unticked list (as built); a fresh Connect starts from everything.
   - Reconnect shows everything.
 - Operator click-through, then **Verified?**.
 
