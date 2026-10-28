@@ -10,11 +10,7 @@
  */
 
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
-
-function prefixOf(handle: string): string {
-  const cut = handle.indexOf("/");
-  return cut > 0 ? handle.slice(0, cut) : "";
-}
+import { handlePrefix } from "./sight.ts";
 
 /**
  * A `list_models_response` with each allowlisted prefix trimmed to its picks, or
@@ -34,7 +30,7 @@ export function filterServedModels(
   );
   const keep = (handle: unknown): boolean => {
     if (typeof handle !== "string") return true;
-    const prefix = prefixOf(handle);
+    const prefix = handlePrefix(handle);
     const picks = allowed.get(prefix);
     return !picks || picks.has(handle.slice(prefix.length + 1));
   };

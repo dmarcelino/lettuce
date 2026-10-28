@@ -1,6 +1,7 @@
 # Plan: endpoint and model picking for providers served by the app-server's own connection
 
-Status: proposed, 2026-10-27. Rides the `openrouter` branch with the change it amends.
+Status: implemented, 2026-10-28. Rides the `openrouter` branch with the change it amends. Where the
+build differs from the first draft, the text below says what shipped.
 
 ## Context
 
@@ -30,10 +31,16 @@ weighed and declined for now.
 
 ### 1. Endpoint field
 - `parseProviderBody` (`bff/src/providers/registry.ts`): a connection type also takes `baseUrl`,
-  normalised with the existing `normalizeBaseUrl` and defaulting to the type's catalog URL.
-- `POST /api/providers` (`routes.ts`) passes it as `fields.baseUrl` to `connect`. In `index.ts`,
-  `connect(providerId, fields)` takes the fields object, not just the key.
-- `ProviderFormSheet.tsx` shows Base URL for a connection type again, prefilled. Test probes that URL.
+  normalised with the existing `normalizeBaseUrl`. Blank, or the type's catalog URL, becomes `""`.
+  A stored URL replaces every catalog model's own base, and OpenRouter's catalog uses two (its 15
+  Claude models are on `…/api`, the rest on `…/api/v1`), so the default is never stored.
+- `POST /api/providers` (`routes.ts`) passes a custom URL as `fields.baseUrl` to `connect`, and
+  nothing for the default. In `index.ts`, `connect(providerId, fields)` takes the fields object.
+  letta-code keeps a stored URL when an update sends none, so an **Edit** back to the default does
+  connect (checks the key), `disconnect_provider`, connect, keeping the picks.
+- `ProviderFormSheet.tsx` shows Base URL for a connection type again, blank with the catalog URL as
+  its placeholder; Test probes the catalog URL when it is blank. A custom URL on OpenRouter shows
+  `ProviderType.endpointNote` under the field: its Claude models fail there.
 - The `Connected · <url>` meta line on the row already renders `connected.base_url` once upstream
   stores one.
 
@@ -52,9 +59,11 @@ weighed and declined for now.
   - It is presentation, not enforcement: an agent already set to a hidden model keeps working. Say so
     in the docs.
 - **Routes**:
-  - `PUT /api/providers/connection-models {prefix, models}` stores the allowlist and triggers a
-    `list_models` refresh, so open pickers update.
-  - `GET /api/providers` adds `connections: { [prefix]: { selected: string[] } }`.
+  - `PUT /api/providers/connection-models {prefix, models}` stores the allowlist. The tab that saved
+    refreshes its own model list; another tab or device sees the picks on its next `list_models`, as
+    a forced refresh from the BFF would answer only the BFF.
+  - `GET /api/providers` adds `connections: { [prefix]: { selected: string[] | null, served: string[] } }`
+    for each live connection; `served` is the mirror's whole list, which the picker offers.
 
 ### 3. Default selection: served ∩ live
 The served list is the bundled catalog, a snapshot from the letta-code release. Test already fetches the

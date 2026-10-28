@@ -79,13 +79,14 @@ export function ModelChoices({
           />
         </ul>
       )}
-      {/* A handle the endpoint stopped serving must stay selectable: an agent
-          whose model vanished has to be able to save its name without being
-          silently moved onto a different model. */}
+      {/* A handle missing from the list must stay selectable: the endpoint
+          stopped serving it, or it was left out of a connection's picks (and
+          still answers). Either way the agent has to be able to save its name
+          without being silently moved onto a different model. */}
       {currentHandle && !served ? (
         <ul className="menu-list">
           <MenuRow
-            title={`${currentHandle} (not served)`}
+            title={`${currentHandle} (not in the list)`}
             mark="check"
             selected
             disabled={disabled}

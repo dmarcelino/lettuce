@@ -2932,7 +2932,7 @@ try {
     let picked = "";
     for (let index = 0; index < (await rows.count()); index += 1) {
       const text = (await rows.nth(index).innerText()).trim();
-      if (text !== before && !text.includes("not served") && text !== "Unchanged") {
+      if (text !== before && !text.includes("not in the list") && text !== "Unchanged") {
         picked = text;
         await rows.nth(index).click();
         break;

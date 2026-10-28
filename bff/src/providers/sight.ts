@@ -42,7 +42,8 @@ interface ModelsResponse {
   byok_provider_aliases?: unknown;
 }
 
-function handlePrefix(handle: string): string {
+/** `openrouter/z-ai/glm` → `openrouter`; "" when the handle has no prefix. */
+export function handlePrefix(handle: string): string {
   const cut = handle.indexOf("/");
   return cut > 0 ? handle.slice(0, cut) : "";
 }
