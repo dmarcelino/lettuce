@@ -8,6 +8,11 @@
  * the app-server has no idea what window it is in.
  */
 
+/** The rail's own width. A card beside an avatar opens past this, not past the
+ * avatar, whose right edge sits ~17px inside the rail's border — starting a card
+ * there makes it look like a tooltip growing out of the middle of the rail. */
+export const RAIL_WIDTH = 74;
+
 const KEY = "lettuc…ckPx";
 /** One avatar and its breathing room: below this the block is a slot, not a list. */
 export const AGENT_BLOCK_MIN = 46;

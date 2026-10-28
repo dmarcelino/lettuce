@@ -1,4 +1,5 @@
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
+import { RAIL_WIDTH } from "../lib/rail-size.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import { Icon } from "./Icon.tsx";
@@ -50,11 +51,14 @@ export function ConversationFlyout({
   const groups = groupByDate(
     visibleConversations(conversations, { showArchived: false, query: "", responding }),
   );
-  // The avatar is 34px inside a 74px rail; the card opens beside the avatar and
-  // stays inside the viewport's bottom edge, which a tall list would otherwise
-  // run past.
+  // The card opens beside the RAIL, not beside the avatar: the avatar's right
+  // edge sits 17px inside the rail's border, and a card starting there grows out
+  // of the rail's own edge, which reads as a tooltip with nowhere to go.
   const top = Math.min(anchor.top, window.innerHeight - 360);
-  const style = { left: anchor.right + 6, top: Math.max(8, top) };
+  const style = {
+    left: Math.max(anchor.right + 6, RAIL_WIDTH + 6),
+    top: Math.max(8, top),
+  };
 
   return (
     <div className="flyout" style={style} role="dialog" aria-label={`${agentName} conversations`}>

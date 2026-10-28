@@ -403,16 +403,19 @@ pre {
   color: var(--text);
   box-shadow: inset 0 2px 0 var(--accent);
 }
-/* The two targets fill the slot from above and below, so neither can steal the
-   other's tap; the sizer is what gives the slot its height, since both buttons
-   are out of the flow. */
+/* The two targets fill the slot from above and below and meet exactly at the
+   middle, so neither can steal the other's tap: `bottom: 50%` and `top: 50%` are
+   the same line. (They did overlap once — 46% from one side is not 46% from the
+   other — and the lower button, being later in the DOM, ate the avatar's bottom
+   eighth.) The sizer is what gives the slot its height, since both buttons are
+   out of the flow. */
 .bb-sizer {
-  height: 58px;
+  height: 62px;
   visibility: hidden;
 }
 .bb-switch {
   position: absolute;
-  inset: 2px 0 46% 0;
+  inset: 2px 0 50% 0;
   background: none;
   border: none;
   display: grid;
@@ -421,7 +424,7 @@ pre {
 }
 .bb-pane {
   position: absolute;
-  inset: 46% 0 0 0;
+  inset: 50% 0 0 0;
   background: none;
   border: none;
   color: inherit;
@@ -2660,10 +2663,12 @@ p.warning code,
     height: 22px;
   }
   /* The bar's own slots are touch targets already, but their glyph is smaller
-     than the composer's, and a thumb in the screen's corner wants margin. */
-  .bottombar > button,
-  .bb-switch,
-  .bb-pane {
+     than the composer's, and a thumb in the screen's corner wants margin. The
+     merged Chat slot's two halves are NOT in this list: they are halves of one
+     67px slot, and forcing 44px on each made them overlap and pushed the lower
+     one past the bottom of the screen. The slot is fingertip-sized; the halves
+     fill it. */
+  .bottombar > button {
     min-height: 44px;
   }
   /* No drawer on a phone: agents and conversations live in the switcher,

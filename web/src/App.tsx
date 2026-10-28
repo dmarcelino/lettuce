@@ -205,9 +205,13 @@ function Workspace({ status }: { status: Status }) {
   const [panelPeek, setPanelPeek] = useState(false);
   const panelVisible = tab === "Chat" && (panelPinned || panelPeek);
   const openPanel = useCallback(() => setPanelPeek(true), []);
+  // Unpinning is not closing: you are looking at the panel when you press it, so
+  // it stays open as a peek. (It used to vanish on the un-pin, which made the pin
+  // button — inside the panel — the thing you had just made unreachable.)
   const togglePanelPin = useCallback(() => {
     setPanelPinned((current) => {
       writePanelPin(!current);
+      if (current) setPanelPeek(true);
       return !current;
     });
   }, []);

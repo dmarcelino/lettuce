@@ -89,7 +89,10 @@ export function NavRail({
   const [dragging, setDragging] = useState(false);
   const livePx = useRef<number | null>(blockPx);
 
-  /** The height the block is drawn at, never more than the window can show. */
+  /** The height the block is drawn at, never more than the window can show. Dragged
+   * as a height rather than a cap: dragging a cap whose content already fits moves
+   * nothing on screen, so the one gesture that is supposed to answer immediately
+   * would be silent until you had enough agents to notice. */
   const blockHeight = blockPx === null ? null : clampAgentBlock(blockPx, window.innerHeight);
 
   /**
@@ -167,10 +170,29 @@ export function NavRail({
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     hoverTimer.current = null;
   };
+  // Leaving the avatar must eventually close the card — a card that stays open
+  // after the pointer walks away is a second panel nobody asked for — but the
+  // pointer has to cross the gap to reach it, so the close waits long enough for
+  // that trip and is cancelled if the pointer arrives.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const leaveAvatar = () => {
+    disarmHover();
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setHover(null), 300);
+  };
+  const enterCard = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  };
+  const leaveCard = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setHover(null);
+  };
   // Whatever is pending when the rail goes away never becomes a card.
   useEffect(
     () => () => {
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      if (closeTimer.current) clearTimeout(closeTimer.current);
     },
     [],
   );
@@ -219,7 +241,11 @@ export function NavRail({
       <div
         ref={blockRef}
         className="rail-agents"
-        style={blockHeight === null ? undefined : { maxHeight: `${blockHeight}px` }}
+        style={
+          blockHeight === null
+            ? undefined
+            : { height: `${blockHeight}px`, maxHeight: `${blockHeight}px` }
+        }
         onScroll={() => setHover(null)}
       >
         {visible.map((agent) => (
@@ -245,7 +271,7 @@ export function NavRail({
               event.pointerType === "mouse" &&
               armHover(agent, event.currentTarget.getBoundingClientRect())
             }
-            onPointerLeave={disarmHover}
+            onPointerLeave={leaveAvatar}
             onContextMenu={(event) => {
               event.preventDefault();
               setHover(null);
@@ -309,7 +335,7 @@ export function NavRail({
       </div>
 
       {hover ? (
-        <div onPointerLeave={() => setHover(null)}>
+        <div onPointerEnter={enterCard} onPointerLeave={leaveCard}>
           <ConversationFlyout
             agentName={hover.agent.name}
             anchor={hover.anchor}
