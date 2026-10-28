@@ -247,6 +247,19 @@ function Workspace({ status }: { status: Status }) {
     },
     [agents],
   );
+  // A kept-open secondary pane is now about a different agent, and these panes are
+  // anchored to a conversation — Files to its directory, Tasks to its runs. With
+  // nothing selected they show a fallback path or nothing, so the switch finishes the
+  // job and takes the agent's most recent conversation, which is the one the panel
+  // would have offered first. Chat is left alone: there the empty selection is the point.
+  const { conversationId, conversations, selectConversation } = agents;
+  useEffect(() => {
+    if (tab === "Chat" || conversationId) return;
+    const first = conversations[0];
+    if (!first) return;
+    selectConversation(first.id);
+  }, [tab, conversationId, conversations, selectConversation]);
+
   const openPanel = useCallback(() => setPanelPeek(true), []);
   // Unpinning is not closing: you are looking at the panel when you press it, so
   // it stays open as a peek. (It used to vanish on the un-pin, which made the pin

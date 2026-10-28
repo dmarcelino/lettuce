@@ -2345,6 +2345,24 @@ try {
         (await whoIsOpen()) === switchTo && pane.startsWith("Files"),
         { pane },
       );
+      // …and the pane is now about that agent, not a pane with a new agent selected
+      // somewhere else: Files' own root is the answer it can be measured on.
+      const filesRoot = await page
+        .locator(".pane .path")
+        .first()
+        .innerText()
+        .catch(() => "");
+      check("and the open pane follows the agent", filesRoot.includes(switchTo), { filesRoot });
+      // Files is a conversation's directory and Tasks is a conversation's runs, so a
+      // switch has to leave the pane anchored to one of the new agent's conversations:
+      // here the panel that would supply one is hidden, and a fallback path is all a
+      // stale pane would show.
+      if ((await page.locator(".conversations li").count()) > 0) {
+        check(
+          "and the pane is anchored to one of that agent's conversations",
+          (await page.locator(".conversations li.active .conversation-name").count()) === 1,
+        );
+      }
     } else {
       console.log("  SKIP  switching agents keeps the pane (needs two agents)");
     }

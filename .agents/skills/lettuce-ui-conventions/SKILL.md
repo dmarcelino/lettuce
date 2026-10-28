@@ -28,7 +28,15 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   *who*, not *where*:** picking another agent keeps the pane you are on (Files stays Files, with
   their files), because being thrown to Chat made the avatars a place you dared not click while
   something else was open; on Chat it opens the panel, and the open agent's own avatar is the
-  "back to my conversations" verb that still jumps to Chat. The cells are 54px and the
+  "back to my conversations" verb that still jumps to Chat. A kept-open pane has to **follow**
+  the agent, which is two mechanics and one exception: the anchor (`App`'s effect takes that
+  agent's most recent conversation when a secondary pane is open with nothing selected — Files
+  is a conversation's directory and Tasks its runs, and the panel that would supply one is
+  hidden there), and Files' own reset (`agentId` changes → the root and its tree clear **to the
+  agent's workspace, not to null**: a child's effects run before its parent's, so clearing let
+  the init effect recapture the previous agent's `cwd`). `use-conversation` clears `cwd` with
+  no scope for the same reason. **Runs is not per-agent** — its lists are the BFF's Codex,
+  Claude and remote-pi runs across every agent. The cells are 54px and the
   names clip: the rail's content box is 58px on the wide layout and a wider cell hangs out of the
   column, which is what `ui-check`'s sideways-scroll check is for). Beside it the **panel** (`Sidebar`) is
   conversations and nothing else, and it belongs to Chat: a secondary pane puts it away, and the pin
