@@ -151,7 +151,9 @@ export function Sidebar({
           {/* Whose list this is. Own agent: the plain label. Borrowed: the name in
               its place, because a list of another agent's conversations that says
               only "Conversations" is a lie about which agent you are about to switch to. */}
-          <span className="section-label">{preview ? preview.name : "Conversations"}</span>
+          <span className={`section-label${preview ? " agent" : ""}`}>
+            {preview ? preview.name : "Conversations"}
+          </span>
           <button
             type="button"
             className={`icon-button flat panel-pin${pinned ? " on" : ""}`}

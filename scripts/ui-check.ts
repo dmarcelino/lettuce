@@ -206,30 +206,32 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
 async function openSkillsSection(page: Page): Promise<void> {
   const tab = page.locator('.section-tabs button:text-is("Skills")');
   const heads = page.locator(".skill-group-head");
-  // One click, then a long wait, and a re-click only when the click did not land
-  // (checked by which chip is active). Retry-on-a-timer is what broke this: the
-  // section restarts its walk every time it mounts, so clicking again every 20s
-  // starved it and the pane stayed empty for two whole minutes of waiting.
-  // And wait for the box first: the walk reads the agent's memfs through the
-  // app-server, and on a local model a turn an earlier check started holds that
-  // server for minutes — the pane was empty because the machine was busy, not
-  // because the UI is broken.
+  // Three ways this pane has failed a run for reasons that are not the UI: the walk
+  // is slow (it reads the agent's memfs through an app-server a local model holds
+  // while an earlier check's turn is running), a re-click on a timer restarts the
+  // walk and starves it, and the list's own fetch can fail outright — the pane says
+  // "Failed to fetch" and stays empty forever. So: wait for the box to settle, then
+  // poll without touching the section unless it is empty or reporting a failure.
   await page
     .waitForFunction(() => !document.querySelector(".topbar-status.busy"), undefined, {
       timeout: 300_000,
     })
     .catch(() => {});
+  const failed = () =>
+    page
+      .locator(".pane .pane-bar")
+      .first()
+      .innerText()
+      .then((text) => text.includes("Failed to fetch"))
+      .catch(() => false);
   await tab.click();
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const active = (await page.locator(".section-tabs button.active").first().innerText()).trim();
-    if (active !== "Skills") await tab.click();
-    try {
-      await heads.first().waitFor({ state: "visible", timeout: attempt === 0 ? 120_000 : 60_000 });
-      return;
-    } catch {
-      // Still nothing after a long wait; the loop decides whether the click was
-      // ever the problem.
+  for (let second = 0; second < 90; second++) {
+    if ((await heads.count()) > 0) return;
+    if (second % 15 === 14 || (await failed())) {
+      // Nothing has arrived, or the fetch said so: mount the section again.
+      await tab.click();
     }
+    await page.waitForTimeout(2_000);
   }
   // Whatever the pane is showing, say so: this has failed for at least three
   // different reasons and guessing from a bare timeout stopped being useful.

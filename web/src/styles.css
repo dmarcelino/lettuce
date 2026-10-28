@@ -356,6 +356,12 @@ pre {
 .sidebar .panel-head .section-label {
   flex: 1;
 }
+/* The head says a borrowed agent's name instead of the section's, and the agent tint is
+   the app's one colour for "this is an agent" (the top bar's name, the switcher). */
+.sidebar .panel-head .section-label.agent {
+  color: var(--agent);
+  font-weight: 700;
+}
 .panel-pin .icon {
   width: 15px;
   height: 15px;
