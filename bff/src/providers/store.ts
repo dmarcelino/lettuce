@@ -172,6 +172,12 @@ export class ModelCapsStore {
    * registered.
    */
   private retiredPrefixes = new Set<string>();
+  /**
+   * Models picked from a connection the app-server holds (`allowlist.ts`). Kept
+   * apart from `endpointEntries` on purpose: every endpoint renders as a mod
+   * registration, and a connection must never become one.
+   */
+  private connectionPicks = new Map<string, string[]>();
   private writeQueue: Promise<void> = Promise.resolve();
   /** Whether the file existed when this store was constructed. */
   readonly seededFrom: "file" | "none";
@@ -198,6 +204,14 @@ export class ModelCapsStore {
           for (const [prefix, raw] of Object.entries(endpoints)) {
             const info = readEndpoint(raw);
             if (PROVIDER_ID_RE.test(prefix) && info) this.endpointEntries.set(prefix, info);
+          }
+        }
+        const connections = record.connections;
+        if (connections && typeof connections === "object" && !Array.isArray(connections)) {
+          for (const [prefix, raw] of Object.entries(connections)) {
+            if (!PROVIDER_ID_RE.test(prefix) || !Array.isArray(raw)) continue;
+            const ids = raw.filter((id): id is string => typeof id === "string" && id !== "");
+            if (ids.length > 0) this.connectionPicks.set(prefix, ids);
           }
         }
         if (Array.isArray(record.retired)) {
@@ -325,6 +339,20 @@ export class ModelCapsStore {
     return this.retiredPrefixes;
   }
 
+  connectionModels(): Record<string, string[]> {
+    return Object.fromEntries(this.connectionPicks);
+  }
+
+  setConnectionModels(prefix: string, models: readonly string[]): void {
+    this.connectionPicks.set(prefix, [...new Set(models)]);
+    this.persist();
+  }
+
+  /** Back to "everything the connection serves". */
+  clearConnectionModels(prefix: string): void {
+    if (this.connectionPicks.delete(prefix)) this.persist();
+  }
+
   /**
    * One-time migration seed: the legacy `VISION_PROVIDERS` env becomes store
    * entries on first boot so an existing deployment keeps working. Runs only
@@ -363,6 +391,7 @@ export class ModelCapsStore {
       {
         models: Object.fromEntries(this.modelEntries),
         endpoints: Object.fromEntries(this.endpointEntries),
+        connections: Object.fromEntries(this.connectionPicks),
         retired: [...this.retiredPrefixes],
       },
       null,

@@ -281,3 +281,18 @@ describe("provider entries", () => {
     expect(store.endpoint("p")?.models).toEqual(["b"]);
   });
 });
+
+describe("connection model picks", () => {
+  test("round-trip through the file, apart from the providers the mod renders", async () => {
+    const file = fileIn();
+    const store = new ModelCapsStore(file, noop);
+    store.setConnectionModels("openrouter", ["z-ai/glm-5.3-flash", "z-ai/glm-5.3-flash"]);
+    await store.drain();
+    const reread = new ModelCapsStore(file, noop);
+    expect(reread.connectionModels()).toEqual({ openrouter: ["z-ai/glm-5.3-flash"] });
+    // A connection's picks must never become a mod registration.
+    expect(reread.endpoints()).toEqual({});
+    reread.clearConnectionModels("openrouter");
+    expect(reread.connectionModels()).toEqual({});
+  });
+});

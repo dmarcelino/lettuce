@@ -42,7 +42,9 @@ export interface ProviderRouteDeps {
     options: { refreshCatalog: boolean; refreshProviders?: boolean },
   ) => Promise<unknown>;
   /** `connect_provider` on the local target; throws with what upstream said. */
-  connect: (providerId: string, apiKey: string) => Promise<void>;
+  connect: (providerId: string, fields: { apiKey: string; baseUrl?: string }) => Promise<void>;
+  /** `disconnect_provider` on the local target; throws with what upstream said. */
+  disconnect: (providerId: string) => Promise<void>;
   /** letta-code's mod diagnostics report (`MOD_DIAGNOSTICS_PATH`), or null. */
   readDiagnostics: () => Promise<string | null>;
 }
@@ -72,8 +74,16 @@ export function registerProviderRoutes<Env extends RouteEnv>(
   app: Hono<Env>,
   deps: ProviderRouteDeps,
 ): void {
-  const { isReady, modelCaps, providerSight, contextSizer, resyncMods, connect, readDiagnostics } =
-    deps;
+  const {
+    isReady,
+    modelCaps,
+    providerSight,
+    contextSizer,
+    resyncMods,
+    connect,
+    disconnect,
+    readDiagnostics,
+  } = deps;
 
   // What the operator declares about models behind endpoints that report no
   // capabilities (plain OpenAI-compatible and its BYOK aliases): vision,
@@ -178,20 +188,61 @@ export function registerProviderRoutes<Env extends RouteEnv>(
         ...(problem ? { problem } : {}),
       };
     });
-    return c.json({ types: PROVIDER_TYPES, providers });
+    // Each live connection's whole served list, from the BFF's own mirror: the
+    // browsers' list is trimmed to the picks (`allowlist.ts`), and a picker has to
+    // offer what was left out. `selected: null` means nothing picked, all shown.
+    const picks = modelCaps.connectionModels();
+    const connections = Object.fromEntries(
+      PROVIDER_TYPES.flatMap((type) =>
+        type.connection && providerSight.isConnected(type.connection)
+          ? [
+              [
+                type.connection,
+                {
+                  selected: picks[type.connection] ?? null,
+                  served: (providerSight.servedModels(type.connection) ?? []).map((m) => m.id),
+                },
+              ],
+            ]
+          : [],
+      ),
+    );
+    return c.json({ types: PROVIDER_TYPES, providers, connections });
+  });
+
+  // The models picked from a connection the app-server holds (`allowlist.ts`):
+  // the BFF trims the model list to them on its way to the browsers. Only for a
+  // connection type's live connection — a provider we render carries its own list.
+  app.put("/api/providers/connection-models", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const prefix = typeof body?.prefix === "string" ? body.prefix : "";
+    if (!PROVIDER_TYPES.some((type) => type.connection === prefix)) {
+      return c.text(`${prefix || "That"} is not a connection the app-server holds`, 400);
+    }
+    if (!providerSight.isConnected(prefix)) return c.text(`${prefix} is not connected`, 409);
+    const models = Array.isArray(body?.models)
+      ? body.models.filter((id): id is string => typeof id === "string" && id.trim() !== "")
+      : [];
+    if (models.length === 0) return c.text("Pick at least one model", 400);
+    modelCaps.setConnectionModels(prefix, models);
+    return c.json({ prefix, models: modelCaps.connectionModels()[prefix] ?? [] });
   });
 
   app.post("/api/providers", async (c) => {
     if (!isReady()) return c.text("App-server is not connected", 503);
     let parsed: ParsedProvider;
+    const body: unknown = await c.req.json().catch(() => null);
     try {
-      parsed = parseProviderBody(await c.req.json().catch(() => null));
+      parsed = parseProviderBody(body);
     } catch (error) {
       if (error instanceof ProviderError) return c.text(error.message, 400);
       return c.text(errorMessage(error), 400);
     }
     const stored = modelCaps.endpoints()[parsed.prefix];
-    if (parsed.connection) return connectProvider(c, parsed, stored !== undefined);
+    if (parsed.connection) {
+      const update = (body as { update?: unknown }).update === true;
+      return connectProvider(c, parsed, stored !== undefined, update);
+    }
     if (stored?.name && stored.name !== parsed.name) {
       return c.text(
         `Another provider already answers to "${parsed.name}" — two providers cannot share the handle ${parsed.prefix}.`,
@@ -251,11 +302,16 @@ export function registerProviderRoutes<Env extends RouteEnv>(
 
   /**
    * A type the app-server's own connection serves (`ProviderType.connection`):
-   * the key goes to `connect_provider` and nothing is stored or rendered here.
+   * the key and endpoint go to `connect_provider`, and no mod is rendered for it.
    * Upstream's connect is create-or-update, so an existing connection is refused
    * rather than having its key silently replaced — its row's Edit does that.
    */
-  async function connectProvider(c: Context, parsed: ParsedProvider, ownedHere: boolean) {
+  async function connectProvider(
+    c: Context,
+    parsed: ParsedProvider,
+    ownedHere: boolean,
+    update: boolean,
+  ) {
     const providerId = parsed.connection as string;
     if (ownedHere) {
       return c.text(
@@ -263,17 +319,41 @@ export function registerProviderRoutes<Env extends RouteEnv>(
         409,
       );
     }
-    if (providerSight.isConnected(providerId)) {
+    // `update` is the row's Edit: re-issuing connect_provider is upstream's own
+    // edit (create-or-update), so only a fresh add is refused over a live one.
+    if (!update && providerSight.isConnected(providerId)) {
       return c.text(
         `${parsed.name} is already connected — use Edit on its row to change the key.`,
         409,
       );
     }
+    const fields = {
+      apiKey: parsed.apiKey ?? "",
+      // Only a custom endpoint: a stored one replaces every catalog model's base.
+      ...(parsed.baseUrl ? { baseUrl: parsed.baseUrl } : {}),
+    };
     try {
-      await connect(providerId, parsed.apiKey ?? "");
+      await connect(providerId, fields);
     } catch (error) {
       return c.text(errorMessage(error), 502);
     }
+    // Back to the catalog's endpoint: upstream's update keeps a stored base URL
+    // when none is sent, and only a disconnect removes it. The connect above has
+    // checked the key, so the gap between these two is the only risk left.
+    if (update && !parsed.baseUrl && providerSight.baseUrlFor(providerId)) {
+      try {
+        await disconnect(providerId);
+        await connect(providerId, fields);
+      } catch (error) {
+        return c.text(
+          `${parsed.name} was disconnected to clear its endpoint and did not connect again: ${errorMessage(error)}`,
+          502,
+        );
+      }
+    }
+    // A fresh connection starts from everything it serves; picks from an earlier
+    // one would hide models the operator never chose against. An edit keeps them.
+    if (!update) modelCaps.clearConnectionModels(providerId);
     await providerSight.refresh().catch(() => {});
     return c.json({
       provider: {

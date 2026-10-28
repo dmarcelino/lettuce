@@ -25,6 +25,8 @@ export interface ProviderType {
    * connects it, one per type, with this id as its handle prefix.
    */
   connection?: string;
+  /** What a base URL other than `baseUrl` costs; see `customEndpointNote`. */
+  endpointNote?: string;
 }
 
 export interface Provider {
@@ -54,6 +56,16 @@ export interface ProviderDraft {
    * (`undefined` keeps the stored set, like a blank key keeps the stored one).
    */
   headers?: Record<string, string>;
+  /** Re-connect a live connection (its row's Edit) instead of refusing it. */
+  update?: boolean;
+}
+
+/** A live connection the app-server holds, as `GET /api/providers` reports it. */
+export interface ConnectionModels {
+  /** The picks; null when none are stored and everything served is shown. */
+  selected: string[] | null;
+  /** Everything it serves, untrimmed by the picks. */
+  served: string[];
 }
 
 async function ok(response: Response): Promise<Response> {
@@ -64,12 +76,29 @@ async function ok(response: Response): Promise<Response> {
 export async function fetchProviders(): Promise<{
   types: ProviderType[];
   providers: Provider[];
+  connections: Record<string, ConnectionModels>;
 }> {
   const body = (await (await ok(await fetch("/api/providers"))).json()) as Partial<{
     types: ProviderType[];
     providers: Provider[];
+    connections: Record<string, ConnectionModels>;
   }>;
-  return { types: body.types ?? [], providers: body.providers ?? [] };
+  return {
+    types: body.types ?? [],
+    providers: body.providers ?? [],
+    connections: body.connections ?? {},
+  };
+}
+
+/** Which of a connection's served models the browsers are shown. */
+export async function saveConnectionModels(prefix: string, models: string[]): Promise<void> {
+  await ok(
+    await fetch("/api/providers/connection-models", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prefix, models }),
+    }),
+  );
 }
 
 /** A save's answer; `loadError` is the app-server refusing what was stored. */
@@ -134,4 +163,39 @@ export function probeToast(found: ProbeResult, connection: boolean): string {
   const count = found.models.length;
   const head = `reachable — ${count} ${count === 1 ? "model" : "models"}`;
   return found.skipped.length > 0 ? `${head}, ${found.skipped.length} skipped` : head;
+}
+
+/**
+ * The picker's ticks for a connection the app-server holds. Its served list is
+ * the catalog bundled with letta-code, a snapshot from that release; `live` is
+ * what the host lists today (`probeModels`), or null when that probe failed.
+ *
+ * Nothing stored: tick what is served and still listed, so a model delisted since
+ * the release starts unticked. Something stored: keep it as picked, and only mark
+ * the picks the host no longer lists — a later delisting never silently changes a
+ * selection. `notInCatalog` counts live models this connection cannot serve.
+ */
+export function connectionPicks(input: {
+  served: readonly string[];
+  live: readonly string[] | null;
+  stored: readonly string[] | null;
+}): { selected: string[]; notListed: string[]; notInCatalog: number } {
+  const live = input.live ? new Set(input.live) : null;
+  const served = new Set(input.served);
+  const selected = input.stored
+    ? [...input.stored]
+    : input.served.filter((id) => !live || live.has(id));
+  return {
+    selected,
+    notListed: live && input.stored ? selected.filter((id) => served.has(id) && !live.has(id)) : [],
+    notInCatalog: input.live ? input.live.filter((id) => !served.has(id)).length : 0,
+  };
+}
+
+/** The type's note when `url` is a custom endpoint, not blank or its own default. */
+export function customEndpointNote(type: ProviderType, url: string): string | null {
+  const trimmed = (value: string) => value.trim().replace(/\/+$/, "");
+  const typed = trimmed(url);
+  if (!type.endpointNote || !typed || typed === trimmed(type.baseUrl)) return null;
+  return type.endpointNote;
 }

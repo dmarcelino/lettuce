@@ -188,6 +188,11 @@ export class ProviderSight {
 
   applyConnections(response: { providers?: unknown }): void {
     if (!Array.isArray(response.providers)) return;
+    // Several rows can name one provider (OpenRouter's API-key and OAuth rows both
+    // name `openrouter`), so a name is live when any row naming it is: settled over
+    // the whole list, never by whichever row came last.
+    const live = new Map<string, string | undefined>();
+    const seen = new Set<string>();
     for (const raw of response.providers) {
       if (!raw || typeof raw !== "object") continue;
       const row = raw as Record<string, unknown>;
@@ -198,7 +203,7 @@ export class ProviderSight {
         ...(typeof row.provider_name === "string" ? [row.provider_name] : []),
       ];
       const state = row.connected;
-      const live =
+      const isLive =
         typeof state === "object" &&
         state !== null &&
         (state as { is_connected?: unknown }).is_connected === true;
@@ -207,13 +212,21 @@ export class ProviderSight {
           ? (state as { base_url?: unknown }).base_url
           : undefined;
       for (const name of names) {
-        if (live) {
-          this.connected.add(name);
-          if (typeof baseUrl === "string" && baseUrl) this.bases.set(name, baseUrl);
-        } else {
-          this.connected.delete(name);
-          this.bases.delete(name);
+        seen.add(name);
+        if (isLive && !live.get(name)) {
+          live.set(name, typeof baseUrl === "string" && baseUrl ? baseUrl : undefined);
         }
+      }
+    }
+    for (const name of seen) {
+      if (live.has(name)) {
+        this.connected.add(name);
+        const baseUrl = live.get(name);
+        if (baseUrl) this.bases.set(name, baseUrl);
+        else this.bases.delete(name);
+      } else {
+        this.connected.delete(name);
+        this.bases.delete(name);
       }
     }
   }

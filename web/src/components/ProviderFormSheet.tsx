@@ -3,12 +3,14 @@ import { errorMessage } from "../lib/errors.ts";
 import { KEEP_STORED_HINT } from "../lib/field-hints.ts";
 import type { ModState } from "../lib/model-caps.ts";
 import {
+  customEndpointNote,
   type Provider,
   type ProviderType,
   probeModels,
   probeToast,
   saveProvider,
 } from "../lib/provider-registry.ts";
+import type { ConnectionTarget } from "./ConnectionPickerSheet.tsx";
 import { Icon } from "./Icon.tsx";
 import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
@@ -71,19 +73,21 @@ function headerMap(rows: HeaderRow[]): Record<string, string> {
  * rename would silently move every one of its model handles.
  *
  * A type with a `connection` (OpenRouter and the other routers naming models
- * `vendor/model`) is not a provider you name: the save connects the app-server's
- * own connection, so the sheet asks for the key alone.
+ * `vendor/model`) is not a provider you name: Connect hands the endpoint and key
+ * to the app-server's own connection, and `onConnected` opens the model picker.
  */
 export function ProviderFormSheet({
   types,
   editing,
   onClose,
   onSaved,
+  onConnected,
 }: {
   types: ProviderType[];
   editing: Provider | null;
   onClose: () => void;
   onSaved: (mod: ModState) => void;
+  onConnected: (target: ConnectionTarget) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(editing, types));
   const [picking, setPicking] = useState(false);
@@ -96,6 +100,9 @@ export function ProviderFormSheet({
   const [error, setError] = useState<string | null>(null);
   const chosenType = types.find((type) => type.id === draft.type);
   const connection = chosenType?.connection;
+  // A connection left blank uses the catalog's endpoint, and nothing is stored for it.
+  const endpoint = draft.baseUrl.trim() || (connection ? (chosenType?.baseUrl ?? "") : "");
+  const endpointNote = chosenType ? customEndpointNote(chosenType, draft.baseUrl) : null;
   // The picker view replaces the form inside the same sheet: two sheets at once
   // would mean two Escape handlers and two backdrops for one decision.
   const pickedTypes = types.filter((type) => type.scope === chosenType?.scope);
@@ -123,7 +130,7 @@ export function ProviderFormSheet({
     try {
       const found = await probeModels({
         api: chosenType?.api ?? "openai-completions",
-        baseUrl: draft.baseUrl,
+        baseUrl: endpoint,
         apiKey: draft.apiKey,
         type: draft.type,
         ...(editing ? { prefix: editing.prefix } : {}),
@@ -174,6 +181,15 @@ export function ProviderFormSheet({
         models,
         ...(Object.keys(typed).length > 0 || rowNames !== storedNames ? { headers: typed } : {}),
       });
+      if (connection && chosenType) {
+        onConnected({
+          type: chosenType,
+          baseUrl: result.provider.baseUrl,
+          apiKey: draft.apiKey.trim(),
+          editing: false,
+        });
+        return;
+      }
       // Stored, but the app-server refused to load it: the sheet stays open on why,
       // because closing it would read as "it worked".
       if (result.loadError) {
@@ -213,9 +229,12 @@ export function ProviderFormSheet({
                       setDraft((current) => ({
                         ...current,
                         type: type.id,
+                        // A connection type starts blank: its endpoint is the placeholder.
                         baseUrl:
                           !current.baseUrl || current.baseUrl === (previous?.baseUrl ?? "")
-                            ? type.baseUrl
+                            ? type.connection
+                              ? ""
+                              : type.baseUrl
                             : current.baseUrl,
                       }));
                     }}
@@ -263,7 +282,7 @@ export function ProviderFormSheet({
           <button
             type="button"
             className="button ghost leading"
-            disabled={busy || !draft.baseUrl.trim()}
+            disabled={busy || !endpoint}
             onClick={() => void checkEndpoint()}
           >
             Test
@@ -274,10 +293,7 @@ export function ProviderFormSheet({
           <button
             type="button"
             className="button"
-            disabled={
-              busy ||
-              (connection ? !draft.apiKey.trim() : !draft.name.trim() || !draft.baseUrl.trim())
-            }
+            disabled={busy || !endpoint || (connection ? !draft.apiKey.trim() : !draft.name.trim())}
             onClick={() => void commit()}
           >
             {busy ? "Saving…" : connection ? "Connect" : editing ? "Save" : "Add provider"}
@@ -314,16 +330,20 @@ export function ProviderFormSheet({
       {connection ? (
         <>
           <p className="muted small">
-            The app-server connects {chosenType?.label} itself and serves its whole catalog as{" "}
-            <code>{connection}/&lt;vendor&gt;/&lt;model&gt;</code>. {chosenType?.label} names its
-            models <code>vendor/model</code>, which a provider you name cannot register, so there is
-            one {chosenType?.label} connection and its prefix is always <code>{connection}</code>.
+            The app-server connects {chosenType?.label} itself, one connection per Lettuce, and
+            serves it as <code>{connection}/&lt;vendor&gt;/&lt;model&gt;</code>. After Connect you
+            choose which of its models to show.
           </p>
+          <label className="field">
+            Base URL
+            <input
+              value={draft.baseUrl}
+              placeholder={chosenType?.baseUrl}
+              onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+            />
+            {endpointNote ? <span className="small">{endpointNote}</span> : null}
+          </label>
           {keyField}
-          <p className="muted small">
-            Its models, and what each can do, come from the catalog. Edit or Disconnect it on its
-            row afterwards.
-          </p>
         </>
       ) : (
         <>

@@ -100,6 +100,29 @@ describe("parseProviderBody", () => {
     expect(() => parseProviderBody({ type: "openrouter" })).toThrow(/needs an API key/);
   });
 
+  test("a connection keeps a custom endpoint and sends none for the catalog's", () => {
+    // A stored URL replaces every catalog model's own base, so the default is
+    // never stored: OpenRouter's Claude models live on `…/api`, not `…/api/v1`.
+    for (const baseUrl of [
+      undefined,
+      "",
+      "https://openrouter.ai/api/v1",
+      "https://openrouter.ai/api/v1/",
+    ]) {
+      expect(parseProviderBody({ type: "openrouter", apiKey: "k", baseUrl }).baseUrl).toBe("");
+    }
+    expect(
+      parseProviderBody({
+        type: "openrouter",
+        apiKey: "k",
+        baseUrl: "https://eu.openrouter.ai/api/v1/",
+      }).baseUrl,
+    ).toBe("https://eu.openrouter.ai/api/v1");
+    expect(() =>
+      parseProviderBody({ type: "openrouter", apiKey: "k", baseUrl: "openrouter.ai" }),
+    ).toThrow(/http/);
+  });
+
   test("every catalog whose ids carry a slash goes through the app-server's connection", () => {
     expect(
       PROVIDER_TYPES.filter((type) => type.connection)
@@ -259,6 +282,21 @@ describe("probeProviderModels", () => {
       expect(calls[0]!.headers["cf-access-client-id"]).toBe("id");
       // The operator's header wins — that is how an Access token replaces a key.
       expect(calls[0]!.headers.authorization).toBe("Bearer tunnel");
+    });
+  });
+
+  test("a long catalog comes back whole: a cut would read as models the host delisted", async () => {
+    const data = Array.from({ length: 450 }, (_, i) => ({
+      id: `vendor/model-${String(i).padStart(3, "0")}`,
+    }));
+    await withFetch({ data }, async () => {
+      const ids = await probeProviderModels({
+        api: "openai-completions",
+        baseUrl: "http://x/v1",
+        apiKey: "k",
+      });
+      expect(ids).toHaveLength(450);
+      expect(ids.at(-1)).toBe("vendor/model-449");
     });
   });
 

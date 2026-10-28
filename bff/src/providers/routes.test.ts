@@ -34,17 +34,21 @@ async function setup(
     served?: Record<string, string[]>;
     diagnostics?: string | null;
     connectError?: string;
+    /** Base URLs the app-server holds for a connection (`connected.base_url`). */
+    bases?: Record<string, string>;
   } = {},
 ) {
   const modelCaps = new ModelCapsStore(
     join(await mkdtemp(join(tmpdir(), "lettuce-provider-routes-")), "caps.json"),
     () => {},
   );
-  const connects: { providerId: string; apiKey: string }[] = [];
+  const connects: { providerId: string; fields: Record<string, string> }[] = [];
+  /** Every connect and disconnect, in order. */
+  const calls: string[] = [];
   let refreshes = 0;
   const sight = {
     isConnected: (prefix: string) => (overrides.connected ?? []).includes(prefix),
-    baseUrlFor: () => undefined,
+    baseUrlFor: (prefix: string) => overrides.bases?.[prefix],
     servedModels: (prefix: string) => overrides.served?.[prefix]?.map((id) => ({ id })),
     refresh: async () => {
       refreshes += 1;
@@ -56,15 +60,19 @@ async function setup(
     providerSight: sight,
     contextSizer: { applyHandle: async () => {} } as unknown as ContextSizer,
     resyncMods: async () => "reloaded",
-    connect: async (providerId, apiKey) => {
+    connect: async (providerId, fields) => {
       if (overrides.connectError) throw new Error(overrides.connectError);
-      connects.push({ providerId, apiKey });
+      connects.push({ providerId, fields });
+      calls.push(`connect ${providerId}${fields.baseUrl ? ` ${fields.baseUrl}` : ""}`);
+    },
+    disconnect: async (providerId) => {
+      calls.push(`disconnect ${providerId}`);
     },
     readDiagnostics: async () => overrides.diagnostics ?? null,
   };
   const app = new Hono<TestEnv>();
   registerProviderRoutes(app, deps);
-  return { app, modelCaps, connects, refreshes: () => refreshes };
+  return { app, modelCaps, connects, calls, refreshes: () => refreshes };
 }
 
 function send(app: Hono<TestEnv>, method: string, path: string, body?: unknown) {
@@ -91,7 +99,13 @@ describe("POST /api/providers — a type the app-server's own connection serves"
     const json = (await response.json()) as { provider: { prefix: string; connection: string } };
     expect(json.provider.prefix).toBe("openrouter");
     expect(json.provider.connection).toBe("openrouter");
-    expect(connects).toEqual([{ providerId: "openrouter", apiKey: "sk-or-k" }]);
+    expect(connects).toEqual([
+      {
+        providerId: "openrouter",
+        // No endpoint typed: none is sent, so each catalog model keeps its own base.
+        fields: { apiKey: "sk-or-k" },
+      },
+    ]);
     expect(modelCaps.endpoints()).toEqual({});
     expect(refreshes()).toBe(1);
   });
@@ -224,5 +238,106 @@ describe("POST /api/providers/models", () => {
 
   test("a connection type's probe only proves the key: nothing is skipped", async () => {
     expect((await probe("openrouter")).skipped).toEqual([]);
+  });
+});
+
+describe("a connection's model picks", () => {
+  const PICKS = {
+    prefix: "openrouter",
+    models: ["z-ai/glm-5.3-flash", "~anthropic/claude-haiku-latest"],
+  };
+
+  test("are stored for a live connection and listed with it", async () => {
+    const { app, modelCaps } = await setup({ connected: ["openrouter"] });
+    const response = await send(app, "PUT", "/api/providers/connection-models", PICKS);
+    expect(response.status).toBe(200);
+    expect(modelCaps.connectionModels()).toEqual({ openrouter: PICKS.models });
+    const json = (await (await send(app, "GET", "/api/providers")).json()) as {
+      connections: Record<string, { selected: string[] | null }>;
+    };
+    expect(json.connections.openrouter?.selected).toEqual(PICKS.models);
+  });
+
+  test("the list carries each live connection's whole served list, picks or not", async () => {
+    const { app } = await setup({
+      connected: ["openrouter"],
+      served: { openrouter: ["z-ai/glm-5.3-flash", "amazon/nova-lite-v1"] },
+    });
+    const json = (await (await send(app, "GET", "/api/providers")).json()) as {
+      connections: Record<string, { selected: string[] | null; served: string[] }>;
+    };
+    expect(json.connections).toEqual({
+      openrouter: { selected: null, served: ["z-ai/glm-5.3-flash", "amazon/nova-lite-v1"] },
+    });
+  });
+
+  test("an update re-connects a live connection and keeps its picks", async () => {
+    const { app, modelCaps, connects } = await setup({ connected: ["openrouter"] });
+    modelCaps.setConnectionModels("openrouter", ["z-ai/glm-5.3-flash"]);
+    const response = await send(app, "POST", "/api/providers", {
+      type: "openrouter",
+      apiKey: "k2",
+      baseUrl: "https://eu.openrouter.ai/api/v1",
+      update: true,
+    });
+    expect(response.status).toBe(200);
+    expect(connects[0]?.fields).toEqual({
+      apiKey: "k2",
+      baseUrl: "https://eu.openrouter.ai/api/v1",
+    });
+    expect(modelCaps.connectionModels()).toEqual({ openrouter: ["z-ai/glm-5.3-flash"] });
+  });
+
+  test("an update back to the default endpoint clears the stored one and keeps the picks", async () => {
+    // Upstream's update keeps a stored base URL when none is sent, and only a
+    // disconnect removes it: connect (checks the key), disconnect, connect.
+    const { app, modelCaps, calls } = await setup({
+      connected: ["openrouter"],
+      bases: { openrouter: "https://us.openrouter.ai/api/v1" },
+    });
+    modelCaps.setConnectionModels("openrouter", ["z-ai/glm-5.3-flash"]);
+    const response = await send(app, "POST", "/api/providers", {
+      type: "openrouter",
+      apiKey: "k2",
+      baseUrl: "",
+      update: true,
+    });
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["connect openrouter", "disconnect openrouter", "connect openrouter"]);
+    expect(modelCaps.connectionModels()).toEqual({ openrouter: ["z-ai/glm-5.3-flash"] });
+  });
+
+  test("an update with nothing stored to clear is one connect", async () => {
+    const { app, calls } = await setup({ connected: ["openrouter"] });
+    await send(app, "POST", "/api/providers", { type: "openrouter", apiKey: "k2", update: true });
+    expect(calls).toEqual(["connect openrouter"]);
+  });
+
+  test("are refused for anything but a live connection of a connection type", async () => {
+    const offline = await setup();
+    expect((await send(offline.app, "PUT", "/api/providers/connection-models", PICKS)).status).toBe(
+      409,
+    );
+    const named = await setup({ connected: ["llama-3b"] });
+    expect(
+      (
+        await send(named.app, "PUT", "/api/providers/connection-models", {
+          ...PICKS,
+          prefix: "llama-3b",
+        })
+      ).status,
+    ).toBe(400);
+    const live = await setup({ connected: ["openrouter"] });
+    expect(
+      (await send(live.app, "PUT", "/api/providers/connection-models", { ...PICKS, models: [] }))
+        .status,
+    ).toBe(400);
+  });
+
+  test("a fresh connect starts from everything served, not stale picks", async () => {
+    const { app, modelCaps } = await setup();
+    modelCaps.setConnectionModels("openrouter", ["old/model"]);
+    await send(app, "POST", "/api/providers", { type: "openrouter", apiKey: "k" });
+    expect(modelCaps.connectionModels()).toEqual({});
   });
 });

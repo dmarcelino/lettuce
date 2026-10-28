@@ -46,6 +46,8 @@ export interface ProviderType {
    * prefix is the id: docs/upstream-notes.md#provider-mod-slash-ids.
    */
   connection?: string;
+  /** What a base URL other than `baseUrl` costs, shown under the field when one is typed. */
+  endpointNote?: string;
 }
 
 export const PROVIDER_TYPES: readonly ProviderType[] = [
@@ -134,6 +136,10 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     baseUrl: "https://openrouter.ai/api/v1",
     keyOptional: false,
     connection: "openrouter",
+    // Its catalog serves 15 Claude models on `…/api` (Anthropic Messages) and the
+    // rest on `…/api/v1`; a stored base URL replaces both, so those 15 then 404.
+    endpointNote:
+      "Claude models served through OpenRouter's Anthropic API won't work on a custom endpoint.",
   },
   {
     id: "deepseek",
@@ -359,9 +365,14 @@ export function parseProviderBody(body: unknown): ParsedProvider {
   const connectionType = providerType(record.type);
   if (connectionType?.connection) {
     // The app-server's own connection: its catalog is the model list and its id
-    // is the handle prefix, so a name, a URL and a model pick would all be ignored.
+    // is the handle prefix, so a name and a model pick are ignored here (the pick
+    // is a separate allowlist). Only a custom endpoint is kept: a stored URL
+    // replaces every catalog model's own base, and OpenRouter's catalog uses two
+    // (its Claude models are on `…/api`, the rest on `…/api/v1`).
     const apiKey = typeof record.apiKey === "string" ? record.apiKey.trim() : "";
     if (!apiKey) throw new ProviderError(`${connectionType.label} needs an API key`);
+    const typedUrl = typeof record.baseUrl === "string" ? record.baseUrl.trim() : "";
+    const baseUrl = typedUrl ? normalizeBaseUrl(typedUrl) : "";
     return {
       connection: connectionType.connection,
       prefix: connectionType.connection,
@@ -369,7 +380,7 @@ export function parseProviderBody(body: unknown): ParsedProvider {
       type: connectionType.id,
       api: connectionType.api,
       scope: connectionType.scope,
-      baseUrl: connectionType.baseUrl,
+      baseUrl: baseUrl === normalizeBaseUrl(connectionType.baseUrl) ? "" : baseUrl,
       apiKey,
       models: [],
     };
@@ -464,7 +475,7 @@ function readModelIds(api: string, payload: unknown): string[] {
     }
     if (id && !ids.includes(id)) ids.push(id);
   }
-  return ids.sort((a, b) => a.localeCompare(b)).slice(0, 300);
+  return ids.sort((a, b) => a.localeCompare(b));
 }
 
 /**

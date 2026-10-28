@@ -85,6 +85,34 @@ describe("ProviderSight", () => {
     expect(sight.baseUrlFor("openai-compatible")).toBeUndefined();
   });
 
+  test("a name stays connected when a later row sharing it is not", () => {
+    // letta-code 0.34.21 lists OpenRouter twice (API key and OAuth), both naming
+    // `openrouter`, sorted by display name: the unconnected OAuth row comes last.
+    const sight = new ProviderSight(deps);
+    sight.observe({
+      type: "list_connect_providers_response",
+      providers: [
+        {
+          id: "openrouter",
+          display_name: "OpenRouter",
+          provider_name: "openrouter",
+          provider_names: ["openrouter", "lc-openrouter"],
+          connected: { is_connected: true, base_url: "https://us.openrouter.ai/api/v1" },
+        },
+        {
+          id: "openrouter-oauth",
+          display_name: "OpenRouter OAuth",
+          provider_name: "openrouter",
+          provider_names: ["openrouter", "lc-openrouter"],
+          is_oauth: true,
+          connected: { is_connected: false },
+        },
+      ],
+    } as unknown as WsProtocolMessage);
+    expect(sight.isConnected("openrouter")).toBe(true);
+    expect(sight.baseUrlFor("openrouter")).toBe("https://us.openrouter.ai/api/v1");
+  });
+
   test("connect/disconnect responses flag a possibly-changed model list", () => {
     const sight = new ProviderSight(deps);
     expect(

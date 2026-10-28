@@ -5,6 +5,7 @@ import type {
   AgentRetrieveResponseMessage,
   ConnectProviderResponseMessage,
   ConversationRetrieveResponseMessage,
+  DisconnectProviderResponseMessage,
   ExecuteCommandResponseMessage,
   ListInDirectoryResponseMessage,
   ReadFileResponseMessage,
@@ -116,6 +117,7 @@ import { mcpClient } from "./mcp-bridge/client.ts";
 import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
 import { registerPiRoutes } from "./pi/routes.ts";
 import { PI_TOOL_NAMES, PI_TOOL_SPECS, PiService } from "./pi/service.ts";
+import { filterServedModels } from "./providers/allowlist.ts";
 import { registerProviderRoutes } from "./providers/routes.ts";
 import { ProviderSight } from "./providers/sight.ts";
 import { ModelCapsStore } from "./providers/store.ts";
@@ -235,7 +237,8 @@ const upstream = new UpstreamConnection({
     turnUsage.observe(frame);
     contextWatchdog?.observe(frame);
     const sightUpdate = providerSight.observe(frame);
-    registry.handleUpstreamFrame(frame);
+    // After the mirror saw the whole list: browsers get a connection's picks only.
+    registry.handleUpstreamFrame(filterServedModels(frame, modelCaps.connectionModels()));
     turnErrors.observe(frame);
     turnOutcomeWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
     approvalWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
@@ -1328,15 +1331,26 @@ registerProviderRoutes(app, {
   providerSight,
   contextSizer,
   resyncMods,
-  async connect(providerId, apiKey) {
+  async connect(providerId, fields) {
+    // `baseUrl` is not among the fields upstream advertises for these hosts, but
+    // `resolveProviderConnectionFields` reads it for every provider and stores it.
     const response = await upstream.request<ConnectProviderResponseMessage>({
       type: "connect_provider",
       request_id: `bff-connect-${randomUUID()}`,
       target: "local",
       provider_id: providerId,
-      fields: { apiKey },
+      fields,
     });
     if (!response.success) throw new Error(response.error || `${providerId}: connect failed`);
+  },
+  async disconnect(providerId) {
+    const response = await upstream.request<DisconnectProviderResponseMessage>({
+      type: "disconnect_provider",
+      request_id: `bff-disconnect-${randomUUID()}`,
+      target: "local",
+      provider_id: providerId,
+    });
+    if (!response.success) throw new Error(response.error || `${providerId}: disconnect failed`);
   },
   readDiagnostics: () => codexIo.read(MOD_DIAGNOSTICS_PATH),
 });

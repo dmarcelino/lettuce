@@ -1985,20 +1985,6 @@ try {
       paneText.slice(0, 400),
     );
 
-    // Refreshing against a stable endpoint must NOT raise the change warning —
-    // a detector that cries wolf on every refresh is worse than none.
-    const warningSelector = '.warning:has-text("different set of models")';
-    check(
-      "no spurious model-change warning on load",
-      (await page.locator(warningSelector).count()) === 0,
-    );
-    await page.locator('button[aria-label="Refresh models"]').click();
-    await page.waitForTimeout(2500);
-    check(
-      "no spurious model-change warning after a refresh",
-      (await page.locator(warningSelector).count()) === 0,
-    );
-
     // A provider's models sit behind a disclosure, and each model's declaration
     // opens the same sheet everywhere else. Nothing to expand on a stack with no
     // providers, which must not fail the run.

@@ -3,6 +3,7 @@ import { errorMessage } from "../lib/errors.ts";
 import { KEEP_STORED_HINT } from "../lib/field-hints.ts";
 import { fetchModelCaps, type ModelCapsStore } from "../lib/model-caps.ts";
 import {
+  type ConnectionModels,
   fetchProviders,
   type Provider,
   type ProviderType,
@@ -12,6 +13,7 @@ import { handleProvider, normalizeProviderKey } from "../lib/providers.ts";
 import { SAVED_NO_AGENT, SAVED_NOW, SAVED_ON_RECONNECT } from "../lib/save-result.ts";
 import { type ModelEntry, type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { ConnectionPickerSheet, type ConnectionTarget } from "./ConnectionPickerSheet.tsx";
 import { Icon } from "./Icon.tsx";
 import { ModelEditSheet, type ModelEditTarget } from "./ModelEditSheet.tsx";
 import { ProviderFormSheet } from "./ProviderFormSheet.tsx";
@@ -90,6 +92,8 @@ interface Row {
   problem?: string;
   /** No Edit: a stored provider of a type the app-server's own connection now serves. */
   removeOnly?: boolean;
+  /** Everything a connection serves, when picks trim what is shown: "N of M". */
+  total?: number;
   provider?: Provider;
   connection?: ConnectionEntry;
 }
@@ -108,6 +112,8 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
   const [types, setTypes] = useState<ProviderType[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [connections, setConnections] = useState<ConnectionEntry[]>([]);
+  const [picks, setPicks] = useState<Record<string, ConnectionModels>>({});
+  const [picker, setPicker] = useState<ConnectionTarget | null>(null);
   const [caps, setCaps] = useState<ModelCapsStore>({ models: {}, endpoints: {} });
   const [status, setStatus] = useState("");
   const [progress, setProgress] = useState("");
@@ -122,6 +128,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       const registry = await fetchProviders();
       setTypes(registry.types);
       setProviders(registry.providers);
+      setPicks(registry.connections);
       const response = await session.request<{
         providers?: ConnectionEntry[];
         success?: boolean;
@@ -161,6 +168,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       if (keys.has(normalizeProviderKey(alias))) owned.push(...entries.map((m) => m.handle));
     }
     if (owned.length > 0) registryPrefixes.add(handleProvider(owned[0] ?? "unknown"));
+    const served = picks[entry.id];
     connectionRows.push({
       prefix: entry.id,
       name: entry.display_name,
@@ -172,6 +180,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       headerCount: 0,
       owned: false,
       connection: entry,
+      ...(served?.selected ? { total: served.served.length } : {}),
     });
   }
 
@@ -231,6 +240,18 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
     }
   };
 
+  // A connection of one of the hosts naming models `vendor/model` edits in the
+  // picker (endpoint, key, which models to show); any other keeps its own fields.
+  const editConnection = (entry: ConnectionEntry) => {
+    const type = types.find((candidate) => candidate.connection === entry.id);
+    if (!type) {
+      setEditingConnection(entry);
+      return;
+    }
+    // Blank when the app-server stores none: the connection uses the catalog's own.
+    setPicker({ type, baseUrl: connectionUrl(entry), editing: true });
+  };
+
   const disconnect = async (entry: ConnectionEntry) => {
     try {
       await session.request("disconnect_provider", {
@@ -284,7 +305,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
               <button
                 type="button"
                 className="link"
-                onClick={() => setEditingConnection(row.connection ?? null)}
+                onClick={() => editConnection(row.connection as ConnectionEntry)}
               >
                 Edit
               </button>
@@ -320,7 +341,11 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
                 onClick={() => setOpen({ ...open, [row.prefix]: !expanded })}
               >
                 <span className="tag">
-                  {row.models.length === 1 ? "Model (1)" : `Models (${row.models.length})`}
+                  {row.total !== undefined
+                    ? `Models (${row.models.length} of ${row.total})`
+                    : row.models.length === 1
+                      ? "Model (1)"
+                      : `Models (${row.models.length})`}
                 </span>
                 <Icon name={expanded ? "chevron-down" : "chevron-right"} className="chevron" />
               </button>
@@ -413,15 +438,6 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
           </button>
         </p>
       ) : null}
-      {models.changed ? (
-        <p className="warning small">
-          An endpoint returned a different set of models on the last refresh —{" "}
-          {models.changed.currentCount} now versus {models.changed.previousCount} before. That
-          usually means it load-balances <code>/models</code> across several backends, so each call
-          is answered by a different one. Point one provider at an aggregating endpoint, or at a
-          single backend.
-        </p>
-      ) : null}
 
       {local.length === 0 && cloud.length === 0 ? (
         <ul className="list">
@@ -486,6 +502,12 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
             // A save the app-server refused kept the sheet open; its row now says why.
             void load();
           }}
+          onConnected={(target) => {
+            setForm(null);
+            toast(`Connected ${target.type.label}.`);
+            setPicker(target);
+            void load();
+          }}
           onSaved={(mod) => {
             setForm(null);
             toast(
@@ -508,6 +530,19 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
           onClose={() => setEditingModel(null)}
           onSaved={() => {
             setEditingModel(null);
+            void load();
+            void models.refresh();
+          }}
+        />
+      ) : null}
+
+      {picker ? (
+        <ConnectionPickerSheet
+          target={picker}
+          onClose={() => setPicker(null)}
+          onSaved={() => {
+            setPicker(null);
+            toast(SAVED_NOW);
             void load();
             void models.refresh();
           }}
