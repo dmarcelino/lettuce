@@ -21,6 +21,7 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { SignInScreen } from "./components/SignInScreen.tsx";
 import { Switcher } from "./components/Switcher.tsx";
 import { ToastLayer, toast } from "./components/Toast.tsx";
+import { initialOf, tintFor } from "./lib/agent-tint.ts";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { applyDocumentTitle } from "./lib/document-title.ts";
 import { draftKey } from "./lib/draft.ts";
@@ -337,6 +338,8 @@ function Workspace({ status }: { status: Status }) {
     session.activeScopes.size - (scope && session.activeScopes.has(scopeKey(scope)) ? 1 : 0);
   // Any active scope at all makes the status dot a way into the list.
   const respondingCount = session.activeScopes.size;
+  /** Whether the open agent has a conversation answering — its avatar says so. */
+  const agentResponding = session.activeAgentIds.has(agents.agentId ?? "");
 
   // Lifted so the composer button and the picker share one source of truth —
   // switching model in the picker updates the button without a reload.
@@ -405,6 +408,31 @@ function Workspace({ status }: { status: Status }) {
 
       <div className="main">
         <header className="topbar">
+          {/* The agent's face, in the corner the eye starts at, opening the same
+              switcher its own name beside it does. Phone only: on desktop the rail
+              is a column of these, and one more in the header would be a duplicate.
+              It left the bottom bar because an agent you cannot see is an agent you
+              lose track of — the bar's letter-sized glyph never said which agent. */}
+          <button
+            type="button"
+            className="where-avatar"
+            onClick={openSwitcher}
+            aria-label={
+              agentResponding
+                ? `${agentName ?? "Agent"}: switch agent or conversation, responding`
+                : `${agentName ?? "Agent"}: switch agent or conversation`
+            }
+            title="Agents and conversations"
+          >
+            <span
+              className="where-avatar-face"
+              style={{ background: tintFor(agents.agentId ?? "") }}
+              aria-hidden="true"
+            >
+              {agentName ? initialOf(agentName) : "?"}
+              {agentResponding ? <span className="activity-dot" /> : null}
+            </span>
+          </button>
           {/* Where you are: the agent over the conversation. On a phone it is
               also a way into the switcher from every tab, not just Chat. */}
           <button
@@ -641,11 +669,8 @@ function Workspace({ status }: { status: Status }) {
             the top strip it replaces could not say six panes at 390px. */}
         <BottomBar
           agentName={agentName}
-          agentId={agents.agentId}
-          responding={session.activeAgentIds.has(agents.agentId ?? "")}
           tab={tab}
           onSelectPane={selectPane}
-          onOpenSwitcher={openSwitcher}
           onOpenSettings={() => setGlobalSettings({})}
           runsEnabled={runsFeature}
           runsRunning={piActive}

@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags); one AgentMenu fixed to the viewport because the agent surfaces clip it (above a phone ⋯, beside a rail avatar); the desktop rail (avatars, named panes, Settings foot) beside a conversation panel that is Chat''s alone and pin-toggleable in localStorage; a phone bottom bar of five slots whose first is a merged Chat slot (avatar over icon) with Agent/Runs/Settings behind More; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent tab, Tools tab, global Settings); no native checkbox anywhere (aria-pressed plus .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, ConversationFlyout, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
+description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists kept in the BFF, not in the agent; one AgentMenu fixed to the viewport because the agent surfaces clip it (above a phone ⋯, beside a rail avatar); the desktop rail (avatars, named panes, Settings foot) beside a conversation panel that is Chat''s alone and pin-toggleable in localStorage; a phone bar of five equal slots under a header whose left corner carries the open agent's face (`.where-avatar`) as the way into the switcher; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent tab, Tools tab, global Settings); no native checkbox anywhere (aria-pressed plus .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, ConversationFlyout, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -35,9 +35,12 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   it — and with the panel open it takes the panel's own footprint instead, because two conversation
   lists at once read as a glitch and the question behind the hover is "show me this agent
   instead". Below 900px both are `display: none` and the
-  **bottom bar** (`BottomBar`) is the navigation: five slots, the first a merged Chat slot (upper
-  half the agent's avatar → the switcher, lower half the Chat icon → the pane, stacked so neither
-  can steal the other's tap), then Files, Tasks, Tools, then More holding Agent, Runs and Settings.
+  **bottom bar** (`BottomBar`) is the navigation: five equal slots — Chat, Files,
+  Tasks, Tools, then More holding Agent, Runs and Settings — and no avatar, because
+  a letter in a bar never said which agent it meant. The open agent's **face** is in
+  the header's left corner (`.where-avatar`, hidden from 900px, `tintFor` + `initialOf`
+  + the responding dot) and opens the same switcher the agent-name button beside it
+  does. Identity lives in the header; the bar is panes and nothing else.
   Both nav surfaces stay mounted and CSS picks one, the way the sidebar always did, so `ui-check`
   reads state at either width. Conversation verbs are a hover-revealed `.conversation-archive`
   glyph beside the ⋯ on desktop and the ⋯ alone on a phone (there is no hover on a touch device),

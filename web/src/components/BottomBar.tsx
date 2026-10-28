@@ -1,20 +1,15 @@
 import { useState } from "react";
-import { initialOf, tintFor } from "../lib/agent-tint.ts";
 import type { Tab } from "../lib/tabs.ts";
 import type { IconName } from "./Icon.tsx";
 import { Icon } from "./Icon.tsx";
 import { Sheet } from "./Sheet.tsx";
 
 interface Props {
-  /** The open agent, for the merged Chat slot's avatar. */
+  /** Named on the More sheet's Agent row — the bar has no avatar any more, but the
+   * row still has to say whose settings it opens. */
   agentName: string | null;
-  agentId: string | null;
-  /** Any conversation of this agent is responding. */
-  responding: boolean;
   tab: Tab;
   onSelectPane: (tab: Tab) => void;
-  /** The switcher: agents and conversations in one full-screen menu. */
-  onOpenSwitcher: () => void;
   onOpenSettings: () => void;
   runsEnabled: boolean;
   /** Shown on the More row so a running worker is visible from the bar. */
@@ -25,20 +20,17 @@ interface Props {
  * The phone's navigation: one bar under the composer, replacing the top tab
  * strip that used to squeeze six labels onto 390px.
  *
- * The first slot is the one the old composer glyph was trying to be: the open
- * agent's avatar above the Chat pane's icon and label, so "which agent am I
- * talking to" and "go back to the chat" are the same object, one tap apart. The
- * three secondary panes that earn a slot on their own sit next to it, and what is
- * left — the agent's own settings, the coding workers, this device's Settings —
- * is three rows in one sheet.
+ * Five equal slots — Chat, the three secondary panes that earn one on their own,
+ * and More, which holds what is left: the agent's own settings, the coding
+ * workers, this device's Settings. The agent's avatar is not here; it moved to
+ * the header's left corner (`where-avatar` in App), because a letter the size of
+ * a full stop never told you which agent you were talking to, and the bar's job
+ * is panes, not identity.
  */
 export function BottomBar({
   agentName,
-  agentId,
-  responding,
   tab,
   onSelectPane,
-  onOpenSwitcher,
   onOpenSettings,
   runsEnabled,
   runsRunning,
@@ -55,37 +47,15 @@ export function BottomBar({
   return (
     <>
       <nav className="bottombar" aria-label="Sections">
-        {/* One slot, two targets: the avatar opens agents and conversations, the
-            icon and label open the Chat pane. They are stacked, so neither can
-            steal the other's tap. */}
-        <div className={`bb-chat${tab === "Chat" ? " active" : ""}`}>
-          <span className="bb-sizer" aria-hidden="true" />
-          <button
-            type="button"
-            className="bb-switch"
-            onClick={onOpenSwitcher}
-            aria-label={
-              responding
-                ? `${agentName ?? "Agent"}: agents and conversations, responding`
-                : `${agentName ?? "Agent"}: agents and conversations`
-            }
-            title="Agents and conversations"
-          >
-            <span className="bb-avatar" style={{ background: tintFor(agentId ?? "") }}>
-              {agentName ? initialOf(agentName) : "?"}
-              {responding ? <span className="activity-dot" /> : null}
-            </span>
-          </button>
-          <button
-            type="button"
-            className="bb-pane"
-            onClick={() => onSelectPane("Chat")}
-            aria-current={tab === "Chat" ? "page" : undefined}
-          >
-            <Icon name="chats" />
-            Chat
-          </button>
-        </div>
+        <button
+          type="button"
+          className={tab === "Chat" ? "active" : ""}
+          aria-current={tab === "Chat" ? "page" : undefined}
+          onClick={() => onSelectPane("Chat")}
+        >
+          <Icon name="chats" />
+          Chat
+        </button>
 
         {secondary.map((pane) => (
           <button

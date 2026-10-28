@@ -365,9 +365,9 @@ pre {
   border-top: 1px solid var(--border);
 }
 
-/* The phone's bar, under the composer: five slots, and the first one is the
-   switcher's avatar over the Chat pane, so "which agent" and "back to chat" are
-   one object instead of two anonymous glyphs. */
+/* The phone's bar, under the composer: five equal slots — the Chat pane, the
+   three secondary panes that earn one, and More. Identity is not its business;
+   the agent's face sits in the header's corner. */
 .bottombar {
   display: flex;
   align-items: stretch;
@@ -400,74 +400,6 @@ pre {
   width: 20px;
   height: 20px;
 }
-.bb-chat {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  color: var(--muted);
-}
-.bb-chat.active {
-  color: var(--text);
-  box-shadow: inset 0 2px 0 var(--accent);
-}
-/* The two targets fill the slot from above and below and meet exactly at the
-   middle, so neither can steal the other's tap: `bottom: 50%` and `top: 50%` are
-   the same line. (They did overlap once — 46% from one side is not 46% from the
-   other — and the lower button, being later in the DOM, ate the avatar's bottom
-   eighth.) The sizer is what gives the slot its height, since both buttons are
-   out of the flow. */
-.bb-sizer {
-  height: 62px;
-  visibility: hidden;
-}
-.bb-switch {
-  position: absolute;
-  inset: 2px 0 50% 0;
-  background: none;
-  border: none;
-  display: grid;
-  place-items: center;
-  padding: 0;
-}
-.bb-pane {
-  position: absolute;
-  inset: 50% 0 0 0;
-  background: none;
-  border: none;
-  color: inherit;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  font-size: 11px;
-  line-height: 1.1;
-}
-.bb-pane .icon {
-  width: 19px;
-  height: 19px;
-}
-.bb-avatar {
-  position: relative;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-round);
-  display: grid;
-  place-items: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--on-accent);
-}
-.bb-avatar .activity-dot {
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  margin: 0;
-  border: 2px solid var(--surface);
-}
 
 /* The panel's own header: what it is, whether it stays, and the new conversation.
    The pin lives here and nowhere else on purpose — you can only ask a panel to
@@ -490,6 +422,41 @@ pre {
 
 /* The top bar's "where you are" is the switcher on every width; the caret is
    what says so once it is the only button up there. */
+/* The agent's face, in the header's left corner on a phone (hidden from 900px,
+   where the rail is a column of these). It opens the switcher, and it is the only
+   thing on a phone that says which agent is open — an identity a letter the size
+   of a full stop in the bottom bar never carried. 44px of target, out into the
+   header's own padding so the bar does not grow for it. */
+.where-avatar {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -4px -8px -4px -8px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.where-avatar-face {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-round);
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--on-accent);
+}
+.where-avatar-face .activity-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  margin: 0;
+  border: 2px solid var(--surface);
+}
+
 .where-caret {
   flex: none;
   width: 15px;
@@ -2701,6 +2668,11 @@ p.warning code,
   /* The bar is a phone surface; here the rail owns navigation and there is no
      More. Mounted and hidden, exactly as the phone block above hides the rail. */
   .bottombar {
+    display: none;
+  }
+  /* Same reason the other way: the rail already lists the agents, so the header's
+     face would be a second copy of a thing already on screen. */
+  .where-avatar {
     display: none;
   }
 

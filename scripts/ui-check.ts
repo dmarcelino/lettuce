@@ -210,12 +210,21 @@ async function openSkillsSection(page: Page): Promise<void> {
   // (checked by which chip is active). Retry-on-a-timer is what broke this: the
   // section restarts its walk every time it mounts, so clicking again every 20s
   // starved it and the pane stayed empty for two whole minutes of waiting.
+  // And wait for the box first: the walk reads the agent's memfs through the
+  // app-server, and on a local model a turn an earlier check started holds that
+  // server for minutes — the pane was empty because the machine was busy, not
+  // because the UI is broken.
+  await page
+    .waitForFunction(() => !document.querySelector(".topbar-status.busy"), undefined, {
+      timeout: 300_000,
+    })
+    .catch(() => {});
   await tab.click();
   for (let attempt = 0; attempt < 3; attempt++) {
     const active = (await page.locator(".section-tabs button.active").first().innerText()).trim();
     if (active !== "Skills") await tab.click();
     try {
-      await heads.first().waitFor({ state: "visible", timeout: attempt === 0 ? 180_000 : 90_000 });
+      await heads.first().waitFor({ state: "visible", timeout: attempt === 0 ? 120_000 : 60_000 });
       return;
     } catch {
       // Still nothing after a long wait; the loop decides whether the click was
@@ -226,14 +235,14 @@ async function openSkillsSection(page: Page): Promise<void> {
 }
 
 /** Open the agents-and-conversations switcher at either width: the rail's "All
- * agents" cell on desktop, the bar's avatar on a phone. */
+ * agents" cell on desktop, the header's agent face on a phone. */
 async function openSwitcher(page: Page): Promise<void> {
   const cell = page.locator('.rail button[aria-label="All agents"]');
   if (await cell.first().isVisible()) {
     await cell.first().click();
     return;
   }
-  await page.locator(".bb-chat .bb-switch").click();
+  await page.locator(".topbar .where-avatar").click();
   await page.locator(".switcher").waitFor();
 }
 
@@ -266,9 +275,7 @@ async function openTab(page: Page, name: string): Promise<void> {
     await rail.first().click();
     return;
   }
-  const bar = page.locator(
-    `.bottombar > button:text-is("${name}"), .bottombar .bb-pane:text-is("${name}")`,
-  );
+  const bar = page.locator(`.bottombar > button:text-is("${name}")`);
   if ((await bar.count()) > 0 && (await bar.first().isVisible())) {
     await bar.first().click();
     return;
@@ -297,19 +304,26 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    // The bar is five slots: the merged Chat slot (two targets, one object) and
-    // four named buttons, with the agent's own settings behind More.
+    // The bar is five equal slots — Chat, three secondary panes, More — and the
+    // agent's identity is not one of them: its face is in the header's corner.
     const slots = await page.locator(".bottombar > *", { hasText: /./ }).count();
+    check("the bar has five slots", (await page.locator(".bottombar > button").count()) === 5, {
+      slots,
+    });
     check(
-      "the bar has five slots",
-      (await page.locator(".bottombar .bb-chat").count()) === 1 &&
-        (await page.locator(".bottombar > button").count()) === 4,
-      { slots },
+      "the first slot is the Chat pane, and it says which agent the pane belongs to by its face",
+      (await page.locator('.bottombar > button:text-is("Chat")').count()) === 1 &&
+        (await page.locator(".topbar .where-avatar").count()) === 1,
     );
     check(
-      "the merged Chat slot is two targets, not one button with two meanings",
-      (await page.locator(".bb-chat .bb-switch").count()) === 1 &&
-        (await page.locator(".bb-chat .bb-pane").count()) === 1,
+      "the header's agent face is fingertip-sized and carries the open agent's initial",
+      await page.evaluate(() => {
+        const btn = document.querySelector(".topbar .where-avatar");
+        const face = document.querySelector(".where-avatar-face");
+        if (!btn || !face) return false;
+        const r = btn.getBoundingClientRect();
+        return r.width >= 44 && r.height >= 44 && (face.textContent ?? "").trim().length === 1;
+      }),
     );
     check(
       "the bar fits 390px without scrolling sideways",
@@ -381,10 +395,10 @@ try {
     await page.waitForTimeout(300);
 
     // The switcher: agents and conversations in one full-screen menu, opened
-    // from the bar's avatar. Each list starts with its own "new" card, in one
-    // shared style, and the agents sit at the bottom, in thumb reach.
-    const switcherButton = page.locator(".bb-chat .bb-switch");
-    check("the bar's avatar opens the switcher", await switcherButton.isVisible());
+    // from the header's agent face. Each list starts with its own "new" card, in
+    // one shared style, and the agents sit at the bottom, in thumb reach.
+    const switcherButton = page.locator(".topbar .where-avatar");
+    check("the header's agent face opens the switcher", await switcherButton.isVisible());
     await switcherButton.click();
     const switcher = page.locator(".switcher");
     check("switcher opens", await switcher.isVisible());
@@ -625,32 +639,18 @@ try {
     check("nothing is left of the composer's spacer", controls.left.length === 0, controls.left);
     check("composer row fits without scrolling", !controls.scrolls);
 
-    // The bar is the phone's only navigation, so its slots are fingertip targets
-    // and its two merged targets must not overlap.
+    // The bar is the phone's only navigation, so every slot is a fingertip target.
     const bar = await page.evaluate(() => {
       const slots = [...document.querySelectorAll(".bottombar > *")].map((el) => {
         const r = el.getBoundingClientRect();
         return { cls: el.className, w: Math.round(r.width), h: Math.round(r.height) };
       });
-      const switchRect = document.querySelector(".bb-chat .bb-switch")?.getBoundingClientRect() as
-        | DOMRect
-        | undefined;
-      const paneRect = document.querySelector(".bb-chat .bb-pane")?.getBoundingClientRect() as
-        | DOMRect
-        | undefined;
       return {
         slots,
         short: slots.filter((s) => s.h < 44 || s.w < 44).map((s) => `${s.cls} ${s.w}x${s.h}`),
-        overlap:
-          !switchRect || !paneRect
-            ? "missing"
-            : switchRect.bottom > paneRect.top + 1
-              ? "yes"
-              : "no",
       };
     });
     check("every bar slot is fingertip-sized", bar.short.length === 0, bar.short);
-    check("the merged slot's two targets do not overlap", bar.overlap === "no", bar.overlap);
 
     // Two lines of typing room on a phone (the floor in styles.css; the desktop
     // stays at one). Only an empty box proves the floor — a restored draft has
@@ -1255,6 +1255,10 @@ try {
     // The agents are the rail's avatar column now — one answer to "which agent",
     // beside the panes, with nothing about them reading as another conversation.
     check("no agent dropdown on desktop", (await page.locator(".sidebar select").count()) === 0);
+    check(
+      "and no agent face in the desktop header — the rail already is that",
+      !(await page.locator(".topbar .where-avatar").isVisible()),
+    );
     check(
       "the rail lists every agent as an avatar, plus a cell for the switcher",
       (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1 &&
