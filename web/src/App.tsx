@@ -218,7 +218,7 @@ function Workspace({ status }: { status: Status }) {
   const previewList = useAgentConversations(session.request);
   const loadPreview = previewList.load;
   const previewAgent =
-    tab === "Chat" && !panelPinned && previewId
+    tab === "Chat" && !panelPinned && previewId && previewId !== agents.agentId
       ? (agents.agents.find((agent) => agent.id === previewId) ?? null)
       : null;
   const panelVisible = tab === "Chat" && (panelPinned || panelPeek || previewAgent !== null);
@@ -231,8 +231,16 @@ function Workspace({ status }: { status: Status }) {
       return;
     }
     // The pointer left the avatar. If it landed in the panel, the panel is holding
-    // the borrowed list and it stays; otherwise the panel returns to its own agent.
+    // the borrowed list and it stays; otherwise the panel returns to its own agent —
+    // and a peek a hover opened goes away with the hover, the same way.
     setPreviewId((current) => (panelHeld.current ? current : null));
+  }, []);
+  // The open agent's own avatar is not a borrow — it is "show me my conversations", and
+  // borrowing the panel for the agent it already belongs to read-only took the New button and
+  // the verbs away and sent the row click down the switch path, which empties the list.
+  const ownAvatar = useCallback(() => {
+    setPreviewId(null);
+    setPanelPeek(true);
   }, []);
   const holdPanel = useCallback((held: boolean) => {
     panelHeld.current = held;
@@ -265,6 +273,9 @@ function Workspace({ status }: { status: Status }) {
   // it stays open as a peek. (It used to vanish on the un-pin, which made the pin
   // button — inside the panel — the thing you had just made unreachable.)
   const togglePanelPin = useCallback(() => {
+    // Pinning a borrowed panel would keep another agent's list as the column you decided
+    // to keep — the borrow is a hover, and a hover is not a decision.
+    setPreviewId(null);
     setPanelPinned((current) => {
       writePanelPin(!current);
       if (current) setPanelPeek(true);
@@ -280,6 +291,8 @@ function Workspace({ status }: { status: Status }) {
    */
   const selectPane = useCallback(
     (next: Tab) => {
+      // A borrow belongs to the rail and to Chat; changing pane ends it.
+      setPreviewId(null);
       if (next === "Chat") {
         // Pinned, Chat has nothing to do (the panel is already there). Unpinned,
         // Chat is a toggle: pressing it while the peek is open puts it back.
@@ -447,6 +460,7 @@ function Workspace({ status }: { status: Status }) {
         onSelectPane={selectPane}
         onOpenPanel={openPanel}
         onPreviewAgent={previewFromRail}
+        onOwnAvatar={ownAvatar}
         onOpenSettings={() => setGlobalSettings({})}
         onOpenSwitcher={openSwitcher}
         onEditAgent={editAgent}

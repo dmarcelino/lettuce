@@ -14,14 +14,16 @@ import type { SessionApi } from "./use-session.ts";
  * loading row, a hover after it is instant, and a failed agent is reported in the
  * panel rather than hanging.
  */
-const cache = new Map<string, ConversationSummary[]>();
+/** How long a cached hover list is trusted: long enough that moving down the rail is
+   instant, short enough that a conversation you archived a minute ago is not still there. */
+const FRESH_MS = 30_000;
+
+const cache = new Map<string, { at: number; list: ConversationSummary[] }>();
 
 interface AgentConversations {
   conversations: ConversationSummary[];
   loading: boolean;
   failed: boolean;
-  /** Drop the cached list so the next `load` refetches (a new conversation appears). */
-  invalidate: (agentId: string) => void;
   load: (agentId: string) => void;
 }
 
@@ -37,8 +39,8 @@ export function useAgentConversations(request: SessionApi["request"]): AgentConv
   const load = useCallback(
     (agentId: string) => {
       const known = cache.get(agentId);
-      if (known) {
-        setState({ agentId, conversations: known, loading: false, failed: false });
+      if (known && Date.now() - known.at < FRESH_MS) {
+        setState({ agentId, conversations: known.list, loading: false, failed: false });
         return;
       }
       setState((current) =>
@@ -51,7 +53,7 @@ export function useAgentConversations(request: SessionApi["request"]): AgentConv
       void request("conversation_list", { query: { agent_id: agentId, limit: 100 } })
         .then((response) => {
           const list = readConversations(response);
-          cache.set(agentId, list);
+          cache.set(agentId, { at: Date.now(), list });
           setState((current) =>
             current.agentId === agentId
               ? { agentId, conversations: list, loading: false, failed: false }
@@ -72,23 +74,13 @@ export function useAgentConversations(request: SessionApi["request"]): AgentConv
     [request],
   );
 
-  const invalidate = useCallback((agentId: string) => {
-    cache.delete(agentId);
-  }, []);
-
-  // A cache written by someone else (the switcher refreshing after a new
-  // conversation) should win on the next hover, so nothing here goes stale.
-  useEffect(() => {
-    return () => {
-      inFlight.current.clear();
-    };
-  }, []);
+  // The page going away is the cache going away: nothing here outlives a reload.
+  useEffect(() => () => inFlight.current.clear(), []);
 
   return {
     conversations: state.conversations,
     loading: state.loading,
     failed: state.failed,
-    invalidate,
     load,
   };
 }

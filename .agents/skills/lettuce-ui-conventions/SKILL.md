@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists kept in the BFF, not in the agent; one AgentMenu fixed to the viewport because the agent surfaces clip it (above a phone ⋯, beside a rail avatar); the desktop rail (avatars named under the face, named panes, Settings foot) beside a conversation panel that is Chat''s alone, pin-toggleable, and named for whose list it is; a phone bar of five equal slots under a header whose left corner carries the open agent's face (`.where-avatar`) as the way into the switcher; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent tab, Tools tab, global Settings); no native checkbox anywhere (aria-pressed plus .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, Sidebar, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
+description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists kept in the BFF, not in the agent; one AgentMenu fixed to the viewport because the agent surfaces clip it (above a phone ⋯, beside a rail avatar); the desktop rail (avatars named under the face, named panes, Settings foot) beside a conversation panel that is Chat''s alone, pin-toggleable, and named for whose list it shows; a phone bar of five equal slots under a header whose left corner carries the open agent's face (`.where-avatar`) as the way into the switcher; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent tab, Tools tab, global Settings); no native checkbox anywhere (aria-pressed plus .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, Sidebar, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -42,15 +42,19 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   conversations and nothing else, and it belongs to Chat: a secondary pane puts it away, and the pin
   in its header (localStorage, pinned by default) decides whether Chat keeps it as a column or
   treats it as a peek that closes on a press anywhere else. It stays **mounted** when hidden — its
-  polling is what fills `activeScopes`, so an agent that is answering still lights its avatar. A
+  polling is what fills `activeScopes`, so an agent that is answering still lights its avatar.
   **There is one conversation panel, its head says whose it is, and a hover borrows it.**
   The head carries a face plus a name — the open agent's, or the borrowed one's — because a
   list that says only "Conversations" is silent about which agent the next click acts on.
   Resting on an avatar (120ms of deliberate rest, mouse only) asks `App` to show that agent's
   list in the same panel (`previewId` + `onPreviewAgent`, lists from `use-agent-conversations.ts`),
   read-only while borrowed: no archive, no rename — those belong to the agent whose panel this is.
-  A hover is honoured only while the panel is **unpinned** (a pinned column is what you are
-  reading, and it does not change agents under you) and only on Chat; the panel holds the borrow
+  The **open** agent's own avatar is never borrowed — resting on it is "give me my own list
+  back" (`onOwnAvatar`: peek open, full verbs, New button), because borrowing an agent its own
+  panel already showed took the verbs away and sent the row click down the switch path, which
+  emptied the list. A hover is honoured only while the panel is **unpinned** (a pinned column is
+  what you are reading, and it does not change agents under you) and only on Chat, and a pane
+  change or a pin click clears the borrow; the panel holds the borrow
   while the pointer is inside it (`onHold`), and a press or a pointer-out puts it back. Avatar to
   avatar is **one gesture, not a close and an open**: the close armed by leaving the first never
   runs, and once a list is up the next replaces it at once — the 120ms prices an *opening*, not a

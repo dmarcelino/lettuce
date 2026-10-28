@@ -28,6 +28,8 @@ interface Props {
   /** Resting on an avatar asks the one conversation panel to show that agent; `null`
    * is the pointer leaving. App decides whether the ask is honoured. */
   onPreviewAgent: (agentId: string | null) => void;
+  /** Resting on the **open** agent's avatar asks for its own list back, not a borrow. */
+  onOwnAvatar: () => void;
   onOpenSettings: () => void;
   onOpenSwitcher: () => void;
   onEditAgent: (agentId: string) => void;
@@ -64,6 +66,7 @@ export function NavRail({
   onSelectPane,
   onOpenPanel,
   onPreviewAgent,
+  onOwnAvatar,
   onOpenSettings,
   onOpenSwitcher,
   onEditAgent,
@@ -161,6 +164,12 @@ export function NavRail({
       shown.current === null ? 120 : 0,
     );
   };
+  const armOwn = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(onOwnAvatar, shown.current === null ? 120 : 0);
+  };
   const leaveAvatar = () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     hoverTimer.current = null;
@@ -239,7 +248,11 @@ export function NavRail({
                 : `${agent.name} — conversations`
             }
             onClick={() => pick(agent)}
-            onPointerEnter={(event) => event.pointerType === "mouse" && armPreview(agent.id)}
+            onPointerEnter={(event) => {
+              if (event.pointerType !== "mouse") return;
+              if (agent.id === agents.agentId) armOwn();
+              else armPreview(agent.id);
+            }}
             onPointerLeave={leaveAvatar}
             onContextMenu={(event) => {
               event.preventDefault();

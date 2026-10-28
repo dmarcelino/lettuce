@@ -1244,7 +1244,9 @@ try {
           return !!el && el.getAttribute("data-conversation-id") !== before;
         },
         openBefore,
-        { timeout: 8000 },
+        // 15s, not 8: "/clear" is a create plus a list refresh against an app-server a
+        // local model can be holding, and the check failed for being fast, not wrong.
+        { timeout: 15_000 },
       )
       .catch(() => {});
     const openAfter = await page
@@ -1446,6 +1448,44 @@ try {
       await page.locator(".messages").click({ position: { x: 40, y: 40 } });
       await page.waitForTimeout(300);
       check("the panel is away before it is borrowed", !(await panelOn()));
+
+      // Hovering your *own* face asks for your own list back — a read-only borrow of the
+      // agent you already had took the New button and the verbs away, and sent the row
+      // click down the switch path, which emptied the panel until you switched again.
+      const ownRows = page.locator(".sidebar .conversation-row");
+      // Put the selection back after the pick below: the rest of the suite walks the
+      // conversation this pass left open, and a hover check has no business moving it.
+      const wasActive = await ownRows.evaluateAll((rows) =>
+        rows.findIndex((row) => row.classList.contains("active")),
+      );
+      await page.locator(".rail .rail-agent.active").hover();
+      await page.waitForTimeout(600);
+      if ((await ownRows.count()) > 0) {
+        check(
+          "hovering the open agent opens its own list, verbs and all",
+          (await panelOn()) &&
+            (await page.locator(".sidebar .conversation-more").count()) >= 1 &&
+            (await page.locator('.sidebar [aria-label="New conversation"]').count()) === 1,
+        );
+        await ownRows.first().locator(".conversation-name").click();
+        await page.waitForTimeout(600);
+        check(
+          "and picking from your own list selects that conversation",
+          await ownRows.first().evaluate((row) => row.classList.contains("active")),
+        );
+      }
+      if (wasActive >= 0) {
+        await ownRows.nth(wasActive).locator(".conversation-name").click();
+        await page.waitForTimeout(400);
+      }
+      // Resting on your own face opened the panel the way pressing Chat does, and it
+      // stays until you put it away — put it away, because what follows is a borrow
+      // and a borrow needs the panel to be absent first.
+      await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+      await page.waitForTimeout(300);
+      check("and pressing elsewhere puts the hovered panel away", !(await panelOn()));
+      await page.mouse.move(600, 400);
+      await page.waitForTimeout(400);
       await otherAgent.hover();
       await page.waitForTimeout(700);
       const borrowed = (
