@@ -2323,6 +2323,32 @@ try {
     // A reload must come back to the agent you were on. It used to land on
     // whichever one agent_list returned first, which on a phone meant losing
     // your place every time the tab was reloaded.
+    // An avatar says who, not where: switching agents while you are looking at Files
+    // has to leave you on Files, or the avatars are a place you are afraid to click.
+    await openTab(page, "Files");
+    const idsNow = await page
+      .locator(".rail .rail-agent[data-agent-id]")
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-agent-id") ?? ""));
+    const whoIsOpen = () =>
+      page
+        .locator(".rail .rail-agent.active")
+        .getAttribute("data-agent-id")
+        .catch(() => null);
+    const openNow = await whoIsOpen();
+    const switchTo = idsNow.find((id) => id !== openNow);
+    if (switchTo) {
+      await page.locator(`.rail .rail-agent[data-agent-id="${switchTo}"]`).click();
+      await page.waitForTimeout(900);
+      const pane = (await page.locator(".rail-item.active").innerText()).trim();
+      check(
+        "switching agents keeps the pane you were on",
+        (await whoIsOpen()) === switchTo && pane.startsWith("Files"),
+        { pane },
+      );
+    } else {
+      console.log("  SKIP  switching agents keeps the pane (needs two agents)");
+    }
+
     await openTab(page, "Chat");
     const agentIds = await page
       .locator(".rail .rail-agent[data-agent-id]")

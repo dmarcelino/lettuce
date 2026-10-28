@@ -24,7 +24,11 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   share.** Desktop gets a 74px **rail** (`NavRail`: agent avatars **with the name spelled out under the
   face** — an initial is a riddle once two agents start with the same letter — capped at 52vh and
   scrolling on their own so the panes never move, then the named panes, then Settings pinned to the
-  foot — there is no More, because a rail has room to name everything. The cells are 54px and the
+  foot — there is no More, because a rail has room to name everything. **An avatar answers
+  *who*, not *where*:** picking another agent keeps the pane you are on (Files stays Files, with
+  their files), because being thrown to Chat made the avatars a place you dared not click while
+  something else was open; on Chat it opens the panel, and the open agent's own avatar is the
+  "back to my conversations" verb that still jumps to Chat. The cells are 54px and the
   names clip: the rail's content box is 58px on the wide layout and a wider cell hangs out of the
   column, which is what `ui-check`'s sideways-scroll check is for). Beside it the **panel** (`Sidebar`) is
   conversations and nothing else, and it belongs to Chat: a secondary pane puts it away, and the pin

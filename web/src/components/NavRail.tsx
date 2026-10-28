@@ -198,9 +198,11 @@ export function NavRail({
       onOpenPanel();
       return;
     }
+    // Another agent answers "who", not "where". Switching while you are looking at
+    // Files stays on Files, with the new agent's files: being thrown to Chat made the
+    // avatars a place you dared not click while something else was open.
     agents.selectAgent(agent.id);
-    onSelectPane("Chat");
-    onOpenPanel();
+    if (tab === "Chat") onOpenPanel();
   };
 
   const visible = agents.agents.filter((agent) => !agents.archivedAgents.has(agent.id));
