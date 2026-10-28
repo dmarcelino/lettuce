@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
+import { initialOf, tintFor } from "../lib/agent-tint.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import type { AgentsApi, ConversationSummary } from "../state/use-agents.ts";
 import { ConversationMenu } from "./ConversationMenu.tsx";
@@ -139,6 +140,13 @@ export function Sidebar({
 
   const closeMenu = useCallback(() => setMenuFor(null), []);
 
+  // The head names whoever the rows belong to: the borrowed agent while a rail hover
+  // borrows the panel, otherwise the agent this pane is open on.
+  const openAgent = agents.agents.find((agent) => agent.id === agents.agentId);
+  const whose = preview
+    ? { id: preview.agentId, name: preview.name }
+    : (openAgent ?? { id: "", name: "Conversations" });
+
   return (
     <aside
       className={`sidebar${visible ? "" : " hidden"}`}
@@ -148,11 +156,19 @@ export function Sidebar({
     >
       <div className="sidebar-section grow">
         <div className="panel-head">
-          {/* Whose list this is. Own agent: the plain label. Borrowed: the name in
-              its place, because a list of another agent's conversations that says
-              only "Conversations" is a lie about which agent you are about to switch to. */}
-          <span className={`section-label${preview ? " agent" : ""}`}>
-            {preview ? preview.name : "Conversations"}
+          {/* Whose list this is, named and faced, on the top line — the one place a
+              glance lands that says which agent a click will act on. "Conversations"
+              would be a lie while borrowed, and mute even when it is yours: the list is
+              the agent's, and with names on the rail the head is the only place a
+              screenful of chat says who it belongs to. */}
+          <span className="panel-who">
+            <span
+              className="agent-avatar panel-who-face"
+              style={{ background: tintFor(whose.id ?? "") }}
+            >
+              {initialOf(whose.name)}
+            </span>
+            <span className="section-label agent">{whose.name}</span>
           </span>
           <button
             type="button"

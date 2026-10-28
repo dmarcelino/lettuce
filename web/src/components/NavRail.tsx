@@ -141,16 +141,34 @@ export function NavRail({
   // pane has no panel to give without changing the pane under someone who is reading).
   // The close waits 300ms so the pointer can cross the gap to the panel; if it arrives,
   // the panel reports the hold and the preview stays rather than snapping shut.
-  const armPreview = (agentId: string) => {
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => onPreviewAgent(agentId), 120);
-  };
+  // Which agent the panel is showing right now, as far as the rail knows: moving
+  // from one avatar to the next is one gesture, not a close and an open.
+  const shown = useRef<string | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armPreview = (agentId: string) => {
+    // The close armed by leaving the avatar you came from never gets to run: a panel
+    // that blinks back to your own list and opens again is a flicker, and the pointer
+    // never asked for it. And once a list is already up, the next one replaces it at
+    // once — the 120ms is the price of *opening*, not of changing your mind.
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(
+      () => {
+        shown.current = agentId;
+        onPreviewAgent(agentId);
+      },
+      shown.current === null ? 120 : 0,
+    );
+  };
   const leaveAvatar = () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     hoverTimer.current = null;
     if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => onPreviewAgent(null), 300);
+    closeTimer.current = setTimeout(() => {
+      shown.current = null;
+      onPreviewAgent(null);
+    }, 300);
   };
   // Whatever is pending when the rail goes away never becomes a panel.
   useEffect(
@@ -172,6 +190,7 @@ export function NavRail({
   const pick = (agent: AgentSummary) => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     if (closeTimer.current) clearTimeout(closeTimer.current);
+    shown.current = null;
     if (agent.id === agents.agentId) {
       // Same agent: the pane is already this agent's, so the useful verb is the
       // one thing the rail has left — bring the conversations back.
@@ -228,6 +247,7 @@ export function NavRail({
             <span className="agent-avatar" style={{ background: tintFor(agent.id) }}>
               {initialOf(agent.name)}
             </span>
+            <span className="rail-agent-name">{agent.name}</span>
           </button>
         ))}
         <button
@@ -238,6 +258,7 @@ export function NavRail({
           aria-label="All agents"
         >
           <Icon name="more" />
+          <span className="rail-agent-name">all</span>
         </button>
       </div>
 

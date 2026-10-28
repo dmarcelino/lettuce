@@ -168,7 +168,7 @@ pre {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
+  gap: 4px;
   max-height: 52vh;
   overflow-y: auto;
   scrollbar-width: none;
@@ -180,16 +180,38 @@ pre {
 .rail-agent {
   position: relative;
   flex: none;
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
+  /* 54, not wider: the rail is 74 with a 10px inset on the wide layout, so the
+     avatar block has 58 to live in and a wider cell hangs past the column. */
+  width: 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
   background: none;
   border: none;
-  padding: 0;
+  padding: 1px 0 2px;
   color: var(--muted);
+  border-radius: var(--radius);
+}
+/* The name, not just the initial: the rail is where you ask "which agent", and an
+   initial is a riddle once you have four of the same letter. It is the same 9px
+   label the panes below use, so the column reads as one list of things. */
+.rail-agent-name {
+  max-width: 54px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+}
+.rail-agent.active .rail-agent-name {
+  color: var(--text);
 }
 .rail-agent .agent-avatar {
+  /* The responding dot and the pinned notch hang off the avatar, not the taller
+     labelled cell, so they stay on the face whatever the name does to its height. */
+  position: relative;
   width: 34px;
   height: 34px;
   font-size: 14px;
@@ -204,11 +226,11 @@ pre {
 }
 /* The agent's own responding marker, on the avatar rather than beside it: the
    rail has no room for a second column, and the dot belongs to the agent. */
-.rail-agent.responding::after {
+.rail-agent.responding .agent-avatar::after {
   content: "";
   position: absolute;
-  right: 3px;
-  bottom: 3px;
+  right: -1px;
+  bottom: -1px;
   width: 8px;
   height: 8px;
   background: var(--ok);
@@ -217,11 +239,11 @@ pre {
 }
 /* Pinned is a gold notch, not the accent: the accent ring already means "this is
    the agent you are talking to", and the two must be readable at once. */
-.rail-agent.pinned::before {
+.rail-agent.pinned .agent-avatar::before {
   content: "";
   position: absolute;
-  top: 1px;
-  right: 1px;
+  top: -1px;
+  right: -1px;
   width: 7px;
   height: 7px;
   background: var(--warn);
@@ -358,6 +380,18 @@ pre {
 }
 /* The head says a borrowed agent's name instead of the section's, and the agent tint is
    the app's one colour for "this is an agent" (the top bar's name, the switcher). */
+.sidebar .panel-head .panel-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.sidebar .panel-head .panel-who-face {
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+}
 .sidebar .panel-head .section-label.agent {
   color: var(--agent);
   font-weight: 700;

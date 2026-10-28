@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists kept in the BFF, not in the agent; one AgentMenu fixed to the viewport because the agent surfaces clip it (above a phone ⋯, beside a rail avatar); the desktop rail (avatars, named panes, Settings foot) beside a conversation panel that is Chat''s alone and pin-toggleable in localStorage; a phone bar of five equal slots under a header whose left corner carries the open agent's face (`.where-avatar`) as the way into the switcher; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent tab, Tools tab, global Settings); no native checkbox anywhere (aria-pressed plus .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, Sidebar, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
+description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists kept in the BFF, not in the agent; one AgentMenu fixed to the viewport because the agent surfaces clip it (above a phone ⋯, beside a rail avatar); the desktop rail (avatars named under the face, named panes, Settings foot) beside a conversation panel that is Chat''s alone, pin-toggleable, and named for whose list it is; a phone bar of five equal slots under a header whose left corner carries the open agent's face (`.where-avatar`) as the way into the switcher; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent tab, Tools tab, global Settings); no native checkbox anywhere (aria-pressed plus .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, Sidebar, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -21,22 +21,28 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   `use-agents` returns `agents` pinned-first; the rail, the bar and the panel hide archived agents,
   and only the switcher brings them back behind "archived agents (N)".
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
-  share.** Desktop gets a 74px **rail** (`NavRail`: agent avatars, capped at 52vh and scrolling on
-  their own so the panes never move, then the named panes, then Settings pinned to the foot — there
-  is no More, because a rail has room to name everything). Beside it the **panel** (`Sidebar`) is
+  share.** Desktop gets a 74px **rail** (`NavRail`: agent avatars **with the name spelled out under the
+  face** — an initial is a riddle once two agents start with the same letter — capped at 52vh and
+  scrolling on their own so the panes never move, then the named panes, then Settings pinned to the
+  foot — there is no More, because a rail has room to name everything. The cells are 54px and the
+  names clip: the rail's content box is 58px on the wide layout and a wider cell hangs out of the
+  column, which is what `ui-check`'s sideways-scroll check is for). Beside it the **panel** (`Sidebar`) is
   conversations and nothing else, and it belongs to Chat: a secondary pane puts it away, and the pin
   in its header (localStorage, pinned by default) decides whether Chat keeps it as a column or
   treats it as a peek that closes on a press anywhere else. It stays **mounted** when hidden — its
   polling is what fills `activeScopes`, so an agent that is answering still lights its avatar. A
-  **there is one conversation panel, and a hover borrows it**: resting on an avatar
-  (120ms of deliberate rest, mouse only) asks `App` to show that agent's list in the
-  same panel (`previewId` + `onPreviewAgent`, lists from `use-agent-conversations.ts`),
-  which is read-only while borrowed — no archive, no rename, and its head says the
-  borrowed agent's name because a borrowed list labelled "Conversations" lies about
-  which agent the next click picks. A hover is honoured only while the panel is
-  **unpinned** (a pinned column is what you are reading, and it does not change agents
-  under you) and only on Chat; the panel holds the borrow while the pointer is inside it
-  (`onHold`), and a press or a pointer-out puts it back.
+  **There is one conversation panel, its head says whose it is, and a hover borrows it.**
+  The head carries a face plus a name — the open agent's, or the borrowed one's — because a
+  list that says only "Conversations" is silent about which agent the next click acts on.
+  Resting on an avatar (120ms of deliberate rest, mouse only) asks `App` to show that agent's
+  list in the same panel (`previewId` + `onPreviewAgent`, lists from `use-agent-conversations.ts`),
+  read-only while borrowed: no archive, no rename — those belong to the agent whose panel this is.
+  A hover is honoured only while the panel is **unpinned** (a pinned column is what you are
+  reading, and it does not change agents under you) and only on Chat; the panel holds the borrow
+  while the pointer is inside it (`onHold`), and a press or a pointer-out puts it back. Avatar to
+  avatar is **one gesture, not a close and an open**: the close armed by leaving the first never
+  runs, and once a list is up the next replaces it at once — the 120ms prices an *opening*, not a
+  change of mind, and a panel that blinks back to your own list mid-move is the bug.
   Below 900px both are `display: none` and the
   **bottom bar** (`BottomBar`) is the navigation: five equal slots — Chat, Files,
   Tasks, Tools, then More holding Agent, Runs and Settings — and no avatar, because
