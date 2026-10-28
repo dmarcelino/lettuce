@@ -359,6 +359,7 @@ export function NavRail({
               onSelectPane("Chat");
               onOpenPanel();
             }}
+            overPanel={panelOpen}
             onSearchAll={() => {
               setHover(null);
               onOpenSwitcher();

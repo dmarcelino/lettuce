@@ -1,5 +1,5 @@
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
-import { RAIL_WIDTH } from "../lib/rail-size.ts";
+import { PANEL_WIDTH, RAIL_WIDTH } from "../lib/rail-size.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import { Icon } from "./Icon.tsx";
@@ -22,6 +22,8 @@ interface Props {
   /** "Search all…": the full-screen switcher, which can search this agent's list. */
   onSearchAll: () => void;
   onClose: () => void;
+  /** The panel is open, so the card covers its footprint instead of floating. */
+  overPanel: boolean;
 }
 
 /**
@@ -46,22 +48,34 @@ export function ConversationFlyout({
   onNewConversation,
   onSearchAll,
   onClose,
+  overPanel,
 }: Props) {
   useBackToClose(onClose);
   const groups = groupByDate(
     visibleConversations(conversations, { showArchived: false, query: "", responding }),
   );
-  // The card opens beside the RAIL, not beside the avatar: the avatar's right
-  // edge sits 17px inside the rail's border, and a card starting there grows out
-  // of the rail's own edge, which reads as a tooltip with nowhere to go.
+  // Two geometries, because the two cases want different things. With the panel
+  // open, the card takes the panel's own footprint: two conversation lists
+  // side by side read as a glitch, and the honest question behind the hover is
+  // "show me this agent instead" — which is the panel, redrawn. With the panel
+  // away, the card is a card: beside the rail (the avatar's own right edge is
+  // 17px inside the rail's border, and a card starting there grows out of the
+  // middle of the rail), as tall as it needs and no taller than the window.
   const top = Math.min(anchor.top, window.innerHeight - 360);
-  const style = {
-    left: Math.max(anchor.right + 6, RAIL_WIDTH + 6),
-    top: Math.max(8, top),
-  };
+  const style = overPanel
+    ? { left: RAIL_WIDTH, top: 0, width: PANEL_WIDTH }
+    : {
+        left: Math.max(anchor.right + 6, RAIL_WIDTH + 6),
+        top: Math.max(8, top),
+      };
 
   return (
-    <div className="flyout" style={style} role="dialog" aria-label={`${agentName} conversations`}>
+    <div
+      className={`flyout${overPanel ? " over-panel" : ""}`}
+      style={style}
+      role="dialog"
+      aria-label={`${agentName} conversations`}
+    >
       <div className="flyout-head">
         <strong>{agentName}</strong>
         {respondingCount > 0 ? (

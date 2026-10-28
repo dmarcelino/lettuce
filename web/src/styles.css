@@ -323,6 +323,16 @@ pre {
   border: 1px solid var(--border);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
 }
+/* Hovering another agent with the panel open draws the card over the panel, at
+   the panel's width and the window's height: it replaces the list rather than
+   doubling it, so it reads as "this agent's panel" and not as a second panel. */
+.flyout.over-panel {
+  top: 0;
+  height: 100vh;
+  max-height: none;
+  border-left: none;
+  box-shadow: 10px 0 30px rgba(0, 0, 0, 0.45);
+}
 .flyout-head {
   display: flex;
   align-items: center;
@@ -4600,11 +4610,6 @@ textarea.mono {
   }
   .conversation-name {
     padding: 8px 6px;
-  }
-  /* Three classes deep to match `.agent-row.archived .agent-row-main` above —
-     a restore that sorts below the rule it restores is a warning in this file. */
-  .sidebar .agent-row .agent-row-main {
-    padding: 6px 4px 6px 7px;
   }
   .menu-row {
     padding: 7px 10px 7px 12px;

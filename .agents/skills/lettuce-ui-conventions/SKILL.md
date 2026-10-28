@@ -30,7 +30,11 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   polling is what fills `activeScopes`, so an agent that is answering still lights its avatar. A
   hover on a non-active avatar (120ms of deliberate rest, mouse only) opens `ConversationFlyout`,
   which is what makes hiding survivable; `use-agent-conversations.ts` caches one agent's list at
-  module scope so repeated hovers are one fetch. Below 900px both are `display: none` and the
+  module scope so repeated hovers are one fetch. The card has **two geometries**: with the panel
+  away it is a card beside the rail — at the rail's edge, not the avatar's, which sits 17px inside
+  it — and with the panel open it takes the panel's own footprint instead, because two conversation
+  lists at once read as a glitch and the question behind the hover is "show me this agent
+  instead". Below 900px both are `display: none` and the
   **bottom bar** (`BottomBar`) is the navigation: five slots, the first a merged Chat slot (upper
   half the agent's avatar → the switcher, lower half the Chat icon → the pane, stacked so neither
   can steal the other's tap), then Files, Tasks, Tools, then More holding Agent, Runs and Settings.

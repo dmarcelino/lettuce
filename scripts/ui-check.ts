@@ -206,13 +206,20 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
 async function openSkillsSection(page: Page): Promise<void> {
   const tab = page.locator('.section-tabs button:text-is("Skills")');
   const heads = page.locator(".skill-group-head");
-  for (let attempt = 0; attempt < 6; attempt++) {
-    await tab.click();
+  // One click, then a long wait, and a re-click only when the click did not land
+  // (checked by which chip is active). Retry-on-a-timer is what broke this: the
+  // section restarts its walk every time it mounts, so clicking again every 20s
+  // starved it and the pane stayed empty for two whole minutes of waiting.
+  await tab.click();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const active = (await page.locator(".section-tabs button.active").first().innerText()).trim();
+    if (active !== "Skills") await tab.click();
     try {
-      await heads.first().waitFor({ state: "visible", timeout: 20_000 });
+      await heads.first().waitFor({ state: "visible", timeout: attempt === 0 ? 180_000 : 90_000 });
       return;
     } catch {
-      // Nothing yet: the walk is still running, or the click never landed.
+      // Still nothing after a long wait; the loop decides whether the click was
+      // ever the problem.
     }
   }
   throw new Error("the skills pane never filled in (two minutes of the BFF's walk)");

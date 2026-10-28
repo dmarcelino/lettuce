@@ -13,6 +13,10 @@
  * there makes it look like a tooltip growing out of the middle of the rail. */
 export const RAIL_WIDTH = 74;
 
+/** The conversation panel's width, so a hover card can take its exact footprint
+ * rather than floating a second list next to the one it covers. */
+export const PANEL_WIDTH = 270;
+
 const KEY = "lettuc…ckPx";
 /** One avatar and its breathing room: below this the block is a slot, not a list. */
 export const AGENT_BLOCK_MIN = 46;
