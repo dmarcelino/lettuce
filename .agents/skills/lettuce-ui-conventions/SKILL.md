@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours, not the protocol''s: pin and archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags), the single AgentMenu fixed to the viewport because both agent lists scroll in clipping boxes, the two sidebar lists and the .agent-row language with the 3px active bar, useAgentStats only at desktop width, the three-way split of settings (Agent tab: General/Secrets/Reflection/Skills; Tools tab: per-agent tool families; global Settings: providers/search/MCP/Google Workspace/workers/global skills, plus a Deployment group reporting docker/.env's Access and Sign-in), nothing uses a native checkbox (aria-pressed plus .menu-row-box / .chip-check instead), and ui-check reading the open agent from .agent-row.active[data-agent-id]. Read before touching web/src/components/AgentMenu, web/src/tabs/AgentTab.tsx, web/src/tabs/ToolsTab.tsx, components/GlobalSettings.tsx, the sidebar agent/conversation lists, use-agents, or bff/src/agents/id-list.ts.'
+description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags); one AgentMenu fixed to the viewport because the agent surfaces clip it (above a phone ⋯, beside a rail avatar); the desktop rail (avatars, named panes, Settings foot) beside a conversation panel that is Chat''s alone and pin-toggleable in localStorage; a phone bottom bar of five slots whose first is a merged Chat slot (avatar over icon) with Agent/Runs/Settings behind More; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent tab, Tools tab, global Settings); no native checkbox anywhere (aria-pressed plus .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, ConversationFlyout, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -14,29 +14,39 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   two id lists (`bff/src/agents/id-list.ts`: `pinned-agents.json`, `archived-agents.json` on
   `bff-data`; `GET /api/agents/flags`, `PUT /api/agents/{pins,archived}/:id`; archiving also
   unpins). Archive only hides: crons, memory and conversations carry on. One `AgentMenu`
-  (Edit, Pin, Archive, Delete) serves the phone switcher (opening above its ⋯) and every row of
-  the desktop sidebar's agent list (opening below); it is fixed to the viewport because both
-  agent lists scroll in boxes of their own, which clip an absolute menu, and closes itself on
-  Back, Escape and presses elsewhere. `use-agents` returns `agents` pinned-first; both lists
-  hide archived agents behind "Show archived agents (N)".
-- **The desktop sidebar is two lists with one row language, told apart by where they sit.**
-  There is no agent dropdown: agents are rows (`.agent-row`: round avatar, name, conversation
-  count or a responding dot, ⋯) on a panel of their own (`.sidebar-agents`, `--surface-2`,
-  capped at a third of the height); conversations stay on the sidebar's background with dates.
-  Both mark the open row with a 3px left bar. A conversation's verbs are a hover-
-  revealed `.conversation-archive` glyph next to its ⋯ on desktop and the ⋯ alone on a
-  phone (there is no hover to reveal anything on a touch device); archived conversations
-  come back through the centred `.sidebar-archived` link under the list, the agents list's
-  `.sidebar-archived-agents` being the same idiom. Counts for other agents come from `useAgentStats`,
-  fetched only at the desktop width (`useWide`) — the sidebar stays mounted, hidden, on a
-  phone. ui-check reads the open agent from `.agent-row.active[data-agent-id]`.
+  (Edit, Pin, Archive, Delete) serves the phone switcher (opening above its ⋯), every rail avatar
+  (opening beside it — the rail is a narrow column, and an avatar's verbs are a right-click), and
+  the switcher's rows; it is fixed to the viewport because the agent surfaces scroll in boxes of
+  their own, which clip an absolute menu, and closes itself on Back, Escape and presses elsewhere.
+  `use-agents` returns `agents` pinned-first; the rail, the bar and the panel hide archived agents,
+  and only the switcher brings them back behind "archived agents (N)".
+- **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
+  share.** Desktop gets a 74px **rail** (`NavRail`: agent avatars, capped at 52vh and scrolling on
+  their own so the panes never move, then the named panes, then Settings pinned to the foot — there
+  is no More, because a rail has room to name everything). Beside it the **panel** (`Sidebar`) is
+  conversations and nothing else, and it belongs to Chat: a secondary pane puts it away, and the pin
+  in its header (localStorage, pinned by default) decides whether Chat keeps it as a column or
+  treats it as a peek that closes on a press anywhere else. It stays **mounted** when hidden — its
+  polling is what fills `activeScopes`, so an agent that is answering still lights its avatar. A
+  hover on a non-active avatar (120ms of deliberate rest, mouse only) opens `ConversationFlyout`,
+  which is what makes hiding survivable; `use-agent-conversations.ts` caches one agent's list at
+  module scope so repeated hovers are one fetch. Below 900px both are `display: none` and the
+  **bottom bar** (`BottomBar`) is the navigation: five slots, the first a merged Chat slot (upper
+  half the agent's avatar → the switcher, lower half the Chat icon → the pane, stacked so neither
+  can steal the other's tap), then Files, Tasks, Tools, then More holding Agent, Runs and Settings.
+  Both nav surfaces stay mounted and CSS picks one, the way the sidebar always did, so `ui-check`
+  reads state at either width. Conversation verbs are a hover-revealed `.conversation-archive`
+  glyph beside the ⋯ on desktop and the ⋯ alone on a phone (there is no hover on a touch device),
+  and archived conversations come back through the centred `.sidebar-archived` link. Counts for
+  agents other than the open one come from `useAgentStats`, fetched when the switcher opens.
+  ui-check reads the open agent from `.rail-agent.active[data-agent-id]`.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab
   (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name, model, base
   system prompt, delete), Secrets, Reflection, and the Skills it sees. The **Tools** tab
   (`web/src/tabs/ToolsTab.tsx`) holds which shared tool families that agent is offered and what each
-  one points at *for it*. **Settings**, the top
-  bar's gear (`components/GlobalSettings.tsx`, full screen; wrapping chips with short names on a
-  phone, the grouped list beside the section on desktop), holds what every agent shares — providers,
+  one points at *for it*. **Settings** (`components/GlobalSettings.tsx`, full screen; wrapping chips
+  with short names on a phone, the grouped list beside the section on desktop; reached from the
+  rail's foot on desktop and the More sheet on a phone), holds what every agent shares — providers,
   web search, MCP servers, Google, Codex/Claude workers, global skills — plus this device's
   notifications and an About. Where a new setting goes is decided by its backend key, not by taste:
   keyed by `agent_id` → Agent tab; a BFF file or an app-server-wide command → Settings; `runtime`

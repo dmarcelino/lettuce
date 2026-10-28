@@ -200,7 +200,7 @@ working in that area.
 | `web/src/lib/messages.ts`, question/approval cards, `turn-errors.ts`, `turn-usage.ts`, `push/turn-watcher.ts` | `lettuce-transcript-and-streaming` |
 | LLM timeout env, agent app ports, failing subagent spawns, the agent-tools ENV in `docker/codex/Dockerfile` | `lettuce-runtime-and-ops` |
 | Memory tab, `persona.md`, "the system prompt did not update" | `lettuce-memory-and-system-prompt` |
-| `AgentMenu`, the sidebar agent list, pin/archive lists, Settings vs Agent tab layout | `lettuce-ui-conventions` |
+| `AgentMenu`, the nav rail and conversation panel, the phone bottom bar, pin/archive lists, Settings vs Agent tab layout | `lettuce-ui-conventions` |
 | Any `web/` UI change: mockups before implementing, visual pass after | `lettuce-ui-verification` |
 | PRs, `.github/workflows/`, `bump:*` labels, branch protection, CI tiers | `lettuce-pr-and-ci` |
 | `bun run sync-upstream`, `LETTA_CODE_VERSION` | `lettuce-upstream-sync` |
@@ -234,8 +234,8 @@ lives in a skill — the table above says which.
   unconfined within the container. Real isolation would mean one app-server container per agent.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab
-  (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent; the top bar's gear
-  (**Settings**) holds what every agent shares — providers, web search, MCP servers, Google, coding
+  (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent; **Settings** (the rail's
+  foot on desktop, the bottom bar's More row on a phone) holds what every agent shares — providers, web search, MCP servers, Google, coding
   workers, global skills — plus this device's notifications and an About. A new setting goes where its
   backend key is: keyed by `agent_id` → Agent tab; a BFF file or an app-server-wide command → Settings;
   `runtime` scope → next to the conversation. Layout: `lettuce-ui-conventions`.
