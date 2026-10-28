@@ -211,9 +211,11 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
     headerCount: provider.headerNames.length,
     owned: true,
     ...(provider.problem ? { problem: provider.problem } : {}),
-    // Saved before those types became connections: its fix is Remove and add
-    // again, and the sheet would only connect the type beside it.
-    removeOnly: Boolean(types.find((type) => type.id === provider.type)?.connection),
+    // Saved before its type became a connection and holding ids the mod refuses:
+    // its fix is Remove and add the connection. One that loads stays editable.
+    removeOnly: Boolean(
+      provider.problem && types.find((type) => type.id === provider.type)?.connection,
+    ),
     provider,
   }));
 

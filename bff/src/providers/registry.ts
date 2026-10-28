@@ -356,14 +356,19 @@ function parseModelIds(value: unknown): string[] {
 
 /**
  * `POST /api/providers`. `name` is what the operator typed; the prefix is its
- * slug. A blank `apiKey` keeps whatever is stored (nothing ever reads a key
- * back), which is what makes an edit non-destructive.
+ * slug. `stored` is an edit of a provider saved here: a blank `apiKey` keeps the
+ * stored one (nothing ever reads a key back), which is what makes an edit
+ * non-destructive, and one saved before its type became a connection stays a
+ * provider you name.
  */
-export function parseProviderBody(body: unknown): ParsedProvider {
+export function parseProviderBody(
+  body: unknown,
+  { stored = false }: { stored?: boolean } = {},
+): ParsedProvider {
   if (!body || typeof body !== "object") throw new ProviderError("Body must be an object");
   const record = body as Record<string, unknown>;
   const connectionType = providerType(record.type);
-  if (connectionType?.connection) {
+  if (connectionType?.connection && !stored) {
     // The app-server's own connection: its catalog is the model list and its id
     // is the handle prefix, so a name and a model pick are ignored here (the pick
     // is a separate allowlist). Only a custom endpoint is kept: a stored URL
@@ -395,7 +400,7 @@ export function parseProviderBody(body: unknown): ParsedProvider {
   if (!type) throw new ProviderError("Choose a provider type");
   const apiKey =
     typeof record.apiKey === "string" && record.apiKey.trim() !== "" ? record.apiKey.trim() : null;
-  if (!type.keyOptional && !apiKey && !record.keepKey) {
+  if (!type.keyOptional && !apiKey && !stored) {
     throw new ProviderError(`${type.label} needs an API key`);
   }
   const headers =

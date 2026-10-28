@@ -99,10 +99,13 @@ export function ProviderFormSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chosenType = types.find((type) => type.id === draft.type);
-  const connection = chosenType?.connection;
+  // A stored provider of a connection type was named before the type became one,
+  // so its Edit stays a named provider's form.
+  const connection = editing ? undefined : chosenType?.connection;
   // A connection left blank uses the catalog's endpoint, and nothing is stored for it.
   const endpoint = draft.baseUrl.trim() || (connection ? (chosenType?.baseUrl ?? "") : "");
-  const endpointNote = chosenType ? customEndpointNote(chosenType, draft.baseUrl) : null;
+  const endpointNote =
+    connection && chosenType ? customEndpointNote(chosenType, draft.baseUrl) : null;
   // The picker view replaces the form inside the same sheet: two sheets at once
   // would mean two Escape handlers and two backdrops for one decision.
   const pickedTypes = types.filter((type) => type.scope === chosenType?.scope);
@@ -180,6 +183,7 @@ export function ProviderFormSheet({
         apiKey: draft.apiKey.trim(),
         models,
         ...(Object.keys(typed).length > 0 || rowNames !== storedNames ? { headers: typed } : {}),
+        ...(editing ? { prefix: editing.prefix } : {}),
       });
       if (connection && chosenType) {
         onConnected({

@@ -130,6 +130,56 @@ describe("POST /api/providers — a type the app-server's own connection serves"
     expect(connects).toEqual([]);
   });
 
+  test("an edit of a provider named before its type became a connection stays a save", async () => {
+    const { app, modelCaps, connects } = await setup();
+    modelCaps.setEndpoint("groq", {
+      name: "Groq",
+      type: "groq",
+      baseUrl: "https://api.groq.com/openai/v1",
+      models: ["llama-3.1-8b-instant"],
+      apiKey: "old",
+    });
+    const response = await send(app, "POST", "/api/providers", {
+      prefix: "groq",
+      name: "Groq",
+      type: "groq",
+      baseUrl: "https://api.groq.com/openai/v1",
+      apiKey: "new",
+      models: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"],
+    });
+    expect(response.status).toBe(200);
+    expect(connects).toEqual([]);
+    expect(modelCaps.endpoints().groq?.models).toEqual([
+      "llama-3.1-8b-instant",
+      "llama-3.3-70b-versatile",
+    ]);
+  });
+
+  test("an edit left without a key keeps the stored one", async () => {
+    const { app, modelCaps } = await setup();
+    modelCaps.setEndpoint("claude-work", {
+      name: "Claude Work",
+      type: "anthropic",
+      baseUrl: "https://api.anthropic.com",
+      models: ["claude-haiku-4-5"],
+      apiKey: "sk-stored",
+    });
+    const response = await send(app, "POST", "/api/providers", {
+      prefix: "claude-work",
+      name: "Claude Work",
+      type: "anthropic",
+      baseUrl: "https://api.anthropic.com",
+      apiKey: "",
+      models: ["claude-haiku-4-5", "claude-sonnet-4-5"],
+    });
+    expect(response.status).toBe(200);
+    expect(modelCaps.endpoints()["claude-work"]?.apiKey).toBe("sk-stored");
+    expect(modelCaps.endpoints()["claude-work"]?.models).toEqual([
+      "claude-haiku-4-5",
+      "claude-sonnet-4-5",
+    ]);
+  });
+
   test("what upstream refused is said in its words", async () => {
     const { app } = await setup({ connectError: "Invalid API key" });
     const response = await send(app, "POST", "/api/providers", { type: "openrouter", apiKey: "k" });
@@ -203,8 +253,11 @@ describe("PUT /api/model-caps", () => {
 });
 
 describe("POST /api/providers/models", () => {
-  async function probe(type: string) {
-    const { app } = await setup();
+  async function probe(type: string, prefix?: string) {
+    const { app, modelCaps } = await setup();
+    if (prefix) {
+      modelCaps.setEndpoint(prefix, { name: prefix, type, baseUrl: "http://x/v1", models: ["m"] });
+    }
     const real = globalThis.fetch;
     globalThis.fetch = (async () =>
       new Response(
@@ -222,6 +275,7 @@ describe("POST /api/providers/models", () => {
         api: "openai-completions",
         baseUrl: "http://x/v1",
         apiKey: "k",
+        ...(prefix ? { prefix } : {}),
       });
       return (await response.json()) as { models: string[]; skipped: string[] };
     } finally {
@@ -238,6 +292,10 @@ describe("POST /api/providers/models", () => {
 
   test("a connection type's probe only proves the key: nothing is skipped", async () => {
     expect((await probe("openrouter")).skipped).toEqual([]);
+  });
+
+  test("editing a provider named before its type became a connection skips what it cannot register", async () => {
+    expect((await probe("groq", "groq")).models).toEqual(["plain"]);
   });
 });
 

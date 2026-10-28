@@ -63,7 +63,7 @@ describe("parseProviderBody", () => {
 
   test("a saved provider may be re-saved without retyping the key", () => {
     expect(
-      parseProviderBody(body({ type: "anthropic", apiKey: "", keepKey: true })).apiKey,
+      parseProviderBody(body({ type: "anthropic", apiKey: "" }), { stored: true }).apiKey,
     ).toBeNull();
   });
 
@@ -121,6 +121,23 @@ describe("parseProviderBody", () => {
     expect(() =>
       parseProviderBody({ type: "openrouter", apiKey: "k", baseUrl: "openrouter.ai" }),
     ).toThrow(/http/);
+  });
+
+  test("a provider named before its type became a connection is still parsed as one", () => {
+    const parsed = parseProviderBody(
+      body({
+        name: "Groq",
+        type: "groq",
+        baseUrl: "https://api.groq.com/openai/v1",
+        apiKey: "k",
+        models: ["llama-3.1-8b-instant"],
+      }),
+      { stored: true },
+    );
+    expect(parsed.connection).toBeUndefined();
+    expect(parsed.prefix).toBe("groq");
+    expect(parsed.baseUrl).toBe("https://api.groq.com/openai/v1");
+    expect(parsed.models).toEqual(["llama-3.1-8b-instant"]);
   });
 
   test("every catalog whose ids carry a slash goes through the app-server's connection", () => {

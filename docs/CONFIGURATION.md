@@ -330,7 +330,9 @@ What that means:
   is a mod registration too.
 
 A provider saved with such ids before this change (it served nothing) stays
-listed with a warning: **Remove** it and add the type again. A plain
+listed with a warning: **Remove** it and add the type again. One saved before
+with only ids it can register (a Groq provider on its ids without a slash) still
+loads, and its **Edit** keeps it a provider you name. A plain
 OpenAI-compatible endpoint that serves `org/model` ids (vLLM serving Hugging Face
 names, for instance) has the same limit: **Test** lists only the ids it can
 register and says how many it skipped. The background is in

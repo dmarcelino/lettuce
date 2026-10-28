@@ -237,7 +237,9 @@ export function registerProviderRoutes<Env extends RouteEnv>(
     let parsed: ParsedProvider;
     const body: unknown = await c.req.json().catch(() => null);
     try {
-      parsed = parseProviderBody(body);
+      parsed = parseProviderBody(body, {
+        stored: storedProvider((body as { prefix?: unknown } | null)?.prefix),
+      });
     } catch (error) {
       if (error instanceof ProviderError) return c.text(error.message, 400);
       return c.text(errorMessage(error), 400);
@@ -423,8 +425,18 @@ export function registerProviderRoutes<Env extends RouteEnv>(
       baseUrl: typeof body?.baseUrl === "string" ? body.baseUrl : "",
       key,
       headers,
-      connection: Boolean(providerType(body?.type)?.connection),
+      connection: Boolean(providerType(body?.type)?.connection) && !storedProvider(prefix),
     };
+  }
+
+  /**
+   * The sheet's Edit sends the prefix it edits: a provider of ours stored there
+   * keeps its key when the field is left blank and stays a provider you name, even
+   * one saved before its type became a connection.
+   */
+  function storedProvider(prefix: unknown): boolean {
+    const slug = slugifyName(prefix);
+    return slug !== "" && modelCaps.endpoints()[slug] !== undefined;
   }
 
   /** A failed probe says what the endpoint said — it is the operator's to read. */

@@ -58,6 +58,8 @@ export interface ProviderDraft {
   headers?: Record<string, string>;
   /** Re-connect a live connection (its row's Edit) instead of refusing it. */
   update?: boolean;
+  /** The stored provider an Edit saves over. */
+  prefix?: string;
 }
 
 /** A live connection the app-server holds, as `GET /api/providers` reports it. */
