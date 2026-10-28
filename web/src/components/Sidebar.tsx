@@ -2,63 +2,63 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
 import { initialOf, tintFor } from "../lib/agent-tint.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
-import { statsOf, useAgentStats } from "../state/use-agent-stats.ts";
-import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
-import type { SessionApi } from "../state/use-session.ts";
-import { useWide } from "../state/use-wide.ts";
-import { AgentMenu } from "./AgentMenu.tsx";
+import type { AgentsApi, ConversationSummary } from "../state/use-agents.ts";
 import { ConversationMenu } from "./ConversationMenu.tsx";
-import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
 import { Icon } from "./Icon.tsx";
 import { toast } from "./Toast.tsx";
 
 interface Props {
   agents: AgentsApi;
-  open: boolean;
-  onClose: () => void;
-  onNewAgent: () => void;
-  onEditAgent: (agentId: string) => void;
+  /** Whether the panel is on screen: pinned and on Chat, peeking, or borrowed by a
+   * hover. It stays mounted either way — see the note on the component. */
+  visible: boolean;
   /** Scope keys of conversations with a response in progress; see `SessionApi.activeScopes`. */
   activeScopes: ReadonlySet<string>;
-  activeAgentIds: ReadonlySet<string>;
-  /** For every agent's conversation count; see `useAgentStats`. */
-  request: SessionApi["request"];
+  /** Whether the panel survives a pane change; the rail has no pin, so this owns it. */
+  pinned: boolean;
+  onTogglePin: () => void;
+  /**
+   * Another agent's conversations, borrowed for the moment a pointer rests on their
+   * avatar. One panel shows either its own agent's list or a borrowed one — never a
+   * second list beside it — and a borrowed one is read-only: its rows switch agent
+   * rather than offering archive and rename for someone else's conversation.
+   */
+  preview: {
+    agentId: string;
+    name: string;
+    conversations: ConversationSummary[];
+    loading: boolean;
+    failed: boolean;
+  } | null;
+  onPreviewPick: (agentId: string, conversationId: string) => void;
+  /** The pointer is inside the panel, which is what keeps a borrowed list open. */
+  onHold: (held: boolean) => void;
 }
 
+/**
+ * The desktop conversation panel: one agent's conversations, nothing else.
+ *
+ * The agents left for the rail, so this column is one list instead of two, which
+ * is what it needed — the list is the busiest thing on the screen. Whether it is
+ * on screen at all is not its call: `pinned` and visibility live in `App`,
+ * because the rail's hover and the pane switch both have a say. What it shows can
+ * be a borrowed agent's list (`preview`), which is how the rail's hover opens this
+ * panel instead of growing a second one beside it.
+ */
 export function Sidebar({
   agents,
-  open,
-  onClose,
-  onNewAgent,
-  onEditAgent,
+  visible,
   activeScopes,
-  activeAgentIds,
-  request,
+  pinned,
+  onTogglePin,
+  preview,
+  onPreviewPick,
+  onHold,
 }: Props) {
   const [showArchived, setShowArchived] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
-  /** An agent row's ⋯ menu, hung from its button. */
-  const [agentMenu, setAgentMenu] = useState<{ agent: AgentSummary; anchor: DOMRect } | null>(null);
-  const closeAgentMenu = useCallback(() => setAgentMenu(null), []);
-  const [deleting, setDeleting] = useState<AgentSummary | null>(null);
-  /** Archived agents are hidden until asked for. */
-  const [showArchivedAgents, setShowArchivedAgents] = useState(false);
-  const archivedAgentCount = agents.agents.filter((agent) =>
-    agents.archivedAgents.has(agent.id),
-  ).length;
-  // Counts for every agent. Only fetched at the desktop width: the sidebar
-  // stays mounted, hidden, on a phone, where the switcher has its own.
-  const wide = useWide();
-  const stats = useAgentStats(request, agents.agents, wide);
-  const agentRows = agents.agents
-    .filter((agent) => !agents.archivedAgents.has(agent.id))
-    .concat(
-      showArchivedAgents
-        ? agents.agents.filter((agent) => agents.archivedAgents.has(agent.id))
-        : [],
-    );
   const listRef = useRef<HTMLUListElement>(null);
 
   // An open ⋯ menu closes on Escape or a press anywhere outside it (its own
@@ -81,10 +81,20 @@ export function Sidebar({
     };
   }, [menuFor]);
 
+  // Whose list this is: the panel's own agent, or the one the rail is resting on.
+  const list = preview ? preview.conversations : agents.conversations;
+  const listAgentId = preview?.agentId ?? agents.agentId;
+  /** The open conversation only counts while it is the list's own agent. */
+  const openId = preview
+    ? preview.agentId === agents.agentId
+      ? agents.conversationId
+      : null
+    : agents.conversationId;
+
   const activity = agentActivity(
     activeScopes,
-    agents.agentId,
-    agents.conversations.map((conversation) => conversation.id),
+    listAgentId,
+    list.map((conversation) => conversation.id),
   );
 
   // The switcher's list, laid out for a column: the same filter, search and
@@ -92,17 +102,17 @@ export function Sidebar({
   const groups = useMemo(
     () =>
       groupByDate(
-        visibleConversations(agents.conversations, {
+        visibleConversations(list, {
           showArchived,
           query,
           responding: activity.responding,
         }),
       ),
-    [agents.conversations, showArchived, query, activity.responding],
+    [list, showArchived, query, activity.responding],
   );
-  const liveCount = agents.conversations.filter((c) => !c.archived).length;
+  const liveCount = list.filter((c) => !c.archived).length;
   /** The footer link says how much it will reveal, and hides when there is none. */
-  const archivedCount = agents.conversations.filter((c) => c.archived).length;
+  const archivedCount = list.filter((c) => c.archived).length;
 
   // A busy conversation the list has never heard of was created after it was
   // fetched (a cron that starts a new conversation per run). Refetch once per
@@ -110,13 +120,14 @@ export function Sidebar({
   const refetchedFor = useRef(new Set<string>());
   const unlistedKey = activity.unlisted.join(",");
   useEffect(() => {
+    if (preview) return;
     const agentId = agents.agentId;
     if (!agentId || !unlistedKey) return;
     const fresh = unlistedKey.split(",").filter((id) => !refetchedFor.current.has(id));
     if (fresh.length === 0) return;
     for (const id of fresh) refetchedFor.current.add(id);
     void agents.refreshConversations(agentId);
-  }, [agents.agentId, unlistedKey, agents.refreshConversations]);
+  }, [agents.agentId, agents.refreshConversations, unlistedKey, preview]);
 
   const guard = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -127,145 +138,53 @@ export function Sidebar({
     }
   };
 
+  const closeMenu = useCallback(() => setMenuFor(null), []);
+
+  // The head names whoever the rows belong to: the borrowed agent while a rail hover
+  // borrows the panel, otherwise the agent this pane is open on.
+  const openAgent = agents.agents.find((agent) => agent.id === agents.agentId);
+  const whose = preview
+    ? { id: preview.agentId, name: preview.name }
+    : (openAgent ?? { id: "", name: "Conversations" });
+
   return (
-    <>
-      {open ? (
-        <button type="button" className="scrim" onClick={onClose} aria-label="Close" />
-      ) : null}
-
-      <aside className={`sidebar${open ? " open" : ""}`}>
-        {/* Agents on a panel of their own — round avatars, a count, a left
-            bar for the open one — so the list never reads as more
-            conversations. Each row has its own ⋯ (`AgentMenu`). */}
-        <div className="sidebar-section sidebar-agents">
-          <div className="row-between">
-            <span className="section-label">Agents</span>
-            <button
-              type="button"
-              className="button ghost compact"
-              disabled={busy}
-              onClick={onNewAgent}
-              aria-label="New agent"
+    <aside
+      className={`sidebar${visible ? "" : " hidden"}`}
+      aria-label="Conversations"
+      onPointerEnter={() => onHold(true)}
+      onPointerLeave={() => onHold(false)}
+    >
+      <div className="sidebar-section grow">
+        <div className="panel-head">
+          {/* Whose list this is, named and faced, on the top line — the one place a
+              glance lands that says which agent a click will act on. "Conversations"
+              would be a lie while borrowed, and mute even when it is yours: the list is
+              the agent's, and with names on the rail the head is the only place a
+              screenful of chat says who it belongs to. */}
+          <span className="panel-who">
+            <span
+              className="agent-avatar panel-who-face"
+              style={{ background: tintFor(whose.id ?? "") }}
             >
-              <Icon name="plus" /> New
-            </button>
-          </div>
-          <ul className="agent-list" onScroll={closeAgentMenu}>
-            {agents.agents.length === 0 ? <li className="muted small pad">No agents</li> : null}
-            {agentRows.map((agent) => {
-              const selected = agent.id === agents.agentId;
-              const archived = agents.archivedAgents.has(agent.id);
-              const responding = activeAgentIds.has(agent.id);
-              // The open agent's count comes from its own list, which is
-              // always current; the others from the last stats fetch.
-              const count = (selected ? statsOf(agents.conversations) : stats.get(agent.id))?.count;
-              const menuOpen = agentMenu?.agent.id === agent.id;
-              return (
-                <li
-                  key={agent.id}
-                  data-agent-id={agent.id}
-                  className={[
-                    "agent-row",
-                    selected ? "active" : "",
-                    archived ? "archived" : "",
-                    menuOpen ? "menu-open" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                >
-                  <button
-                    type="button"
-                    className="agent-row-main"
-                    aria-current={selected ? "true" : undefined}
-                    onClick={() => {
-                      if (!selected) agents.selectAgent(agent.id);
-                      onClose();
-                    }}
-                  >
-                    <span className="agent-avatar" style={{ background: tintFor(agent.id) }}>
-                      {initialOf(agent.name)}
-                    </span>
-                    <span className="agent-row-name">
-                      {agents.pinned.has(agent.id) ? (
-                        <Icon name="pin" className="switcher-pin" />
-                      ) : null}
-                      {agent.name}
-                    </span>
-                    {archived ? <span className="tag muted archived-tag">archived</span> : null}
-                    {responding ? (
-                      <span
-                        className="activity-dot"
-                        role="img"
-                        aria-label="Responding"
-                        title="Responding…"
-                      />
-                    ) : count !== undefined ? (
-                      <span className="agent-row-count" title={`${count} conversations`}>
-                        {count}
-                      </span>
-                    ) : null}
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button flat agent-more"
-                    data-agent-more={agent.id}
-                    aria-label={`More for ${agent.name}`}
-                    aria-haspopup="menu"
-                    aria-expanded={menuOpen}
-                    onClick={(event) => {
-                      const anchor = event.currentTarget.getBoundingClientRect();
-                      setMenuFor(null);
-                      setAgentMenu((current) =>
-                        current?.agent.id === agent.id ? null : { agent, anchor },
-                      );
-                    }}
-                  >
-                    <Icon name="more" />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          {archivedAgentCount > 0 ? (
-            <button
-              type="button"
-              className="link sidebar-archived-agents"
-              onClick={() => setShowArchivedAgents((v) => !v)}
-            >
-              {showArchivedAgents
-                ? "Hide archived agents"
-                : `Show archived agents (${archivedAgentCount})`}
-            </button>
-          ) : null}
-          {agentMenu ? (
-            <AgentMenu
-              agentName={agentMenu.agent.name}
-              pinned={agents.pinned.has(agentMenu.agent.id)}
-              archived={agents.archivedAgents.has(agentMenu.agent.id)}
-              anchor={agentMenu.anchor}
-              placement="below"
-              onEdit={() => onEditAgent(agentMenu.agent.id)}
-              onTogglePin={() =>
-                void agents.setPinned(agentMenu.agent.id, !agents.pinned.has(agentMenu.agent.id))
-              }
-              onToggleArchive={() =>
-                void agents.setAgentArchived(
-                  agentMenu.agent.id,
-                  !agents.archivedAgents.has(agentMenu.agent.id),
-                )
-              }
-              onDelete={() => setDeleting(agentMenu.agent)}
-              onClose={closeAgentMenu}
-            />
-          ) : null}
-          {deleting ? (
-            <DeleteAgentSheet agents={agents} agent={deleting} onClose={() => setDeleting(null)} />
-          ) : null}
-        </div>
-
-        <div className="sidebar-section grow">
-          <div className="row-between">
-            <span className="section-label">Conversations</span>
+              {initialOf(whose.name)}
+            </span>
+            <span className="section-label agent">{whose.name}</span>
+          </span>
+          <button
+            type="button"
+            className={`icon-button flat panel-pin${pinned ? " on" : ""}`}
+            onClick={onTogglePin}
+            aria-pressed={pinned}
+            title={
+              pinned
+                ? "Keeping the panel open on Chat — click to make it a peek"
+                : "Peek only — click to keep the panel open on Chat"
+            }
+            aria-label={pinned ? "Unpin the conversation panel" : "Pin the conversation panel"}
+          >
+            <Icon name="pin" />
+          </button>
+          {preview ? null : (
             <button
               type="button"
               className="button ghost compact"
@@ -275,152 +194,165 @@ export function Sidebar({
             >
               <Icon name="plus" /> New
             </button>
-          </div>
-
-          <label className="switcher-search sidebar-search">
-            <Icon name="search" />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${liveCount} conversations`}
-              aria-label="Search conversations"
-            />
-          </label>
-
-          <ul className="conversations" ref={listRef}>
-            {/* The default conversation is never listed and cannot be opened
-              (see lib/activity.ts), so it can only be reported here. */}
-            {activity.inDefault ? (
-              <li className="activity-note small muted">
-                <span className="activity-dot" aria-hidden="true" />
-                Responding in the agent's default conversation (a scheduled or channel turn — not
-                listed)
-              </li>
-            ) : null}
-            {activity.unlisted.length > 0 ? (
-              <li className="activity-note small muted">
-                <span className="activity-dot" aria-hidden="true" />
-                Responding in {activity.unlisted.length === 1 ? "a conversation" : "conversations"}{" "}
-                not in this list
-              </li>
-            ) : null}
-            {groups.flatMap((group) => [
-              <li key={`group:${group.label}`} className="conversation-group">
-                {group.label}
-              </li>,
-              ...group.items.map((conversation) => {
-                const archived = conversation.archived;
-                const responding = activity.responding.has(conversation.id);
-                return (
-                  <li
-                    key={conversation.id}
-                    data-conversation-id={conversation.id}
-                    className={[
-                      "conversation-row",
-                      conversation.id === agents.conversationId ? "active" : "",
-                      menuFor === conversation.id ? "menu-open" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    <button
-                      type="button"
-                      className="conversation-name"
-                      onClick={() => {
-                        agents.selectConversation(conversation.id);
-                        onClose();
-                      }}
-                    >
-                      {responding ? (
-                        <span
-                          className="activity-dot"
-                          role="img"
-                          aria-label="Responding"
-                          title="Responding…"
-                        />
-                      ) : null}
-                      <span className="conversation-title">{conversation.summary}</span>
-                      {archived ? <span className="tag muted">archived</span> : null}
-                      <span className="conversation-date muted small">
-                        {listDate(conversation.updatedAt)}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="icon-button flat conversation-archive"
-                      aria-label={`${archived ? "Unarchive" : "Archive"} “${conversation.summary}”`}
-                      title={archived ? "Unarchive" : "Archive"}
-                      disabled={busy}
-                      onClick={() =>
-                        void guard(async () => {
-                          // One click, no sheet: the undo is one more click, and
-                          // the row's more menu has offered this verb without a
-                          // confirmation since it existed.
-                          await agents.setArchived(conversation.id, !archived);
-                          toast(
-                            archived ? "Unarchived." : "Archived — turn on Show archived to undo.",
-                          );
-                        })
-                      }
-                    >
-                      <Icon name={archived ? "unarchive" : "archive"} />
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-button flat conversation-more"
-                      aria-label={`More for ${conversation.summary}`}
-                      aria-haspopup="menu"
-                      aria-expanded={menuFor === conversation.id}
-                      onClick={() =>
-                        setMenuFor((current) =>
-                          current === conversation.id ? null : conversation.id,
-                        )
-                      }
-                    >
-                      <Icon name="more" />
-                    </button>
-                    {menuFor === conversation.id ? (
-                      <ConversationMenu
-                        agents={agents}
-                        conversation={conversation}
-                        busy={busy}
-                        guard={guard}
-                        onClose={() => setMenuFor(null)}
-                      />
-                    ) : null}
-                  </li>
-                );
-              }),
-            ])}
-            {groups.length === 0 ? (
-              <li className="muted pad">
-                {query.trim() ? "No conversation matches." : "No conversations"}
-              </li>
-            ) : null}
-          </ul>
-
-          {archivedCount > 0 ? (
-            <button
-              type="button"
-              className="link sidebar-archived"
-              onClick={() => setShowArchived((value) => !value)}
-            >
-              {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
-            </button>
-          ) : null}
+          )}
         </div>
 
-        {agents.error ? (
-          <p className="warning small" role="alert">
-            <span>{agents.error}</span>
-            <button type="button" className="link" onClick={() => void agents.refreshAgents()}>
-              Try again
-            </button>
-          </p>
+        <label className="switcher-search sidebar-search">
+          <Icon name="search" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={`Search ${liveCount} conversations`}
+            aria-label="Search conversations"
+          />
+        </label>
+
+        <ul className="conversations" ref={listRef}>
+          {preview?.loading ? (
+            <li className="muted pad">Loading {preview.name}’s conversations…</li>
+          ) : null}
+          {preview?.failed ? (
+            <li className="muted pad">Could not load {preview.name}’s conversations.</li>
+          ) : null}
+          {/* The default conversation is never listed and cannot be opened
+              (see lib/activity.ts), so it can only be reported here. */}
+          {activity.inDefault ? (
+            <li className="activity-note small muted">
+              <span className="activity-dot" aria-hidden="true" />
+              Responding in the agent's default conversation (a scheduled or channel turn — not
+              listed)
+            </li>
+          ) : null}
+          {activity.unlisted.length > 0 ? (
+            <li className="activity-note small muted">
+              <span className="activity-dot" aria-hidden="true" />
+              Responding in {activity.unlisted.length === 1 ? "a conversation" : "conversations"}{" "}
+              not in this list
+            </li>
+          ) : null}
+          {groups.flatMap((group) => [
+            <li key={`group:${group.label}`} className="conversation-group">
+              {group.label}
+            </li>,
+            ...group.items.map((conversation) => {
+              const archived = conversation.archived;
+              const responding = activity.responding.has(conversation.id);
+              return (
+                <li
+                  key={conversation.id}
+                  data-conversation-id={conversation.id}
+                  className={[
+                    "conversation-row",
+                    conversation.id === openId ? "active" : "",
+                    menuFor === conversation.id ? "menu-open" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <button
+                    type="button"
+                    className="conversation-name"
+                    onClick={() =>
+                      preview
+                        ? onPreviewPick(preview.agentId, conversation.id)
+                        : agents.selectConversation(conversation.id)
+                    }
+                  >
+                    {responding ? (
+                      <span
+                        className="activity-dot"
+                        role="img"
+                        aria-label="Responding"
+                        title="Responding…"
+                      />
+                    ) : null}
+                    <span className="conversation-title">{conversation.summary}</span>
+                    {archived ? <span className="tag muted">archived</span> : null}
+                    <span className="conversation-date muted small">
+                      {listDate(conversation.updatedAt)}
+                    </span>
+                  </button>
+
+                  {preview ? null : (
+                    <>
+                      <button
+                        type="button"
+                        className="icon-button flat conversation-archive"
+                        aria-label={`${archived ? "Unarchive" : "Archive"} “${conversation.summary}”`}
+                        title={archived ? "Unarchive" : "Archive"}
+                        disabled={busy}
+                        onClick={() =>
+                          void guard(async () => {
+                            // One click, no sheet: the undo is one more click, and
+                            // the row's more menu has offered this verb without a
+                            // confirmation since it existed.
+                            await agents.setArchived(conversation.id, !archived);
+                            toast(
+                              archived
+                                ? "Unarchived."
+                                : "Archived — turn on Show archived to undo.",
+                            );
+                          })
+                        }
+                      >
+                        <Icon name={archived ? "unarchive" : "archive"} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button flat conversation-more"
+                        aria-label={`More for ${conversation.summary}`}
+                        aria-haspopup="menu"
+                        aria-expanded={menuFor === conversation.id}
+                        onClick={() =>
+                          setMenuFor((current) =>
+                            current === conversation.id ? null : conversation.id,
+                          )
+                        }
+                      >
+                        <Icon name="more" />
+                      </button>
+                    </>
+                  )}
+                  {menuFor === conversation.id ? (
+                    <ConversationMenu
+                      agents={agents}
+                      conversation={conversation}
+                      busy={busy}
+                      guard={guard}
+                      onClose={closeMenu}
+                    />
+                  ) : null}
+                </li>
+              );
+            }),
+          ])}
+          {groups.length === 0 ? (
+            <li className="muted pad">
+              {query.trim() ? "No conversation matches." : "No conversations"}
+            </li>
+          ) : null}
+        </ul>
+
+        {archivedCount > 0 ? (
+          <button
+            type="button"
+            className="link sidebar-archived"
+            onClick={() => setShowArchived((value) => !value)}
+          >
+            {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+          </button>
         ) : null}
-      </aside>
-    </>
+      </div>
+
+      {agents.error ? (
+        <p className="warning small" role="alert">
+          <span>{agents.error}</span>
+          <button type="button" className="link" onClick={() => void agents.refreshAgents()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
+    </aside>
   );
 }

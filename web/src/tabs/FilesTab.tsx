@@ -172,6 +172,29 @@ export function FilesTab({ session, cwd, agentId }: Props) {
     });
   }, [entries, sortKey, sortDir]);
 
+  // Another agent is a different directory, not a folder you navigated to, so the
+  // switch has to clear what the last agent's directory was: `root` is set once below
+  // and held across everything else, and a kept-open pane now changes agent under it.
+  const lastAgent = useRef(agentId);
+  useEffect(() => {
+    if (lastAgent.current === agentId) return;
+    lastAgent.current = agentId;
+    // Set the new root, do not clear it: a child's effects run before its parent's, so
+    // clearing here would let the init effect below capture the previous agent's
+    // conversation `cwd` before anything had a chance to clear it. The agent's own
+    // directory is the honest answer until a runtime of the new agent reports its own.
+    setRoot(agentId ? agentWorkspace(agentId) : null);
+    setEntries([]);
+    setSelected(null);
+    setQuery("");
+    setMatches(null);
+    setStatus("");
+    setProgress("");
+    setRepoProbe(null);
+    // The load guard is per folder, and this folder is gone.
+    loadedPath.current = null;
+  }, [agentId]);
+
   useEffect(() => {
     if (root) return;
     // Prefer the runtime's reported cwd, but fall back to the agent's own

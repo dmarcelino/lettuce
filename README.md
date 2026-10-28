@@ -55,7 +55,8 @@ before exposing anything.
   and folds what matters into memory. Trigger it by step count or on context
   compaction, or turn it off; merging is automatic or instruction-driven.
 - **Multiple agents**, each with its own persona, model, tools, secrets and
-  workspace. Pin, archive, rename, delete from the sidebar.
+  workspace. Pin, archive, rename and delete from the agent's face — right-click on
+  desktop, the switcher on a phone.
 - **Per-agent secrets** — key/value pairs the agent can use without them
   appearing in its instructions.
 

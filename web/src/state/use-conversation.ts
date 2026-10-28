@@ -390,6 +390,14 @@ export function useConversation(
     [agentId, conversationId],
   );
 
+  // `cwd` is what a live runtime last reported for *this* conversation, so with no
+  // conversation there is nothing for it to describe — and the stale value outlives
+  // an agent switch, which is how Files went on showing the previous agent's
+  // workspace after the rail changed agents.
+  useEffect(() => {
+    if (!scope) setCwd(null);
+  }, [scope]);
+
   /**
    * Re-render from the transcript, at most once per animation frame.
    *

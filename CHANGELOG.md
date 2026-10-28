@@ -5,6 +5,22 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.23.0-letta_0.34.21] - 2026-10-28
+
+### Changed
+- **Desktop navigation is a rail plus a conversation panel.** Agents and panes live in a narrow
+  rail on the left; conversations sit beside it, pinned as a column or peeking on demand.
+- **Rest on an agent's face to see its conversations** in that same panel, and pick one to
+  switch — a hover no longer costs you the conversation you were reading.
+- **Picking another agent keeps the tab you were on** — Files stays Files, with the new agent's
+  files — and the agent names are spelled out under their faces.
+- **A phone's bar is five slots, and the open agent's face moved to the header**, where it names
+  the agent and opens the switcher.
+
+### Removed
+- **The top tab strip and the slide-out agent drawer.** The rail answers "which agent" and
+  "which section" in one column; the phone bar does it at the bottom.
+
 ### Fixed
 - **The remote-Pi status card stops going red on a loaded CI runner.** The card's test read the run record a fixed moment after the line that owed a flush, so on a busy runner it saw the previous flush and failed with `Expected: >= 3, Received: 1` — green on a re-run, red again later. It waits for the runner's own write confirmation now, and a deliberately slow test disk keeps a fixed-timer wait from creeping back. A change to tests or fixtures alone no longer owes a changelog entry of its own.
 

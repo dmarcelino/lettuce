@@ -572,7 +572,7 @@ try {
   }
   {
     const page = await open(browser, PHONE);
-    await page.locator('nav.tabs button:text-is("Tasks")').click();
+    await page.locator('.bottombar > button:text-is("Tasks")').click();
     await page.waitForTimeout(800);
     await shot(page, "mobile-tasks", '[class*="task"]');
     await page.close();

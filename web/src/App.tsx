@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivitySheet } from "./components/ActivitySheet.tsx";
 import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
 import { AuthPill } from "./components/AuthPill.tsx";
+import { BottomBar } from "./components/BottomBar.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { ContextGauge, ContextSheet } from "./components/ContextGauge.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
@@ -14,11 +15,13 @@ import {
 import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
+import { NavRail } from "./components/NavRail.tsx";
 import { PiRunsChip, usePiActiveRuns } from "./components/PiRunsChip.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { SignInScreen } from "./components/SignInScreen.tsx";
 import { Switcher } from "./components/Switcher.tsx";
 import { ToastLayer, toast } from "./components/Toast.tsx";
+import { initialOf, tintFor } from "./lib/agent-tint.ts";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { applyDocumentTitle } from "./lib/document-title.ts";
 import { draftKey } from "./lib/draft.ts";
@@ -36,13 +39,16 @@ import {
   type StructuredOutputPreference,
   writeStructuredOutput,
 } from "./lib/structured-output.ts";
+import { readPanelPin, runsEnabled, type Tab, writePanelPin } from "./lib/tabs.ts";
 import { readShowTimestamps, writeShowTimestamps } from "./lib/timestamps.ts";
+import { useAgentConversations } from "./state/use-agent-conversations.ts";
 import { useAgents } from "./state/use-agents.ts";
 import { useContextLimit } from "./state/use-context-limit.ts";
 import { useContextSize } from "./state/use-context-size.ts";
 import { useConversation } from "./state/use-conversation.ts";
 import { useCurrentModel } from "./state/use-models.ts";
 import { useSession } from "./state/use-session.ts";
+import { useWide } from "./state/use-wide.ts";
 import { AgentTab } from "./tabs/AgentTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { RunsTab } from "./tabs/RunsTab.tsx";
@@ -71,9 +77,6 @@ interface Status {
   /** This deployment's components with their versions (Settings → About). */
   components?: Component[];
 }
-
-const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent"] as const;
-type Tab = (typeof TABS)[number];
 
 /**
  * How many times to retry a failed status fetch before giving up and asking.
@@ -194,6 +197,127 @@ function Workspace({ status }: { status: Status }) {
   /** `?tab=runs&run=<id>`: the run card's and settle pushes' landing spot. */
   const [runsLink] = useState(readRunsDeepLink);
   const [tab, setTab] = useState<Tab>(runsLink.tab ? "Runs" : "Chat");
+  /**
+   * The desktop conversation panel: pinned is a column, unpinned is a peek.
+   * Both are Chat-only — a conversation list next to the Files pane answers no
+   * question — so `visible` is derived, not stored separately.
+   */
+  const wide = useWide();
+  const [panelPinned, setPanelPinned] = useState(readPanelPin);
+  const [panelPeek, setPanelPeek] = useState(false);
+  /**
+   * The agent the rail is resting on, whose conversations the one panel shows for
+   * the moment. There is no second list anywhere: a hover borrows the panel that is
+   * already there, and an unpinned panel is already a peek, so borrowing it is the
+   * same verb pressing Chat is. A pinned panel is a column you are reading, so a
+   * hover leaves it alone.
+   */
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  /** The pointer is inside the panel — what keeps a borrowed list on screen. */
+  const panelHeld = useRef(false);
+  const previewList = useAgentConversations(session.request);
+  const loadPreview = previewList.load;
+  const previewAgent =
+    tab === "Chat" && !panelPinned && previewId && previewId !== agents.agentId
+      ? (agents.agents.find((agent) => agent.id === previewId) ?? null)
+      : null;
+  const panelVisible = tab === "Chat" && (panelPinned || panelPeek || previewAgent !== null);
+  useEffect(() => {
+    if (previewId) loadPreview(previewId);
+  }, [previewId, loadPreview]);
+  const previewFromRail = useCallback((agentId: string | null) => {
+    if (agentId) {
+      setPreviewId(agentId);
+      return;
+    }
+    // The pointer left the avatar. If it landed in the panel, the panel is holding
+    // the borrowed list and it stays; otherwise the panel returns to its own agent —
+    // and a peek a hover opened goes away with the hover, the same way.
+    setPreviewId((current) => (panelHeld.current ? current : null));
+  }, []);
+  // The open agent's own avatar is not a borrow — it is "show me my conversations", and
+  // borrowing the panel for the agent it already belongs to read-only took the New button and
+  // the verbs away and sent the row click down the switch path, which empties the list.
+  const ownAvatar = useCallback(() => {
+    setPreviewId(null);
+    setPanelPeek(true);
+  }, []);
+  const holdPanel = useCallback((held: boolean) => {
+    panelHeld.current = held;
+    if (!held) setPreviewId(null);
+  }, []);
+  /** Choosing from a borrowed list is a switch: that agent, that conversation. */
+  const previewPick = useCallback(
+    (agentId: string, conversationId: string) => {
+      agents.selectAgent(agentId);
+      agents.selectConversation(conversationId);
+      setPreviewId(null);
+    },
+    [agents],
+  );
+  // A kept-open secondary pane is now about a different agent, and these panes are
+  // anchored to a conversation — Files to its directory, Tasks to its runs. With
+  // nothing selected they show a fallback path or nothing, so the switch finishes the
+  // job and takes the agent's most recent conversation, which is the one the panel
+  // would have offered first. Chat is left alone: there the empty selection is the point.
+  const { conversationId, conversations, selectConversation } = agents;
+  useEffect(() => {
+    if (tab === "Chat" || conversationId) return;
+    const first = conversations[0];
+    if (!first) return;
+    selectConversation(first.id);
+  }, [tab, conversationId, conversations, selectConversation]);
+
+  const openPanel = useCallback(() => setPanelPeek(true), []);
+  // Unpinning is not closing: you are looking at the panel when you press it, so
+  // it stays open as a peek. (It used to vanish on the un-pin, which made the pin
+  // button — inside the panel — the thing you had just made unreachable.)
+  const togglePanelPin = useCallback(() => {
+    // Pinning a borrowed panel would keep another agent's list as the column you decided
+    // to keep — the borrow is a hover, and a hover is not a decision.
+    setPreviewId(null);
+    setPanelPinned((current) => {
+      writePanelPin(!current);
+      if (current) setPanelPeek(true);
+      return !current;
+    });
+  }, []);
+
+  /**
+   * The one pane switcher, shared by the rail and the phone bar.
+   *
+   * A secondary pane always puts the panel away (it is Chat's), and on Chat an
+   * unpinned panel toggles — pressing Chat again is how you put the peek back.
+   */
+  const selectPane = useCallback(
+    (next: Tab) => {
+      // A borrow belongs to the rail and to Chat; changing pane ends it.
+      setPreviewId(null);
+      if (next === "Chat") {
+        // Pinned, Chat has nothing to do (the panel is already there). Unpinned,
+        // Chat is a toggle: pressing it while the peek is open puts it back.
+        setPanelPeek(!panelPinned && !(tab === "Chat" && panelPeek));
+      } else {
+        setPanelPeek(false);
+      }
+      setTab(next);
+    },
+    [panelPinned, panelPeek, tab],
+  );
+
+  // An unpinned panel is a popover, and popovers get out of the way when you
+  // press anywhere else. Pinned, it is a column and stays put.
+  useEffect(() => {
+    if (!wide || !panelVisible || panelPinned) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest(".sidebar, .rail")) return;
+      setPanelPeek(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [wide, panelVisible, panelPinned]);
+
   // One pushed feed feeds both the Runs tab dot and the topbar chip; the
   // socket only carries pi frames while the feature is on.
   const piEnabled = featureEnabled(status?.features, "pi");
@@ -201,6 +325,8 @@ function Workspace({ status }: { status: Status }) {
     session.setPiWatch(piEnabled);
   }, [session, piEnabled]);
   const piActive = usePiActiveRuns(piEnabled);
+  /** Whether this deployment has any coding worker, which is what makes `Runs` a pane. */
+  const runsFeature = runsEnabled(status?.features);
   /** The responding-conversations list behind the pulsing status dot. */
   const [activityOpen, setActivityOpen] = useState(false);
   /** The agents-and-conversations menu (phone); see `Switcher`. */
@@ -280,6 +406,8 @@ function Workspace({ status }: { status: Status }) {
     session.activeScopes.size - (scope && session.activeScopes.has(scopeKey(scope)) ? 1 : 0);
   // Any active scope at all makes the status dot a way into the list.
   const respondingCount = session.activeScopes.size;
+  /** Whether the open agent has a conversation answering — its avatar says so. */
+  const agentResponding = session.activeAgentIds.has(agents.agentId ?? "");
 
   // Lifted so the composer button and the picker share one source of truth —
   // switching model in the picker updates the button without a reload.
@@ -324,19 +452,67 @@ function Workspace({ status }: { status: Status }) {
 
   return (
     <div className="app">
+      <NavRail
+        agents={agents}
+        activeAgentIds={session.activeAgentIds}
+        runsEnabled={runsFeature}
+        tab={tab}
+        onSelectPane={selectPane}
+        onOpenPanel={openPanel}
+        onPreviewAgent={previewFromRail}
+        onOwnAvatar={ownAvatar}
+        onOpenSettings={() => setGlobalSettings({})}
+        onOpenSwitcher={openSwitcher}
+        onEditAgent={editAgent}
+      />
       <Sidebar
         agents={agents}
-        open={false}
-        onClose={() => {}}
-        onNewAgent={() => setCreatingAgent(true)}
-        onEditAgent={editAgent}
+        visible={panelVisible}
         activeScopes={session.activeScopes}
-        activeAgentIds={session.activeAgentIds}
-        request={session.request}
+        pinned={panelPinned}
+        onTogglePin={togglePanelPin}
+        preview={
+          previewAgent
+            ? {
+                agentId: previewAgent.id,
+                name: previewAgent.name,
+                conversations: previewList.conversations,
+                loading: previewList.loading,
+                failed: previewList.failed,
+              }
+            : null
+        }
+        onPreviewPick={previewPick}
+        onHold={holdPanel}
       />
 
       <div className="main">
         <header className="topbar">
+          {/* The agent's face, in the corner the eye starts at, opening the same
+              switcher its own name beside it does. Phone only: on desktop the rail
+              is a column of these, and one more in the header would be a duplicate.
+              It left the bottom bar because an agent you cannot see is an agent you
+              lose track of — the bar's letter-sized glyph never said which agent. */}
+          <button
+            type="button"
+            className="where-avatar"
+            onClick={openSwitcher}
+            aria-label={
+              agentResponding
+                ? `${agentName ?? "Agent"}: switch agent or conversation, responding`
+                : `${agentName ?? "Agent"}: switch agent or conversation`
+            }
+            title="Agents and conversations"
+          >
+            <span
+              className="where-avatar-face"
+              style={{ background: tintFor(agents.agentId ?? "") }}
+              aria-hidden="true"
+            >
+              {agentName ? initialOf(agentName) : "?"}
+              {agentResponding ? <span className="activity-dot" /> : null}
+            </span>
+          </button>
           {/* Where you are: the agent over the conversation. On a phone it is
               also a way into the switcher from every tab, not just Chat. */}
           <button
@@ -354,6 +530,9 @@ function Workspace({ status }: { status: Status }) {
               {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
             </span>
             <h1 className="title">{title}</h1>
+            {/* The button has always opened the switcher; the chevron is what says
+                so now that nothing else in the top bar is a button at all. */}
+            <Icon name="chevron-down" className="where-caret" />
           </button>
           <ContextGauge
             usage={conversation.turnUsage}
@@ -373,40 +552,9 @@ function Workspace({ status }: { status: Status }) {
             onOpen={() => setActivityOpen(true)}
           />
           {featureEnabled(status.features, "pi") ? (
-            <PiRunsChip active={piActive} onOpen={() => setTab("Runs")} />
+            <PiRunsChip active={piActive} onOpen={() => selectPane("Runs")} />
           ) : null}
-          {/* Settings shared by every agent. The selected agent's own are its
-              Agent tab; this is the one way into the rest, at every width. */}
-          <button
-            type="button"
-            className="icon-button flat topbar-settings"
-            onClick={() => setGlobalSettings({})}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <Icon name="settings" />
-          </button>
         </header>
-
-        <nav className="tabs">
-          {TABS.filter(
-            (name) =>
-              name !== "Runs" ||
-              featureEnabled(status.features, "codex") ||
-              featureEnabled(status.features, "claude") ||
-              featureEnabled(status.features, "pi"),
-          ).map((name) => (
-            <button
-              key={name}
-              type="button"
-              className={name === tab ? "active" : ""}
-              onClick={() => setTab(name)}
-            >
-              {name === "Runs" && piActive > 0 && <i className="tab-dot" aria-hidden="true" />}
-              {name}
-            </button>
-          ))}
-        </nav>
 
         {/* A BFF error no request claimed (a rate limit, a command the browser
             allowlist refused) is an event, not a state: it is a toast now, so it
@@ -556,7 +704,6 @@ function Workspace({ status }: { status: Status }) {
               modelLabel={modelLabel}
               history={inputHistory}
               prefill={prefill}
-              onOpenSwitcher={openSwitcher}
               onPrefillApplied={clearPrefill}
             />
           </>
@@ -597,6 +744,17 @@ function Workspace({ status }: { status: Status }) {
             onOpenGlobalSettings={(section) => setGlobalSettings({ section })}
           />
         )}
+
+        {/* The phone's navigation lives under the composer, where a thumb is:
+            the top strip it replaces could not say six panes at 390px. */}
+        <BottomBar
+          agentName={agentName}
+          tab={tab}
+          onSelectPane={selectPane}
+          onOpenSettings={() => setGlobalSettings({})}
+          runsEnabled={runsFeature}
+          runsRunning={piActive}
+        />
       </div>
 
       {/* Before the approval sheet: an approval that arrives while Settings is
@@ -700,8 +858,9 @@ function Workspace({ status }: { status: Status }) {
  * name. It used to be a text pill, which cost the top bar the room it now
  * uses to say which agent and conversation you are in. Signed out stays
  * words and a button: it is the one state that needs you to act. While any
- * conversation is responding it pulses and becomes a button into the list of
- * what is running; with nothing running it is the same passive dot as ever.
+ * conversation is responding the whole slot pulses and becomes one button into
+ * the list of what is running; with nothing running it is the same passive dot as
+ * ever.
  */
 function LinkPill({
   link,
@@ -736,17 +895,19 @@ function LinkPill({
   }
   if (busy) {
     const busyLabel = `${count} conversation${count === 1 ? "" : "s"} responding — show`;
+    // The whole slot is the button: the dot alone was a 10px target with a word
+    // beside it that looked like the control and was not one.
     return (
-      <span className="topbar-status">
-        <button
-          type="button"
-          className={`link-dot ${tone} busy`}
-          onClick={onOpen}
-          aria-label={busyLabel}
-          title={busyLabel}
-        />
+      <button
+        type="button"
+        className="topbar-status busy"
+        onClick={onOpen}
+        aria-label={busyLabel}
+        title={busyLabel}
+      >
+        <span className={`link-dot ${tone} busy`} aria-hidden="true" />
         <span className="topbar-word">{count} responding</span>
-      </span>
+      </button>
     );
   }
   return (
