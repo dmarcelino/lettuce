@@ -231,7 +231,20 @@ async function openSkillsSection(page: Page): Promise<void> {
       // ever the problem.
     }
   }
-  throw new Error("the skills pane never filled in (two minutes of the BFF's walk)");
+  // Whatever the pane is showing, say so: this has failed for at least three
+  // different reasons and guessing from a bare timeout stopped being useful.
+  const where = await page
+    .evaluate(() => ({
+      tabs: [...document.querySelectorAll(".section-tabs button")].map((b) => b.textContent),
+      active: [...document.querySelectorAll(".section-tabs button.active")].map(
+        (b) => b.textContent,
+      ),
+      pane: document.querySelector(".pane")?.textContent?.slice(0, 160) ?? null,
+      busy: !!document.querySelector(".topbar-status.busy"),
+    }))
+    .catch((error) => ({ error: String(error) }));
+  await shot(page, "fail-skills");
+  throw new Error(`the skills pane never filled in: ${JSON.stringify(where)}`);
 }
 
 /** Open the agents-and-conversations switcher at either width: the rail's "All
@@ -1181,7 +1194,7 @@ try {
         const el = document.querySelector(sel);
         return el ? { client: el.clientWidth, scroll: el.scrollWidth } : null;
       };
-      return { sidebar: box(".sidebar"), rail: box(".rail"), flyout: box(".flyout") };
+      return { sidebar: box(".sidebar"), rail: box(".rail") };
     });
     check(
       "the sidebar has no sideways scroll",
@@ -1357,12 +1370,12 @@ try {
     await page.locator(".messages").click({ position: { x: 40, y: 40 } });
     await page.waitForTimeout(300);
     check("clicking past it puts the peek away", !(await panelOn()));
-    // Hovering the open agent's avatar is the other way back — it answers with the
-    // panel itself, because a card of the same list beside the panel is a duplicate.
+    // Hovering the open agent's avatar is the other way back, and it answers with
+    // the panel itself: there is no second list anywhere on this screen.
     await page.locator(".rail .rail-agent.active").hover();
     await page.waitForTimeout(400);
     check("hovering the open agent's avatar opens its panel", await panelOn());
-    check("and no card was needed for it", (await page.locator(".flyout").count()) === 0);
+    check("and nothing else appeared to do it", (await page.locator(".flyout").count()) === 0);
     await page.locator(".messages").click({ position: { x: 40, y: 40 } });
     await page.waitForTimeout(300);
     check("and a press past it puts it away again", !(await panelOn()));
@@ -1387,42 +1400,89 @@ try {
     await page.waitForTimeout(300);
     check("and re-pinning keeps it on Chat", await panelOn());
 
-    // The hover card is what makes a hidden panel survivable: the avatar answers
-    // "what is that agent working on" without a click and without losing this one.
-    const otherAgent = page.locator(".rail .rail-agent:not(.active)").first();
+    // Hovering a *different* avatar borrows that same panel for that agent, which is
+    // what keeps a hidden panel survivable: "what is that agent working on" is a
+    // hover, not a click that loses this conversation.
+    const otherAgent = page.locator(".rail .rail-agent[data-agent-id]:not(.active)").first();
     if ((await otherAgent.count()) > 0) {
+      const otherId = await otherAgent.getAttribute("data-agent-id");
+      const otherTitle = (await otherAgent.getAttribute("title")) ?? "";
+      const otherName = otherTitle
+        .replace(/\s*\(pinned\)/, "")
+        .split(" —")[0]
+        .trim();
+      // A borrow is a peek's business: a pinned panel is a column you are reading
+      // and does not change agents under you. Un-pin, then put the peek away, or
+      // there is nothing for the hover to open.
+      const pinButton = page.locator(".sidebar .panel-pin");
+      if ((await pinButton.getAttribute("aria-pressed")) === "true") {
+        await pinButton.click();
+        await page.waitForTimeout(300);
+      }
+      await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+      await page.waitForTimeout(300);
+      check("the panel is away before it is borrowed", !(await panelOn()));
       await otherAgent.hover();
-      await page.waitForTimeout(400);
-      const flyout = page.locator(".flyout");
-      check("hovering another agent opens its conversations", await flyout.isVisible());
+      await page.waitForTimeout(700);
+      const borrowed = (
+        await page.locator(".sidebar .panel-head .section-label").innerText()
+      ).trim();
       check(
-        "the card is a panel beside the rail, not a tooltip",
-        await flyout.evaluate((el) => {
-          const r = el.getBoundingClientRect();
-          // Beside the rail (74px) with a real card's width — not a tooltip's line
-          // of text at the avatar's edge.
-          return r.width >= 200 && r.left >= 74;
-        }),
+        "hovering another agent opens the same panel with their conversations",
+        (await panelOn()) && borrowed === otherName,
+        { borrowed, otherName },
       );
       check(
-        "it names the agent it belongs to",
-        (await flyout.locator(".flyout-head").innerText()).trim().length > 0,
+        "and it is the one panel — nothing else appears beside it",
+        (await page.locator(".sidebar").count()) === 1 &&
+          (await page.locator(".flyout").count()) === 0,
       );
       await shot(page, "desktop-hover");
-      // The card's own list is the first thing a person reaches for, so scrolling
-      // it must not be the thing that closes it (it was: any scroll closed the card).
-      await otherAgent.hover();
-      await page.waitForTimeout(400);
+      check(
+        "a borrowed list offers no verbs for another agent's conversations",
+        (await page.locator(".sidebar .conversation-archive").count()) === 0 &&
+          (await page.locator(".sidebar .conversation-more").count()) === 0,
+      );
+      // The list is the first thing a person reaches for, so scrolling it must not be
+      // the thing that closes it (it was, once: any scroll closed the card).
+      await page.locator(".sidebar .conversations").hover();
+      await page.waitForTimeout(300);
       await page.mouse.wheel(0, 300);
       await page.waitForTimeout(300);
-      check("scrolling the card keeps it open", (await page.locator(".flyout").count()) === 1);
+      check("using the borrowed list keeps it open", await panelOn());
+      // Leaving it puts it away: a panel that stays after the pointer has gone is a
+      // second window nobody opened. (Before the pick below — a pick opens the peek
+      // on purpose, and this check is about the hover, not the peek.)
       await page.mouse.move(600, 400);
-      // The close waits 300ms so the pointer can cross the gap into the card; a
-      // check that reads sooner is timing the grace, not the behaviour.
       await page.waitForTimeout(600);
-      check("and leaves when the pointer does", (await flyout.count()) === 0);
+      check("and leaving the panel puts it away", !(await panelOn()));
+
+      // And choosing from it is the switch it says it is.
+      await otherAgent.hover();
+      await page.waitForTimeout(700);
+      const borrowedRow = page.locator(".sidebar .conversation-row .conversation-name").first();
+      if ((await borrowedRow.count()) > 0) {
+        await borrowedRow.click();
+        await page.waitForTimeout(700);
+        check(
+          "choosing a borrowed conversation switches to that agent",
+          (await page.locator(".rail .rail-agent.active").getAttribute("data-agent-id")) ===
+            otherId,
+        );
+      } else {
+        console.log("  SKIP  choosing a borrowed conversation (that agent has none)");
+      }
+      // Leave the panel as the suite found it: pinned, on Chat, showing the agent
+      // the pick left selected.
+      if (!(await panelOn())) {
+        await page.locator(".rail .rail-item:text-is('Chat')").click();
+        await page.waitForTimeout(300);
+      }
+      await page.locator(".sidebar .panel-pin").click();
+      await page.waitForTimeout(300);
+      check("and the panel is pinned again for what follows", await panelOn());
     } else {
-      console.log("  SKIP  hover card needs a second agent");
+      console.log("  SKIP  the borrowed panel needs a second agent");
     }
 
     // The divider between the avatars and the panes is the one place the rail

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { agentActivity } from "../lib/activity.ts";
 import { initialOf, tintFor } from "../lib/agent-tint.ts";
 import {
   AGENT_BLOCK_MIN,
@@ -10,11 +9,8 @@ import {
   writeAgentBlock,
 } from "../lib/rail-size.ts";
 import type { Tab } from "../lib/tabs.ts";
-import { useAgentConversations } from "../state/use-agent-conversations.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
-import type { SessionApi } from "../state/use-session.ts";
 import { AgentMenu } from "./AgentMenu.tsx";
-import { ConversationFlyout } from "./ConversationFlyout.tsx";
 import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
 import type { IconName } from "./Icon.tsx";
 import { Icon } from "./Icon.tsx";
@@ -23,17 +19,15 @@ interface Props {
   agents: AgentsApi;
   /** For the green dot on an avatar: any of that agent's conversations are responding. */
   activeAgentIds: ReadonlySet<string>;
-  /** Scope keys of responding conversations, for the hover card's per-conversation dots. */
-  activeScopes: ReadonlySet<string>;
-  request: SessionApi["request"];
   /** Whether the `Runs` pane exists at all on this deployment. */
   runsEnabled: boolean;
   tab: Tab;
   onSelectPane: (tab: Tab) => void;
   /** Tapping the open agent's avatar also brings the conversation panel back. */
   onOpenPanel: () => void;
-  /** Whether the panel is on screen showing this agent, so a hover does not repeat it. */
-  panelOpen: boolean;
+  /** Resting on an avatar asks the one conversation panel to show that agent; `null`
+   * is the pointer leaving. App decides whether the ask is honoured. */
+  onPreviewAgent: (agentId: string | null) => void;
   onOpenSettings: () => void;
   onOpenSwitcher: () => void;
   onEditAgent: (agentId: string) => void;
@@ -65,22 +59,18 @@ function paneItems(runsEnabled: boolean): { tab: Tab; label: string; icon: IconN
 export function NavRail({
   agents,
   activeAgentIds,
-  activeScopes,
-  request,
   runsEnabled,
   tab,
   onSelectPane,
   onOpenPanel,
-  panelOpen,
+  onPreviewAgent,
   onOpenSettings,
   onOpenSwitcher,
   onEditAgent,
 }: Props) {
   const [menu, setMenu] = useState<{ agent: AgentSummary; anchor: DOMRect } | null>(null);
   const [deleting, setDeleting] = useState<AgentSummary | null>(null);
-  const [hover, setHover] = useState<{ agent: AgentSummary; anchor: DOMRect } | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const card = useAgentConversations(request);
 
   // How tall the agent block is: dragged by the divider between it and the panes,
   // and kept in this browser (`lib/rail-size.ts`). null is the stylesheet default.
@@ -144,51 +134,25 @@ export function NavRail({
     }
   };
 
-  // A hover is a *deliberate* rest, not a sweep of the pointer down the rail:
-  // 120ms is the point where passing through stops opening cards. The open agent
-  // answers a hover with its own panel rather than a card of it — a card beside
-  // the panel showing the same list is a duplicate — and on a secondary pane,
-  // where the panel cannot appear without changing the pane under someone who is
-  // reading it, it falls back to the card.
-  const armHover = (agent: AgentSummary, anchor: DOMRect) => {
+  // A hover is a *deliberate* rest, not a sweep of the pointer down the rail: 120ms
+  // is the point where passing through stops opening the panel. What it opens is the
+  // one conversation panel, showing whichever agent is under the pointer — App decides
+  // whether the ask is honoured (a pinned panel is already on screen, and a secondary
+  // pane has no panel to give without changing the pane under someone who is reading).
+  // The close waits 300ms so the pointer can cross the gap to the panel; if it arrives,
+  // the panel reports the hold and the preview stays rather than snapping shut.
+  const armPreview = (agentId: string) => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => {
-      if (agent.id === agents.agentId) {
-        if (panelOpen) return;
-        if (tab === "Chat") onOpenPanel();
-        else {
-          setHover({ agent, anchor });
-          card.load(agent.id);
-        }
-        return;
-      }
-      setHover({ agent, anchor });
-      card.load(agent.id);
-    }, 120);
+    hoverTimer.current = setTimeout(() => onPreviewAgent(agentId), 120);
   };
-  const disarmHover = () => {
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = null;
-  };
-  // Leaving the avatar must eventually close the card — a card that stays open
-  // after the pointer walks away is a second panel nobody asked for — but the
-  // pointer has to cross the gap to reach it, so the close waits long enough for
-  // that trip and is cancelled if the pointer arrives.
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const leaveAvatar = () => {
-    disarmHover();
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
     if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => setHover(null), 300);
+    closeTimer.current = setTimeout(() => onPreviewAgent(null), 300);
   };
-  const enterCard = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = null;
-  };
-  const leaveCard = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    setHover(null);
-  };
-  // Whatever is pending when the rail goes away never becomes a card.
+  // Whatever is pending when the rail goes away never becomes a panel.
   useEffect(
     () => () => {
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
@@ -196,24 +160,18 @@ export function NavRail({
     },
     [],
   );
-  // The card hangs from an avatar, so anything that moves the avatar moves the
-  // card out of truth: scrolling the agent block, or the window resizing. It is
-  // deliberately NOT every scroll in the document — scrolling the card's own list
-  // is the one scroll a person reaches for first, and closing on it reads as the
-  // card running away (measured: the wheel over the list dismissed it).
+  // A menu hanging from an avatar moves with it, so anything that moves the avatar —
+  // the window resizing — closes it rather than leaving it floating in the old place.
   useEffect(() => {
-    if (!menu && !hover) return;
-    const close = () => {
-      setMenu(null);
-      setHover(null);
-    };
+    if (!menu) return;
+    const close = () => setMenu(null);
     window.addEventListener("resize", close);
     return () => window.removeEventListener("resize", close);
-  }, [menu, hover]);
+  }, [menu]);
 
   const pick = (agent: AgentSummary) => {
-    disarmHover();
-    setHover(null);
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    if (closeTimer.current) clearTimeout(closeTimer.current);
     if (agent.id === agents.agentId) {
       // Same agent: the pane is already this agent's, so the useful verb is the
       // one thing the rail has left — bring the conversations back.
@@ -228,13 +186,6 @@ export function NavRail({
 
   const visible = agents.agents.filter((agent) => !agents.archivedAgents.has(agent.id));
   const panes = paneItems(runsEnabled);
-  const hoverActivity = hover
-    ? agentActivity(
-        activeScopes,
-        hover.agent.id,
-        card.conversations.map((conversation) => conversation.id),
-      ).responding
-    : new Set<string>();
 
   return (
     <nav className={`rail${dragging ? " dragging" : ""}`} aria-label="Agents and sections">
@@ -246,7 +197,7 @@ export function NavRail({
             ? undefined
             : { height: `${blockHeight}px`, maxHeight: `${blockHeight}px` }
         }
-        onScroll={() => setHover(null)}
+        onScroll={() => setMenu(null)}
       >
         {visible.map((agent) => (
           <button
@@ -267,14 +218,10 @@ export function NavRail({
                 : `${agent.name} — conversations`
             }
             onClick={() => pick(agent)}
-            onPointerEnter={(event) =>
-              event.pointerType === "mouse" &&
-              armHover(agent, event.currentTarget.getBoundingClientRect())
-            }
+            onPointerEnter={(event) => event.pointerType === "mouse" && armPreview(agent.id)}
             onPointerLeave={leaveAvatar}
             onContextMenu={(event) => {
               event.preventDefault();
-              setHover(null);
               setMenu({ agent, anchor: event.currentTarget.getBoundingClientRect() });
             }}
           >
@@ -333,41 +280,6 @@ export function NavRail({
           Settings
         </button>
       </div>
-
-      {hover ? (
-        <div onPointerEnter={enterCard} onPointerLeave={leaveCard}>
-          <ConversationFlyout
-            agentName={hover.agent.name}
-            anchor={hover.anchor}
-            conversations={card.conversations}
-            responding={hoverActivity}
-            respondingCount={hoverActivity.size}
-            loading={card.loading}
-            failed={card.failed}
-            conversationId={hover.agent.id === agents.agentId ? agents.conversationId : null}
-            onPick={(conversationId) => {
-              setHover(null);
-              if (hover.agent.id !== agents.agentId) agents.selectAgent(hover.agent.id);
-              agents.selectConversation(conversationId);
-              onSelectPane("Chat");
-              onOpenPanel();
-            }}
-            onNewConversation={() => {
-              setHover(null);
-              if (hover.agent.id !== agents.agentId) agents.selectAgent(hover.agent.id);
-              void agents.createConversation();
-              onSelectPane("Chat");
-              onOpenPanel();
-            }}
-            overPanel={panelOpen}
-            onSearchAll={() => {
-              setHover(null);
-              onOpenSwitcher();
-            }}
-            onClose={() => setHover(null)}
-          />
-        </div>
-      ) : null}
 
       {menu ? (
         <AgentMenu

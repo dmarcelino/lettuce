@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivitySheet } from "./components/ActivitySheet.tsx";
 import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
@@ -41,6 +41,7 @@ import {
 } from "./lib/structured-output.ts";
 import { readPanelPin, runsEnabled, type Tab, writePanelPin } from "./lib/tabs.ts";
 import { readShowTimestamps, writeShowTimestamps } from "./lib/timestamps.ts";
+import { useAgentConversations } from "./state/use-agent-conversations.ts";
 import { useAgents } from "./state/use-agents.ts";
 import { useContextLimit } from "./state/use-context-limit.ts";
 import { useContextSize } from "./state/use-context-size.ts";
@@ -204,7 +205,48 @@ function Workspace({ status }: { status: Status }) {
   const wide = useWide();
   const [panelPinned, setPanelPinned] = useState(readPanelPin);
   const [panelPeek, setPanelPeek] = useState(false);
-  const panelVisible = tab === "Chat" && (panelPinned || panelPeek);
+  /**
+   * The agent the rail is resting on, whose conversations the one panel shows for
+   * the moment. There is no second list anywhere: a hover borrows the panel that is
+   * already there, and an unpinned panel is already a peek, so borrowing it is the
+   * same verb pressing Chat is. A pinned panel is a column you are reading, so a
+   * hover leaves it alone.
+   */
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  /** The pointer is inside the panel — what keeps a borrowed list on screen. */
+  const panelHeld = useRef(false);
+  const previewList = useAgentConversations(session.request);
+  const loadPreview = previewList.load;
+  const previewAgent =
+    tab === "Chat" && !panelPinned && previewId
+      ? (agents.agents.find((agent) => agent.id === previewId) ?? null)
+      : null;
+  const panelVisible = tab === "Chat" && (panelPinned || panelPeek || previewAgent !== null);
+  useEffect(() => {
+    if (previewId) loadPreview(previewId);
+  }, [previewId, loadPreview]);
+  const previewFromRail = useCallback((agentId: string | null) => {
+    if (agentId) {
+      setPreviewId(agentId);
+      return;
+    }
+    // The pointer left the avatar. If it landed in the panel, the panel is holding
+    // the borrowed list and it stays; otherwise the panel returns to its own agent.
+    setPreviewId((current) => (panelHeld.current ? current : null));
+  }, []);
+  const holdPanel = useCallback((held: boolean) => {
+    panelHeld.current = held;
+    if (!held) setPreviewId(null);
+  }, []);
+  /** Choosing from a borrowed list is a switch: that agent, that conversation. */
+  const previewPick = useCallback(
+    (agentId: string, conversationId: string) => {
+      agents.selectAgent(agentId);
+      agents.selectConversation(conversationId);
+      setPreviewId(null);
+    },
+    [agents],
+  );
   const openPanel = useCallback(() => setPanelPeek(true), []);
   // Unpinning is not closing: you are looking at the panel when you press it, so
   // it stays open as a peek. (It used to vanish on the un-pin, which made the pin
@@ -387,13 +429,11 @@ function Workspace({ status }: { status: Status }) {
       <NavRail
         agents={agents}
         activeAgentIds={session.activeAgentIds}
-        activeScopes={session.activeScopes}
-        request={session.request}
         runsEnabled={runsFeature}
         tab={tab}
         onSelectPane={selectPane}
         onOpenPanel={openPanel}
-        panelOpen={panelVisible}
+        onPreviewAgent={previewFromRail}
         onOpenSettings={() => setGlobalSettings({})}
         onOpenSwitcher={openSwitcher}
         onEditAgent={editAgent}
@@ -404,6 +444,19 @@ function Workspace({ status }: { status: Status }) {
         activeScopes={session.activeScopes}
         pinned={panelPinned}
         onTogglePin={togglePanelPin}
+        preview={
+          previewAgent
+            ? {
+                agentId: previewAgent.id,
+                name: previewAgent.name,
+                conversations: previewList.conversations,
+                loading: previewList.loading,
+                failed: previewList.failed,
+              }
+            : null
+        }
+        onPreviewPick={previewPick}
+        onHold={holdPanel}
       />
 
       <div className="main">

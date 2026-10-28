@@ -1,32 +1,59 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
-import type { AgentsApi } from "../state/use-agents.ts";
+import type { AgentsApi, ConversationSummary } from "../state/use-agents.ts";
 import { ConversationMenu } from "./ConversationMenu.tsx";
 import { Icon } from "./Icon.tsx";
 import { toast } from "./Toast.tsx";
 
 interface Props {
   agents: AgentsApi;
-  /** Whether the panel is on screen: pinned and on Chat, or peeking. It stays
-   * mounted either way — see the note on the component. */
+  /** Whether the panel is on screen: pinned and on Chat, peeking, or borrowed by a
+   * hover. It stays mounted either way — see the note on the component. */
   visible: boolean;
   /** Scope keys of conversations with a response in progress; see `SessionApi.activeScopes`. */
   activeScopes: ReadonlySet<string>;
   /** Whether the panel survives a pane change; the rail has no pin, so this owns it. */
   pinned: boolean;
   onTogglePin: () => void;
+  /**
+   * Another agent's conversations, borrowed for the moment a pointer rests on their
+   * avatar. One panel shows either its own agent's list or a borrowed one — never a
+   * second list beside it — and a borrowed one is read-only: its rows switch agent
+   * rather than offering archive and rename for someone else's conversation.
+   */
+  preview: {
+    agentId: string;
+    name: string;
+    conversations: ConversationSummary[];
+    loading: boolean;
+    failed: boolean;
+  } | null;
+  onPreviewPick: (agentId: string, conversationId: string) => void;
+  /** The pointer is inside the panel, which is what keeps a borrowed list open. */
+  onHold: (held: boolean) => void;
 }
 
 /**
- * The desktop conversation panel: the open agent's conversations, nothing else.
+ * The desktop conversation panel: one agent's conversations, nothing else.
  *
  * The agents left for the rail, so this column is one list instead of two, which
  * is what it needed — the list is the busiest thing on the screen. Whether it is
  * on screen at all is not its call: `pinned` and visibility live in `App`,
- * because the rail, the hover card and the pane switch all have a say.
+ * because the rail's hover and the pane switch both have a say. What it shows can
+ * be a borrowed agent's list (`preview`), which is how the rail's hover opens this
+ * panel instead of growing a second one beside it.
  */
-export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: Props) {
+export function Sidebar({
+  agents,
+  visible,
+  activeScopes,
+  pinned,
+  onTogglePin,
+  preview,
+  onPreviewPick,
+  onHold,
+}: Props) {
   const [showArchived, setShowArchived] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -53,10 +80,20 @@ export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: 
     };
   }, [menuFor]);
 
+  // Whose list this is: the panel's own agent, or the one the rail is resting on.
+  const list = preview ? preview.conversations : agents.conversations;
+  const listAgentId = preview?.agentId ?? agents.agentId;
+  /** The open conversation only counts while it is the list's own agent. */
+  const openId = preview
+    ? preview.agentId === agents.agentId
+      ? agents.conversationId
+      : null
+    : agents.conversationId;
+
   const activity = agentActivity(
     activeScopes,
-    agents.agentId,
-    agents.conversations.map((conversation) => conversation.id),
+    listAgentId,
+    list.map((conversation) => conversation.id),
   );
 
   // The switcher's list, laid out for a column: the same filter, search and
@@ -64,17 +101,17 @@ export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: 
   const groups = useMemo(
     () =>
       groupByDate(
-        visibleConversations(agents.conversations, {
+        visibleConversations(list, {
           showArchived,
           query,
           responding: activity.responding,
         }),
       ),
-    [agents.conversations, showArchived, query, activity.responding],
+    [list, showArchived, query, activity.responding],
   );
-  const liveCount = agents.conversations.filter((c) => !c.archived).length;
+  const liveCount = list.filter((c) => !c.archived).length;
   /** The footer link says how much it will reveal, and hides when there is none. */
-  const archivedCount = agents.conversations.filter((c) => c.archived).length;
+  const archivedCount = list.filter((c) => c.archived).length;
 
   // A busy conversation the list has never heard of was created after it was
   // fetched (a cron that starts a new conversation per run). Refetch once per
@@ -82,13 +119,14 @@ export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: 
   const refetchedFor = useRef(new Set<string>());
   const unlistedKey = activity.unlisted.join(",");
   useEffect(() => {
+    if (preview) return;
     const agentId = agents.agentId;
     if (!agentId || !unlistedKey) return;
     const fresh = unlistedKey.split(",").filter((id) => !refetchedFor.current.has(id));
     if (fresh.length === 0) return;
     for (const id of fresh) refetchedFor.current.add(id);
     void agents.refreshConversations(agentId);
-  }, [agents.agentId, unlistedKey, agents.refreshConversations]);
+  }, [agents.agentId, agents.refreshConversations, unlistedKey, preview]);
 
   const guard = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -102,10 +140,18 @@ export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: 
   const closeMenu = useCallback(() => setMenuFor(null), []);
 
   return (
-    <aside className={`sidebar${visible ? "" : " hidden"}`} aria-label="Conversations">
+    <aside
+      className={`sidebar${visible ? "" : " hidden"}`}
+      aria-label="Conversations"
+      onPointerEnter={() => onHold(true)}
+      onPointerLeave={() => onHold(false)}
+    >
       <div className="sidebar-section grow">
         <div className="panel-head">
-          <span className="section-label">Conversations</span>
+          {/* Whose list this is. Own agent: the plain label. Borrowed: the name in
+              its place, because a list of another agent's conversations that says
+              only "Conversations" is a lie about which agent you are about to switch to. */}
+          <span className="section-label">{preview ? preview.name : "Conversations"}</span>
           <button
             type="button"
             className={`icon-button flat panel-pin${pinned ? " on" : ""}`}
@@ -120,15 +166,17 @@ export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: 
           >
             <Icon name="pin" />
           </button>
-          <button
-            type="button"
-            className="button ghost compact"
-            disabled={busy || !agents.agentId}
-            onClick={() => void guard(agents.createConversation)}
-            aria-label="New conversation"
-          >
-            <Icon name="plus" /> New
-          </button>
+          {preview ? null : (
+            <button
+              type="button"
+              className="button ghost compact"
+              disabled={busy || !agents.agentId}
+              onClick={() => void guard(agents.createConversation)}
+              aria-label="New conversation"
+            >
+              <Icon name="plus" /> New
+            </button>
+          )}
         </div>
 
         <label className="switcher-search sidebar-search">
@@ -143,6 +191,12 @@ export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: 
         </label>
 
         <ul className="conversations" ref={listRef}>
+          {preview?.loading ? (
+            <li className="muted pad">Loading {preview.name}’s conversations…</li>
+          ) : null}
+          {preview?.failed ? (
+            <li className="muted pad">Could not load {preview.name}’s conversations.</li>
+          ) : null}
           {/* The default conversation is never listed and cannot be opened
               (see lib/activity.ts), so it can only be reported here. */}
           {activity.inDefault ? (
@@ -172,7 +226,7 @@ export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: 
                   data-conversation-id={conversation.id}
                   className={[
                     "conversation-row",
-                    conversation.id === agents.conversationId ? "active" : "",
+                    conversation.id === openId ? "active" : "",
                     menuFor === conversation.id ? "menu-open" : "",
                   ]
                     .filter(Boolean)
@@ -181,7 +235,11 @@ export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: 
                   <button
                     type="button"
                     className="conversation-name"
-                    onClick={() => agents.selectConversation(conversation.id)}
+                    onClick={() =>
+                      preview
+                        ? onPreviewPick(preview.agentId, conversation.id)
+                        : agents.selectConversation(conversation.id)
+                    }
                   >
                     {responding ? (
                       <span
@@ -198,40 +256,46 @@ export function Sidebar({ agents, visible, activeScopes, pinned, onTogglePin }: 
                     </span>
                   </button>
 
-                  <button
-                    type="button"
-                    className="icon-button flat conversation-archive"
-                    aria-label={`${archived ? "Unarchive" : "Archive"} “${conversation.summary}”`}
-                    title={archived ? "Unarchive" : "Archive"}
-                    disabled={busy}
-                    onClick={() =>
-                      void guard(async () => {
-                        // One click, no sheet: the undo is one more click, and
-                        // the row's more menu has offered this verb without a
-                        // confirmation since it existed.
-                        await agents.setArchived(conversation.id, !archived);
-                        toast(
-                          archived ? "Unarchived." : "Archived — turn on Show archived to undo.",
-                        );
-                      })
-                    }
-                  >
-                    <Icon name={archived ? "unarchive" : "archive"} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button flat conversation-more"
-                    aria-label={`More for ${conversation.summary}`}
-                    aria-haspopup="menu"
-                    aria-expanded={menuFor === conversation.id}
-                    onClick={() =>
-                      setMenuFor((current) =>
-                        current === conversation.id ? null : conversation.id,
-                      )
-                    }
-                  >
-                    <Icon name="more" />
-                  </button>
+                  {preview ? null : (
+                    <>
+                      <button
+                        type="button"
+                        className="icon-button flat conversation-archive"
+                        aria-label={`${archived ? "Unarchive" : "Archive"} “${conversation.summary}”`}
+                        title={archived ? "Unarchive" : "Archive"}
+                        disabled={busy}
+                        onClick={() =>
+                          void guard(async () => {
+                            // One click, no sheet: the undo is one more click, and
+                            // the row's more menu has offered this verb without a
+                            // confirmation since it existed.
+                            await agents.setArchived(conversation.id, !archived);
+                            toast(
+                              archived
+                                ? "Unarchived."
+                                : "Archived — turn on Show archived to undo.",
+                            );
+                          })
+                        }
+                      >
+                        <Icon name={archived ? "unarchive" : "archive"} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button flat conversation-more"
+                        aria-label={`More for ${conversation.summary}`}
+                        aria-haspopup="menu"
+                        aria-expanded={menuFor === conversation.id}
+                        onClick={() =>
+                          setMenuFor((current) =>
+                            current === conversation.id ? null : conversation.id,
+                          )
+                        }
+                      >
+                        <Icon name="more" />
+                      </button>
+                    </>
+                  )}
                   {menuFor === conversation.id ? (
                     <ConversationMenu
                       agents={agents}

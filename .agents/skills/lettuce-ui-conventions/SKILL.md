@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists kept in the BFF, not in the agent; one AgentMenu fixed to the viewport because the agent surfaces clip it (above a phone ⋯, beside a rail avatar); the desktop rail (avatars, named panes, Settings foot) beside a conversation panel that is Chat''s alone and pin-toggleable in localStorage; a phone bar of five equal slots under a header whose left corner carries the open agent's face (`.where-avatar`) as the way into the switcher; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent tab, Tools tab, global Settings); no native checkbox anywhere (aria-pressed plus .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, ConversationFlyout, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
+description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists kept in the BFF, not in the agent; one AgentMenu fixed to the viewport because the agent surfaces clip it (above a phone ⋯, beside a rail avatar); the desktop rail (avatars, named panes, Settings foot) beside a conversation panel that is Chat''s alone and pin-toggleable in localStorage; a phone bar of five equal slots under a header whose left corner carries the open agent's face (`.where-avatar`) as the way into the switcher; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent tab, Tools tab, global Settings); no native checkbox anywhere (aria-pressed plus .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, Sidebar, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -28,13 +28,16 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   in its header (localStorage, pinned by default) decides whether Chat keeps it as a column or
   treats it as a peek that closes on a press anywhere else. It stays **mounted** when hidden — its
   polling is what fills `activeScopes`, so an agent that is answering still lights its avatar. A
-  hover on a non-active avatar (120ms of deliberate rest, mouse only) opens `ConversationFlyout`,
-  which is what makes hiding survivable; `use-agent-conversations.ts` caches one agent's list at
-  module scope so repeated hovers are one fetch. The card has **two geometries**: with the panel
-  away it is a card beside the rail — at the rail's edge, not the avatar's, which sits 17px inside
-  it — and with the panel open it takes the panel's own footprint instead, because two conversation
-  lists at once read as a glitch and the question behind the hover is "show me this agent
-  instead". Below 900px both are `display: none` and the
+  **there is one conversation panel, and a hover borrows it**: resting on an avatar
+  (120ms of deliberate rest, mouse only) asks `App` to show that agent's list in the
+  same panel (`previewId` + `onPreviewAgent`, lists from `use-agent-conversations.ts`),
+  which is read-only while borrowed — no archive, no rename, and its head says the
+  borrowed agent's name because a borrowed list labelled "Conversations" lies about
+  which agent the next click picks. A hover is honoured only while the panel is
+  **unpinned** (a pinned column is what you are reading, and it does not change agents
+  under you) and only on Chat; the panel holds the borrow while the pointer is inside it
+  (`onHold`), and a press or a pointer-out puts it back.
+  Below 900px both are `display: none` and the
   **bottom bar** (`BottomBar`) is the navigation: five equal slots — Chat, Files,
   Tasks, Tools, then More holding Agent, Runs and Settings — and no avatar, because
   a letter in a bar never said which agent it meant. The open agent's **face** is in

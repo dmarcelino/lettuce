@@ -309,62 +309,6 @@ pre {
   padding-top: 6px;
 }
 
-/* The hover card over a rail avatar while the conversation panel is hidden. Fixed
-   to the viewport like `AgentMenu`, for the same reason: the rail clips what is
-   inside it. */
-.flyout {
-  position: fixed;
-  z-index: 30;
-  width: 268px;
-  max-height: 62vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
-}
-/* Hovering another agent with the panel open draws the card over the panel, at
-   the panel's width and the window's height: it replaces the list rather than
-   doubling it, so it reads as "this agent's panel" and not as a second panel. */
-.flyout.over-panel {
-  top: 0;
-  height: 100vh;
-  max-height: none;
-  border-left: none;
-  box-shadow: 10px 0 30px rgba(0, 0, 0, 0.45);
-}
-.flyout-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
-}
-.flyout-head strong {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.flyout-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  /* Scrolling to the end of this list must not chain to the page behind it: the
-     pointer is over the card, so the card is what the wheel belongs to. */
-  overscroll-behavior: contain;
-  padding: 0 0 6px;
-}
-.flyout-foot {
-  display: flex;
-  gap: 12px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--border);
-}
-
 /* The phone's bar, under the composer: five equal slots — the Chat pane, the
    three secondary panes that earn one, and More. Identity is not its business;
    the agent's face sits in the header's corner. */
