@@ -183,6 +183,8 @@ export interface ProviderModGroup {
   api: string;
   baseUrl: string;
   apiKey?: string;
+  /** Extra request headers (upstream's registration `headers` field). */
+  headers?: Record<string, string>;
   models: readonly ProviderModModel[];
 }
 
@@ -283,6 +285,9 @@ export function buildProviderModGroups(input: ProviderModInput): ProviderModGrou
       api: endpoint?.api ?? "openai-completions",
       baseUrl,
       ...(endpoint?.apiKey ? { apiKey: endpoint.apiKey } : {}),
+      ...(endpoint?.headers && Object.keys(endpoint.headers).length > 0
+        ? { headers: endpoint.headers }
+        : {}),
       models: ids.map((id) => {
         const caps = declarations.get(id);
         const info = labelOf.get(id);
@@ -329,6 +334,13 @@ export default function activate() {}
         // Resolved as process.env[apiKey] ?? apiKey by letta-code's mod
         // validation, so "not-needed" (the default) sends no Authorization.
         apiKey: group.apiKey ?? "not-needed",
+        // Provider-level headers reach every request behind the prefix
+        // (upstream's `PiProviderRegistration.headers`); an empty map would
+        // say "no headers" to whatever default the api carries, so it is
+        // emitted only when there is something to say.
+        ...(group.headers && Object.keys(group.headers).length > 0
+          ? { headers: group.headers }
+          : {}),
         // No /connect step: the key (if any) and the URL are already declared.
         connect: false,
         models: group.models.map((model) => ({

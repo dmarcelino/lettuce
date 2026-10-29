@@ -20,6 +20,7 @@ import {
   type ParsedProvider,
   PROVIDER_TYPES,
   ProviderError,
+  parseHeaderMap,
   parseProviderBody,
   probeProviderModels,
   slugifyName,
@@ -128,6 +129,9 @@ export function registerProviderRoutes<Env extends RouteEnv>(
       baseUrl: info.baseUrl ?? "",
       models: info.models ?? [],
       hasKey: Boolean(info.apiKey),
+      // Names only: a header value is a secret like a key, and this list is
+      // what the edit form shows before anything is typed.
+      headerNames: Object.keys(info.headers ?? {}).sort(),
     }));
     return c.json({ types: PROVIDER_TYPES, providers });
   });
@@ -163,6 +167,7 @@ export function registerProviderRoutes<Env extends RouteEnv>(
       baseUrl: parsed.baseUrl,
       models: parsed.models,
       ...(parsed.apiKey ? { apiKey: parsed.apiKey } : {}),
+      ...(parsed.headers !== undefined ? { headers: parsed.headers } : {}),
     });
     // Nothing here declares what a model can do — vision, reasoning and the real
     // context window are per model and set on the model, so a save here must not
@@ -180,6 +185,9 @@ export function registerProviderRoutes<Env extends RouteEnv>(
         scope: parsed.scope,
         baseUrl: parsed.baseUrl,
         models: parsed.models,
+        headerNames: Object.keys(
+          parsed.headers ?? modelCaps.endpoint(parsed.prefix)?.headers ?? {},
+        ).sort(),
       },
       mod: mod ?? "failed",
     });
@@ -202,19 +210,37 @@ export function registerProviderRoutes<Env extends RouteEnv>(
    * string: a URL is the one thing that ends up in logs.
    */
   /**
-   * What a probe is asked about: the endpoint fields of the form, with a blank key
-   * falling back to the stored one — an edit form starts blank every time because
-   * nothing can read a key back.
+   * What a probe is asked about: the endpoint fields of the form, with a blank
+   * key falling back to the stored one — an edit form starts blank every time
+   * because nothing can read a key back. The header rows typed so far join the
+   * stored set (same fallback rule); when the form sent no `headers` field at
+   * all, the stored set probes as-is.
    */
-  async function probeFields(c: Context): Promise<{ api: string; baseUrl: string; key: string }> {
+  async function probeFields(c: Context): Promise<{
+    api: string;
+    baseUrl: string;
+    key: string;
+    headers: Record<string, string>;
+  }> {
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const typed = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
     const prefix = slugifyName(body?.prefix);
     const key = typed || (prefix ? (modelCaps.endpoints()[prefix]?.apiKey ?? "") : "");
+    const stored = (prefix ? modelCaps.endpoints()[prefix]?.headers : undefined) ?? {};
+    let headers = stored;
+    if (body?.headers !== undefined && body.headers !== null) {
+      try {
+        headers = { ...stored, ...parseHeaderMap(body.headers) };
+      } catch {
+        // A probe only reports: a malformed row is refused by the save, and a
+        // probe with whatever the rest of the form says is still useful.
+      }
+    }
     return {
       api: typeof body?.api === "string" ? body.api : "openai-completions",
       baseUrl: typeof body?.baseUrl === "string" ? body.baseUrl : "",
       key,
+      headers,
     };
   }
 
@@ -231,6 +257,7 @@ export function registerProviderRoutes<Env extends RouteEnv>(
         api: probe.api,
         baseUrl: probe.baseUrl,
         apiKey: probe.key,
+        headers: probe.headers,
       });
       return c.json({ models });
     } catch (error) {

@@ -258,6 +258,47 @@ export interface ParsedProvider {
   baseUrl: string;
   apiKey: string | null;
   models: string[];
+  /**
+   * Custom request headers, canonicalised. `undefined` means the payload said
+   * nothing about headers — the stored set survives, exactly like a blank key.
+   * A present object is the complete new set (an empty one clears it).
+   */
+  headers?: Record<string, string>;
+}
+
+/** A header name as HTTP spells it: a token, nothing a line could hide in. */
+const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/**
+ * The `headers` field of a save: an object of name → single-line value. A
+ * blank pair is dropped (a half-filled row is a mistake, not a header); a
+ * malformed one is the operator's to read about. Names keep their case —
+ * HTTP treats them case-insensitively, and the name is what the row lists.
+ */
+export function parseHeaderMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ProviderError("headers must be an object of name to value");
+  }
+  const headers: Record<string, string> = {};
+  for (const [rawName, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    const name = rawName.trim();
+    if (name === "" && (rawValue === null || rawValue === undefined || rawValue === "")) continue;
+    if (!HEADER_NAME_RE.test(name)) {
+      throw new ProviderError(`"${rawName}" is not a header name`);
+    }
+    const text = rawValue === null || rawValue === undefined ? "" : String(rawValue).trim();
+    if (text === "") continue;
+    // A value carrying a line break is a request-splitting attempt (or a
+    // paste gone wrong); either way it never reaches an endpoint.
+    for (const ch of text) {
+      const code = ch.charCodeAt(0);
+      if (code < 0x20 || code === 0x7f) {
+        throw new ProviderError(`the value of "${name}" must be a single printable line`);
+      }
+    }
+    headers[name] = text;
+  }
+  return headers;
 }
 
 function normalizeBaseUrl(value: unknown): string {
@@ -304,6 +345,10 @@ export function parseProviderBody(body: unknown): ParsedProvider {
   if (!type.keyOptional && !apiKey && !record.keepKey) {
     throw new ProviderError(`${type.label} needs an API key`);
   }
+  const headers =
+    record.headers === undefined || record.headers === null
+      ? undefined
+      : parseHeaderMap(record.headers);
   return {
     prefix,
     name,
@@ -313,32 +358,39 @@ export function parseProviderBody(body: unknown): ParsedProvider {
     baseUrl: normalizeBaseUrl(record.baseUrl),
     apiKey,
     models: parseModelIds(record.models),
+    headers,
   };
 }
 
 /**
  * The model list of one api family, fetched from the BFF (a browser could not:
  * these endpoints do not send CORS headers, and the key would leave the page).
+ * Custom headers (an Access-fronted endpoint, a proxy) merge last, so they can
+ * stand in for the key too — a Cloudflare Access service token is exactly one.
  */
 function modelListRequest(
   api: string,
   baseUrl: string,
   apiKey: string,
+  extraHeaders: Record<string, string> = {},
 ): { url: string; headers: Record<string, string> } {
   if (api === "anthropic-messages") {
     // The catalog base URL has no /v1; a hand-typed one may already carry it.
     const root = baseUrl.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`;
     return {
       url: `${root}/models`,
-      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", ...extraHeaders },
     };
   }
   if (api === "google-generative-ai") {
-    return { url: `${baseUrl}/models?key=${encodeURIComponent(apiKey)}`, headers: {} };
+    return {
+      url: `${baseUrl}/models?key=${encodeURIComponent(apiKey)}`,
+      headers: { ...extraHeaders },
+    };
   }
   return {
     url: `${baseUrl}/models`,
-    headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+    headers: apiKey ? { authorization: `Bearer ${apiKey}`, ...extraHeaders } : { ...extraHeaders },
   };
 }
 
@@ -373,9 +425,10 @@ export async function probeProviderModels(input: {
   api: string;
   baseUrl: string;
   apiKey: string;
+  headers?: Record<string, string>;
 }): Promise<string[]> {
   const baseUrl = normalizeBaseUrl(input.baseUrl);
-  const { url, headers } = modelListRequest(input.api, baseUrl, input.apiKey);
+  const { url, headers } = modelListRequest(input.api, baseUrl, input.apiKey, input.headers ?? {});
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) }).catch(
     (error: unknown) => {
       // Bun prefixes its own failure with "Error: "; the operator needs the

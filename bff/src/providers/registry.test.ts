@@ -94,6 +94,30 @@ describe("parseProviderBody", () => {
   });
 });
 
+describe("parseProviderBody headers", () => {
+  test("absent means nothing said: the stored set survives", () => {
+    expect(parseProviderBody(body()).headers).toBeUndefined();
+    expect(parseProviderBody(body({ headers: null })).headers).toBeUndefined();
+  });
+
+  test("a present map is the complete new set; blank pairs drop", () => {
+    expect(
+      parseProviderBody(body({ headers: { "x-session": " abc ", "x-blank": "" } })).headers,
+    ).toEqual({ "x-session": "abc" });
+    expect(parseProviderBody(body({ headers: {} })).headers).toEqual({});
+  });
+
+  test("a name is an HTTP token and a value one printable line", () => {
+    expect(() => parseProviderBody(body({ headers: { "x bad": "v" } }))).toThrow(/header name/);
+    expect(() => parseProviderBody(body({ headers: { "x-cr": "a\rb\nc" } }))).toThrow(
+      /single printable line/,
+    );
+    expect(() => parseProviderBody(body({ headers: ["x-a"] }))).toThrow(/name to value/);
+    // An empty name carrying a value is a mistake the save should name.
+    expect(() => parseProviderBody(body({ headers: { "": "v" } }))).toThrow(/header name/);
+  });
+});
+
 describe("probeProviderModels", () => {
   /** Every family asks differently; a wrong ask reads as "no models". */
   async function withFetch(
@@ -166,6 +190,20 @@ describe("probeProviderModels", () => {
         }),
       ).toEqual(["gemini-2.0-flash"]);
       expect(calls[0]!.url).toContain("/v1beta/models?key=k");
+    });
+  });
+
+  test("custom headers join the ask and can override the defaults", async () => {
+    await withFetch({ data: ["m"] }, async (calls) => {
+      await probeProviderModels({
+        api: "openai-completions",
+        baseUrl: "http://x:8080/v1",
+        apiKey: "k",
+        headers: { "cf-access-client-id": "id", authorization: "Bearer tunnel" },
+      });
+      expect(calls[0]!.headers["cf-access-client-id"]).toBe("id");
+      // The operator's header wins — that is how an Access token replaces a key.
+      expect(calls[0]!.headers.authorization).toBe("Bearer tunnel");
     });
   });
 
