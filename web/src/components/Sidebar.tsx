@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
-import { initialOf, tintFor } from "../lib/agent-tint.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import type { AgentsApi, ConversationSummary } from "../state/use-agents.ts";
+import { AgentAvatar } from "./AgentAvatar.tsx";
 import { ConversationMenu } from "./ConversationMenu.tsx";
 import { Icon } from "./Icon.tsx";
 import { toast } from "./Toast.tsx";
@@ -162,12 +162,12 @@ export function Sidebar({
               the agent's, and with names on the rail the head is the only place a
               screenful of chat says who it belongs to. */}
           <span className="panel-who">
-            <span
+            <AgentAvatar
+              agentId={whose.id ?? ""}
+              name={whose.name}
+              pref={whose.id ? agents.avatars[whose.id] : undefined}
               className="agent-avatar panel-who-face"
-              style={{ background: tintFor(whose.id ?? "") }}
-            >
-              {initialOf(whose.name)}
-            </span>
+            />
             <span className="section-label agent">{whose.name}</span>
           </span>
           <button

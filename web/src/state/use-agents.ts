@@ -6,10 +6,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchAgentFlags,
   orderByPins,
+  saveAgentAvatar,
   saveArchivedAgent,
   savePinnedAgent,
 } from "../lib/agent-flags.ts";
 import { errorMessage } from "../lib/errors.ts";
+import type { AvatarPref } from "../lib/agent-tint.ts";
 import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
 import { readAgentModelHandle } from "./use-models.ts";
@@ -152,6 +154,10 @@ export interface AgentsApi {
    */
   archivedAgents: ReadonlySet<string>;
   setAgentArchived: (agentId: string, archived: boolean) => Promise<void>;
+  /** Per-agent avatar choices, present only for agents that chose something. */
+  avatars: Readonly<Record<string, AvatarPref>>;
+  /** Writes one agent's choice; an empty pref resets it to the derived default. */
+  setAvatar: (agentId: string, pref: { tint?: string | null; glyph?: string | null }) => Promise<void>;
   createConversation: () => Promise<void>;
   renameConversation: (conversationId: string, summary: string) => Promise<void>;
   /** Name an untitled conversation after the first thing the user said. */
@@ -221,14 +227,21 @@ export function useAgents(session: SessionApi): AgentsApi {
     if (ready) void refreshAgents();
   }, [ready, refreshAgents]);
 
-  // Pins and the archive are the BFF's (HTTP), not the app-server's: only
-  // the lists depend on them, so a failed load lists every agent, unpinned.
+  // Pins, the archive and the avatar choices are the BFF's (HTTP), not the
+  // app-server's: only the lists depend on them, so a failed load lists every
+  // agent, unpinned, with its default face.
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [archivedIds, setArchivedIds] = useState<string[]>([]);
+  const [avatarPrefs, setAvatarPrefs] = useState<Record<string, AvatarPref>>({});
   const loadFlags = useCallback(async () => {
-    const flags = await fetchAgentFlags().catch(() => ({ pinned: [], archived: [] }));
+    const flags = await fetchAgentFlags().catch(() => ({
+      pinned: [],
+      archived: [],
+      avatars: {},
+    }));
     setPinnedIds(flags.pinned);
     setArchivedIds(flags.archived);
+    setAvatarPrefs(flags.avatars ?? {});
   }, []);
   useEffect(() => {
     if (ready) void loadFlags();
@@ -254,6 +267,20 @@ export function useAgents(session: SessionApi): AgentsApi {
   const orderedAgents = useMemo(() => orderByPins(agents, pinnedIds), [agents, pinnedIds]);
   const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
   const archivedSet = useMemo(() => new Set(archivedIds), [archivedIds]);
+
+  const setAvatar = useCallback(
+    async (target: string, pref: { tint?: string | null; glyph?: string | null }) => {
+      // The server answers with the whole map, so every list showing this agent
+      // — rail, switcher, sidebar, header — settles on the same face at once.
+      try {
+        setAvatarPrefs(await saveAgentAvatar(target, pref));
+      } catch (cause) {
+        setError(errorMessage(cause));
+        await loadFlags();
+      }
+    },
+    [loadFlags],
+  );
 
   const setAgentArchived = useCallback(
     async (target: string, archived: boolean) => {
@@ -484,6 +511,8 @@ export function useAgents(session: SessionApi): AgentsApi {
     setPinned,
     archivedAgents: archivedSet,
     setAgentArchived,
+    avatars: avatarPrefs,
+    setAvatar,
     createConversation,
     renameConversation,
     autoTitleConversation,

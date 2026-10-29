@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivitySheet } from "./components/ActivitySheet.tsx";
+import { AgentAvatar } from "./components/AgentAvatar.tsx";
 import { AgentEditor } from "./components/AgentEditor.tsx";
 import { ApprovalSheet } from "./components/ApprovalSheet.tsx";
 import { AuthPill } from "./components/AuthPill.tsx";
@@ -21,7 +22,6 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { SignInScreen } from "./components/SignInScreen.tsx";
 import { Switcher } from "./components/Switcher.tsx";
 import { ToastLayer, toast } from "./components/Toast.tsx";
-import { initialOf, tintFor } from "./lib/agent-tint.ts";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { applyDocumentTitle } from "./lib/document-title.ts";
 import { draftKey } from "./lib/draft.ts";
@@ -504,14 +504,15 @@ function Workspace({ status }: { status: Status }) {
             }
             title="Agents and conversations"
           >
-            <span
+            <AgentAvatar
+              agentId={agents.agentId ?? ""}
+              name={agentName ?? ""}
+              pref={agents.agentId ? agents.avatars[agents.agentId] : undefined}
               className="where-avatar-face"
-              style={{ background: tintFor(agents.agentId ?? "") }}
-              aria-hidden="true"
+              ariaHidden
             >
-              {agentName ? initialOf(agentName) : "?"}
               {agentResponding ? <span className="activity-dot" /> : null}
-            </span>
+            </AgentAvatar>
           </button>
           {/* Where you are: the agent over the conversation. On a phone it is
               also a way into the switcher from every tab, not just Chat. */}

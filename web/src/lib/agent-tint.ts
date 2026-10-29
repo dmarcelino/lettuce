@@ -11,3 +11,31 @@ export function tintFor(id: string): string {
 export function initialOf(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "?";
 }
+
+/** What the user chose for one agent (`bff/src/agents/avatar-prefs.ts`). */
+export interface AvatarPref {
+  tint?: string;
+  glyph?: string;
+}
+
+export interface AvatarFace {
+  background: string;
+  content: string;
+}
+
+/**
+ * The precedence every avatar surface must agree on: a chosen tint beats the
+ * id's hash, a chosen glyph beats the name's initial. With no preference this
+ * returns exactly what the avatar was before any of it existed, which is what
+ * lets the whole feature ship without touching a single agent.
+ */
+export function resolveAvatar(
+  id: string,
+  name: string,
+  pref?: AvatarPref,
+): AvatarFace {
+  return {
+    background: pref?.tint ?? tintFor(id),
+    content: pref?.glyph || initialOf(name),
+  };
+}

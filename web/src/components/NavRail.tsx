@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { initialOf, tintFor } from "../lib/agent-tint.ts";
 import {
   AGENT_BLOCK_MIN,
   agentBlockMax,
@@ -10,6 +9,7 @@ import {
 } from "../lib/rail-size.ts";
 import type { Tab } from "../lib/tabs.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
+import { AgentAvatar } from "./AgentAvatar.tsx";
 import { AgentMenu } from "./AgentMenu.tsx";
 import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
 import type { IconName } from "./Icon.tsx";
@@ -259,9 +259,7 @@ export function NavRail({
               setMenu({ agent, anchor: event.currentTarget.getBoundingClientRect() });
             }}
           >
-            <span className="agent-avatar" style={{ background: tintFor(agent.id) }}>
-              {initialOf(agent.name)}
-            </span>
+            <AgentAvatar agentId={agent.id} name={agent.name} pref={agents.avatars[agent.id]} />
             <span className="rail-agent-name">{agent.name}</span>
           </button>
         ))}

@@ -5,9 +5,18 @@
  * (`bff/src/agents/id-list.ts`) so every device agrees.
  */
 
+import type { AvatarPref } from "./agent-tint.ts";
+
 export interface AgentFlags {
   pinned: string[];
   archived: string[];
+  /**
+   * Per-agent avatar choices, keyed by agent id, present only for agents that
+   * chose something (`bff/src/agents/avatar-prefs.ts`). Optional because a BFF
+   * from before it answers without the field, which is the same as nothing
+   * chosen.
+   */
+  avatars?: Record<string, AvatarPref>;
 }
 
 export function orderByPins<T extends { id: string }>(
@@ -48,4 +57,22 @@ export async function savePinnedAgent(agentId: string, pinned: boolean): Promise
   });
   if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
   return ((await response.json()) as { pinned: string[] }).pinned;
+}
+
+/**
+ * Writes one agent's avatar choice and returns the whole map, so one write can
+ * refresh every list that shows an avatar. An empty pref resets that agent to the
+ * tint and initial it derives on its own.
+ */
+export async function saveAgentAvatar(
+  agentId: string,
+  pref: { tint?: string | null; glyph?: string | null },
+): Promise<Record<string, AvatarPref>> {
+  const response = await fetch(`/api/agents/avatar/${encodeURIComponent(agentId)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(pref),
+  });
+  if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+  return ((await response.json()) as { avatars: Record<string, AvatarPref> }).avatars;
 }
