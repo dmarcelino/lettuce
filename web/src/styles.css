@@ -2144,6 +2144,25 @@ button {
   font-size: 16px;
 }
 
+/* A filter box that heads a sheet stays put while its list scrolls under it:
+   the negative margin and matching padding take over the body's own top padding,
+   so it sticks 14px below the header with nothing showing through above it.
+   `pinned` only on the first thing in a sheet body: lower down, the negative
+   margin would paint over the element above it. */
+.sheet-body > .filter-field.pinned {
+  position: sticky;
+  top: -14px;
+  z-index: 1;
+  background: var(--surface);
+  margin: -14px -14px 0;
+  padding: 14px 14px 10px;
+}
+/* ...and the sheet keeps its height while a query narrows the list, or the box
+   would move under the pointer with every letter typed. */
+.sheet-panel:has(> .sheet-body > .filter-field.pinned) .sheet-body {
+  height: 72vh;
+}
+
 /* Outside the scrolling body on purpose: an error the user has scrolled past
    reads as "nothing happened". */
 .sheet-status {
@@ -2739,6 +2758,13 @@ p.warning code,
      to the document are shared with the phone, below. */
   .sheet-panel.fill {
     height: min(88vh, 940px);
+  }
+  /* A centred modal, so the panel holds the height rather than the body. */
+  .sheet-panel:has(> .sheet-body > .filter-field.pinned) {
+    height: min(88vh, 940px);
+  }
+  .sheet-panel:has(> .sheet-body > .filter-field.pinned) .sheet-body {
+    height: auto;
   }
 }
 
