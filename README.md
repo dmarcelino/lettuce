@@ -56,7 +56,8 @@ before exposing anything.
   compaction, or turn it off; merging is automatic or instruction-driven.
 - **Multiple agents**, each with its own persona, model, tools, secrets and
   workspace. Pin, archive, rename and delete from the agent's face — right-click on
-  desktop, the switcher on a phone.
+  desktop, the switcher on a phone. Give one a face of its own too: any emoji (or a
+  letter) on any of six colours, in Agent → General.
 - **Per-agent secrets** — key/value pairs the agent can use without them
   appearing in its instructions.
 

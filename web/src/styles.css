@@ -3823,6 +3823,9 @@ textarea.mono {
   flex: none;
   width: 32px;
   height: 32px;
+  /* The same face as the rail's, so the same shape: it was a bare square all
+     along, which a letter got away with and a glyph does not. */
+  border-radius: var(--radius-round);
   display: grid;
   place-items: center;
   color: var(--on-accent);
@@ -4527,6 +4530,91 @@ textarea.mono {
   font-size: 11px;
   font-weight: 700;
   color: var(--on-accent);
+}
+
+/* ── The avatar picker (Agent → General) ─────────────────────────────────── */
+/* The row wraps because at 390px the preview, the sheet's trigger and the seven
+   tints do not share a line — the tints drop below, which is the whole layout
+   decision this picker had. */
+.avatar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.avatar-tints {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.avatar-tint {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-round);
+  background: var(--surface-2);
+  padding: 0;
+  cursor: pointer;
+}
+/* Auto is a verb, not a colour, so it is the width of its word — and it is what
+   an agent with nothing chosen shows, which a colour swatch cannot say. */
+.avatar-tint.auto {
+  width: auto;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.avatar-tint.sel {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* The preview is the face at the size of a button, so it can be read before it
+   is saved; the surfaces themselves stay whatever size their layout says. */
+.avatar-preview {
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+}
+.avatar-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+}
+.avatar-glyph {
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 21px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+.avatar-glyph.sel {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.avatar-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-weight: 400;
+}
+.avatar-custom input {
+  width: 74px;
+  text-align: center;
+  font-size: 17px;
 }
 
 /* ── Remote-pi run surfaces ──────────────────────────────────────────────── */

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
-import { initialOf, tintFor } from "../lib/agent-tint.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import { statsOf, useAgentStats } from "../state/use-agent-stats.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { AgentAvatar } from "./AgentAvatar.tsx";
 import { AgentMenu } from "./AgentMenu.tsx";
 import { ConversationMenu } from "./ConversationMenu.tsx";
 import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
@@ -263,9 +263,12 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
                     onClick={() => pickAgent(agent)}
                     aria-current={selected ? "true" : undefined}
                   >
-                    <span className="switcher-avatar" style={{ background: tintFor(agent.id) }}>
-                      {initialOf(agent.name)}
-                    </span>
+                    <AgentAvatar
+                      agentId={agent.id}
+                      name={agent.name}
+                      pref={agents.avatars[agent.id]}
+                      className="switcher-avatar"
+                    />
                     <span className="switcher-agent-text">
                       <span className="switcher-card-title">
                         {agents.pinned.has(agent.id) ? (

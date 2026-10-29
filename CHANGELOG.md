@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.24.0-letta_0.34.21] - 2026-10-29
+
+### Added
+- **Give an agent a face.** Each agent can carry a glyph of its own — picked from a grid of common emoji or typed in, one character or two — and a colour of your choosing, both in **Agent → General**. It shows everywhere that agent appears: the rail, the switcher, the conversation panel's head and the header's corner. An agent you leave alone keeps the initial and hashed colour it always had, and the switcher draws that face round like every other surface now.
+
 ## [v0.23.1-letta_0.34.21] - 2026-10-29
 
 ### Fixed
