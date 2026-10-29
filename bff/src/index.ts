@@ -17,6 +17,7 @@ import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { installAgentSkills, readSkillTree } from "./agent-skills.ts";
 import { AgentAncestry } from "./agents/ancestry.ts";
+import { AgentAvatarStore, parseAvatarPref } from "./agents/avatar-prefs.ts";
 import { AgentFacts } from "./agents/facts.ts";
 import { AgentIdList, isAgentId } from "./agents/id-list.ts";
 import {
@@ -179,6 +180,9 @@ const agentArchive = new AgentIdList(config.archivedAgentsFile, (error) =>
 );
 const agentToolAccess = new AgentToolAccessStore(config.agentToolAccessFile, (error) =>
   log(`Agent tool access persist failed: ${errorMessage(error)}`),
+);
+const agentAvatars = new AgentAvatarStore(config.avatarPrefsFile, (error) =>
+  log(`Agent avatar preferences persist failed: ${errorMessage(error)}`),
 );
 // A call with no agent id (an agent shell's curl) gets the default: this is availability, not a boundary.
 const googleAccessFor = (agentId: string | null) =>
@@ -1200,10 +1204,17 @@ app.put("/api/mcp", async (c) => {
 
 // ── Pinned and archived agents ──────────────────────────────────────────────
 // What the switcher and sidebar list first, and what they hide; see
-// `agents/id-list.ts`. One GET for both, so a list renders once.
+// `agents/id-list.ts`. One GET for all three, so a list renders once: the avatar
+// choices (`agents/avatar-prefs.ts`) ride along because the agent list arrives
+// over the websocket with no room for them and four surfaces render an avatar at
+// boot, so a per-agent fetch would flash defaults.
 
 app.get("/api/agents/flags", (c) => {
-  return c.json({ pinned: agentPins.list(), archived: agentArchive.list() });
+  return c.json({
+    pinned: agentPins.list(),
+    archived: agentArchive.list(),
+    avatars: agentAvatars.all(),
+  });
 });
 
 // Archiving also unpins: a hidden agent has no business leading the list.
@@ -1232,6 +1243,21 @@ app.put("/api/agents/pins/:agentId", async (c) => {
 // ── Per-agent tool access ───────────────────────────────────────────────────
 // Codex workers and Google, narrowed per agent (Agent → Tools); enforced by the
 // rendered mods, see `agents/tool-access.ts`.
+
+// ── Per-agent avatar ────────────────────────────────────────────────────────
+// The tint and glyph picked for one agent (`agents/avatar-prefs.ts`). The whole
+// map comes back so one write can refresh every list that shows an avatar.
+
+app.put("/api/agents/avatar/:agentId", async (c) => {
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  const pref = parseAvatarPref(await c.req.json().catch(() => null));
+  if (!pref) {
+    return c.text('Body must be { tint?: "#rrggbb", glyph?: string } (empty clears)', 400);
+  }
+  agentAvatars.set(agentId, pref);
+  return c.json({ avatars: agentAvatars.all() });
+});
 
 app.get("/api/agents/tool-access/:agentId", (c) => {
   const agentId = c.req.param("agentId");

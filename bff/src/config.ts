@@ -79,6 +79,8 @@ export interface BffConfig {
   archivedAgentsFile: string;
   /** Per-agent Codex and Google access (`agents/tool-access.ts`), on the `bff-data` volume. */
   agentToolAccessFile: string;
+  /** Per-agent avatar choices (`agents/avatar-prefs.ts`), on the `bff-data` volume. */
+  avatarPrefsFile: string;
   /**
    * Last finished turn per conversation (`session/turn-usage.ts`), on the
    * `bff-data` volume, so the context gauge survives a BFF restart instead of
@@ -602,6 +604,7 @@ export function loadConfig(): BffConfig {
       process.env.ARCHIVED_AGENTS_FILE?.trim() || "/app/data/archived-agents.json",
     agentToolAccessFile:
       process.env.AGENT_TOOL_ACCESS_FILE?.trim() || "/app/data/agent-tool-access.json",
+    avatarPrefsFile: process.env.AVATAR_PREFS_FILE?.trim() || "/app/data/avatar-prefs.json",
     contextUsageFile: process.env.CONTEXT_USAGE_FILE?.trim() || "/app/data/context-usage.json",
     contextSizeFile: process.env.CONTEXT_SIZE_FILE?.trim() || "/app/data/context-size.json",
     // 0.9 = earlier than letta-code's own trigger; 0 turns it off. See
