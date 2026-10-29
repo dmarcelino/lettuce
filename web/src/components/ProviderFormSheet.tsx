@@ -331,7 +331,7 @@ export function ProviderFormSheet({
         </div>
       ) : null}
       {draft.headerRows.map((row) => (
-        <div className="hdr-row field" key={row.id}>
+        <div className="hdr-row" key={row.id}>
           <input
             className="hdr-name"
             value={row.name}

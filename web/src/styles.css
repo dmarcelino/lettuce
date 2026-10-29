@@ -3265,17 +3265,29 @@ p.warning code,
   font-weight: 400;
   color: var(--muted);
 }
-/* One custom-header row in the provider form: name, value, remove. The inputs
-   inherit the .field input skin by living inside the field group; the flex row
-   is the only thing new. */
+/* One custom-header row in the provider form: name, value, remove — one line.
+   Deliberately NOT .field: .field is a vertical label group, and flex-direction
+   does not cancel across rules. The inputs carry the same skin .field gives
+   its own. */
 .hdr-row {
   display: flex;
+  flex-direction: row;
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
 }
 .hdr-row input {
   min-width: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  height: var(--control-h);
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: var(--control-font);
+  font-weight: 400;
+  line-height: normal;
 }
 .hdr-row .hdr-name {
   flex: 0 0 40%;
