@@ -81,10 +81,6 @@ export function ProviderFormSheet({
   onSaved: (mod: ModState) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(editing, types));
-  // Headers are write-only like the key: on edit the form starts with a row per
-  // stored NAME (values blank). Until the operator types a value, the save says
-  // nothing about headers and the stored set survives whole.
-  const [headersTouched, setHeadersTouched] = useState(false);
   const [picking, setPicking] = useState(false);
   const [listed, setListed] = useState<string[] | null>(null);
   const [manual, setManual] = useState(false);
@@ -153,14 +149,20 @@ export function ProviderFormSheet({
     try {
       const models = manual ? manualModels() : draft.models;
       const typed = headerMap(draft.headerRows);
+      // A save says nothing about headers (the stored set survives whole)
+      // unless the rows actually differ from what is stored: some value
+      // filled in, or the name set changed — removing a pre-filled row is how
+      // you delete a stored header. Tracking the click instead would let
+      // add-then-undo clear everything.
+      const storedNames = (editing?.headerNames ?? []).join("\u0000");
+      const rowNames = draft.headerRows.map((row) => row.name.trim()).join("\u0000");
       const result = await saveProvider({
         name: draft.name.trim(),
         type: draft.type,
         baseUrl: draft.baseUrl.trim(),
         apiKey: draft.apiKey.trim(),
         models,
-        // Absent means "keep what is stored"; a present map is the whole set.
-        ...(headersTouched || Object.keys(typed).length > 0 ? { headers: typed } : {}),
+        ...(Object.keys(typed).length > 0 || rowNames !== storedNames ? { headers: typed } : {}),
       });
       onSaved(result.mod);
     } catch (cause) {
@@ -338,7 +340,6 @@ export function ProviderFormSheet({
             placeholder="X-Header"
             spellCheck={false}
             onChange={(event) => {
-              setHeadersTouched(true);
               setDraft({
                 ...draft,
                 headerRows: draft.headerRows.map((entry) =>
@@ -353,7 +354,6 @@ export function ProviderFormSheet({
             placeholder="value"
             spellCheck={false}
             onChange={(event) => {
-              setHeadersTouched(true);
               setDraft({
                 ...draft,
                 headerRows: draft.headerRows.map((entry) =>
@@ -367,7 +367,6 @@ export function ProviderFormSheet({
             className="hdr-remove"
             aria-label="Remove header"
             onClick={() => {
-              setHeadersTouched(true);
               setDraft({
                 ...draft,
                 headerRows: draft.headerRows.filter((entry) => entry.id !== row.id),
@@ -384,7 +383,6 @@ export function ProviderFormSheet({
           className="link inline"
           style={{ padding: 0 }}
           onClick={() => {
-            setHeadersTouched(true);
             setDraft({
               ...draft,
               headerRows: [...draft.headerRows, { id: headerRowId(), name: "", value: "" }],
