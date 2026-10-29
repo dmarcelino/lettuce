@@ -38,6 +38,12 @@ export interface EndpointInfo {
   scope?: "local" | "cloud";
   /** Model ids the provider publishes, as the handle's model segment. */
   models?: string[];
+  /**
+   * Extra HTTP headers sent with every request to this endpoint (an Access
+   * service token, a proxy hint). Secret-ish like `apiKey`: the values are
+   * write-only from the BFF's side — no route echoes them, only the names.
+   */
+  headers?: Record<string, string>;
 }
 
 /** Thrown for a malformed Settings payload; the message is shown to the user. */
@@ -138,6 +144,13 @@ function readEndpoint(entry: unknown): EndpointInfo | null {
   if (typeof record.type === "string" && record.type) info.type = record.type;
   if (typeof record.api === "string" && record.api) info.api = record.api;
   if (record.scope === "local" || record.scope === "cloud") info.scope = record.scope;
+  if (record.headers && typeof record.headers === "object" && !Array.isArray(record.headers)) {
+    const headers: Record<string, string> = {};
+    for (const [name, value] of Object.entries(record.headers as Record<string, unknown>)) {
+      if (name && typeof value === "string" && value !== "") headers[name] = value;
+    }
+    if (Object.keys(headers).length > 0) info.headers = headers;
+  }
   if (Array.isArray(record.models)) {
     info.models = record.models.filter((m): m is string => typeof m === "string" && m !== "");
   }
@@ -230,6 +243,7 @@ export class ModelCapsStore {
       api?: string;
       scope?: "local" | "cloud";
       models?: string[];
+      headers?: Record<string, string>;
     },
   ): void {
     const current = this.endpointEntries.get(prefix) ?? {};
@@ -242,6 +256,9 @@ export class ModelCapsStore {
       ...(patch.api ? { api: patch.api } : {}),
       ...(patch.scope ? { scope: patch.scope } : {}),
       ...(patch.models ? { models: patch.models } : {}),
+      // A present map is the COMPLETE new set (an empty one clears) — values
+      // cannot be read back, so there is nothing sane to merge into.
+      ...(patch.headers !== undefined ? { headers: patch.headers } : {}),
     });
     this.persist();
   }

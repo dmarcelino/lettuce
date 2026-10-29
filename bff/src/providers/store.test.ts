@@ -100,6 +100,34 @@ describe("ModelCapsStore", () => {
     expect(store.endpoint("p")).toEqual({ apiKey: "sk-b", baseUrl: "http://a/v1" });
   });
 
+  test("headers round-trip, and a present map replaces the whole set", () => {
+    const file = fileIn();
+    const store = new ModelCapsStore(file, noop);
+    store.setEndpoint("p", { baseUrl: "http://a/v1", headers: { "x-a": "1" } });
+    // A patch that says nothing about headers keeps them, like every other field.
+    store.setEndpoint("p", { name: "P" });
+    expect(store.endpoint("p")?.headers).toEqual({ "x-a": "1" });
+    // A present map is the complete new set; the empty one clears.
+    store.setEndpoint("p", { headers: { "x-b": "2" } });
+    expect(store.endpoint("p")?.headers).toEqual({ "x-b": "2" });
+    store.setEndpoint("p", { headers: {} });
+    expect(store.endpoint("p")?.headers).toEqual({});
+  });
+
+  test("an endpoint read back drops empty header entries", () => {
+    const file = fileIn();
+    // A hand-edited file (or an older writer) must not smuggle in a blank value.
+    writeFileSync(
+      file,
+      JSON.stringify({
+        endpoints: {
+          p: { baseUrl: "http://a/v1", headers: { "x-ok": "1", "x-bad": "", "x-type": 7 } },
+        },
+      }),
+    );
+    expect(new ModelCapsStore(file, noop).endpoint("p")?.headers).toEqual({ "x-ok": "1" });
+  });
+
   test("removing the last model drops the endpoint group too", () => {
     const store = new ModelCapsStore(fileIn(), noop);
     store.setModel("p/a", CAPS);

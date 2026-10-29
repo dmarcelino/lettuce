@@ -13,13 +13,25 @@ import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
 import { toast } from "./Toast.tsx";
 
+interface HeaderRow {
+  id: number;
+  name: string;
+  value: string;
+}
+
 interface Draft {
   name: string;
   type: string;
   baseUrl: string;
   apiKey: string;
   models: string[];
+  /** The header rows in the form; may hold half-filled rows, dropped on save. */
+  headerRows: HeaderRow[];
 }
+
+/** Rows need a stable key of their own: they are removed from the middle. */
+let nextHeaderRowId = 0;
+const headerRowId = () => ++nextHeaderRowId;
 
 function draftFrom(provider: Provider | null, types: ProviderType[]): Draft {
   const type = types.find((candidate) => candidate.id === provider?.type) ?? types[0];
@@ -29,7 +41,23 @@ function draftFrom(provider: Provider | null, types: ProviderType[]): Draft {
     baseUrl: provider?.baseUrl ?? (provider ? "" : (type?.baseUrl ?? "")),
     apiKey: "",
     models: provider?.models ? [...provider.models] : [],
+    headerRows: (provider?.headerNames ?? []).map((name) => ({
+      id: headerRowId(),
+      name,
+      value: "",
+    })),
   };
+}
+
+/** The non-blank rows as the wire map; a half-filled row is a mistake, not a header. */
+function headerMap(rows: HeaderRow[]): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const row of rows) {
+    const name = row.name.trim();
+    const value = row.value.trim();
+    if (name !== "" && value !== "") headers[name] = value;
+  }
+  return headers;
 }
 
 /**
@@ -90,6 +118,7 @@ export function ProviderFormSheet({
         baseUrl: draft.baseUrl,
         apiKey: draft.apiKey,
         ...(editing ? { prefix: editing.prefix } : {}),
+        headers: headerMap(draft.headerRows),
       });
       setListed(found);
       const noun = found.length === 1 ? "model" : "models";
@@ -119,12 +148,21 @@ export function ProviderFormSheet({
     setError(null);
     try {
       const models = manual ? manualModels() : draft.models;
+      const typed = headerMap(draft.headerRows);
+      // A save says nothing about headers (the stored set survives whole)
+      // unless the rows actually differ from what is stored: some value
+      // filled in, or the name set changed — removing a pre-filled row is how
+      // you delete a stored header. Tracking the click instead would let
+      // add-then-undo clear everything.
+      const storedNames = (editing?.headerNames ?? []).join("\u0000");
+      const rowNames = draft.headerRows.map((row) => row.name.trim()).join("\u0000");
       const result = await saveProvider({
         name: draft.name.trim(),
         type: draft.type,
         baseUrl: draft.baseUrl.trim(),
         apiKey: draft.apiKey.trim(),
         models,
+        ...(Object.keys(typed).length > 0 || rowNames !== storedNames ? { headers: typed } : {}),
       });
       onSaved(result.mod);
     } catch (cause) {
@@ -281,6 +319,84 @@ export function ProviderFormSheet({
           onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
         />
       </label>
+
+      <p className="section-note" style={{ marginLeft: 0 }}>
+        Custom headers
+      </p>
+      {editing && editing.headerNames.length > 0 ? (
+        <div className="hdr-stored">
+          {editing.headerNames.map((name) => (
+            <span key={name} className="tag muted">
+              {name}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {draft.headerRows.map((row) => (
+        <div className="hdr-row" key={row.id}>
+          <input
+            className="hdr-name"
+            value={row.name}
+            placeholder="X-Header"
+            spellCheck={false}
+            onChange={(event) => {
+              setDraft({
+                ...draft,
+                headerRows: draft.headerRows.map((entry) =>
+                  entry.id === row.id ? { ...entry, name: event.target.value } : entry,
+                ),
+              });
+            }}
+          />
+          <input
+            className="hdr-value"
+            value={row.value}
+            placeholder="value"
+            spellCheck={false}
+            onChange={(event) => {
+              setDraft({
+                ...draft,
+                headerRows: draft.headerRows.map((entry) =>
+                  entry.id === row.id ? { ...entry, value: event.target.value } : entry,
+                ),
+              });
+            }}
+          />
+          <button
+            type="button"
+            className="hdr-remove"
+            aria-label="Remove header"
+            onClick={() => {
+              setDraft({
+                ...draft,
+                headerRows: draft.headerRows.filter((entry) => entry.id !== row.id),
+              });
+            }}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+      ))}
+      <div className="field">
+        <button
+          type="button"
+          className="link inline"
+          style={{ padding: 0 }}
+          onClick={() => {
+            setDraft({
+              ...draft,
+              headerRows: [...draft.headerRows, { id: headerRowId(), name: "", value: "" }],
+            });
+          }}
+        >
+          + Add header
+        </button>
+        <span className="small">
+          Sent with every request to this endpoint. Values are stored on the server and never shown
+          again — a save with no filled row keeps the stored headers, one with any row replaces them
+          all.
+        </span>
+      </div>
 
       <p className="section-note" style={{ marginLeft: 0 }}>
         Models

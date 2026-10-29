@@ -304,6 +304,33 @@ describe("renderProvidersMod", () => {
     expect(models[0]!.input).toEqual(["text", "image"]);
     expect(models[1]!.input).toEqual(["text"]);
   });
+
+  test("declared headers reach the registration; none means no headers key", () => {
+    const groups = buildProviderModGroups(
+      input({
+        endpoints: {
+          "openai-compatible": { headers: { "cf-access-client-id": "id" }, models: ["m"] },
+        },
+        served: new Map(),
+      }),
+    )!;
+    expect(groups[0]!.headers).toEqual({ "cf-access-client-id": "id" });
+    const calls = registrations(renderProvidersMod(groups));
+    const registration = calls["openai-compatible"] as unknown as Record<string, unknown>;
+    expect(registration.headers).toEqual({ "cf-access-client-id": "id" });
+
+    // No headers declared: the key is absent, so the api's own defaults stand.
+    const plain = buildProviderModGroups(
+      input({
+        endpoints: { "openai-compatible": { models: ["m"] } },
+        served: new Map(),
+      }),
+    )!;
+    expect(plain[0]!.headers).toBeUndefined();
+    const plainRegistration = registrations(renderProvidersMod(plain));
+    const reg = plainRegistration["openai-compatible"] as unknown as Record<string, unknown>;
+    expect("headers" in reg).toBe(false);
+  });
 });
 
 describe("parseRegisteredProviderIds", () => {

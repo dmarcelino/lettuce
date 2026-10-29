@@ -3265,6 +3265,64 @@ p.warning code,
   font-weight: 400;
   color: var(--muted);
 }
+/* One custom-header row in the provider form: name, value, remove — one line.
+   Deliberately NOT .field: .field is a vertical label group, and flex-direction
+   does not cancel across rules. The inputs carry the same skin .field gives
+   its own. */
+.hdr-row {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.hdr-row input {
+  min-width: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  height: var(--control-h);
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: var(--control-font);
+  font-weight: 400;
+  line-height: normal;
+}
+.hdr-row .hdr-name {
+  flex: 0 0 40%;
+}
+.hdr-row .hdr-value {
+  flex: 1 1 auto;
+}
+.hdr-remove {
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  height: var(--control-h);
+  width: var(--control-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.hdr-remove:hover {
+  color: var(--bad);
+}
+.hdr-remove .icon {
+  width: 14px;
+  height: 14px;
+}
+.hdr-stored {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.hdr-stored .tag {
+  text-transform: none;
+}
 /* Space-separated tokens (a cron schedule) are unreadable in a proportional
    font: "0 9 * * *" closed up into "09***". */
 .field input.mono-input {
