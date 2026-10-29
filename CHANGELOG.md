@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.23.1-letta_0.34.21] - 2026-10-29
+
+### Fixed
+- **Custom headers per provider.** An endpoint behind Cloudflare Access or a corporate proxy can be a provider now: declare each extra request header once in the provider form and it is sent with every call to that endpoint, model probe included.
+
 ## [v0.23.0-letta_0.34.21] - 2026-10-28
 
 ### Changed
