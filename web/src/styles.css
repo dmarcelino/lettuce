@@ -3265,6 +3265,52 @@ p.warning code,
   font-weight: 400;
   color: var(--muted);
 }
+/* One custom-header row in the provider form: name, value, remove. The inputs
+   inherit the .field input skin by living inside the field group; the flex row
+   is the only thing new. */
+.hdr-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.hdr-row input {
+  min-width: 0;
+}
+.hdr-row .hdr-name {
+  flex: 0 0 40%;
+}
+.hdr-row .hdr-value {
+  flex: 1 1 auto;
+}
+.hdr-remove {
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  height: var(--control-h);
+  width: var(--control-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.hdr-remove:hover {
+  color: var(--bad);
+}
+.hdr-remove .icon {
+  width: 14px;
+  height: 14px;
+}
+.hdr-stored {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.hdr-stored .tag {
+  text-transform: none;
+}
 /* Space-separated tokens (a cron schedule) are unreadable in a proportional
    font: "0 9 * * *" closed up into "09***". */
 .field input.mono-input {

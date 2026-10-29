@@ -31,6 +31,8 @@ export interface Provider {
   baseUrl: string;
   models: string[];
   hasKey: boolean;
+  /** Stored custom-header names. Values are write-only, like the key. */
+  headerNames: string[];
 }
 
 export interface ProviderDraft {
@@ -39,6 +41,11 @@ export interface ProviderDraft {
   baseUrl: string;
   apiKey: string;
   models: string[];
+  /**
+   * The complete header set, sent only when the form touched headers at all
+   * (`undefined` keeps the stored set, like a blank key keeps the stored one).
+   */
+  headers?: Record<string, string>;
 }
 
 async function ok(response: Response): Promise<Response> {
@@ -79,13 +86,16 @@ export async function removeProvider(prefix: string): Promise<{ removed: boolean
 
 /**
  * What an endpoint says it serves. The key goes in the body, never the URL, and
- * `prefix` lets the BFF use a stored key when the field was left blank.
+ * `prefix` lets the BFF use a stored key when the field was left blank — the
+ * same fallback applies to the stored headers, joined by whatever rows the
+ * form carries.
  */
 export async function probeModels(input: {
   api: string;
   baseUrl: string;
   apiKey: string;
   prefix?: string;
+  headers?: Record<string, string>;
 }): Promise<string[]> {
   const response = await ok(
     await fetch("/api/providers/models", {

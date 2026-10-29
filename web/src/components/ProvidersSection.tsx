@@ -82,6 +82,8 @@ interface Row {
   metaOk: boolean;
   scope: "local" | "cloud";
   models: string[];
+  /** Stored custom-header count; a header value is never shown, only counted. */
+  headerCount: number;
   /** False for a connection the app-server holds: Disconnect, not Remove. */
   owned: boolean;
   provider?: Provider;
@@ -163,6 +165,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       metaOk: true,
       scope: entry.requires_api_key || entry.is_oauth ? "cloud" : "local",
       models: owned,
+      headerCount: 0,
       owned: false,
       connection: entry,
     });
@@ -186,6 +189,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
         ...(modelsByPrefix.get(provider.prefix) ?? []).map((entry) => entry.handle),
       ]),
     ),
+    headerCount: provider.headerNames.length,
     owned: true,
     provider,
   }));
@@ -288,6 +292,9 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
           {row.metaOk ? <span className="ok">Connected</span> : null}
           {row.metaOk && row.meta ? " · " : null}
           <code>{row.meta}</code>
+          {row.headerCount > 0
+            ? ` · ${row.headerCount} header${row.headerCount === 1 ? "" : "s"}`
+            : null}
         </div>
         {showModels ? (
           <>
