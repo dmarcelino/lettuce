@@ -1,19 +1,16 @@
 /** Avatar tints, picked by agent id so a given agent keeps its colour everywhere.
  * Exported because the picker offers exactly these: a palette the hash cannot
- * produce would be a second palette to explain. */
-export const AVATAR_TINTS = [
-  "var(--agent)",
-  "var(--accent)",
-  "#e0af68",
-  "#bb9af7",
-  "#7dcfff",
-  "#f7768e",
-];
+ * produce would be a second palette to explain.
+ *
+ * Literals, not `var(--accent)` and its friends: a chosen tint is stored, and the
+ * BFF accepts a `#rrggbb` literal and nothing else, so a swatch showing a CSS
+ * variable was a swatch that could not be saved. */
+export const AVATAR_TINTS = ["#9ece6a", "#7aa2f7", "#e0af68", "#bb9af7", "#7dcfff", "#f7768e"];
 
 export function tintFor(id: string): string {
   let hash = 0;
   for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return AVATAR_TINTS[Math.abs(hash) % AVATAR_TINTS.length] ?? "var(--accent)";
+  return AVATAR_TINTS[Math.abs(hash) % AVATAR_TINTS.length] ?? "#7aa2f7";
 }
 
 /** The avatar's letter. */

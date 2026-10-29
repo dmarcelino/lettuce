@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { initialOf, resolveAvatar, tintFor } from "./agent-tint.ts";
+import { AVATAR_TINTS, initialOf, resolveAvatar, tintFor } from "./agent-tint.ts";
+
+describe("AVATAR_TINTS", () => {
+  test("every tint the picker offers is storable — the same rule the BFF applies", () => {
+    // A swatch showing `var(--accent)` displayed fine and answered 400 on Save,
+    // which is the only reason this is a test and not an obvious fact.
+    for (const tint of AVATAR_TINTS) {
+      expect(tint).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
+});
 
 describe("resolveAvatar", () => {
   test("with no preference it is exactly what the avatar always was", () => {
