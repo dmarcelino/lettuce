@@ -10,8 +10,8 @@ import {
   saveArchivedAgent,
   savePinnedAgent,
 } from "../lib/agent-flags.ts";
-import { errorMessage } from "../lib/errors.ts";
 import type { AvatarPref } from "../lib/agent-tint.ts";
+import { errorMessage } from "../lib/errors.ts";
 import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
 import { readAgentModelHandle } from "./use-models.ts";
@@ -157,7 +157,10 @@ export interface AgentsApi {
   /** Per-agent avatar choices, present only for agents that chose something. */
   avatars: Readonly<Record<string, AvatarPref>>;
   /** Writes one agent's choice; an empty pref resets it to the derived default. */
-  setAvatar: (agentId: string, pref: { tint?: string | null; glyph?: string | null }) => Promise<void>;
+  setAvatar: (
+    agentId: string,
+    pref: { tint?: string | null; glyph?: string | null },
+  ) => Promise<void>;
   createConversation: () => Promise<void>;
   renameConversation: (conversationId: string, summary: string) => Promise<void>;
   /** Name an untitled conversation after the first thing the user said. */

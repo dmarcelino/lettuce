@@ -86,7 +86,9 @@ describe("AgentAvatarStore", () => {
     store.set("agent-a", { tint: "#7aa2f7", glyph: "🤖" });
     store.set("agent-b", {});
     await store.drain();
-    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ "agent-a": { tint: "#7aa2f7", glyph: "🤖" } });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
+      "agent-a": { tint: "#7aa2f7", glyph: "🤖" },
+    });
     expect(new AgentAvatarStore(file, () => {}).get("agent-a")).toEqual({
       tint: "#7aa2f7",
       glyph: "🤖",

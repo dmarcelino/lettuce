@@ -1,5 +1,14 @@
-/** Avatar tints, picked by agent id so a given agent keeps its colour everywhere. */
-const AVATAR_TINTS = ["var(--agent)", "var(--accent)", "#e0af68", "#bb9af7", "#7dcfff", "#f7768e"];
+/** Avatar tints, picked by agent id so a given agent keeps its colour everywhere.
+ * Exported because the picker offers exactly these: a palette the hash cannot
+ * produce would be a second palette to explain. */
+export const AVATAR_TINTS = [
+  "var(--agent)",
+  "var(--accent)",
+  "#e0af68",
+  "#bb9af7",
+  "#7dcfff",
+  "#f7768e",
+];
 
 export function tintFor(id: string): string {
   let hash = 0;
@@ -24,16 +33,25 @@ export interface AvatarFace {
 }
 
 /**
+ * How many graphemes a string would render as — the glyph picker's cap, so a
+ * pasted sentence cannot reach a 22px circle. The BFF validates the same rule at
+ * the boundary (`bff/src/agents/avatar-prefs.ts`); this one exists only to say
+ * "that is too long" while typing.
+ */
+export function graphemeCount(value: string): number {
+  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+    return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)].length;
+  }
+  return [...value].length;
+}
+
+/**
  * The precedence every avatar surface must agree on: a chosen tint beats the
  * id's hash, a chosen glyph beats the name's initial. With no preference this
  * returns exactly what the avatar was before any of it existed, which is what
  * lets the whole feature ship without touching a single agent.
  */
-export function resolveAvatar(
-  id: string,
-  name: string,
-  pref?: AvatarPref,
-): AvatarFace {
+export function resolveAvatar(id: string, name: string, pref?: AvatarPref): AvatarFace {
   return {
     background: pref?.tint ?? tintFor(id),
     content: pref?.glyph || initialOf(name),
