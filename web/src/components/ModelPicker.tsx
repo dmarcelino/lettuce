@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import type { RuntimeScope } from "../lib/protocol.ts";
 import { groupByProvider } from "../lib/providers.ts";
@@ -74,6 +74,11 @@ export function ModelChoices({
   const served = list.some((model) => model.handle === currentHandle);
   // Counted on the whole list, so the box does not vanish as a query narrows it.
   const filtering = list.length > FILTER_MIN;
+  // A Refresh that drops the list to a handful hides the box; its query goes
+  // with it, or it would come back pre-filled when the list grows again.
+  useEffect(() => {
+    if (!filtering) setQuery("");
+  }, [filtering]);
   const searching = filtering && query.trim() !== "";
   const groups = filterGroups(groupByProvider(list), filtering ? query : "");
   const notice =

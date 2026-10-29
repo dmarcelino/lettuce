@@ -2145,19 +2145,20 @@ button {
 }
 
 /* A filter box that heads a sheet stays put while its list scrolls under it:
-   the negative margin and matching padding take over the body's own top padding,
-   so it sticks 14px below the header with nothing showing through above it.
-   Top only: the rows never reach the side padding, and widening the box into it
-   gave the body a horizontal scrollbar. `pinned` only on the first thing in a
-   sheet body: lower down, the negative margin would paint over the element above it. */
+   the negative margin and matching padding take over the body's own top padding
+   (10px under a header, `.sheet-head ~ .sheet-body`), so its background starts
+   at the body's top edge and nothing shows through above it once the list
+   scrolls. Top only: the rows never reach the side padding.
+   `pinned` only on the first thing in a sheet body: lower down, the negative
+   margin would paint over the element above it. */
 .sheet-body > .filter-field.pinned {
   position: sticky;
-  top: -14px;
+  top: -10px;
   z-index: 1;
   background: var(--surface);
-  margin-top: -14px;
+  margin-top: -10px;
   margin-bottom: 0;
-  padding: 14px 0 10px;
+  padding: 10px 0;
 }
 /* ...and the sheet keeps its height while a query narrows the list, or the box
    would move under the pointer with every letter typed. */

@@ -1,7 +1,8 @@
 /**
  * The "Filter by name…" box over a long list (models, branches). Never
  * autofocused: on a phone that opens the keyboard over half the sheet before
- * anyone asked to type.
+ * anyone asked to type. Escape clears a typed query first; only an empty box
+ * lets it through to close the sheet.
  *
  * Without a `label` the placeholder is the whole prompt, and the input's
  * accessible name. `pinned`, for a box that is the first thing in a sheet,
@@ -31,6 +32,13 @@ export function FilterField({
         spellCheck={false}
         autoComplete="off"
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || value === "") return;
+          // Sheet's Escape listener is on `document`, above React's root, so
+          // stopping it here keeps the sheet open.
+          event.stopPropagation();
+          onChange("");
+        }}
       />
     </label>
   );
