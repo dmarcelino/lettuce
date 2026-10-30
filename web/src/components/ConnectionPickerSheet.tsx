@@ -10,6 +10,7 @@ import {
   saveConnectionModels,
   saveProvider,
 } from "../lib/provider-registry.ts";
+import { EndpointFields } from "./EndpointFields.tsx";
 import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
 
@@ -160,25 +161,15 @@ export function ConnectionPickerSheet({
               One {label} connection, served as <code>{prefix}/&lt;vendor&gt;/&lt;model&gt;</code>.
             </span>
           </div>
-          <label className="field">
-            Base URL
-            <input
-              value={baseUrl}
-              placeholder={target.type.baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
-            />
-            {endpointNote ? <span className="small">{endpointNote}</span> : null}
-          </label>
-          <label className="field">
-            API key
-            <input
-              type="password"
-              value={apiKey}
-              autoComplete="off"
-              placeholder={KEEP_STORED_HINT}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-          </label>
+          <EndpointFields
+            baseUrl={baseUrl}
+            baseUrlPlaceholder={target.type.baseUrl}
+            note={endpointNote}
+            onBaseUrl={setBaseUrl}
+            apiKey={apiKey}
+            keyPlaceholder={KEEP_STORED_HINT}
+            onApiKey={setApiKey}
+          />
         </>
       ) : (
         <p className="muted small">

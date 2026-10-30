@@ -11,6 +11,7 @@ import {
   saveProvider,
 } from "../lib/provider-registry.ts";
 import type { ConnectionTarget } from "./ConnectionPickerSheet.tsx";
+import { EndpointFields } from "./EndpointFields.tsx";
 import { Icon } from "./Icon.tsx";
 import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
@@ -257,23 +258,22 @@ export function ProviderFormSheet({
   }
 
   const choices = modelChoices();
-  const keyField = (
-    <label className="field">
-      API key
-      <input
-        type="password"
-        value={draft.apiKey}
-        autoComplete="off"
-        placeholder={
-          chosenType?.keyOptional
-            ? "not needed for a local endpoint"
-            : editing?.hasKey
-              ? KEEP_STORED_HINT
-              : ""
-        }
-        onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
-      />
-    </label>
+  const endpointFields = (baseUrlPlaceholder: string | undefined, note: string | null) => (
+    <EndpointFields
+      baseUrl={draft.baseUrl}
+      baseUrlPlaceholder={baseUrlPlaceholder}
+      note={note}
+      onBaseUrl={(value) => setDraft({ ...draft, baseUrl: value })}
+      apiKey={draft.apiKey}
+      keyPlaceholder={
+        chosenType?.keyOptional
+          ? "not needed for a local endpoint"
+          : editing?.hasKey
+            ? KEEP_STORED_HINT
+            : ""
+      }
+      onApiKey={(value) => setDraft({ ...draft, apiKey: value })}
+    />
   );
   return (
     <Sheet
@@ -338,16 +338,7 @@ export function ProviderFormSheet({
             serves it as <code>{connection}/&lt;vendor&gt;/&lt;model&gt;</code>. After Connect you
             choose which of its models to show.
           </p>
-          <label className="field">
-            Base URL
-            <input
-              value={draft.baseUrl}
-              placeholder={chosenType?.baseUrl}
-              onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-            />
-            {endpointNote ? <span className="small">{endpointNote}</span> : null}
-          </label>
-          {keyField}
+          {endpointFields(chosenType?.baseUrl, endpointNote)}
         </>
       ) : (
         <>
@@ -371,16 +362,7 @@ export function ProviderFormSheet({
             </span>
           </label>
 
-          <label className="field">
-            Base URL
-            <input
-              value={draft.baseUrl}
-              placeholder="http://host.docker.internal:8080/v1"
-              onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-            />
-          </label>
-
-          {keyField}
+          {endpointFields("http://host.docker.internal:8080/v1", null)}
 
           <p className="section-note" style={{ marginLeft: 0 }}>
             Custom headers
