@@ -3,11 +3,9 @@
  * app-server load the mod without errors.
  */
 
+import { MOD_DIAGNOSTICS_PATH, modErrorsIn } from "../internal-tools/mod-diagnostics.ts";
 import { ddgReachable } from "./ddg.ts";
 import { WEB_TOOLS_MOD_PATH } from "./mod.ts";
-
-/** letta-code's mod diagnostics (`src/mods/mod-diagnostics-file.ts`): errors only, no successes. */
-export const MOD_DIAGNOSTICS_PATH = "/root/.letta/mods/diagnostics/latest.json";
 
 export interface WebToolsStatus {
   searxng: "up" | "down" | "off";
@@ -30,20 +28,7 @@ async function searxngUp(baseUrl: string): Promise<boolean> {
 
 /** The mod's entries in the diagnostics report. Exported for tests. */
 export function modErrorsFrom(diagnostics: string | null): string[] {
-  if (!diagnostics) return [];
-  try {
-    const parsed = JSON.parse(diagnostics) as {
-      report?: {
-        diagnostics?: { mod?: string; phase?: string; message?: string; severity?: string }[];
-      };
-    };
-    const name = WEB_TOOLS_MOD_PATH.slice(WEB_TOOLS_MOD_PATH.lastIndexOf("/") + 1);
-    return (parsed.report?.diagnostics ?? [])
-      .filter((d) => d.severity !== "warning" && (d.mod ?? "").includes(name.replace(/\.mjs$/, "")))
-      .map((d) => `${d.phase ?? "error"}: ${d.message ?? "unknown error"}`);
-  } catch {
-    return [];
-  }
+  return modErrorsIn(diagnostics, WEB_TOOLS_MOD_PATH).map((e) => `${e.phase}: ${e.message}`);
 }
 
 export async function webToolsStatus(options: {

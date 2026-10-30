@@ -5,6 +5,15 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- **OpenRouter, Together AI, Fireworks, Hugging Face, NVIDIA NIM, Vercel AI Gateway, Baseten and Groq serve their models.** They name models `vendor/model`, which a provider you name cannot carry, so an OpenRouter provider saved fine and then served nothing. **Add provider** now connects these hosts through the app-server as `openrouter/<vendor>/<model>`, one connection per host, with an optional base URL and a picker of which models to show, read as **Models (N of M)** on the row.
+
+### Fixed
+- **Editing a hosted provider no longer asks for the key again.** Leaving the API key blank on **Edit** failed with "needs an API key", although the field said a blank key keeps the stored one; it now does.
+- **No more "an endpoint returned a different set of models" warning.** Settings → Providers & models compared each model list with the one before and blamed a load-balanced `/models` whenever they differed, so connecting, disconnecting or picking models raised it too, and it said nothing you could act on. The warning is gone.
+- **A provider the app-server refuses says so.** A save that the app-server would not load used to close the sheet as if it had worked; the sheet now stays open on the reason, and the provider's row carries it too. One refused provider no longer takes every provider listed after it down with it, and Settings → Web search's error line, which read letta-code's report in the wrong shape and stayed empty, now shows the web tools' load errors.
+- **Test no longer pre-ticks models that cannot be saved.** OpenRouter's `~…-latest` aliases, and any id with a `/`, are left out of the list with a count of what was skipped, instead of failing the save with "is not a model id".
+
 ## [v0.24.0-letta_0.34.21] - 2026-10-29
 
 ### Added

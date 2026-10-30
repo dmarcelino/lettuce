@@ -72,6 +72,12 @@ describe("parseModelCapsBody", () => {
       /maxTokens/,
     );
   });
+
+  test("a model whose id holds a slash cannot be declared: the mod could not register it", () => {
+    expect(() => parseModelCapsBody({ ...CAPS, handle: "openrouter/z-ai/glm-5.3-flash" })).toThrow(
+      /"\/"/,
+    );
+  });
 });
 
 describe("ModelCapsStore", () => {
@@ -273,5 +279,37 @@ describe("provider entries", () => {
     store.removeModel("p/a");
     expect(store.endpoint("p")?.name).toBe("P");
     expect(store.endpoint("p")?.models).toEqual(["b"]);
+  });
+});
+
+describe("models hidden from a connection", () => {
+  const hiddenOf = (store: ModelCapsStore) =>
+    Object.fromEntries([...store.hiddenModels()].map(([prefix, ids]) => [prefix, [...ids]]));
+
+  test("round-trip through the file, apart from the providers the mod renders", async () => {
+    const file = fileIn();
+    const store = new ModelCapsStore(file, noop);
+    store.setHiddenModels("openrouter", ["amazon/nova-lite-v1", "amazon/nova-lite-v1"]);
+    await store.drain();
+    const reread = new ModelCapsStore(file, noop);
+    expect(hiddenOf(reread)).toEqual({ openrouter: ["amazon/nova-lite-v1"] });
+    // A connection's choice must never become a mod registration.
+    expect(reread.endpoints()).toEqual({});
+    reread.clearHiddenModels("openrouter");
+    expect(hiddenOf(reread)).toEqual({});
+  });
+
+  test("hiding nothing stores nothing", () => {
+    const store = new ModelCapsStore(fileIn(), noop);
+    store.setHiddenModels("openrouter", ["a/b"]);
+    store.setHiddenModels("openrouter", []);
+    expect(hiddenOf(store)).toEqual({});
+  });
+  test("removing a provider under the prefix drops what was hidden there", () => {
+    const store = new ModelCapsStore(fileIn(), noop);
+    store.setHiddenModels("groq", ["llama-3.3-70b-versatile"]);
+    store.setEndpoint("groq", { name: "Groq", baseUrl: "http://g/v1", models: ["m"] });
+    store.removeProvider("groq");
+    expect(hiddenOf(store)).toEqual({});
   });
 });

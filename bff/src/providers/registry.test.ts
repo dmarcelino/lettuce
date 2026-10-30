@@ -3,10 +3,12 @@ import {
   PROVIDER_TYPES,
   ProviderError,
   parseProviderBody,
+  partitionModelIds,
   probeProviderModels,
   providerType,
   slugifyName,
 } from "./registry.ts";
+import { modModelIdProblem } from "./vision.ts";
 
 function body(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -61,7 +63,7 @@ describe("parseProviderBody", () => {
 
   test("a saved provider may be re-saved without retyping the key", () => {
     expect(
-      parseProviderBody(body({ type: "anthropic", apiKey: "", keepKey: true })).apiKey,
+      parseProviderBody(body({ type: "anthropic", apiKey: "" }), { stored: true }).apiKey,
     ).toBeNull();
   });
 
@@ -71,17 +73,88 @@ describe("parseProviderBody", () => {
     expect(() => parseProviderBody(body({ type: "bedrock" }))).toThrow(/provider type/);
     expect(() => parseProviderBody(body({ baseUrl: "127.0.0.1:8080" }))).toThrow(/http/);
     expect(() => parseProviderBody(body({ models: [] }))).toThrow(/at least one model/);
-    expect(() => parseProviderBody(body({ models: ["ok", "/nope"] }))).toThrow(/not a model id/);
+    expect(() => parseProviderBody(body({ models: ["ok", "~nope"] }))).toThrow(/not a model id/);
     // What a model can do is not the provider's business: a body that still
     // carries capabilities gets them ignored rather than rejected.
     expect("caps" in parseProviderBody(body({ caps: { contextWindow: 0 } }))).toBe(false);
   });
 
-  test("a model id may hold a slash (OpenRouter names them that way)", () => {
+  test("a model id holding a slash is refused: upstream's mod registration rejects it", () => {
+    expect(() =>
+      parseProviderBody(
+        body({ type: "openai-compatible", baseUrl: "http://x/v1", models: ["org/model"] }),
+      ),
+    ).toThrow(/"org\/model".*"\/"/);
+    expect(() => parseProviderBody(body({ models: ["~anthropic/claude-haiku-latest"] }))).toThrow(
+      ProviderError,
+    );
+  });
+
+  test("a type served by the app-server's own connection needs only its key", () => {
+    const parsed = parseProviderBody({ type: "openrouter", apiKey: " k " });
+    expect(parsed.connection).toBe("openrouter");
+    // The handle prefix is the connection's, not a name the operator chose.
+    expect(parsed.prefix).toBe("openrouter");
+    expect(parsed.apiKey).toBe("k");
+    expect(parsed.models).toEqual([]);
+    expect(() => parseProviderBody({ type: "openrouter" })).toThrow(/needs an API key/);
+  });
+
+  test("a connection keeps a custom endpoint and sends none for the catalog's", () => {
+    // A stored URL replaces every catalog model's own base, so the default is
+    // never stored: OpenRouter's Claude models live on `…/api`, not `…/api/v1`.
+    for (const baseUrl of [
+      undefined,
+      "",
+      "https://openrouter.ai/api/v1",
+      "https://openrouter.ai/api/v1/",
+    ]) {
+      expect(parseProviderBody({ type: "openrouter", apiKey: "k", baseUrl }).baseUrl).toBe("");
+    }
     expect(
-      parseProviderBody(body({ type: "openrouter", apiKey: "k", models: ["deepseek/deepseek-v3"] }))
-        .models,
-    ).toEqual(["deepseek/deepseek-v3"]);
+      parseProviderBody({
+        type: "openrouter",
+        apiKey: "k",
+        baseUrl: "https://eu.openrouter.ai/api/v1/",
+      }).baseUrl,
+    ).toBe("https://eu.openrouter.ai/api/v1");
+    expect(() =>
+      parseProviderBody({ type: "openrouter", apiKey: "k", baseUrl: "openrouter.ai" }),
+    ).toThrow(/http/);
+  });
+
+  test("a provider named before its type became a connection is still parsed as one", () => {
+    const parsed = parseProviderBody(
+      body({
+        name: "Groq",
+        type: "groq",
+        baseUrl: "https://api.groq.com/openai/v1",
+        apiKey: "k",
+        models: ["llama-3.1-8b-instant"],
+      }),
+      { stored: true },
+    );
+    expect(parsed.connection).toBeUndefined();
+    expect(parsed.prefix).toBe("groq");
+    expect(parsed.baseUrl).toBe("https://api.groq.com/openai/v1");
+    expect(parsed.models).toEqual(["llama-3.1-8b-instant"]);
+  });
+
+  test("every catalog whose ids carry a slash goes through the app-server's connection", () => {
+    expect(
+      PROVIDER_TYPES.filter((type) => type.connection)
+        .map((type) => type.id)
+        .sort(),
+    ).toEqual([
+      "baseten",
+      "fireworks",
+      "groq",
+      "huggingface",
+      "nvidia",
+      "openrouter",
+      "together",
+      "vercel-ai-gateway",
+    ]);
   });
 
   test("every type says an api and a scope", () => {
@@ -115,6 +188,28 @@ describe("parseProviderBody headers", () => {
     expect(() => parseProviderBody(body({ headers: ["x-a"] }))).toThrow(/name to value/);
     // An empty name carrying a value is a mistake the save should name.
     expect(() => parseProviderBody(body({ headers: { "": "v" } }))).toThrow(/header name/);
+  });
+});
+
+describe("modModelIdProblem", () => {
+  test("served ids upstream registers pass", () => {
+    for (const id of ["qwen3-4b-instruct", "Qwen3.8-Flash-Next", "llama3.1:8b", "gpt-4o_mini"]) {
+      expect(modModelIdProblem(id)).toBeNull();
+    }
+  });
+
+  test("a slash or a leading sigil is named as the reason", () => {
+    expect(modModelIdProblem("deepseek/deepseek-v3")).toMatch(/"\/"/);
+    expect(modModelIdProblem("~anthropic/claude-haiku-latest")).not.toBeNull();
+    expect(modModelIdProblem("~latest")).not.toBeNull();
+    expect(modModelIdProblem("")).not.toBeNull();
+  });
+
+  test("partitionModelIds keeps what registers and counts the rest", () => {
+    expect(partitionModelIds(["a", "~x/y", "b/c", "d"])).toEqual({
+      models: ["a", "d"],
+      skipped: ["~x/y", "b/c"],
+    });
   });
 });
 
@@ -204,6 +299,30 @@ describe("probeProviderModels", () => {
       expect(calls[0]!.headers["cf-access-client-id"]).toBe("id");
       // The operator's header wins — that is how an Access token replaces a key.
       expect(calls[0]!.headers.authorization).toBe("Bearer tunnel");
+    });
+  });
+
+  test("a long catalog comes back whole: a cut would read as models the host delisted", async () => {
+    const data = Array.from({ length: 450 }, (_, i) => ({
+      id: `vendor/model-${String(i).padStart(3, "0")}`,
+    }));
+    await withFetch({ data }, async () => {
+      const ids = await probeProviderModels({
+        api: "openai-completions",
+        baseUrl: "http://x/v1",
+        apiKey: "k",
+      });
+      expect(ids).toHaveLength(450);
+      expect(ids.at(-1)).toBe("vendor/model-449");
+    });
+  });
+
+  test("a list past any real catalog is refused, not cut and not echoed whole", async () => {
+    const data = Array.from({ length: 5_001 }, (_, i) => ({ id: `m-${i}` }));
+    await withFetch({ data }, async () => {
+      await expect(
+        probeProviderModels({ api: "openai-completions", baseUrl: "http://x/v1", apiKey: "k" }),
+      ).rejects.toThrow(/more than 5000 models/);
     });
   });
 

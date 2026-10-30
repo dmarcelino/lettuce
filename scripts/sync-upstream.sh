@@ -69,7 +69,21 @@ BEHAVIOR_FILES=(
   # approvalPolicy "ask" prompting in Standard/Strict and running in Unrestricted.
   "src/permissions/checker.ts"
   "src/permissions/mode.ts"
+  # Settings → Providers: hosts naming models vendor/model go through
+  # connect_provider (bff/src/providers/routes.ts), because the providers mod
+  # refuses a "/" in an id, and the BFF parses that refusal's message out of the
+  # diagnostics file (vision.ts) to say why a provider did not load. The connection
+  # takes a baseUrl for any provider, keeps a stored one when an update sends none,
+  # and a stored one replaces every catalog model's own base.
+  "src/providers/connect-provider-service.ts"
+  "src/backend/local/local-provider-auth-store.ts"
+  "src/backend/dev/pi-provider-mod-validation.ts"
+  "src/backend/dev/pi-model-factory.ts"
 )
+
+# The connections serve the catalog bundled in this package: which hosts name
+# models vendor/model, and how many models each serves.
+CATALOG_PACKAGE="@earendil-works/pi-ai"
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\033[33m%s\033[0m\n' "$*"; }
@@ -170,8 +184,30 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "   * settings-manager.ts / subcommands/mcp*.ts — does \`letta mcp --agent <id>\` with"
   warn "     HOME=/root/.letta/mcp-home still read the shared list without rewriting it?"
   warn "     Run the mcp-servers wrapper's \`list\` and \`call\` in the container."
+  warn "   * mod-engine.ts / mod-diagnostics-file.ts — is a refused mod still reported in"
+  warn "     the diagnostics file with mod.path equal to the file the BFF wrote?"
+  warn "   * pi-provider-mod-validation.ts — is a \"/\" in a model id still refused, and"
+  warn "     does the message still start \"Provider <id>,\"? vision.ts parses it, and the"
+  warn "     connection types in bff/src/providers/registry.ts exist because of the rule."
+  warn "   * connect-provider-service.ts / local-provider-auth-store.ts / pi-model-factory.ts"
+  warn "     — does connect_provider still take baseUrl for any provider, keep a stored one"
+  warn "     on an update that sends none (routes.ts disconnects first for that), and does a"
+  warn "     stored one still replace every catalog model's base?"
 else
   echo "  none"
+fi
+
+catalog_version() {
+  git show "$1:package.json" | grep -oP "\"$CATALOG_PACKAGE\": \"\K[^\"]+" || echo '?'
+}
+OLD_CATALOG="$(catalog_version "$CURRENT")"
+NEW_CATALOG="$(catalog_version "$TARGET")"
+if [[ "$OLD_CATALOG" != "$NEW_CATALOG" ]]; then
+  warn "  $CATALOG_PACKAGE: $OLD_CATALOG -> $NEW_CATALOG  (the model catalog moved: does a host"
+  warn "  in bff/src/providers/registry.ts now name models vendor/model, or stop to? Recount"
+  warn "  OpenRouter's served models for docs/CONFIGURATION.md.)"
+else
+  echo "  $CATALOG_PACKAGE: $NEW_CATALOG (unchanged)"
 fi
 
 # ── 4. Apply ──────────────────────────────────────────────────────────────────

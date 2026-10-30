@@ -5,6 +5,7 @@ import {
   type ProviderModInput,
   parseRegisteredProviderIds,
   parseVisionProviders,
+  providerLoadErrors,
   renderProvidersMod,
   type ServedModelInfo,
 } from "./vision.ts";
@@ -331,6 +332,90 @@ describe("renderProvidersMod", () => {
     const reg = plainRegistration["openai-compatible"] as unknown as Record<string, unknown>;
     expect("headers" in reg).toBe(false);
   });
+
+  test("one refused registration is reported and does not take the others down", () => {
+    const source = renderProvidersMod([
+      { id: "bad", name: "Bad", api: "openai-completions", baseUrl: "http://b/v1", models: [] },
+      { id: "good", name: "Good", api: "openai-completions", baseUrl: "http://g/v1", models: [] },
+    ]);
+    const registered: string[] = [];
+    const reported: { message: string; severity?: string }[] = [];
+    const activate = new Function(source.replace("export default", "return"))() as (
+      letta: unknown,
+    ) => void;
+    expect(() =>
+      activate({
+        capabilities: { providers: true },
+        providers: {
+          register: (id: string) => {
+            if (id === "bad") {
+              throw new Error(
+                'Provider bad, model x/y: id must be unprefixed and cannot contain "/"',
+              );
+            }
+            registered.push(id);
+          },
+        },
+        diagnostics: { report: (d: { message: string; severity?: string }) => reported.push(d) },
+      }),
+    ).not.toThrow();
+    expect(registered).toEqual(["good"]);
+    expect(reported).toEqual([
+      {
+        severity: "error",
+        message:
+          'Provider bad: Provider bad, model x/y: id must be unprefixed and cannot contain "/"',
+      },
+    ]);
+  });
+});
+
+describe("providerLoadErrors", () => {
+  // The shape letta-code 0.34.21 wrote on yeager for the OR-2 save (stack trimmed).
+  const LATEST = JSON.stringify({
+    generatedAt: 1793130112405,
+    report: {
+      diagnostics: [
+        {
+          mod: { path: "/root/.letta/mods/lettuce-providers.mjs", scope: "global", generation: 2 },
+          message:
+            'Provider or-2, model amazon/nova-2-lite-v1: id must be unprefixed and cannot contain "/"',
+          phase: "activate",
+          severity: "error",
+        },
+        {
+          mod: { path: "/root/.letta/mods/lettuce-providers.mjs", scope: "global" },
+          message: "Provider groq: Provider groq, model openai/gpt-oss-120b: id must be unprefixed",
+          phase: "report",
+          severity: "error",
+        },
+        {
+          mod: { path: "/root/.letta/mods/lettuce-web-tools.mjs", scope: "global" },
+          message: "Provider elsewhere: not ours",
+          phase: "activate",
+          severity: "error",
+        },
+      ],
+      errorCount: 3,
+      warningCount: 0,
+    },
+  });
+
+  test("each providers-mod error is keyed by the prefix it names", () => {
+    const errors = providerLoadErrors(LATEST);
+    expect([...errors.keys()]).toEqual(["or-2", "groq"]);
+    expect(errors.get("or-2")).toContain('cannot contain "/"');
+  });
+
+  test("a report older than the reload it is read for says nothing", () => {
+    expect(providerLoadErrors(LATEST, 1793130112406).size).toBe(0);
+    expect(providerLoadErrors(LATEST, 1793130112405).size).toBe(2);
+  });
+
+  test("no file or a broken one is no errors", () => {
+    expect(providerLoadErrors(null).size).toBe(0);
+    expect(providerLoadErrors("{").size).toBe(0);
+  });
 });
 
 describe("parseRegisteredProviderIds", () => {
@@ -406,6 +491,50 @@ describe("buildProviderModGroups — providers the operator added", () => {
         }),
       ),
     ).toEqual([]);
+  });
+
+  test("ids upstream cannot register are left out, and a provider left with none is too", () => {
+    const groups = buildProviderModGroups(
+      input({
+        served: new Map(),
+        baseUrlOf: () => undefined,
+        isLive: () => false,
+        endpoints: {
+          // What an OpenRouter provider saved before the shared id rule holds.
+          "or-2": {
+            name: "OR-2",
+            baseUrl: "https://openrouter.ai/api/v1",
+            models: ["amazon/nova-lite-v1", "z-ai/glm-5.3-flash"],
+          },
+          mixed: { name: "Mixed", baseUrl: "http://m/v1", models: ["org/model", "plain"] },
+        },
+      }),
+    )!;
+    expect(groups.map((g) => g.id)).toEqual(["mixed"]);
+    expect(groups[0]!.models.map((m) => m.id)).toEqual(["plain"]);
+  });
+
+  test("a connection serving any unregistrable id is never shadowed", () => {
+    // A shadow must list every served model or the rest vanish; with one it
+    // cannot list, the only safe shadow is none.
+    const groups = buildProviderModGroups(
+      input({
+        models: {
+          "groq/llama-3.3-70b-versatile": {
+            vision: false,
+            thinking: false,
+            contextWindow: 131072,
+            maxTokens: 32768,
+          },
+        },
+        served: new Map([
+          ["groq", [{ id: "llama-3.3-70b-versatile" }, { id: "openai/gpt-oss-120b" }]],
+        ]),
+        baseUrlOf: () => "https://api.groq.com/openai/v1",
+        isLive: (prefix) => prefix === "groq",
+      }),
+    )!;
+    expect(groups).toEqual([]);
   });
 
   test("a half-entered provider skips itself rather than blocking every other group", () => {

@@ -177,7 +177,7 @@ Open `http://localhost:8090`.
 
 By default, the stack runs in **local mode**, which has no authentication — read the next section before putting it anywhere other than your own machine.
 
-To configure the model endpoint, go to Settings → Providers & models and **Add provider**: pick a type (llama.cpp, Ollama, LM Studio, an OpenAI-compatible endpoint, Anthropic, OpenAI, …), name it, and point it at the endpoint, and **Test** it before saving. The name becomes the model handle prefix (`llama 3b` → `llama-3b/<model>`), so you can add as many endpoints of one type as you have. An endpoint that needs more than a key — a Cloudflare Access service token, a proxy header — takes those extra request headers under **Custom headers** in the same form.
+To configure the model endpoint, go to Settings → Providers & models and **Add provider**: pick a type (llama.cpp, Ollama, LM Studio, an OpenAI-compatible endpoint, Anthropic, OpenAI, …), name it, and point it at the endpoint, and **Test** it before saving. The name becomes the model handle prefix (`llama 3b` → `llama-3b/<model>`), so you can add as many endpoints of one type as you have. An endpoint that needs more than a key — a Cloudflare Access service token, a proxy header — takes those extra request headers under **Custom headers** in the same form. OpenRouter, Together AI, Fireworks, Hugging Face, NVIDIA NIM, Vercel AI Gateway, Baseten and Groq are the exception: they name their models `vendor/model`, so the app-server connects them itself, once per host and under the host's own prefix (`openrouter/<vendor>/<model>`), and you pick which of their models to show.
 
 For details on configuration, see [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
 

@@ -3,6 +3,7 @@ import { errorMessage } from "../lib/errors.ts";
 import { KEEP_STORED_HINT } from "../lib/field-hints.ts";
 import { fetchModelCaps, type ModelCapsStore } from "../lib/model-caps.ts";
 import {
+  type ConnectionModels,
   fetchProviders,
   type Provider,
   type ProviderType,
@@ -12,6 +13,7 @@ import { handleProvider, normalizeProviderKey } from "../lib/providers.ts";
 import { SAVED_NO_AGENT, SAVED_NOW, SAVED_ON_RECONNECT } from "../lib/save-result.ts";
 import { type ModelEntry, type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { ConnectionPickerSheet, type ConnectionTarget } from "./ConnectionPickerSheet.tsx";
 import { Icon } from "./Icon.tsx";
 import { ModelEditSheet, type ModelEditTarget } from "./ModelEditSheet.tsx";
 import { ProviderFormSheet } from "./ProviderFormSheet.tsx";
@@ -86,6 +88,17 @@ interface Row {
   headerCount: number;
   /** False for a connection the app-server holds: Disconnect, not Remove. */
   owned: boolean;
+  /** Why it serves nothing (or less than it lists); shown in place of the meta line. */
+  problem?: string;
+  /** No Edit: a stored provider of a type the app-server's own connection now serves. */
+  removeOnly?: boolean;
+  /** Everything a connection serves, when picks trim what is shown: "N of M". */
+  total?: number;
+  /**
+   * Its models report their own capabilities and cannot be declared here: a
+   * host naming models `vendor/model`, whose ids the providers mod refuses.
+   */
+  capsFixed?: boolean;
   provider?: Provider;
   connection?: ConnectionEntry;
 }
@@ -104,6 +117,8 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
   const [types, setTypes] = useState<ProviderType[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [connections, setConnections] = useState<ConnectionEntry[]>([]);
+  const [picks, setPicks] = useState<Record<string, ConnectionModels>>({});
+  const [picker, setPicker] = useState<ConnectionTarget | null>(null);
   const [caps, setCaps] = useState<ModelCapsStore>({ models: {}, endpoints: {} });
   const [status, setStatus] = useState("");
   const [progress, setProgress] = useState("");
@@ -118,6 +133,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       const registry = await fetchProviders();
       setTypes(registry.types);
       setProviders(registry.providers);
+      setPicks(registry.connections);
       const response = await session.request<{
         providers?: ConnectionEntry[];
         success?: boolean;
@@ -157,6 +173,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       if (keys.has(normalizeProviderKey(alias))) owned.push(...entries.map((m) => m.handle));
     }
     if (owned.length > 0) registryPrefixes.add(handleProvider(owned[0] ?? "unknown"));
+    const served = picks[entry.id];
     connectionRows.push({
       prefix: entry.id,
       name: entry.display_name,
@@ -168,6 +185,8 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       headerCount: 0,
       owned: false,
       connection: entry,
+      ...(served?.selected ? { total: served.served.length } : {}),
+      capsFixed: types.some((type) => type.connection === entry.id),
     });
   }
 
@@ -191,6 +210,13 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
     ),
     headerCount: provider.headerNames.length,
     owned: true,
+    ...(provider.problem ? { problem: provider.problem } : {}),
+    // Saved before its type became a connection and holding ids the mod refuses:
+    // its fix is Remove and add the connection. Any other problem — a load error
+    // included — leaves it editable.
+    removeOnly: Boolean(
+      provider.unregistrable && types.find((type) => type.id === provider.type)?.connection,
+    ),
     provider,
   }));
 
@@ -221,6 +247,18 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       // The toast says the result; the in-flight line must not outlive it.
       setProgress("");
     }
+  };
+
+  // A connection of one of the hosts naming models `vendor/model` edits in the
+  // picker (endpoint, key, which models to show); any other keeps its own fields.
+  const editConnection = (entry: ConnectionEntry) => {
+    const type = types.find((candidate) => candidate.connection === entry.id);
+    if (!type) {
+      setEditingConnection(entry);
+      return;
+    }
+    // Blank when the app-server stores none: the connection uses the catalog's own.
+    setPicker({ type, baseUrl: connectionUrl(entry), editing: true });
   };
 
   const disconnect = async (entry: ConnectionEntry) => {
@@ -254,13 +292,15 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
           </span>
           {row.owned ? (
             <>
-              <button
-                type="button"
-                className="link"
-                onClick={() => setForm({ editing: row.provider ?? null })}
-              >
-                Edit
-              </button>
+              {row.removeOnly ? null : (
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => setForm({ editing: row.provider ?? null })}
+                >
+                  Edit
+                </button>
+              )}
               <button
                 type="button"
                 className="link danger"
@@ -274,7 +314,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
               <button
                 type="button"
                 className="link"
-                onClick={() => setEditingConnection(row.connection ?? null)}
+                onClick={() => editConnection(row.connection as ConnectionEntry)}
               >
                 Edit
               </button>
@@ -288,14 +328,18 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
             </>
           )}
         </div>
-        <div className="prov-meta muted small">
-          {row.metaOk ? <span className="ok">Connected</span> : null}
-          {row.metaOk && row.meta ? " · " : null}
-          <code>{row.meta}</code>
-          {row.headerCount > 0
-            ? ` · ${row.headerCount} header${row.headerCount === 1 ? "" : "s"}`
-            : null}
-        </div>
+        {row.problem ? (
+          <p className="warning small">{row.problem}</p>
+        ) : (
+          <div className="prov-meta muted small">
+            {row.metaOk ? <span className="ok">Connected</span> : null}
+            {row.metaOk && row.meta ? " · " : null}
+            <code>{row.meta}</code>
+            {row.headerCount > 0
+              ? ` · ${row.headerCount} header${row.headerCount === 1 ? "" : "s"}`
+              : null}
+          </div>
+        )}
         {showModels ? (
           <>
             <div className="models-head">
@@ -306,7 +350,11 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
                 onClick={() => setOpen({ ...open, [row.prefix]: !expanded })}
               >
                 <span className="tag">
-                  {row.models.length === 1 ? "Model (1)" : `Models (${row.models.length})`}
+                  {row.total !== undefined
+                    ? `Models (${row.models.length} of ${row.total})`
+                    : row.models.length === 1
+                      ? "Model (1)"
+                      : `Models (${row.models.length})`}
                 </span>
                 <Icon name={expanded ? "chevron-down" : "chevron-right"} className="chevron" />
               </button>
@@ -332,23 +380,25 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
                               {tokenLabel(declared.contextWindow)}
                             </span>
                           ) : null}
-                          <button
-                            type="button"
-                            className="link"
-                            onClick={() =>
-                              setEditingModel({
-                                handle,
-                                label: model?.label ?? handle,
-                                baseUrl: row.meta || undefined,
-                                requiresKey: row.owned
-                                  ? true
-                                  : row.connection?.requires_api_key === true,
-                                caps: declared ?? null,
-                              })
-                            }
-                          >
-                            Edit
-                          </button>
+                          {row.capsFixed ? null : (
+                            <button
+                              type="button"
+                              className="link"
+                              onClick={() =>
+                                setEditingModel({
+                                  handle,
+                                  label: model?.label ?? handle,
+                                  baseUrl: row.meta || undefined,
+                                  requiresKey: row.owned
+                                    ? true
+                                    : row.connection?.requires_api_key === true,
+                                  caps: declared ?? null,
+                                })
+                              }
+                            >
+                              Edit
+                            </button>
+                          )}
                         </div>
                       </li>
                     );
@@ -397,15 +447,6 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
           <button type="button" className="link" onClick={() => void load()}>
             Try again
           </button>
-        </p>
-      ) : null}
-      {models.changed ? (
-        <p className="warning small">
-          An endpoint returned a different set of models on the last refresh —{" "}
-          {models.changed.currentCount} now versus {models.changed.previousCount} before. That
-          usually means it load-balances <code>/models</code> across several backends, so each call
-          is answered by a different one. Point one provider at an aggregating endpoint, or at a
-          single backend.
         </p>
       ) : null}
 
@@ -467,7 +508,17 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
         <ProviderFormSheet
           types={types}
           editing={form.editing}
-          onClose={() => setForm(null)}
+          onClose={() => {
+            setForm(null);
+            // A save the app-server refused kept the sheet open; its row now says why.
+            void load();
+          }}
+          onConnected={(target) => {
+            setForm(null);
+            toast(`Connected ${target.type.label}.`);
+            setPicker(target);
+            void load();
+          }}
           onSaved={(mod) => {
             setForm(null);
             toast(
@@ -490,6 +541,19 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
           onClose={() => setEditingModel(null)}
           onSaved={() => {
             setEditingModel(null);
+            void load();
+            void models.refresh();
+          }}
+        />
+      ) : null}
+
+      {picker ? (
+        <ConnectionPickerSheet
+          target={picker}
+          onClose={() => setPicker(null)}
+          onSaved={() => {
+            setPicker(null);
+            toast(SAVED_NOW);
             void load();
             void models.refresh();
           }}

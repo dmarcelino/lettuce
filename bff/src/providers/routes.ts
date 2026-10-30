@@ -22,11 +22,14 @@ import {
   ProviderError,
   parseHeaderMap,
   parseProviderBody,
+  partitionModelIds,
   probeProviderModels,
+  providerType,
   slugifyName,
 } from "./registry.ts";
 import type { ProviderSight } from "./sight.ts";
 import { ModelCapsError, type ModelCapsStore, parseModelCapsBody, splitHandle } from "./store.ts";
+import { modModelIdProblem, providerLoadErrors } from "./vision.ts";
 
 export interface ProviderRouteDeps {
   /** A save writes the providers mod, which goes over the connection. */
@@ -38,13 +41,52 @@ export interface ProviderRouteDeps {
     reason: string,
     options: { refreshCatalog: boolean; refreshProviders?: boolean },
   ) => Promise<unknown>;
+  /** `connect_provider` on the local target; throws with what upstream said. */
+  connect: (providerId: string, fields: { apiKey: string; baseUrl?: string }) => Promise<void>;
+  /** `disconnect_provider` on the local target; throws with what upstream said. */
+  disconnect: (providerId: string) => Promise<void>;
+  /** letta-code's mod diagnostics report (`MOD_DIAGNOSTICS_PATH`), or null. */
+  readDiagnostics: () => Promise<string | null>;
+}
+
+/**
+ * Why a provider of ours serves nothing (or less than it lists), or undefined.
+ * Ids holding "/" come first: a provider saved before the shared id rule has
+ * them, the render leaves them out, and no load error names them.
+ * `unregistrable` says the message came from those ids — the one problem whose
+ * fix, for a connection type, is Remove and not Edit.
+ */
+function providerProblem(
+  info: { type?: string; models?: string[] },
+  loadError: string | undefined,
+): { message: string; unregistrable: boolean } | undefined {
+  const unregistrable = (info.models ?? []).filter((id) => modModelIdProblem(id) !== null);
+  if (unregistrable.length > 0) {
+    const count = unregistrable.length;
+    const type = providerType(info.type);
+    const what = `${count} ${count === 1 ? "model holds" : "models hold"} a "/", which a named provider cannot register`;
+    const message = type?.connection
+      ? `${what} — remove it and add ${type.label} again, which the app-server's own connection serves.`
+      : `${what} — edit it and untick ${count === 1 ? "it" : "them"}.`;
+    return { message, unregistrable: true };
+  }
+  return loadError ? { message: loadError, unregistrable: false } : undefined;
 }
 
 export function registerProviderRoutes<Env extends RouteEnv>(
   app: Hono<Env>,
   deps: ProviderRouteDeps,
 ): void {
-  const { isReady, modelCaps, providerSight, contextSizer, resyncMods } = deps;
+  const {
+    isReady,
+    modelCaps,
+    providerSight,
+    contextSizer,
+    resyncMods,
+    connect,
+    disconnect,
+    readDiagnostics,
+  } = deps;
 
   // What the operator declares about models behind endpoints that report no
   // capabilities (plain OpenAI-compatible and its BYOK aliases): vision,
@@ -80,11 +122,22 @@ export function registerProviderRoutes<Env extends RouteEnv>(
       if (error instanceof ModelCapsError) return c.text(error.message, 400);
       return c.text(errorMessage(error), 400);
     }
+    const prefix = saved.handle.slice(0, saved.handle.indexOf("/"));
+    // A declaration shadows the whole prefix, and a shadow must list every served
+    // model; one the mod cannot register means the shadow would refuse to load.
+    const unshadowable = providerSight
+      .servedModels(prefix)
+      ?.find((model) => modModelIdProblem(model.id) !== null);
+    if (unshadowable) {
+      return c.text(
+        `${prefix}/ also serves "${unshadowable.id}", which a named provider cannot register, so no model of it can be declared here — its connection reports its own capabilities.`,
+        400,
+      );
+    }
     modelCaps.setModel(saved.handle, saved.caps);
     // Snapshot what the live connection currently has, so the group survives
     // the connection going away; a blank key keeps the stored one (the protocol
     // can never read it back, so the save form starts blank every time).
-    const prefix = saved.handle.slice(0, saved.handle.indexOf("/"));
     const baseUrl = providerSight.baseUrlFor(prefix);
     modelCaps.setEndpoint(prefix, {
       ...(saved.apiKey ? { apiKey: saved.apiKey } : {}),
@@ -119,33 +172,87 @@ export function registerProviderRoutes<Env extends RouteEnv>(
   // mod — see `providers/registry.ts` for why this cannot be `connect_provider`.
   // The list never carries a key; a save with a blank key keeps the stored one.
 
-  app.get("/api/providers", (c) => {
-    const providers = Object.entries(modelCaps.endpoints()).map(([prefix, info]) => ({
+  app.get("/api/providers", async (c) => {
+    const loadErrors = providerLoadErrors(await readDiagnostics().catch(() => null));
+    const providers = Object.entries(modelCaps.endpoints()).map(([prefix, info]) => {
+      const problem = providerProblem(info, loadErrors.get(prefix));
+      return {
+        prefix,
+        name: info.name ?? prefix,
+        type: info.type ?? "",
+        api: info.api ?? "openai-completions",
+        scope: info.scope ?? "local",
+        baseUrl: info.baseUrl ?? "",
+        models: info.models ?? [],
+        hasKey: Boolean(info.apiKey),
+        // Names only: a header value is a secret like a key, and this list is
+        // what the edit form shows before anything is typed.
+        headerNames: Object.keys(info.headers ?? {}).sort(),
+        ...(problem ? { problem: problem.message } : {}),
+        ...(problem?.unregistrable ? { unregistrable: true } : {}),
+      };
+    });
+    // Each live connection's whole served list, from the BFF's own mirror: the
+    // browsers' list leaves out what was unticked (`allowlist.ts`), and a picker has
+    // to offer it. `selected` is what is served and not hidden, so a model the
+    // catalog gained since is picked and one it dropped counts nowhere; null means
+    // nothing was ever unticked.
+    const connections = Object.fromEntries(
+      PROVIDER_TYPES.flatMap((type) => {
+        if (!type.connection || !providerSight.isConnected(type.connection)) return [];
+        const served = (providerSight.servedModels(type.connection) ?? []).map((m) => m.id);
+        const hidden = modelCaps.hiddenModels().get(type.connection);
+        return [
+          [
+            type.connection,
+            { selected: hidden ? served.filter((id) => !hidden.has(id)) : null, served },
+          ],
+        ];
+      }),
+    );
+    return c.json({ types: PROVIDER_TYPES, providers, connections });
+  });
+
+  // The models picked from a connection the app-server holds. What is stored is the
+  // served models left out (`allowlist.ts`), so later additions show up. Only for
+  // a connection type's live connection — a provider we render carries its own list.
+  app.put("/api/providers/connection-models", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const prefix = typeof body?.prefix === "string" ? body.prefix : "";
+    if (!PROVIDER_TYPES.some((type) => type.connection === prefix)) {
+      return c.text(`${prefix || "That"} is not a connection the app-server holds`, 400);
+    }
+    if (!providerSight.isConnected(prefix)) return c.text(`${prefix} is not connected`, 409);
+    const models = Array.isArray(body?.models)
+      ? body.models.filter((id): id is string => typeof id === "string" && id.trim() !== "")
+      : [];
+    if (models.length === 0) return c.text("Pick at least one model", 400);
+    const picked = new Set(models);
+    const served = (providerSight.servedModels(prefix) ?? []).map((m) => m.id);
+    modelCaps.setHiddenModels(
       prefix,
-      name: info.name ?? prefix,
-      type: info.type ?? "",
-      api: info.api ?? "openai-completions",
-      scope: info.scope ?? "local",
-      baseUrl: info.baseUrl ?? "",
-      models: info.models ?? [],
-      hasKey: Boolean(info.apiKey),
-      // Names only: a header value is a secret like a key, and this list is
-      // what the edit form shows before anything is typed.
-      headerNames: Object.keys(info.headers ?? {}).sort(),
-    }));
-    return c.json({ types: PROVIDER_TYPES, providers });
+      served.filter((id) => !picked.has(id)),
+    );
+    return c.json({ prefix, models: served.filter((id) => picked.has(id)) });
   });
 
   app.post("/api/providers", async (c) => {
     if (!isReady()) return c.text("App-server is not connected", 503);
     let parsed: ParsedProvider;
+    const body: unknown = await c.req.json().catch(() => null);
     try {
-      parsed = parseProviderBody(await c.req.json().catch(() => null));
+      parsed = parseProviderBody(body, {
+        stored: storedProvider((body as { prefix?: unknown } | null)?.prefix),
+      });
     } catch (error) {
       if (error instanceof ProviderError) return c.text(error.message, 400);
       return c.text(errorMessage(error), 400);
     }
     const stored = modelCaps.endpoints()[parsed.prefix];
+    if (parsed.connection) {
+      const update = (body as { update?: unknown }).update === true;
+      return connectProvider(c, parsed, stored !== undefined, update);
+    }
     if (stored?.name && stored.name !== parsed.name) {
       return c.text(
         `Another provider already answers to "${parsed.name}" — two providers cannot share the handle ${parsed.prefix}.`,
@@ -159,6 +266,9 @@ export function registerProviderRoutes<Env extends RouteEnv>(
       );
     }
     modelCaps.unretire(parsed.prefix);
+    // Unticked on a connection that once held this prefix: stale now that a named
+    // provider owns it, and it would hide that provider's own models.
+    modelCaps.clearHiddenModels(parsed.prefix);
     modelCaps.setEndpoint(parsed.prefix, {
       name: parsed.name,
       type: parsed.type,
@@ -172,10 +282,19 @@ export function registerProviderRoutes<Env extends RouteEnv>(
     // Nothing here declares what a model can do — vision, reasoning and the real
     // context window are per model and set on the model, so a save here must not
     // write (or flatten) a single capability.
+    const reloadStarted = Date.now();
     const mod = await resyncMods("Settings → providers", {
       refreshCatalog: false,
       refreshProviders: true,
     }).catch(() => null);
+    // A reload answers success even when the app-server refused the registration;
+    // only its diagnostics report says so, and only one written by this reload counts.
+    const loadError =
+      mod === "reloaded"
+        ? providerLoadErrors(await readDiagnostics().catch(() => null), reloadStarted).get(
+            parsed.prefix,
+          )
+        : undefined;
     return c.json({
       provider: {
         prefix: parsed.prefix,
@@ -190,8 +309,79 @@ export function registerProviderRoutes<Env extends RouteEnv>(
         ).sort(),
       },
       mod: mod ?? "failed",
+      ...(loadError ? { loadError } : {}),
     });
   });
+
+  /**
+   * A type the app-server's own connection serves (`ProviderType.connection`):
+   * the key and endpoint go to `connect_provider`, and no mod is rendered for it.
+   * Upstream's connect is create-or-update, so an existing connection is refused
+   * rather than having its key silently replaced — its row's Edit does that.
+   */
+  async function connectProvider(
+    c: Context,
+    parsed: ParsedProvider,
+    ownedHere: boolean,
+    update: boolean,
+  ) {
+    const providerId = parsed.connection as string;
+    if (ownedHere) {
+      return c.text(
+        `A provider of yours already uses the handle ${parsed.prefix}/ — remove it before connecting ${parsed.name}.`,
+        409,
+      );
+    }
+    // `update` is the row's Edit: re-issuing connect_provider is upstream's own
+    // edit (create-or-update), so only a fresh add is refused over a live one.
+    if (!update && providerSight.isConnected(providerId)) {
+      return c.text(
+        `${parsed.name} is already connected — use Edit on its row to change the key.`,
+        409,
+      );
+    }
+    const fields = {
+      apiKey: parsed.apiKey ?? "",
+      // Only a custom endpoint: a stored one replaces every catalog model's base.
+      ...(parsed.baseUrl ? { baseUrl: parsed.baseUrl } : {}),
+    };
+    try {
+      await connect(providerId, fields);
+    } catch (error) {
+      return c.text(errorMessage(error), 502);
+    }
+    // Back to the catalog's endpoint: upstream's update keeps a stored base URL
+    // when none is sent, and only a disconnect removes it. The connect above has
+    // checked the key, so the gap between these two is the only risk left.
+    if (update && !parsed.baseUrl && providerSight.baseUrlFor(providerId)) {
+      try {
+        await disconnect(providerId);
+        await connect(providerId, fields);
+      } catch (error) {
+        return c.text(
+          `${parsed.name} was disconnected to clear its endpoint and did not connect again: ${errorMessage(error)}`,
+          502,
+        );
+      }
+    }
+    // A fresh connection starts from everything it serves; picks from an earlier
+    // one would hide models the operator never chose against. An edit keeps them.
+    if (!update) modelCaps.clearHiddenModels(providerId);
+    await providerSight.refresh().catch(() => {});
+    return c.json({
+      provider: {
+        prefix: parsed.prefix,
+        name: parsed.name,
+        type: parsed.type,
+        api: parsed.api,
+        scope: parsed.scope,
+        baseUrl: parsed.baseUrl,
+        models: parsed.models,
+        connection: providerId,
+      },
+      mod: "unchanged",
+    });
+  }
 
   app.delete("/api/providers", async (c) => {
     if (!isReady()) return c.text("App-server is not connected", 503);
@@ -221,6 +411,7 @@ export function registerProviderRoutes<Env extends RouteEnv>(
     baseUrl: string;
     key: string;
     headers: Record<string, string>;
+    connection: boolean;
   }> {
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const typed = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
@@ -241,7 +432,18 @@ export function registerProviderRoutes<Env extends RouteEnv>(
       baseUrl: typeof body?.baseUrl === "string" ? body.baseUrl : "",
       key,
       headers,
+      connection: Boolean(providerType(body?.type)?.connection) && !storedProvider(prefix),
     };
+  }
+
+  /**
+   * The sheet's Edit sends the prefix it edits: a provider of ours stored there
+   * keeps its key when the field is left blank and stays a provider you name, even
+   * one saved before its type became a connection.
+   */
+  function storedProvider(prefix: unknown): boolean {
+    const slug = slugifyName(prefix);
+    return slug !== "" && modelCaps.endpoints()[slug] !== undefined;
   }
 
   /** A failed probe says what the endpoint said — it is the operator's to read. */
@@ -259,7 +461,9 @@ export function registerProviderRoutes<Env extends RouteEnv>(
         apiKey: probe.key,
         headers: probe.headers,
       });
-      return c.json({ models });
+      // A connection serves its own catalog, so its probe only proves the key; a
+      // named provider is offered only ids the mod can register.
+      return c.json(probe.connection ? { models, skipped: [] } : partitionModelIds(models));
     } catch (error) {
       return c.text(providerText(error), 400);
     }

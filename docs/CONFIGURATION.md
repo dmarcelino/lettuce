@@ -281,6 +281,63 @@ backend status and a test search.
 Without the profile the tools stay registered and every call fails with the
 backend's error, so switch them off in Settings → Web.
 
+## Providers that name models `vendor/model`
+
+Settings → Providers & models → **Add provider** registers a provider you name
+(`llama 3b` serves `llama-3b/<model>`) through the BFF's providers mod. letta-code
+refuses any model id holding a `/` in a mod registration, and the id is the name
+sent to the endpoint, so it cannot be rewritten. Eight types name (nearly) every
+model that way: **OpenRouter, Together AI, Fireworks, Hugging Face, NVIDIA NIM,
+Vercel AI Gateway, Baseten and Groq**.
+
+For those, **Add provider** asks for the base URL and the key and connects the
+app-server's own connection instead (`connect_provider`), then opens a model picker.
+What that means:
+
+- **One connection per type.** Upstream keys a connection on its provider id, so
+  there is one OpenRouter connection per Lettuce, not one per name. A second
+  **Add provider** for the same type is refused; **Edit** on its row changes the
+  base URL, the key (typed again to change the URL — upstream never reads a key
+  back) and the picked models.
+- **Leave Base URL blank unless you need another endpoint**; blank means the
+  catalog's own, shown as the placeholder. A typed URL is
+  stored with the connection and replaces every catalog model's own base, and
+  letta-code holds one URL per connection. OpenRouter's catalog uses two: its
+  Claude models go through the Anthropic API at `https://openrouter.ai/api`, the
+  rest through `…/api/v1`. On a custom endpoint those Claude models fail with a
+  404, and the sheet says so under the field. The default is never stored.
+  Clearing a custom URL with **Edit** (key typed again) disconnects and connects
+  the host once, because letta-code keeps a stored URL on an update; agents on it
+  cannot start a turn for that moment, and the picked models are kept.
+- **The handle prefix is the type id**, not a name you choose:
+  `openrouter/z-ai/glm-5.3-flash`. An agent set to an `openrouter/…` model before
+  keeps its handle.
+- **The models are the catalog bundled with letta-code** (pi-ai's), with the
+  capabilities and context windows it records. For OpenRouter at 0.34.21 that is
+  398 chat models; the catalog's 57 image-generation and 9 `typesafe-system-one`
+  entries are not served by a chat connection. A model the host added after that
+  letta-code release appears with the next upgrade.
+- **Picking models is a filter in the BFF.** The picker lists everything the
+  connection serves; with nothing picked yet, it ticks what is served *and* still
+  listed by the host's live `/models`, and says how many live models the catalog
+  lacks. The BFF trims the model list the browsers see to the picks, shown as
+  **Models (N of M)** on the row. It is presentation only: an agent already set to
+  a model left out keeps working. What is stored is what you unticked, so a model
+  a letta-code upgrade adds shows up ticked, and one it drops leaves the count. A
+  model the host stops listing later stays picked, marked "not listed any more",
+  until you untick it.
+- Capabilities cannot be declared on these models — their rows have no **Edit**; the declaration
+  is a mod registration too.
+
+A provider saved with such ids before this change (it served nothing) stays
+listed with a warning: **Remove** it and add the type again. One saved before
+with only ids it can register (a Groq provider on its ids without a slash) still
+loads, and its **Edit** keeps it a provider you name. A plain
+OpenAI-compatible endpoint that serves `org/model` ids (vLLM serving Hugging Face
+names, for instance) has the same limit: **Test** lists only the ids it can
+register and says how many it skipped. The background is in
+[upstream-notes](upstream-notes.md#provider-mod-slash-ids).
+
 ## Model capabilities (vision, thinking, real context window)
 
 | Variable | Default | Effect |
