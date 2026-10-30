@@ -317,6 +317,15 @@ describe("probeProviderModels", () => {
     });
   });
 
+  test("a list past any real catalog is refused, not cut and not echoed whole", async () => {
+    const data = Array.from({ length: 5_001 }, (_, i) => ({ id: `m-${i}` }));
+    await withFetch({ data }, async () => {
+      await expect(
+        probeProviderModels({ api: "openai-completions", baseUrl: "http://x/v1", apiKey: "k" }),
+      ).rejects.toThrow(/more than 5000 models/);
+    });
+  });
+
   test("what the endpoint says comes back verbatim", async () => {
     const real = globalThis.fetch;
     globalThis.fetch = (async (..._args: Parameters<typeof fetch>) =>

@@ -460,10 +460,17 @@ function modelListRequest(
   };
 }
 
+/**
+ * Far past any real catalog (OpenRouter lists a few hundred). A list longer than
+ * this is a broken endpoint, refused rather than cut: a cut silently delists
+ * whatever sorts last, and the whole list would be echoed to the browser.
+ */
+const MAX_LISTED_MODELS = 5_000;
+
 function readModelIds(api: string, payload: unknown): string[] {
   const root = (payload ?? {}) as Record<string, unknown>;
   const list = Array.isArray(root.data) ? root.data : Array.isArray(root.models) ? root.models : [];
-  const ids: string[] = [];
+  const ids = new Set<string>();
   for (const entry of list) {
     let id = "";
     if (typeof entry === "string") id = entry;
@@ -478,9 +485,14 @@ function readModelIds(api: string, payload: unknown): string[] {
             : "";
       if (api === "google-generative-ai") id = id.replace(/^models\//, "");
     }
-    if (id && !ids.includes(id)) ids.push(id);
+    if (id) ids.add(id);
+    if (ids.size > MAX_LISTED_MODELS) {
+      throw new ProviderError(
+        `The endpoint lists more than ${MAX_LISTED_MODELS} models, which no catalog does — check the base URL`,
+      );
+    }
   }
-  return ids.sort((a, b) => a.localeCompare(b));
+  return [...ids].sort((a, b) => a.localeCompare(b));
 }
 
 /**
