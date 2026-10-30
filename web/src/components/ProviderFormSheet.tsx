@@ -436,9 +436,9 @@ export function ProviderFormSheet({
               + Add header
             </button>
             <span className="small">
-              Sent with every request to this endpoint. Values are stored on the server and never shown
-              again — a save with no filled row keeps the stored headers, one with any row replaces them
-              all.
+              Sent with every request to this endpoint. Values are stored on the server and never
+              shown again — a save with no filled row keeps the stored headers, one with any row
+              replaces them all.
             </span>
           </div>
 
