@@ -450,6 +450,21 @@ describe("a connection's model picks", () => {
     ).toBe(400);
   });
 
+  test("a provider named into a connection's prefix does not inherit its unticked list", async () => {
+    // Untick on Groq, disconnect, then name a provider "Groq": the old list would
+    // silently hide that provider's models.
+    const { app, modelCaps } = await setup();
+    modelCaps.setHiddenModels("groq", ["m"]);
+    const response = await send(app, "POST", "/api/providers", {
+      name: "Groq",
+      type: "openai-compatible",
+      baseUrl: "http://g/v1",
+      models: ["m"],
+    });
+    expect(response.status).toBe(200);
+    expect(modelCaps.hiddenModels().has("groq")).toBe(false);
+  });
+
   test("a fresh connect starts from everything served, not stale picks", async () => {
     const { app, modelCaps } = await setup();
     modelCaps.setHiddenModels("openrouter", ["old/model"]);

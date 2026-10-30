@@ -305,4 +305,11 @@ describe("models hidden from a connection", () => {
     store.setHiddenModels("openrouter", []);
     expect(hiddenOf(store)).toEqual({});
   });
+  test("removing a provider under the prefix drops what was hidden there", () => {
+    const store = new ModelCapsStore(fileIn(), noop);
+    store.setHiddenModels("groq", ["llama-3.3-70b-versatile"]);
+    store.setEndpoint("groq", { name: "Groq", baseUrl: "http://g/v1", models: ["m"] });
+    store.removeProvider("groq");
+    expect(hiddenOf(store)).toEqual({});
+  });
 });

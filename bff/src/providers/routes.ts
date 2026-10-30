@@ -266,6 +266,9 @@ export function registerProviderRoutes<Env extends RouteEnv>(
       );
     }
     modelCaps.unretire(parsed.prefix);
+    // Unticked on a connection that once held this prefix: stale now that a named
+    // provider owns it, and it would hide that provider's own models.
+    modelCaps.clearHiddenModels(parsed.prefix);
     modelCaps.setEndpoint(parsed.prefix, {
       name: parsed.name,
       type: parsed.type,

@@ -311,12 +311,14 @@ export class ModelCapsStore {
   }
 
   /**
-   * Removes a provider: its endpoint group, every model declared under it, and
-   * its registration. The prefix is retired so the render does not put back what
-   * the mod file on disk still declares.
+   * Removes a provider: its endpoint group, every model declared under it, its
+   * registration, and any unticked list a connection left under the prefix. The
+   * prefix is retired so the render does not put back what the mod file on disk
+   * still declares.
    */
   removeProvider(prefix: string): boolean {
     const existed = this.endpointEntries.delete(prefix);
+    const unticked = this.hidden.delete(prefix);
     let changed = existed;
     for (const handle of [...this.modelEntries.keys()]) {
       if (handle.startsWith(`${prefix}/`)) {
@@ -324,10 +326,8 @@ export class ModelCapsStore {
         changed = true;
       }
     }
-    if (changed) {
-      this.retiredPrefixes.add(prefix);
-      this.persist();
-    }
+    if (changed) this.retiredPrefixes.add(prefix);
+    if (changed || unticked) this.persist();
     return existed;
   }
 
