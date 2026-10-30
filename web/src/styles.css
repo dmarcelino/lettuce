@@ -3210,6 +3210,11 @@ p.warning code,
   gap: 12px;
   margin-top: 6px;
 }
+/* A cron job's command is one long unbroken line of paths; it wraps anywhere
+   rather than pushing the pane sideways on a phone. */
+.cron-command {
+  overflow-wrap: anywhere;
+}
 .link.danger {
   color: var(--bad);
 }
