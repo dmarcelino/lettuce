@@ -283,7 +283,8 @@ image built that way can name it.
 
 letta-code's provider-mod validation (`backend/dev/pi-provider-mod-validation.ts`,
 `validateModel`) throws `id must be unprefixed and cannot contain "/"` for any model id
-holding a slash, and the throw happens inside the mod's `activate()`. Measured on 0.34.21
+holding a slash, synchronously from `registerPiProvider`, so inside the mod's `activate()`
+and outside any promise. Measured on 0.34.21
 (2026-10-27): an OpenRouter provider saved with 182 `vendor/model` ids rendered fine, the
 `reload` answered success, the BFF logged "mods reloaded" — and the app-server served
 nothing under `or-2/`, because the first model aborted the registration and every
@@ -309,5 +310,31 @@ Three rules follow, all in `bff/src/providers/`:
   model, and it cannot list that one.
 - The rendered mod wraps each `letta.providers.register` in its own `try` and reports through
   `letta.diagnostics.report`, so one refused provider leaves the rest registered; the BFF
-  reads the report after a save's reload and returns it as `loadError`.
+  reads the report after a save's reload and returns it as `loadError`. The read needs no
+  wait: `reload()` calls `writeLatestDiagnostics()` right after `engine.reload()` resolves
+  (the 30 s debounce covers only diagnostics arriving between reloads), and a clean reload
+  rewrites the file, so a fixed provider's warning clears at the next reload.
+
+What the connection route rests on upstream (`connect-provider-service.ts`), and why the
+pieces are shaped as they are:
+
+- `connect_provider` takes a `baseUrl` for any provider and stores it, but an update keeps a
+  stored one when none is sent (`baseUrl ?? existing.baseUrl`). Going back to the default
+  endpoint is therefore connect (checks the key), `disconnect_provider`, connect. The default
+  is never stored: a stored URL replaces every catalog model's own base, and OpenRouter's
+  catalog uses two (its Claude models on `…/api`, the rest on `…/api/v1`).
+- The served list is pi-ai's catalog bundled with that letta-code release, not the host's
+  live `/models`; newer models arrive only with an upgrade. At 0.34.21 OpenRouter's 464
+  entries serve 398 chat models (15 `anthropic-messages`, 383 `openai-completions`); the 57
+  `openrouter-images` and 9 `typesafe-system-one` entries are not chat models.
+- Upstream has no per-connection model filter, so the picker's choice is applied by
+  `filterServedModels` (`allowlist.ts`) to `list_models_response` frames in `index.ts`,
+  **after** `providerSight.observe` and **before** `registry.handleUpstreamFrame`. The BFF's
+  mirror keeps the whole list the render and the 409 checks need, and since the resume ring
+  is appended inside `handleUpstreamFrame`, a reconnecting tab replays trimmed frames. It is
+  presentation only: an agent already set to an unticked model keeps working.
+- The store keeps what was **unticked**, not the picks, so a model an upgrade adds shows up
+  ticked; and it keeps it apart from `endpoints`, because every `endpoints` entry renders as
+  a mod registration and a connection must never become one. A fresh connect, a named
+  provider saved under the prefix and a removal of it each drop the list.
 
