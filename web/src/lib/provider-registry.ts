@@ -43,6 +43,8 @@ export interface Provider {
   headerNames: string[];
   /** Why it serves nothing (or less than it lists), when it does. */
   problem?: string;
+  /** The problem is ids holding "/", which no edit of a named provider can register. */
+  unregistrable?: boolean;
 }
 
 export interface ProviderDraft {

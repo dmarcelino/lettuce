@@ -212,9 +212,10 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
     owned: true,
     ...(provider.problem ? { problem: provider.problem } : {}),
     // Saved before its type became a connection and holding ids the mod refuses:
-    // its fix is Remove and add the connection. One that loads stays editable.
+    // its fix is Remove and add the connection. Any other problem — a load error
+    // included — leaves it editable.
     removeOnly: Boolean(
-      provider.problem && types.find((type) => type.id === provider.type)?.connection,
+      provider.unregistrable && types.find((type) => type.id === provider.type)?.connection,
     ),
     provider,
   }));

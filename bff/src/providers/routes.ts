@@ -53,21 +53,24 @@ export interface ProviderRouteDeps {
  * Why a provider of ours serves nothing (or less than it lists), or undefined.
  * Ids holding "/" come first: a provider saved before the shared id rule has
  * them, the render leaves them out, and no load error names them.
+ * `unregistrable` says the message came from those ids — the one problem whose
+ * fix, for a connection type, is Remove and not Edit.
  */
 function providerProblem(
   info: { type?: string; models?: string[] },
   loadError: string | undefined,
-): string | undefined {
+): { message: string; unregistrable: boolean } | undefined {
   const unregistrable = (info.models ?? []).filter((id) => modModelIdProblem(id) !== null);
   if (unregistrable.length > 0) {
     const count = unregistrable.length;
     const type = providerType(info.type);
     const what = `${count} ${count === 1 ? "model holds" : "models hold"} a "/", which a named provider cannot register`;
-    return type?.connection
+    const message = type?.connection
       ? `${what} — remove it and add ${type.label} again, which the app-server's own connection serves.`
       : `${what} — edit it and untick ${count === 1 ? "it" : "them"}.`;
+    return { message, unregistrable: true };
   }
-  return loadError;
+  return loadError ? { message: loadError, unregistrable: false } : undefined;
 }
 
 export function registerProviderRoutes<Env extends RouteEnv>(
@@ -185,7 +188,8 @@ export function registerProviderRoutes<Env extends RouteEnv>(
         // Names only: a header value is a secret like a key, and this list is
         // what the edit form shows before anything is typed.
         headerNames: Object.keys(info.headers ?? {}).sort(),
-        ...(problem ? { problem } : {}),
+        ...(problem ? { problem: problem.message } : {}),
+        ...(problem?.unregistrable ? { unregistrable: true } : {}),
       };
     });
     // Each live connection's whole served list, from the BFF's own mirror: the

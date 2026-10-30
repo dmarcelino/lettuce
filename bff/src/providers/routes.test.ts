@@ -231,6 +231,31 @@ describe("load errors reach the operator", () => {
     expect(problem("broken")).toContain("Provider broken");
     expect(problem("fine")).toBeUndefined();
   });
+
+  test("only ids it cannot register mark a provider remove-only; a load error does not", async () => {
+    // A Groq provider named before Groq became a connection, holding ids the mod
+    // registers: refused for another reason, it stays editable.
+    const { app, modelCaps } = await setup({ diagnostics: report("groq") });
+    modelCaps.setEndpoint("groq", {
+      name: "Groq",
+      type: "groq",
+      baseUrl: "https://api.groq.com/openai/v1",
+      models: ["llama-3.3-70b-versatile"],
+    });
+    modelCaps.setEndpoint("or-2", {
+      name: "OR-2",
+      type: "openrouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+      models: ["amazon/nova-lite-v1"],
+    });
+    const json = (await (await send(app, "GET", "/api/providers")).json()) as {
+      providers: { prefix: string; problem?: string; unregistrable?: boolean }[];
+    };
+    const row = (prefix: string) => json.providers.find((p) => p.prefix === prefix);
+    expect(row("groq")?.problem).toContain("Provider groq");
+    expect(row("groq")?.unregistrable).toBeUndefined();
+    expect(row("or-2")?.unregistrable).toBe(true);
+  });
 });
 
 describe("PUT /api/model-caps", () => {
