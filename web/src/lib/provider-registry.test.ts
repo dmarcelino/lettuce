@@ -8,16 +8,21 @@ import {
 
 describe("probeToast", () => {
   test("a connection's probe only proves the key", () => {
-    expect(probeToast({ models: ["a/b", "c/d"], skipped: [] }, true)).toBe(
+    expect(probeToast({ models: ["a/b", "c/d"], skipped: [] }, true, true)).toBe(
       "reachable — key accepted",
     );
   });
 
+  test("a connection probed with no key typed claims nothing about a key", () => {
+    // OpenRouter's /models is public: it answers a probe that sent no key at all.
+    expect(probeToast({ models: ["a/b"], skipped: [] }, true, false)).toBe("reachable");
+  });
+
   test("a named provider counts what it can register and what it skipped", () => {
-    expect(probeToast({ models: ["a", "b", "c"], skipped: ["x/y", "~z"] }, false)).toBe(
+    expect(probeToast({ models: ["a", "b", "c"], skipped: ["x/y", "~z"] }, false, true)).toBe(
       "reachable — 3 models, 2 skipped",
     );
-    expect(probeToast({ models: ["a"], skipped: [] }, false)).toBe("reachable — 1 model");
+    expect(probeToast({ models: ["a"], skipped: [] }, false, false)).toBe("reachable — 1 model");
   });
 });
 

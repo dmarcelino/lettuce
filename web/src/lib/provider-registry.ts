@@ -159,9 +159,11 @@ export interface ProbeResult {
   skipped: string[];
 }
 
-/** The Test toast. A connection serves its own catalog, so its probe proves only the key. */
-export function probeToast(found: ProbeResult, connection: boolean): string {
-  if (connection) return "reachable — key accepted";
+/** The Test toast. A connection serves its own catalog, so its probe proves the key at most. */
+export function probeToast(found: ProbeResult, connection: boolean, keyed: boolean): string {
+  // A host's /models can be public (OpenRouter's is), so a probe without a key
+  // proves the host answers and nothing about a key.
+  if (connection) return keyed ? "reachable — key accepted" : "reachable";
   const count = found.models.length;
   const head = `reachable — ${count} ${count === 1 ? "model" : "models"}`;
   return found.skipped.length > 0 ? `${head}, ${found.skipped.length} skipped` : head;

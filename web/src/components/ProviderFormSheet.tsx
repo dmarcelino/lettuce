@@ -141,7 +141,7 @@ export function ProviderFormSheet({
       });
       // No latency: nobody acts on "412 ms", and the number made the line harder
       // to read than the fact it reported.
-      toast(probeToast(found, Boolean(connection)));
+      toast(probeToast(found, Boolean(connection), draft.apiKey.trim() !== ""));
       if (connection) return; // its catalog is the model list; nothing to pick
       setListed(found.models);
       setSkipped(found.skipped);
