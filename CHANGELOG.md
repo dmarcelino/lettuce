@@ -8,6 +8,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ### Added
 - **Filter the model list by name.** Once more than ten models are served (an OpenRouter connection lists hundreds), the **Model** sheet, in the chat and in an agent's settings, opens with a **Filter models by name…** box that stays in view as the list scrolls. Every word you type has to match, in any order, so `opus 4.5` finds *Anthropic: Claude Opus 4.5*.
 
+## [v0.25.0-letta_0.34.21] - 2026-10-30
+
 ### Changed
 - **OpenRouter, Together AI, Fireworks, Hugging Face, NVIDIA NIM, Vercel AI Gateway, Baseten and Groq serve their models.** They name models `vendor/model`, which a provider you name cannot carry, so an OpenRouter provider saved fine and then served nothing. **Add provider** now connects these hosts through the app-server as `openrouter/<vendor>/<model>`, one connection per host, with an optional base URL and a picker of which models to show, read as **Models (N of M)** on the row.
 
