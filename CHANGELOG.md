@@ -5,6 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **Allowed recipients for Gmail and Calendar.** Settings → Google Workspace takes a list of
+  addresses and `@domain`s; when it is set, agents can send mail and calendar invitations only
+  to those. The Google sidecar enforces it on the requests it sends to Google, so an agent
+  cannot get around it by calling the sidecar directly, and reply-all, forwards, filters and
+  attendee notifications are checked too. `calendar_event` gains `notify_attendees` for changing
+  an event without emailing everyone on it.
+
 ### Changed
 - **OpenRouter, Together AI, Fireworks, Hugging Face, NVIDIA NIM, Vercel AI Gateway, Baseten and Groq serve their models.** They name models `vendor/model`, which a provider you name cannot carry, so an OpenRouter provider saved fine and then served nothing. **Add provider** now connects these hosts through the app-server as `openrouter/<vendor>/<model>`, one connection per host, with an optional base URL and a picker of which models to show, read as **Models (N of M)** on the row.
 
